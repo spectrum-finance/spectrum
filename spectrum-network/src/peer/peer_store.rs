@@ -2,6 +2,7 @@ use crate::peer::data::PeerInfo;
 use libp2p::PeerId;
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub enum PeerStoreRejection {
     StoreExhausted,
     AlreadyExists,
@@ -22,9 +23,28 @@ pub struct PeerStoreConfig {
     capacity: usize,
 }
 
+impl PeerStoreConfig {
+    pub fn new(capacity: usize) -> Self {
+        PeerStoreConfig { capacity }
+    }
+}
+
 pub struct InMemoryPeerStore {
     peers: HashMap<PeerId, PeerInfo>,
     conf: PeerStoreConfig,
+}
+
+impl InMemoryPeerStore {
+    pub fn empty(config: PeerStoreConfig) -> Self {
+        InMemoryPeerStore {
+            peers: HashMap::new(),
+            conf: config,
+        }
+    }
+
+    pub fn get_peer(&self, peer_id: &PeerId) -> Option<&PeerInfo> {
+        self.peers.get(peer_id)
+    }
 }
 
 impl PeerStore for InMemoryPeerStore {
@@ -55,10 +75,4 @@ impl PeerStore for InMemoryPeerStore {
     fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo> {
         self.peers.get_mut(peer_id)
     }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn full_slots_in() {}
 }

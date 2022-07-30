@@ -15,11 +15,13 @@ pub enum PeerConnState {
     NotConnected,
 }
 
+#[derive(PartialEq, Debug)]
 pub struct Peer {
     pub addr: Multiaddr,
     pub info: PeerInfo,
 }
 
+#[derive(PartialEq, Debug, Clone)]
 pub struct PeerInfo {
     /// Is the node a reserved peer or not.
     pub is_reserved: bool,
