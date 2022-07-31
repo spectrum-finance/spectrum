@@ -29,8 +29,7 @@ impl PeerStore for InMemoryPeerStore {
             if self.peers.contains_key(&peer_id) {
                 Err(PeerStoreRejection::AlreadyExists)
             } else {
-                self.peers.insert(peer_id.clone(), peer);
-                Ok(self.peers.get_mut(&peer_id).unwrap())
+                Ok(self.peers.entry(peer_id.clone()).or_insert(peer))
             }
         } else {
             Err(PeerStoreRejection::StoreExhausted)
