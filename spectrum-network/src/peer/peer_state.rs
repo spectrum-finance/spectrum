@@ -83,7 +83,7 @@ impl<S: PeerStore> PeersState for DefaultPeersState<S> {
     }
 
     fn forget_peer(&mut self, peer: NotConnectedPeer) {
-        self.store.drop(peer.peer_id.borrow());
+        self.store.drop(&peer.peer_id);
         ()
     }
 }
