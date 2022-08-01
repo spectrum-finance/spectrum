@@ -1,8 +1,5 @@
+use crate::peer::types::IncomingIndex;
 use libp2p::PeerId;
-use crate::peer::types::{IncomingIndex, Reputation};
-use std::borrow::Cow;
-use std::collections::HashMap;
-use crate::peer::data::{PeerConnState, PeerInfo};
 
 #[derive(Debug, PartialEq)]
 pub enum Message {

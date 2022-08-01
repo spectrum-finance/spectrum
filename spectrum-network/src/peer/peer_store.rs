@@ -1,6 +1,6 @@
+use crate::peer::data::PeerInfo;
 use libp2p::PeerId;
 use std::collections::HashMap;
-use crate::peer::data::{PeerInfo};
 
 pub enum PeerStoreRejection {
     StoreExhausted,
@@ -8,7 +8,11 @@ pub enum PeerStoreRejection {
 }
 
 pub trait PeerStore {
-    fn add(&mut self, peer_id: &PeerId, peer: PeerInfo) -> Result<&mut PeerInfo, PeerStoreRejection>;
+    fn add(
+        &mut self,
+        peer_id: &PeerId,
+        peer: PeerInfo,
+    ) -> Result<&mut PeerInfo, PeerStoreRejection>;
     fn drop(&mut self, peer_id: &PeerId) -> bool;
     fn get(&self, peer_id: &PeerId) -> Option<&PeerInfo>;
     fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo>;
@@ -24,7 +28,11 @@ pub struct InMemoryPeerStore {
 }
 
 impl PeerStore for InMemoryPeerStore {
-    fn add(&mut self, peer_id: &PeerId, peer: PeerInfo) -> Result<&mut PeerInfo, PeerStoreRejection> {
+    fn add(
+        &mut self,
+        peer_id: &PeerId,
+        peer: PeerInfo,
+    ) -> Result<&mut PeerInfo, PeerStoreRejection> {
         if self.peers.len() < self.conf.capacity {
             if self.peers.contains_key(&peer_id) {
                 Err(PeerStoreRejection::AlreadyExists)

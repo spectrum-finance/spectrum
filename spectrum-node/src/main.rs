@@ -1,6 +1,6 @@
 use futures::prelude::*;
 use libp2p::ping::{Ping, PingConfig};
-use libp2p::swarm::{Swarm, SwarmEvent, dial_opts::DialOpts};
+use libp2p::swarm::{dial_opts::DialOpts, Swarm, SwarmEvent};
 use libp2p::{identity, Multiaddr, PeerId};
 use std::error::Error;
 
@@ -40,5 +40,4 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ => {}
         }
     }
-
 }

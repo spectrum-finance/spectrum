@@ -1,5 +1,5 @@
-pub mod protocol;
 pub mod peer;
+pub mod protocol;
 
 #[cfg(test)]
 mod tests {

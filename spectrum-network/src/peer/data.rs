@@ -1,5 +1,5 @@
 use crate::peer::types::Reputation;
-use libp2p::{Multiaddr};
+use libp2p::Multiaddr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReputationChange {
