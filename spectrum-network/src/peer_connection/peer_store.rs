@@ -1,4 +1,4 @@
-use crate::peer::data::PeerInfo;
+use crate::peer_connection::data::PeerInfo;
 use libp2p::PeerId;
 use std::collections::HashMap;
 

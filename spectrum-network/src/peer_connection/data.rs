@@ -1,4 +1,4 @@
-use crate::peer::types::Reputation;
+use crate::peer_connection::types::Reputation;
 use libp2p::Multiaddr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

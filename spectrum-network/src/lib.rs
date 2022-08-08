@@ -1,5 +1,6 @@
-pub mod peer;
+pub mod peer_connection;
 pub mod protocol;
+pub mod network;
 
 #[cfg(test)]
 mod tests {

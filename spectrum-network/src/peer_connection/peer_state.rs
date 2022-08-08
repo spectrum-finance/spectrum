@@ -1,6 +1,6 @@
-use crate::peer::data::{PeerConnState, PeerInfo, ReputationChange};
-use crate::peer::peer_store::{PeerStore, PeerStoreRejection};
-use crate::peer::types::Reputation;
+use crate::peer_connection::data::{PeerConnState, PeerInfo, ReputationChange};
+use crate::peer_connection::peer_store::{PeerStore, PeerStoreRejection};
+use crate::peer_connection::types::Reputation;
 use libp2p::PeerId;
 
 pub struct ConnectedPeer<'a> {

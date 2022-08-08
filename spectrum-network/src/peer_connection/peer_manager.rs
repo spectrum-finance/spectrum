@@ -1,4 +1,4 @@
-use crate::peer::types::IncomingIndex;
+use crate::peer_connection::types::IncomingIndex;
 use libp2p::PeerId;
 
 #[derive(Debug, PartialEq)]
