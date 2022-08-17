@@ -10,9 +10,15 @@ pub struct ReputationChange {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum PeerConnState {
-    Connected,
+pub enum ConnectionState {
+    Connected(ConnectionDirection),
     NotConnected,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ConnectionDirection {
+    Incoming,
+    Outgoing,
 }
 
 #[derive(PartialEq, Debug)]
@@ -28,7 +34,7 @@ pub struct PeerInfo {
     /// Reputation value of the node, between `i32::MIN` (we hate that node) and
     /// `i32::MAX` (we love that node).
     pub reputation: Reputation,
-    pub state: PeerConnState,
+    pub state: ConnectionState,
     /// How many successful connections with this node do we have.
     pub num_connections: u32,
 }
@@ -38,7 +44,7 @@ impl PeerInfo {
         Self {
             is_reserved,
             reputation: Reputation::initial(),
-            state: PeerConnState::NotConnected,
+            state: ConnectionState::NotConnected,
             num_connections: 0,
         }
     }
