@@ -1,64 +1,50 @@
-use crate::peer::data::PeerInfo;
 use libp2p::PeerId;
-use std::collections::HashMap;
+use std::collections::HashSet;
 
+#[derive(Debug)]
 pub enum PeerStoreRejection {
     StoreExhausted,
     AlreadyExists,
 }
 
-pub trait PeerStore {
-    fn add(
-        &mut self,
-        peer_id: &PeerId,
-        peer: PeerInfo,
-    ) -> Result<&mut PeerInfo, PeerStoreRejection>;
-    fn drop(&mut self, peer_id: &PeerId) -> bool;
-    fn get(&self, peer_id: &PeerId) -> Option<&PeerInfo>;
-    fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo>;
+pub struct PeerSetConfig {
+    pub max_outgoing: usize,
+    pub max_incoming: usize,
 }
 
 pub struct PeerStoreConfig {
-    capacity: usize,
+    pub capacity: usize,
 }
 
-pub struct InMemoryPeerStore {
-    peers: HashMap<PeerId, PeerInfo>,
-    conf: PeerStoreConfig,
+pub struct PeerSet {
+    connections_in: HashSet<PeerId>,
+    connections_out: HashSet<PeerId>,
+    config: PeerSetConfig,
 }
 
-impl PeerStore for InMemoryPeerStore {
-    fn add(
-        &mut self,
-        peer_id: &PeerId,
-        peer: PeerInfo,
-    ) -> Result<&mut PeerInfo, PeerStoreRejection> {
-        if self.peers.len() < self.conf.capacity {
-            if self.peers.contains_key(&peer_id) {
-                Err(PeerStoreRejection::AlreadyExists)
-            } else {
-                Ok(self.peers.entry(peer_id.clone()).or_insert(peer))
-            }
-        } else {
-            Err(PeerStoreRejection::StoreExhausted)
+impl PeerSet {
+    pub fn new(config: PeerSetConfig) -> Self {
+        Self {
+            connections_in: HashSet::new(),
+            connections_out: HashSet::new(),
+            config,
         }
     }
 
-    fn drop(&mut self, peer_id: &PeerId) -> bool {
-        self.peers.remove(peer_id).is_some()
+    pub fn try_add_connection_out(&mut self, peer_id: PeerId) -> bool {
+        if self.connections_out.len() < self.config.max_outgoing {
+            self.connections_out.insert(peer_id);
+            true
+        } else {
+            false
+        }
     }
-
-    fn get(&self, peer_id: &PeerId) -> Option<&PeerInfo> {
-        self.peers.get(peer_id)
+    pub fn try_add_connection_in(&mut self, peer_id: PeerId) -> bool {
+        if self.connections_in.len() < self.config.max_incoming {
+            self.connections_in.insert(peer_id);
+            true
+        } else {
+            false
+        }
     }
-
-    fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo> {
-        self.peers.get_mut(peer_id)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn full_slots_in() {}
 }
