@@ -2,43 +2,63 @@ use crate::peer::data::{ConnectionDirection, ConnectionState, PeerInfo, Reputati
 use crate::peer::peer_store::{PeerSet, PeerSetConfig, PeerStoreConfig, PeerStoreRejection};
 use crate::peer::types::Reputation;
 use libp2p::PeerId;
-use std::borrow::{Cow};
+use std::borrow::{Borrow, Cow};
 use std::collections::hash_map::{Entry, OccupiedEntry};
-use std::collections::{HashMap};
+use std::collections::HashMap;
 
+#[derive(Debug)]
 pub struct ConnectedPeer<'a> {
     peer_id: Cow<'a, PeerId>,
     peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-    store: &'a mut PeerSet,
+    peer_set: &'a mut PeerSet,
 }
 
 impl<'a> ConnectedPeer<'a> {
     fn new(
         peer_id: Cow<'a, PeerId>,
         peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-        store: &'a mut PeerSet,
+        peer_set: &'a mut PeerSet,
     ) -> Self {
         Self {
             peer_id,
             peer_info,
-            store,
+            peer_set,
+        }
+    }
+
+    fn from_peer(not_connected_peer: NotConnectedPeer<'a>) -> Self {
+        Self {
+            peer_id: not_connected_peer.peer_id,
+            peer_info: not_connected_peer.peer_info,
+            peer_set: not_connected_peer.peer_set,
         }
     }
 
     pub fn disconnect_peer(mut self) -> NotConnectedPeer<'a> {
-        self.peer_info.get_mut().state = ConnectionState::NotConnected;
+        let peer_info = self.peer_info.get_mut();
+        match peer_info.state {
+            ConnectionState::Connected(ConnectionDirection::Incoming) => {
+                self.peer_set.drop_incoming(self.peer_id.borrow())
+            }
+            ConnectionState::Connected(ConnectionDirection::Outgoing) => {
+                self.peer_set.drop_outgoing(self.peer_id.borrow())
+            }
+            _ => panic!("impossible"),
+        };
+        peer_info.state = ConnectionState::NotConnected;
         NotConnectedPeer {
             peer_id: self.peer_id,
             peer_info: self.peer_info,
-            store: self.store,
+            peer_set: self.peer_set,
         }
     }
 }
 
+#[derive(Debug)]
 pub struct NotConnectedPeer<'a> {
     peer_id: Cow<'a, PeerId>,
     peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-    store: &'a mut PeerSet,
+    peer_set: &'a mut PeerSet,
 }
 
 impl<'a> NotConnectedPeer<'a> {
@@ -50,14 +70,14 @@ impl<'a> NotConnectedPeer<'a> {
         Self {
             peer_id,
             peer_info,
-            store,
+            peer_set: store,
         }
     }
 
     pub fn try_connect(self) -> Result<ConnectedPeer<'a>, Self> {
         let added = self
-            .store
-            .try_add_connection_out(self.peer_id.clone().into_owned());
+            .peer_set
+            .try_add_outgoing(self.peer_id.clone().into_owned());
         if added {
             Ok(self.connect(ConnectionDirection::Outgoing))
         } else {
@@ -67,8 +87,8 @@ impl<'a> NotConnectedPeer<'a> {
 
     pub fn try_accept_connection(self) -> Result<ConnectedPeer<'a>, Self> {
         let added = self
-            .store
-            .try_add_connection_in(self.peer_id.clone().into_owned());
+            .peer_set
+            .try_add_incoming(self.peer_id.clone().into_owned());
         if added {
             Ok(self.connect(ConnectionDirection::Incoming))
         } else {
@@ -82,13 +102,14 @@ impl<'a> NotConnectedPeer<'a> {
 
     fn connect(mut self, direction: ConnectionDirection) -> ConnectedPeer<'a> {
         let peer_info = self.peer_info.get_mut();
-        peer_info.num_connections += 1;
+        let _ = peer_info.num_connections.saturating_add(1);
         peer_info.state = ConnectionState::Connected(direction);
 
-        ConnectedPeer::new(self.peer_id, self.peer_info, self.store)
+        ConnectedPeer::from_peer(self)
     }
 }
 
+#[derive(Debug)]
 pub enum PeerInState<'a> {
     /// We are connected to this peer.
     Connected(ConnectedPeer<'a>),
