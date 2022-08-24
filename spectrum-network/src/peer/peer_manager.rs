@@ -1,5 +1,5 @@
-use crate::peer::data::{ConnectionLossReason, ReputationChange};
-use crate::peer::peers_state::PeersState;
+use crate::peer::data::{ConnectionDirection, ConnectionLossReason, ReputationChange};
+use crate::peer::peers_state::{NotConnectedPeer, PeerInState, PeersState};
 use crate::peer::types::{IncomingIndex, Reputation};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
@@ -131,8 +131,14 @@ impl PeerManagerNotifications for PeerManagerNotificationsLive {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct PeerManagerConfig {
+    min_reputation: Reputation
+}
+
 pub struct PeerManager<S: PeersState> {
     state: S,
+    conf: PeerManagerConfig,
     notifications_recv: UnboundedReceiver<InNotification>,
     requests_recv: UnboundedReceiver<InRequest>,
     out_queue: VecDeque<OutCommand>,
@@ -159,7 +165,7 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
 
     fn on_report_peer(&mut self, peer_id: PeerId, adjustment: ReputationChange) {
         match self.state.peer(&peer_id) {
-            Some(mut peer) => {
+            Some(peer) => {
                 peer.adjust_peer_reputation(adjustment);
             }
             None => {} // warn
@@ -179,7 +185,40 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
 
 impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
     fn on_incoming_connection(&mut self, peer_id: PeerId, index: IncomingIndex) {
-        todo!()
+        match self.state.peer(&peer_id) {
+            Some(PeerInState::NotConnected(ncp))
+                if (ncp.get_reputation() >= self.conf.min_reputation) => {
+                if let Err(ncp) = ncp.try_accept_connection() {
+                    ncp.reg_conn_attempt();
+                    self.out_queue.push_back(OutCommand::Reject(index));
+                } else {
+                    self.out_queue.push_back(OutCommand::Accept(index));
+                }
+            }
+            Some(PeerInState::NotConnected(ncp)) => {
+                ncp.reg_conn_attempt();
+                self.out_queue.push_back(OutCommand::Reject(index));
+            }
+            Some(PeerInState::Connected(cp)) => {
+                match cp.get_conn_direction() {
+                    ConnectionDirection::Outgoing(_) => {}// todo: probably simultaneous connection attempts. Resolve conflict.
+                    ConnectionDirection::Incoming => {} // warn
+                }
+            }
+            None => {
+                if let Some(ncp) = self.state.try_add_peer(peer_id, false) {
+                    if let Err(ncp) = ncp.try_accept_connection() {
+                        ncp.reg_conn_attempt();
+                        self.out_queue.push_back(OutCommand::Reject(index));
+                    } else {
+                        self.out_queue.push_back(OutCommand::Accept(index));
+                    }
+                } else {
+                    self.out_queue.push_back(OutCommand::Reject(index));
+                }
+            }
+
+        }
     }
 
     fn on_connection_lost(&mut self, peer_id: PeerId, reason: ConnectionLossReason) {

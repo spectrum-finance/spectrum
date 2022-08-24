@@ -1,3 +1,4 @@
+use std::time::Instant;
 use crate::peer::types::Reputation;
 use libp2p::Multiaddr;
 
@@ -24,7 +25,7 @@ pub enum ConnectionState {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ConnectionDirection {
     Incoming,
-    Outgoing,
+    Outgoing(bool), // confirmed or not
 }
 
 #[derive(PartialEq, Debug)]
@@ -36,6 +37,7 @@ pub struct Peer {
 #[derive(PartialEq, Debug, Clone)]
 pub struct PeerInfo {
     /// Is the node a reserved peer or not.
+    /// We should do our best to remain connected to reserved peers.
     pub is_reserved: bool,
     /// Reputation value of the node, between `i32::MIN` (we hate that node) and
     /// `i32::MAX` (we love that node).
@@ -43,6 +45,7 @@ pub struct PeerInfo {
     pub state: ConnectionState,
     /// How many successful connections with this node do we have.
     pub num_connections: u32,
+    pub last_conn_attempt: Option<Instant>
 }
 
 impl PeerInfo {
@@ -52,6 +55,7 @@ impl PeerInfo {
             reputation: Reputation::initial(),
             state: ConnectionState::NotConnected,
             num_connections: 0,
+            last_conn_attempt: None
         }
     }
 }

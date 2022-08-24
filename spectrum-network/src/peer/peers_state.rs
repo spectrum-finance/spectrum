@@ -1,11 +1,11 @@
 use crate::peer::data::{ConnectionDirection, ConnectionState, PeerInfo, ReputationChange};
-use crate::peer::peer_manager::Peers;
 use crate::peer::peer_store::{PeerSets, PeerSetsConfig};
 use crate::peer::types::Reputation;
 use libp2p::PeerId;
 use std::borrow::{Borrow, Cow};
 use std::collections::hash_map::{Entry, OccupiedEntry};
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 #[derive(Debug)]
 pub struct ConnectedPeer<'a> {
@@ -41,7 +41,7 @@ impl<'a> ConnectedPeer<'a> {
             ConnectionState::Connected(ConnectionDirection::Incoming) => {
                 self.peer_set.drop_incoming(self.peer_id.borrow())
             }
-            ConnectionState::Connected(ConnectionDirection::Outgoing) => {
+            ConnectionState::Connected(ConnectionDirection::Outgoing(_)) => {
                 self.peer_set.drop_outgoing(self.peer_id.borrow())
             }
             _ => panic!("impossible"),
@@ -52,6 +52,33 @@ impl<'a> ConnectedPeer<'a> {
             peer_info: self.peer_info,
             peer_set: self.peer_set,
         }
+    }
+
+    pub fn confirm_connection(&mut self) -> bool {
+        let peer_info = self.peer_info.get_mut();
+        match peer_info.state {
+            ConnectionState::Connected(ConnectionDirection::Outgoing(false)) => {
+                peer_info.state = ConnectionState::Connected(ConnectionDirection::Outgoing(true));
+                true
+            }
+            _ => false
+        }
+    }
+
+    pub fn get_reputation(&self) -> Reputation {
+        self.peer_info.get().reputation
+    }
+
+    pub fn get_conn_direction(&self) -> ConnectionDirection {
+        match self.peer_info.get().state {
+            ConnectionState::Connected(dir) => dir,
+            _ => panic!("impossible")
+        }
+    }
+
+    pub fn reg_conn_attempt(mut self) -> Self {
+        self.peer_info.get_mut().last_conn_attempt = Some(Instant::now());
+        self
     }
 }
 
@@ -80,7 +107,7 @@ impl<'a> NotConnectedPeer<'a> {
             .peer_set
             .try_add_outgoing(self.peer_id.clone().into_owned());
         if added {
-            Ok(self.connect(ConnectionDirection::Outgoing))
+            Ok(self.connect(ConnectionDirection::Outgoing(false)))
         } else {
             Err(self)
         }
@@ -91,7 +118,7 @@ impl<'a> NotConnectedPeer<'a> {
             .peer_set
             .try_add_incoming(self.peer_id.clone().into_owned());
         if added {
-            Ok(self.connect(ConnectionDirection::Incoming))
+            Ok(self.connect(ConnectionDirection::Incoming).reg_conn_attempt())
         } else {
             Err(self)
         }
@@ -99,6 +126,15 @@ impl<'a> NotConnectedPeer<'a> {
 
     pub fn forget_peer(self) -> PeerInfo {
         self.peer_info.remove()
+    }
+
+    pub fn get_reputation(&self) -> Reputation {
+        self.peer_info.get().reputation
+    }
+
+    pub fn reg_conn_attempt(mut self) -> Self {
+        self.peer_info.get_mut().last_conn_attempt = Some(Instant::now());
+        self
     }
 
     fn connect(mut self, direction: ConnectionDirection) -> ConnectedPeer<'a> {
@@ -182,7 +218,6 @@ pub trait PeersState {
 
 pub struct DefaultPeersState {
     peers: HashMap<PeerId, PeerInfo>,
-    // todo: replace with BTreeMap
     connections: PeerSets,
 }
 
