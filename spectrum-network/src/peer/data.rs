@@ -1,6 +1,6 @@
-use std::time::Instant;
 use crate::peer::types::Reputation;
 use libp2p::Multiaddr;
+use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReputationChange {
@@ -12,7 +12,9 @@ pub struct ReputationChange {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ConnectionLossReason {
+    /// Connection has been explicitly reset by peer.
     ResetByPeer,
+    /// Connection has been closed for an unknown reason.
     Unknown,
 }
 
@@ -45,7 +47,10 @@ pub struct PeerInfo {
     pub state: ConnectionState,
     /// How many successful connections with this node do we have.
     pub num_connections: u32,
-    pub last_conn_attempt: Option<Instant>
+    /// Time last connection attempt was made.
+    pub last_conn_attempt: Option<Instant>,
+    /// Backoff of the next outbound connection attempt.
+    pub outbound_backoff_until: Option<Instant>,
 }
 
 impl PeerInfo {
@@ -55,7 +60,8 @@ impl PeerInfo {
             reputation: Reputation::initial(),
             state: ConnectionState::NotConnected,
             num_connections: 0,
-            last_conn_attempt: None
+            last_conn_attempt: None,
+            outbound_backoff_until: None,
         }
     }
 }

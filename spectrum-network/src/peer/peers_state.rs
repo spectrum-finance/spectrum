@@ -35,7 +35,7 @@ impl<'a> ConnectedPeer<'a> {
         }
     }
 
-    pub fn disconnect_peer(mut self) -> NotConnectedPeer<'a> {
+    pub fn disconnect(mut self) -> NotConnectedPeer<'a> {
         let peer_info = self.peer_info.get_mut();
         match peer_info.state {
             ConnectionState::Connected(ConnectionDirection::Incoming) => {
@@ -61,7 +61,7 @@ impl<'a> ConnectedPeer<'a> {
                 peer_info.state = ConnectionState::Connected(ConnectionDirection::Outgoing(true));
                 true
             }
-            _ => false
+            _ => false,
         }
     }
 
@@ -72,7 +72,7 @@ impl<'a> ConnectedPeer<'a> {
     pub fn get_conn_direction(&self) -> ConnectionDirection {
         match self.peer_info.get().state {
             ConnectionState::Connected(dir) => dir,
-            _ => panic!("impossible")
+            _ => panic!("impossible"),
         }
     }
 
@@ -118,7 +118,9 @@ impl<'a> NotConnectedPeer<'a> {
             .peer_set
             .try_add_incoming(self.peer_id.clone().into_owned());
         if added {
-            Ok(self.connect(ConnectionDirection::Incoming).reg_conn_attempt())
+            Ok(self
+                .connect(ConnectionDirection::Incoming)
+                .reg_conn_attempt())
         } else {
             Err(self)
         }
@@ -132,9 +134,16 @@ impl<'a> NotConnectedPeer<'a> {
         self.peer_info.get().reputation
     }
 
-    pub fn reg_conn_attempt(mut self) -> Self {
+    pub fn is_reserved(&self) -> bool {
+        self.peer_info.get().is_reserved
+    }
+
+    pub fn ack_conn_attempt(&mut self) {
         self.peer_info.get_mut().last_conn_attempt = Some(Instant::now());
-        self
+    }
+
+    pub fn backoff_until(&mut self, ts: Instant) {
+        self.peer_info.get_mut().outbound_backoff_until = Some(ts);
     }
 
     fn connect(mut self, direction: ConnectionDirection) -> ConnectedPeer<'a> {

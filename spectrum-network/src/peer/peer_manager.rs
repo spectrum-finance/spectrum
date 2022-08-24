@@ -6,7 +6,9 @@ use futures::channel::oneshot;
 use futures::channel::oneshot::Receiver;
 use libp2p::PeerId;
 use std::collections::{HashSet, VecDeque};
+use std::ops::Add;
 use std::sync::mpsc::Sender;
+use std::time::{Duration, Instant};
 
 /// Peer Manager output commands.
 #[derive(Debug, PartialEq)]
@@ -133,7 +135,8 @@ impl PeerManagerNotifications for PeerManagerNotificationsLive {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct PeerManagerConfig {
-    min_reputation: Reputation
+    min_reputation: Reputation,
+    conn_reset_outbound_backoff: Duration,
 }
 
 pub struct PeerManager<S: PeersState> {
@@ -186,42 +189,54 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
 impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
     fn on_incoming_connection(&mut self, peer_id: PeerId, index: IncomingIndex) {
         match self.state.peer(&peer_id) {
-            Some(PeerInState::NotConnected(ncp))
-                if (ncp.get_reputation() >= self.conf.min_reputation) => {
-                if let Err(ncp) = ncp.try_accept_connection() {
-                    ncp.reg_conn_attempt();
-                    self.out_queue.push_back(OutCommand::Reject(index));
-                } else {
+            Some(PeerInState::NotConnected(mut ncp)) => {
+                ncp.ack_conn_attempt();
+                if ncp.get_reputation() >= self.conf.min_reputation
+                    && ncp.try_accept_connection().is_ok()
+                {
                     self.out_queue.push_back(OutCommand::Accept(index));
+                } else {
+                    self.out_queue.push_back(OutCommand::Reject(index));
                 }
-            }
-            Some(PeerInState::NotConnected(ncp)) => {
-                ncp.reg_conn_attempt();
-                self.out_queue.push_back(OutCommand::Reject(index));
             }
             Some(PeerInState::Connected(cp)) => {
                 match cp.get_conn_direction() {
-                    ConnectionDirection::Outgoing(_) => {}// todo: probably simultaneous connection attempts. Resolve conflict.
-                    ConnectionDirection::Incoming => {} // warn
+                    ConnectionDirection::Outgoing(_) => {} // todo: probably simultaneous connection attempts. Resolve conflict.
+                    ConnectionDirection::Incoming => {}    // warn
                 }
             }
             None => {
-                if let Some(ncp) = self.state.try_add_peer(peer_id, false) {
-                    if let Err(ncp) = ncp.try_accept_connection() {
-                        ncp.reg_conn_attempt();
-                        self.out_queue.push_back(OutCommand::Reject(index));
-                    } else {
+                if let Some(mut ncp) = self.state.try_add_peer(peer_id, false) {
+                    ncp.ack_conn_attempt();
+                    if ncp.try_accept_connection().is_ok() {
                         self.out_queue.push_back(OutCommand::Accept(index));
+                    } else {
+                        self.out_queue.push_back(OutCommand::Reject(index));
                     }
                 } else {
                     self.out_queue.push_back(OutCommand::Reject(index));
                 }
             }
-
         }
     }
 
     fn on_connection_lost(&mut self, peer_id: PeerId, reason: ConnectionLossReason) {
-        todo!()
+        match self.state.peer(&peer_id) {
+            Some(PeerInState::Connected(cp)) => {
+                let mut ncp = cp.disconnect();
+                match reason {
+                    ConnectionLossReason::ResetByPeer => {
+                        if !ncp.is_reserved() {
+                            let backoff_until =
+                                Instant::now().add(self.conf.conn_reset_outbound_backoff);
+                            ncp.backoff_until(backoff_until);
+                        }
+                    }
+                    ConnectionLossReason::Unknown => {}
+                }
+            }
+            Some(PeerInState::NotConnected(_)) => {} // warn
+            None => {}                               // warn
+        }
     }
 }
