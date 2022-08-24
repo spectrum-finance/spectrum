@@ -1,23 +1,24 @@
 use crate::peer::data::{ConnectionDirection, ConnectionState, PeerInfo, ReputationChange};
-use crate::peer::peer_store::{PeerSet, PeerSetConfig, PeerStoreConfig, PeerStoreRejection};
+use crate::peer::peer_manager::Peers;
+use crate::peer::peer_store::{PeerSets, PeerSetsConfig};
 use crate::peer::types::Reputation;
 use libp2p::PeerId;
 use std::borrow::{Borrow, Cow};
 use std::collections::hash_map::{Entry, OccupiedEntry};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug)]
 pub struct ConnectedPeer<'a> {
     peer_id: Cow<'a, PeerId>,
     peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-    peer_set: &'a mut PeerSet,
+    peer_set: &'a mut PeerSets,
 }
 
 impl<'a> ConnectedPeer<'a> {
     fn new(
         peer_id: Cow<'a, PeerId>,
         peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-        peer_set: &'a mut PeerSet,
+        peer_set: &'a mut PeerSets,
     ) -> Self {
         Self {
             peer_id,
@@ -58,14 +59,14 @@ impl<'a> ConnectedPeer<'a> {
 pub struct NotConnectedPeer<'a> {
     peer_id: Cow<'a, PeerId>,
     peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-    peer_set: &'a mut PeerSet,
+    peer_set: &'a mut PeerSets,
 }
 
 impl<'a> NotConnectedPeer<'a> {
     fn new(
         peer_id: Cow<'a, PeerId>,
         peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-        store: &'a mut PeerSet,
+        store: &'a mut PeerSets,
     ) -> Self {
         Self {
             peer_id,
@@ -118,13 +119,45 @@ pub enum PeerInState<'a> {
 }
 
 impl<'a> PeerInState<'a> {
-    pub fn adjust_peer_reputation(&mut self, adjustment: ReputationChange) -> () {
+    pub fn adjust_peer_reputation(self, adjustment: ReputationChange) -> Self {
         match self {
-            PeerInState::Connected(cp) => {
+            PeerInState::Connected(mut cp) => {
                 cp.peer_info.get_mut().reputation.apply(adjustment);
+                PeerInState::Connected(cp)
             }
-            PeerInState::NotConnected(ncp) => {
+            PeerInState::NotConnected(mut ncp) => {
                 ncp.peer_info.get_mut().reputation.apply(adjustment);
+                PeerInState::NotConnected(ncp)
+            }
+        }
+    }
+
+    pub fn get_reputation(&self) -> Reputation {
+        match self {
+            PeerInState::Connected(cp) => cp.peer_info.get().reputation,
+            PeerInState::NotConnected(ncp) => ncp.peer_info.get().reputation,
+        }
+    }
+
+    pub fn set_reserved(self, is_reserved: bool) -> Self {
+        match self {
+            PeerInState::Connected(mut cp) => {
+                if is_reserved {
+                    cp.peer_set.reserve_peer(cp.peer_id.clone().into_owned());
+                } else {
+                    cp.peer_set.drop_reserved_peer(cp.peer_id.borrow());
+                }
+                cp.peer_info.get_mut().is_reserved = is_reserved;
+                PeerInState::Connected(cp)
+            }
+            PeerInState::NotConnected(mut ncp) => {
+                if is_reserved {
+                    ncp.peer_set.reserve_peer(ncp.peer_id.clone().into_owned());
+                } else {
+                    ncp.peer_set.drop_reserved_peer(ncp.peer_id.borrow());
+                }
+                ncp.peer_info.get_mut().is_reserved = is_reserved;
+                PeerInState::NotConnected(ncp)
             }
         }
     }
@@ -132,27 +165,32 @@ impl<'a> PeerInState<'a> {
 
 /// Peer state transitions.
 pub trait PeersState {
+    /// Grants access to a peer with the given peer_id if such peer is known.
     fn peer<'a>(&'a mut self, peer_id: &'a PeerId) -> Option<PeerInState<'a>>;
+
+    /// Get reputation of a peer with the given peer_id if such peer is known.
     fn get_peer_reputation(&self, peer_id: &PeerId) -> Option<Reputation>;
-    fn add_peer(
-        &mut self,
-        peer_id: PeerId,
-        is_reserved: bool,
-    ) -> Result<NotConnectedPeer, PeerStoreRejection>;
+
+    /// Add a peer to PeersState.
+    /// Returns a NotConnectedPeer if succeeded.
+    fn try_add_peer(&mut self, peer_id: PeerId, is_reserved: bool) -> Option<NotConnectedPeer>;
+
+    /// Update set of reserved peers in the PeersState.
+    /// Returns a set of unknown peers which can't be marked as reserved at the moment.
+    fn set_reserved_peers(&mut self, peers: HashSet<PeerId>) -> HashSet<PeerId>;
 }
 
 pub struct DefaultPeersState {
     peers: HashMap<PeerId, PeerInfo>,
-    connections: PeerSet,
-    config: PeerStoreConfig,
+    // todo: replace with BTreeMap
+    connections: PeerSets,
 }
 
 impl DefaultPeersState {
-    pub fn new(peer_set_conf: PeerSetConfig, peer_store_conf: PeerStoreConfig) -> Self {
+    pub fn new(peer_set_conf: PeerSetsConfig) -> Self {
         DefaultPeersState {
             peers: HashMap::new(),
-            connections: PeerSet::new(peer_set_conf),
-            config: peer_store_conf,
+            connections: PeerSets::new(peer_set_conf),
         }
     }
 }
@@ -178,32 +216,38 @@ impl PeersState for DefaultPeersState {
         self.peers.get(peer_id).map(|p| p.reputation)
     }
 
-    fn add_peer(
-        &mut self,
-        peer_id: PeerId,
-        is_reserved: bool,
-    ) -> Result<NotConnectedPeer, PeerStoreRejection> {
-        if self.peers.len() < self.config.capacity {
-            if !self.peers.contains_key(&peer_id) {
-                let peer_info = PeerInfo::new(is_reserved);
-                self.peers.insert(peer_id, peer_info);
-                match self.peers.entry(peer_id) {
-                    Entry::Occupied(peer_info) => Ok(NotConnectedPeer::new(
-                        Cow::Owned(peer_id),
-                        peer_info,
-                        &mut self.connections,
-                    )),
-                    Entry::Vacant(_) => panic!("impossible"),
-                }
-            } else {
-                Err(PeerStoreRejection::AlreadyExists)
+    fn try_add_peer(&mut self, peer_id: PeerId, is_reserved: bool) -> Option<NotConnectedPeer> {
+        if !self.peers.contains_key(&peer_id) {
+            let peer_info = PeerInfo::new(is_reserved);
+            self.peers.insert(peer_id, peer_info);
+            if is_reserved {
+                self.connections.reserve_peer(peer_id)
+            };
+            match self.peers.entry(peer_id) {
+                Entry::Occupied(peer_info) => Some(NotConnectedPeer::new(
+                    Cow::Owned(peer_id),
+                    peer_info,
+                    &mut self.connections,
+                )),
+                Entry::Vacant(_) => panic!("impossible"),
             }
         } else {
-            Err(PeerStoreRejection::StoreExhausted)
+            None
         }
     }
-}
 
-pub enum PeersStateException {
-    PeerStoreRejection(PeerStoreRejection),
+    fn set_reserved_peers(&mut self, peers: HashSet<PeerId>) -> HashSet<PeerId> {
+        let mut unknown_peers = HashSet::<PeerId>::new();
+        let mut known_reserved_peers = HashSet::<PeerId>::new();
+        for pid in peers {
+            if let Some(pstate) = self.peer(&pid) {
+                pstate.set_reserved(true);
+                known_reserved_peers.insert(pid);
+            } else {
+                unknown_peers.insert(pid);
+            }
+        }
+        self.connections.update_reserved_set(known_reserved_peers);
+        unknown_peers
+    }
 }

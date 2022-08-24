@@ -10,6 +10,12 @@ pub struct ReputationChange {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ConnectionLossReason {
+    ResetByPeer,
+    Unknown,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ConnectionState {
     Connected(ConnectionDirection),
     NotConnected,

@@ -2,34 +2,25 @@ use libp2p::PeerId;
 use std::collections::HashSet;
 
 #[derive(Eq, PartialEq, Debug)]
-pub enum PeerStoreRejection {
-    StoreExhausted,
-    AlreadyExists,
-}
-
-#[derive(Eq, PartialEq, Debug)]
-pub struct PeerSetConfig {
+pub struct PeerSetsConfig {
     pub max_outgoing: usize,
     pub max_incoming: usize,
 }
 
 #[derive(Eq, PartialEq, Debug)]
-pub struct PeerStoreConfig {
-    pub capacity: usize,
-}
-
-#[derive(Eq, PartialEq, Debug)]
-pub struct PeerSet {
+pub struct PeerSets {
     connections_in: HashSet<PeerId>,
     connections_out: HashSet<PeerId>,
-    config: PeerSetConfig,
+    reserved_peers: HashSet<PeerId>,
+    config: PeerSetsConfig,
 }
 
-impl PeerSet {
-    pub fn new(config: PeerSetConfig) -> Self {
+impl PeerSets {
+    pub fn new(config: PeerSetsConfig) -> Self {
         Self {
             connections_in: HashSet::new(),
             connections_out: HashSet::new(),
+            reserved_peers: HashSet::new(),
             config,
         }
     }
@@ -58,5 +49,17 @@ impl PeerSet {
 
     pub fn drop_incoming(&mut self, peer_id: &PeerId) -> bool {
         self.connections_in.remove(peer_id)
+    }
+
+    pub fn reserve_peer(&mut self, peer_id: PeerId) {
+        self.reserved_peers.insert(peer_id);
+    }
+
+    pub fn drop_reserved_peer(&mut self, peer_id: &PeerId) {
+        self.reserved_peers.remove(peer_id);
+    }
+
+    pub fn update_reserved_set(&mut self, peers: HashSet<PeerId>) {
+        self.reserved_peers = peers;
     }
 }
