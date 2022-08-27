@@ -9,9 +9,9 @@ pub struct PeerSetsConfig {
 
 #[derive(Eq, PartialEq, Debug)]
 pub struct PeerSets {
-    connections_in: HashSet<PeerId>,
-    connections_out: HashSet<PeerId>,
-    reserved_peers: HashSet<PeerId>,
+    pub connections_in: HashSet<PeerId>,
+    pub connections_out: HashSet<PeerId>,
+    pub reserved_peers: HashSet<PeerId>,
     config: PeerSetsConfig,
 }
 

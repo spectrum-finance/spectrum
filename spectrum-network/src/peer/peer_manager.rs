@@ -1,5 +1,5 @@
 use crate::peer::data::{ConnectionDirection, ConnectionLossReason, ReputationChange};
-use crate::peer::peers_state::{NotConnectedPeer, PeerInState, PeersState};
+use crate::peer::peers_state::{NotConnectedPeer, PeerInState, PeersState, PeerStateFilter};
 use crate::peer::types::{IncomingIndex, Reputation};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
@@ -7,8 +7,11 @@ use futures::channel::oneshot::Receiver;
 use libp2p::PeerId;
 use std::collections::{HashSet, VecDeque};
 use std::ops::Add;
+use std::pin::Pin;
 use std::sync::mpsc::Sender;
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+use futures::Stream;
 
 /// Peer Manager output commands.
 #[derive(Debug, PartialEq)]
@@ -139,12 +142,36 @@ pub struct PeerManagerConfig {
     conn_reset_outbound_backoff: Duration,
 }
 
-pub struct PeerManager<S: PeersState> {
-    state: S,
+pub struct PeerManager<PState> {
+    state: PState,
     conf: PeerManagerConfig,
     notifications_recv: UnboundedReceiver<InNotification>,
     requests_recv: UnboundedReceiver<InRequest>,
     out_queue: VecDeque<OutCommand>,
+}
+impl<S: PeersState> PeerManager<S> {
+    /// Connect to reserved peers we are not connected yet.
+    pub fn connect_reserved(&mut self) {
+        let peers = self.state.get_reserved_peers(Some(PeerStateFilter::NotConnected));
+        for pid in peers {
+            self.connect(pid)
+        }
+    }
+
+    /// Connect to a best peer we are not connected yet.
+    pub fn connect_best(&mut self) {
+        if let Some(pid) = self.state.peek_best() {
+            self.connect(pid)
+        }
+    }
+
+    fn connect(&mut self, peer_id: PeerId) {
+        if let Some(PeerInState::NotConnected(ncp)) = self.state.peer(&peer_id) {
+            if ncp.try_connect().is_ok() {
+                self.out_queue.push_back(OutCommand::Connect(peer_id))
+            }
+        }
+    }
 }
 
 impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
@@ -169,7 +196,7 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
     fn on_report_peer(&mut self, peer_id: PeerId, adjustment: ReputationChange) {
         match self.state.peer(&peer_id) {
             Some(peer) => {
-                peer.adjust_peer_reputation(adjustment);
+                peer.adjust_reputation(adjustment);
             }
             None => {} // warn
         }
@@ -189,8 +216,7 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
 impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
     fn on_incoming_connection(&mut self, peer_id: PeerId, index: IncomingIndex) {
         match self.state.peer(&peer_id) {
-            Some(PeerInState::NotConnected(mut ncp)) => {
-                ncp.ack_conn_attempt();
+            Some(PeerInState::NotConnected(ncp)) => {
                 if ncp.get_reputation() >= self.conf.min_reputation
                     && ncp.try_accept_connection().is_ok()
                 {
@@ -200,14 +226,10 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                 }
             }
             Some(PeerInState::Connected(cp)) => {
-                match cp.get_conn_direction() {
-                    ConnectionDirection::Outgoing(_) => {} // todo: probably simultaneous connection attempts. Resolve conflict.
-                    ConnectionDirection::Incoming => {}    // warn
-                }
+                self.out_queue.push_back(OutCommand::Reject(index));
             }
             None => {
-                if let Some(mut ncp) = self.state.try_add_peer(peer_id, false) {
-                    ncp.ack_conn_attempt();
+                if let Some(ncp) = self.state.try_add_peer(peer_id, false) {
                     if ncp.try_accept_connection().is_ok() {
                         self.out_queue.push_back(OutCommand::Accept(index));
                     } else {
@@ -237,6 +259,20 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
             }
             Some(PeerInState::NotConnected(_)) => {} // warn
             None => {}                               // warn
+        }
+    }
+}
+
+impl<S: Unpin> Stream for PeerManager<S> {
+    type Item = OutCommand;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        loop {
+            if let Some(out) = self.out_queue.pop_front() {
+                return Poll::Ready(Some(out))
+            }
+
+
         }
     }
 }

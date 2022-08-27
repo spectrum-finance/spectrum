@@ -12,7 +12,7 @@ impl From<u64> for IncomingIndex {
 
 /// Reputation value of the node, between `i32::MIN` (we hate that node) and
 /// `i32::MAX` (we love that node).
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Reputation(i32);
 
 impl Reputation {
