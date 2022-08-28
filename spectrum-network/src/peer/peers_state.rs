@@ -132,7 +132,8 @@ impl<'a> NotConnectedPeer<'a> {
     }
 
     pub fn forget_peer(self) -> PeerInfo {
-        self.sorted_peers.remove(&(*self.peer_id, self.peer_info.get().reputation));
+        self.sorted_peers
+            .remove(&(*self.peer_id, self.peer_info.get().reputation));
         self.peer_info.remove()
     }
 
@@ -144,8 +145,12 @@ impl<'a> NotConnectedPeer<'a> {
         self.peer_info.get().is_reserved
     }
 
-    pub fn backoff_until(&mut self, ts: Instant) {
+    pub fn set_backoff_until(&mut self, ts: Instant) {
         self.peer_info.get_mut().outbound_backoff_until = Some(ts);
+    }
+
+    pub fn backoff_until(&self) -> Option<Instant> {
+        self.peer_info.get().outbound_backoff_until
     }
 
     fn connect(mut self, direction: ConnectionDirection) -> ConnectedPeer<'a> {
@@ -266,22 +271,20 @@ impl PeersState for DefaultPeersState {
     fn peer<'a>(&'a mut self, peer_id: &'a PeerId) -> Option<PeerInState<'a>> {
         match self.peers.entry(peer_id.clone()) {
             Entry::Occupied(peer_info) => match peer_info.get().state {
-                ConnectionState::Connected(_) => Some(PeerInState::Connected(
-                    ConnectedPeer::new(
+                ConnectionState::Connected(_) => Some(PeerInState::Connected(ConnectedPeer::new(
+                    Cow::Borrowed(peer_id),
+                    peer_info,
+                    &mut self.sets,
+                    &mut self.best_peers,
+                ))),
+                ConnectionState::NotConnected => {
+                    Some(PeerInState::NotConnected(NotConnectedPeer::new(
                         Cow::Borrowed(peer_id),
                         peer_info,
                         &mut self.sets,
                         &mut self.best_peers,
-                    )
-                )),
-                ConnectionState::NotConnected => Some(PeerInState::NotConnected(
-                    NotConnectedPeer::new(
-                        Cow::Borrowed(peer_id),
-                        peer_info,
-                        &mut self.sets,
-                        &mut self.best_peers,
-                    ),
-                )),
+                    )))
+                }
             },
             Entry::Vacant(_) => None,
         }
@@ -337,7 +340,10 @@ impl PeersState for DefaultPeersState {
                             (ConnectionState::Connected(_), Some(PeerStateFilter::Connected)) => {
                                 result.insert(*pid);
                             }
-                            (ConnectionState::NotConnected, Some(PeerStateFilter::NotConnected)) => {
+                            (
+                                ConnectionState::NotConnected,
+                                Some(PeerStateFilter::NotConnected),
+                            ) => {
                                 result.insert(*pid);
                             }
                             (_, None) => {
@@ -356,10 +362,13 @@ impl PeersState for DefaultPeersState {
     fn peek_best(&mut self) -> Option<PeerId> {
         for (pid, _) in &self.best_peers {
             match self.peers.get(pid) {
-                Some(PeerInfo { state: ConnectionState::NotConnected, .. }) => {
+                Some(PeerInfo {
+                    state: ConnectionState::NotConnected,
+                    ..
+                }) => {
                     return Some(*pid);
                 }
-                _ => continue
+                _ => continue,
             }
         }
         None

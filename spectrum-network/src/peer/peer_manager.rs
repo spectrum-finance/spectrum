@@ -1,17 +1,16 @@
-use crate::peer::data::{ConnectionDirection, ConnectionLossReason, ReputationChange};
-use crate::peer::peers_state::{NotConnectedPeer, PeerInState, PeersState, PeerStateFilter};
+use crate::peer::data::{ConnectionLossReason, ReputationChange};
+use crate::peer::peers_state::{PeerInState, PeerStateFilter, PeersState};
 use crate::peer::types::{IncomingIndex, Reputation};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use futures::channel::oneshot::Receiver;
+use futures::Stream;
 use libp2p::PeerId;
 use std::collections::{HashSet, VecDeque};
 use std::ops::Add;
 use std::pin::Pin;
-use std::sync::mpsc::Sender;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
-use futures::Stream;
 
 /// Peer Manager output commands.
 #[derive(Debug, PartialEq)]
@@ -72,7 +71,7 @@ trait PeerManagerRequestsBehavior {
     fn on_add_reserved_peer(&mut self, peer_id: PeerId);
     fn on_set_reserved_peers(&mut self, peers: HashSet<PeerId>);
     fn on_report_peer(&mut self, peer_id: PeerId, change: ReputationChange);
-    fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: Sender<Reputation>);
+    fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: oneshot::Sender<Reputation>);
 }
 
 trait PeerManagerNotificationsBehavior {
@@ -140,6 +139,7 @@ impl PeerManagerNotifications for PeerManagerNotificationsLive {
 pub struct PeerManagerConfig {
     min_reputation: Reputation,
     conn_reset_outbound_backoff: Duration,
+    periodic_conn_interval: Duration,
 }
 
 pub struct PeerManager<PState> {
@@ -148,11 +148,15 @@ pub struct PeerManager<PState> {
     notifications_recv: UnboundedReceiver<InNotification>,
     requests_recv: UnboundedReceiver<InRequest>,
     out_queue: VecDeque<OutCommand>,
+    next_conn_alloc_at: Instant,
 }
+
 impl<S: PeersState> PeerManager<S> {
     /// Connect to reserved peers we are not connected yet.
     pub fn connect_reserved(&mut self) {
-        let peers = self.state.get_reserved_peers(Some(PeerStateFilter::NotConnected));
+        let peers = self
+            .state
+            .get_reserved_peers(Some(PeerStateFilter::NotConnected));
         for pid in peers {
             self.connect(pid)
         }
@@ -167,7 +171,12 @@ impl<S: PeersState> PeerManager<S> {
 
     fn connect(&mut self, peer_id: PeerId) {
         if let Some(PeerInState::NotConnected(ncp)) = self.state.peer(&peer_id) {
-            if ncp.try_connect().is_ok() {
+            let should_connect = if let Some(backoff_until) = ncp.backoff_until() {
+                backoff_until <= Instant::now()
+            } else {
+                true
+            };
+            if should_connect && ncp.try_connect().is_ok() {
                 self.out_queue.push_back(OutCommand::Connect(peer_id))
             }
         }
@@ -202,7 +211,7 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
         }
     }
 
-    fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: Sender<Reputation>) {
+    fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: oneshot::Sender<Reputation>) {
         match self.state.peer(&peer_id) {
             Some(peer) => {
                 let reputation = peer.get_reputation();
@@ -251,7 +260,7 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                         if !ncp.is_reserved() {
                             let backoff_until =
                                 Instant::now().add(self.conf.conn_reset_outbound_backoff);
-                            ncp.backoff_until(backoff_until);
+                            ncp.set_backoff_until(backoff_until);
                         }
                     }
                     ConnectionLossReason::Unknown => {}
@@ -263,16 +272,34 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
     }
 }
 
-impl<S: Unpin> Stream for PeerManager<S> {
+impl<S: Unpin + PeersState> Stream for PeerManager<S> {
     type Item = OutCommand;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
             if let Some(out) = self.out_queue.pop_front() {
-                return Poll::Ready(Some(out))
+                return Poll::Ready(Some(out));
             }
 
+            let now = Instant::now();
+            if self.next_conn_alloc_at >= now {
+                self.connect_reserved();
+                self.connect_best();
+                self.next_conn_alloc_at = now.add(self.conf.periodic_conn_interval);
+            }
 
+            let req = match Stream::poll_next(Pin::new(&mut self.requests_recv), cx) {
+                Poll::Ready(Some(req)) => req,
+                Poll::Ready(None) | Poll::Pending => return Poll::Pending,
+            };
+
+            match req {
+                InRequest::AddPeer(pid) => self.on_add_peer(pid),
+                InRequest::ReportPeer(pid, adjustment) => self.on_report_peer(pid, adjustment),
+                InRequest::AddReservedPeer(pid) => self.on_add_reserved_peer(pid),
+                InRequest::GetPeerReputation(pid, resp) => self.on_get_peer_reputation(pid, resp),
+                InRequest::SetReservedPeers(peers) => self.on_set_reserved_peers(peers),
+            }
         }
     }
 }
