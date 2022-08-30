@@ -234,7 +234,7 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                     self.out_queue.push_back(OutCommand::Reject(index));
                 }
             }
-            Some(PeerInState::Connected(cp)) => {
+            Some(PeerInState::Connected(_)) => {
                 self.out_queue.push_back(OutCommand::Reject(index));
             }
             None => {
@@ -288,17 +288,21 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                 self.next_conn_alloc_at = now.add(self.conf.periodic_conn_interval);
             }
 
-            let req = match Stream::poll_next(Pin::new(&mut self.requests_recv), cx) {
-                Poll::Ready(Some(req)) => req,
-                Poll::Ready(None) | Poll::Pending => return Poll::Pending,
-            };
+            if let Poll::Ready(Some(notif)) = Stream::poll_next(Pin::new(&mut self.notifications_recv), cx) {
+                match notif {
+                    InNotification::IncomingConnection(pid, index) => self.on_incoming_connection(pid, index),
+                    InNotification::ConnectionLost(pid, reason) => self.on_connection_lost(pid, reason)
+                }
+            }
 
-            match req {
-                InRequest::AddPeer(pid) => self.on_add_peer(pid),
-                InRequest::ReportPeer(pid, adjustment) => self.on_report_peer(pid, adjustment),
-                InRequest::AddReservedPeer(pid) => self.on_add_reserved_peer(pid),
-                InRequest::GetPeerReputation(pid, resp) => self.on_get_peer_reputation(pid, resp),
-                InRequest::SetReservedPeers(peers) => self.on_set_reserved_peers(peers),
+            if let Poll::Ready(Some(req)) = Stream::poll_next(Pin::new(&mut self.requests_recv), cx) {
+                match req {
+                    InRequest::AddPeer(pid) => self.on_add_peer(pid),
+                    InRequest::ReportPeer(pid, adjustment) => self.on_report_peer(pid, adjustment),
+                    InRequest::AddReservedPeer(pid) => self.on_add_reserved_peer(pid),
+                    InRequest::GetPeerReputation(pid, resp) => self.on_get_peer_reputation(pid, resp),
+                    InRequest::SetReservedPeers(peers) => self.on_set_reserved_peers(peers),
+                }
             }
         }
     }
