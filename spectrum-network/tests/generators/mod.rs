@@ -1,5 +1,5 @@
 use libp2p::Multiaddr;
-use spectrum_network::peer::data::*;
+use spectrum_network::peer_manager::data::*;
 
 pub fn generate_peer() -> Peer {
     let info = PeerInfo::new(false);

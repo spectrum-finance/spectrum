@@ -1,6 +1,6 @@
-use crate::peer::data::{ConnectionDirection, ConnectionState, PeerInfo, ReputationChange};
-use crate::peer::peer_store::{PeerSets, PeerSetsConfig};
-use crate::peer::types::Reputation;
+use crate::peer_manager::data::{ConnectionDirection, ConnectionState, PeerInfo, ReputationChange};
+use crate::peer_manager::peer_store::{PeerSets, PeerSetsConfig};
+use crate::types::Reputation;
 use libp2p::PeerId;
 use std::borrow::{Borrow, Cow};
 use std::collections::hash_map::{Entry, OccupiedEntry};

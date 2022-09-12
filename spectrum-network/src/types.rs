@@ -1,4 +1,4 @@
-use crate::peer::data::ReputationChange;
+use crate::peer_manager::data::ReputationChange;
 
 /// Opaque identifier for an incoming connection. Allocated by the network.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

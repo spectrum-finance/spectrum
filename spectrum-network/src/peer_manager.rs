@@ -1,6 +1,10 @@
-use crate::peer::data::{ConnectionLossReason, ReputationChange};
-use crate::peer::peers_state::{PeerInState, PeerStateFilter, PeersState};
-use crate::peer::types::{IncomingIndex, Reputation};
+pub mod data;
+pub mod peer_store;
+pub mod peers_state;
+
+use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
+use crate::peer_manager::peers_state::{PeerInState, PeerStateFilter, PeersState};
+use crate::types::{IncomingIndex, Reputation};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use futures::channel::oneshot::Receiver;
@@ -289,7 +293,7 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
             }
 
             if let Poll::Ready(Some(notif)) =
-                Stream::poll_next(Pin::new(&mut self.notifications_recv), cx)
+            Stream::poll_next(Pin::new(&mut self.notifications_recv), cx)
             {
                 match notif {
                     InNotification::IncomingConnection(pid, index) => {

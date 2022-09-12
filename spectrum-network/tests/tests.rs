@@ -1,2 +1,2 @@
 mod generators;
-mod peer;
+mod peer_manager;
