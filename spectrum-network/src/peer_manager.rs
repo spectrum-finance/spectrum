@@ -293,7 +293,7 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
             }
 
             if let Poll::Ready(Some(notif)) =
-            Stream::poll_next(Pin::new(&mut self.notifications_recv), cx)
+                Stream::poll_next(Pin::new(&mut self.notifications_recv), cx)
             {
                 match notif {
                     InNotification::IncomingConnection(pid, index) => {

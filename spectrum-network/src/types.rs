@@ -29,3 +29,26 @@ impl From<i32> for Reputation {
         Self(val)
     }
 }
+
+/// Identifier of a protocol.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProtocolId(u8);
+
+impl Into<u8> for ProtocolId {
+    fn into(self) -> u8 {
+        self.0
+    }
+}
+
+/// Version of a protocol.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProtocolVer(u8);
+
+impl Into<u8> for ProtocolVer {
+    fn into(self) -> u8 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RawMessage(Vec<u8>);
