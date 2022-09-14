@@ -64,3 +64,9 @@ impl From<Vec<u8>> for RawMessage {
         RawMessage(xs)
     }
 }
+
+impl AsRef<[u8]> for RawMessage {
+    fn as_ref(&self) -> &[u8] {
+        &*self.0
+    }
+}

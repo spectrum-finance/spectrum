@@ -1,17 +1,16 @@
-use crate::protocol::substream::{ProtocolSubstreamHandshakeState, ProtocolSubstreamIn};
+use crate::protocol::substream::{
+    ProtocolSubstreamHandshakeState, ProtocolSubstreamIn, ProtocolSubstreamOut,
+};
 use crate::types::{ProtocolId, ProtocolVer, RawMessage};
 use asynchronous_codec::Framed;
-use futures::prelude::*;
 use futures::{AsyncRead, AsyncWrite};
 use libp2p::core::{upgrade, UpgradeInfo};
-use libp2p::InboundUpgrade;
+use libp2p::{InboundUpgrade, OutboundUpgrade};
 use std::collections::HashMap;
 use std::future::Future;
-use std::ops::Deref;
 use std::pin::Pin;
-use std::{future, io, vec};
+use std::{io, vec};
 use unsigned_varint::codec::UviBytes;
-use void::Void;
 
 /// Tag of a protocol. Consists of ProtocolId + ProtocolVer.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -52,7 +51,7 @@ pub enum ProtocolUpgradeErr {
 #[derive(Debug, Clone)]
 pub struct InboundProtocolSpec {
     /// Maximum allowed size for a single message.
-    max_message_size: u64,
+    max_message_size: usize,
     /// Does the protocol negotiation require a special handshake or not.
     handshake_required: bool,
 }
@@ -90,9 +89,9 @@ where
         Box::pin(async move {
             let pspec = self.protocols.get(&info).unwrap();
             let mut codec = UviBytes::default();
-            codec.set_max_len(usize::try_from(pspec.max_message_size).unwrap_or(usize::MAX));
+            codec.set_max_len(pspec.max_message_size);
             let handshake = if pspec.handshake_required {
-                Some(read_handshake(&mut socket).await?)
+                Some(read_handshake(&mut socket, pspec.max_message_size).await?)
             } else {
                 None
             };
@@ -114,19 +113,10 @@ where
     }
 }
 
-async fn read_handshake<Substream: AsyncRead + Unpin>(
-    mut socket: &mut Substream,
-) -> Result<RawMessage, ProtocolHandshakeErr> {
-    let handshake_len = unsigned_varint::aio::read_usize(&mut socket).await?;
-    let mut handshake = vec![0u8; handshake_len];
-    socket.read_exact(&mut handshake).await?;
-    Ok(RawMessage::from(handshake))
-}
-
 #[derive(Debug, Clone)]
 pub struct OutboundProtocolSpec {
     /// Maximum allowed size for a single notification.
-    max_message_size: u64,
+    max_message_size: usize,
     /// Initial message to send when we start communicating.
     handshake: Option<RawMessage>,
 }
@@ -156,8 +146,59 @@ impl UpgradeInfo for ProtocolUpgradeOut {
     }
 }
 
+impl<Substream> OutboundUpgrade<Substream> for ProtocolUpgradeOut
+where
+    Substream: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    type Output = ProtocolUpgraded<ProtocolSubstreamOut<Substream>>;
+    type Error = ProtocolUpgradeErr;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>>>>;
+
+    fn upgrade_outbound(self, mut socket: Substream, info: Self::Info) -> Self::Future {
+        Box::pin(async move {
+            let negotiated_ver = info.into();
+            let pspec = self.supported_versions.get(&negotiated_ver).unwrap();
+            let mut codec = UviBytes::default();
+            codec.set_max_len(pspec.max_message_size);
+            if let Some(handshake) = &pspec.handshake {
+                write_handshake(&mut socket, handshake).await?;
+            }
+            // Wait for handshake in response if required.
+            let handshake = if pspec.handshake.is_some() {
+                Some(read_handshake(&mut socket, pspec.max_message_size).await?)
+            } else {
+                None
+            };
+            let substream = ProtocolSubstreamOut {
+                socket: Framed::new(socket, codec),
+            };
+            Ok(ProtocolUpgraded {
+                negotiated_ver,
+                handshake,
+                substream,
+            })
+        })
+    }
+}
+
 pub struct ProtocolUpgraded<Substream> {
-    negotiated_ver: ProtocolVer,
-    handshake: Option<RawMessage>,
-    substream: Substream,
+    pub negotiated_ver: ProtocolVer,
+    pub handshake: Option<RawMessage>,
+    pub substream: Substream,
+}
+
+async fn read_handshake<Substream: AsyncRead + Unpin>(
+    socket: &mut Substream,
+    max_size: usize,
+) -> Result<RawMessage, ProtocolHandshakeErr> {
+    let handshake = upgrade::read_length_prefixed(socket, max_size).await?;
+    Ok(RawMessage::from(handshake))
+}
+
+async fn write_handshake<Substream: AsyncWrite + Unpin>(
+    socket: &mut Substream,
+    msg: &RawMessage,
+) -> Result<(), ProtocolHandshakeErr> {
+    upgrade::write_length_prefixed(socket, msg).await?;
+    Ok(())
 }
