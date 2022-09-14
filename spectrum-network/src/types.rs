@@ -50,5 +50,17 @@ impl Into<u8> for ProtocolVer {
     }
 }
 
+impl From<u8> for ProtocolVer {
+    fn from(v: u8) -> Self {
+        ProtocolVer(v)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RawMessage(Vec<u8>);
+
+impl From<Vec<u8>> for RawMessage {
+    fn from(xs: Vec<u8>) -> Self {
+        RawMessage(xs)
+    }
+}
