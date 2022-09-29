@@ -1,4 +1,6 @@
 use crate::peer_manager::data::ReputationChange;
+use libp2p::core::upgrade;
+use std::cmp::Ordering;
 
 /// Opaque identifier for an incoming connection. Allocated by the network.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -40,9 +42,27 @@ impl Into<u8> for ProtocolId {
     }
 }
 
+impl From<u8> for ProtocolId {
+    fn from(val: u8) -> Self {
+        Self(val)
+    }
+}
+
 /// Version of a protocol.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ProtocolVer(u8);
+
+impl Ord for ProtocolVer {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&other.0).reverse()
+    }
+}
+
+impl PartialOrd for ProtocolVer {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 impl Into<u8> for ProtocolVer {
     fn into(self) -> u8 {
