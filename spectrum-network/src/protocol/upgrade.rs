@@ -147,7 +147,7 @@ where
             };
             let substream = ProtocolSubstreamIn {
                 socket: Framed::new(socket, codec),
-                handshake: handshake_state,
+                handshake_state: handshake_state,
             };
             Ok(ProtocolUpgraded {
                 negotiated_tag,
@@ -166,6 +166,15 @@ pub struct OutboundProtocolSpec {
     handshake: Option<RawMessage>,
 }
 
+impl From<ProtocolSpec> for OutboundProtocolSpec {
+    fn from(spec: ProtocolSpec) -> Self {
+        Self {
+            max_message_size: spec.max_message_size,
+            handshake: spec.handshake,
+        }
+    }
+}
+
 /// Upgrade that opens a substream, waits for the remote to accept by sending back a status
 /// message, then becomes a unidirectional sink of data.
 #[derive(Debug, Clone)]
@@ -175,6 +184,24 @@ pub struct ProtocolUpgradeOut {
     /// Protocol versions to negotiate.
     /// The first one is the main name, while the other ones are fall backs.
     supported_versions: BTreeMap<ProtocolVer, OutboundProtocolSpec>,
+}
+
+impl ProtocolUpgradeOut {
+    pub fn new(
+        protocol_id: ProtocolId,
+        supported_versions: Vec<(ProtocolVer, ProtocolSpec)>,
+    ) -> Self {
+        let supported_versions = BTreeMap::from_iter(
+            supported_versions
+                .into_iter()
+                .map(|(ver, spec)| (ver, OutboundProtocolSpec::from(spec)))
+                .into_iter(),
+        );
+        Self {
+            protocol_id,
+            supported_versions,
+        }
+    }
 }
 
 impl UpgradeInfo for ProtocolUpgradeOut {
@@ -229,7 +256,9 @@ where
 }
 
 pub struct ProtocolUpgraded<Substream> {
+    /// ProtocolTag negotiated with the peer.
     pub negotiated_tag: ProtocolTag,
+    /// Handshake sent by the peer.
     pub handshake: Option<RawMessage>,
     pub substream: Substream,
 }

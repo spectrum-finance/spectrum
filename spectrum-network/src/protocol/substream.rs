@@ -13,7 +13,7 @@ pub enum ProtocolSubstreamHandshakeState {
     /// Initial handshake not required.
     NotRequired,
     /// User gave us the handshake message. Trying to push it in the socket.
-    PendingSend(Vec<u8>),
+    PendingSend(RawMessage),
     /// Handshake message was pushed in the socket. Still need to flush.
     Flush,
     /// Handshake message successfully sent and flushed.
@@ -24,15 +24,23 @@ pub enum ProtocolSubstreamHandshakeState {
     BothSidesClosed,
 }
 
-/// A substream for incoming notification messages.
+/// A substream for incoming messages.
 ///
 /// When creating, this struct starts in a state in which we must first send back a handshake
-/// message to the remote. No message will come before this has been done.
+/// message to the peer. No message will come before this has been done.
 #[pin_project::pin_project]
 pub struct ProtocolSubstreamIn<Substream> {
     #[pin]
     pub socket: Framed<Substream, UviBytes<io::Cursor<Vec<u8>>>>,
-    pub handshake: ProtocolSubstreamHandshakeState,
+    pub handshake_state: ProtocolSubstreamHandshakeState,
+}
+
+impl<Substream> ProtocolSubstreamIn<Substream> {
+    pub fn send_handshake(&mut self, hanshake: RawMessage) {
+        if matches!(self.handshake_state, ProtocolSubstreamHandshakeState::NotSent) {
+            self.handshake_state = ProtocolSubstreamHandshakeState::PendingSend(hanshake);
+        }
+    }
 }
 
 impl<Substream> Stream for ProtocolSubstreamIn<Substream> {

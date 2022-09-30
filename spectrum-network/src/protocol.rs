@@ -13,9 +13,9 @@ pub(crate) mod upgrade;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProtocolSpec {
     /// Maximum allowed size for a single notification.
-    max_message_size: usize,
+    pub max_message_size: usize,
     /// Initial message to send when we start communicating.
-    handshake: Option<RawMessage>,
+    pub handshake: Option<RawMessage>,
 }
 
 pub struct ProtocolConfig {
