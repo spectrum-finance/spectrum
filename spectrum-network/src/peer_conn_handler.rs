@@ -2,13 +2,15 @@ mod message_sink;
 
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::protocol::combinators::AnyUpgradeOf;
-use crate::protocol::upgrade::{ProtocolTag, ProtocolUpgradeIn, ProtocolUpgradeOut};
+use crate::protocol::substream::{ProtocolSubstreamIn};
+use crate::protocol::upgrade::{
+    ProtocolTag, ProtocolUpgradeErr, ProtocolUpgradeIn, ProtocolUpgradeOut,
+};
 use crate::protocol::{Protocol, ProtocolConfig, ProtocolState};
 use crate::types::{ProtocolId, RawMessage};
 use futures::channel::mpsc;
 pub use futures::prelude::*;
 use libp2p::core::ConnectedPoint;
-use libp2p::swarm::handler::OutboundUpgradeSend;
 use libp2p::swarm::{
     ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, IntoConnectionHandler,
     KeepAlive, NegotiatedSubstream, SubstreamProtocol,
@@ -16,7 +18,8 @@ use libp2p::swarm::{
 use libp2p::{InboundUpgrade, OutboundUpgrade, PeerId};
 
 use std::collections::{HashMap, VecDeque};
-
+use std::mem;
+use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -24,6 +27,7 @@ use std::time::{Duration, Instant};
 pub struct PeerConnHandlerConf {
     async_msg_buffer_size: usize,
     open_timeout: Duration,
+    initial_keep_alive: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -63,12 +67,12 @@ pub enum ConnHandlerOut {
     /// [`ConnHandlerIn::Open`] or [`ConnHandlerIn::Close`] has been sent before and has not
     /// yet been acknowledged by a matching [`ConnHandlerOut`], then you don't need to a send
     /// another [`ConnHandlerIn`].
-    OpenedByPeer(ProtocolTag),
+    OpenedByPeer(ProtocolId),
     /// The remote would like the substreams to be closed. Send a [`ConnHandlerIn::Close`] in
     /// order to close them. If a [`ConnHandlerIn::Close`] has been sent before and has not yet
     /// been acknowledged by a [`ConnHandlerOut::CloseResult`], then you don't need to a send
     /// another one.
-    ClosedByPeer(ProtocolTag),
+    ClosedByPeer(ProtocolId),
     /// Received a message on a custom protocol substream.
     /// Can only happen when the handler is in the open state.
     Message {
@@ -184,7 +188,7 @@ impl ConnectionHandler for PeerConnHandler {
                 let state_next = match state {
                     ProtocolState::Closed => {
                         let event = ConnectionHandlerEvent::Custom(ConnHandlerOut::OpenedByPeer(
-                            negotiated_tag,
+                            protocol_id,
                         ));
                         self.pending_events.push_back(event);
                         ProtocolState::PartiallyOpenedByPeer {
@@ -203,9 +207,9 @@ impl ConnectionHandler for PeerConnHandler {
                     // substreams, and therefore sending a "RST" is the most correct thing
                     // to do.
                     ProtocolState::PartiallyOpened { substream_out } => {
-                        let (out_chan, in_chan) =
+                        let (msg_snd, msg_recv) =
                             mpsc::channel::<RawMessage>(self.conf.async_msg_buffer_size);
-                        let sink = MessageSink::new(self.peer_id, out_chan);
+                        let sink = MessageSink::new(self.peer_id, msg_snd);
                         self.pending_events
                             .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::Opened {
                                 protocol_tag: negotiated_tag,
@@ -215,12 +219,10 @@ impl ConnectionHandler for PeerConnHandler {
                         ProtocolState::Opened {
                             substream_out,
                             substream_in: upgrade.substream,
-                            pending_messages: in_chan,
+                            pending_messages_recv: msg_recv.fuse().peekable(),
                         }
                     }
-                    ProtocolState::PartiallyOpenedByPeer { .. }
-                    | ProtocolState::Accepting { .. }
-                    | ProtocolState::Opened { .. } => state,
+                    _ => state,
                 };
                 protocol.state = Some(state_next);
             };
@@ -240,10 +242,12 @@ impl ConnectionHandler for PeerConnHandler {
                     ProtocolState::Opening => ProtocolState::PartiallyOpened {
                         substream_out: upgrade.substream,
                     },
-                    ProtocolState::Accepting { substream_in } => {
-                        let (out_chan, in_chan) =
+                    ProtocolState::Accepting {
+                        substream_in: Some(substream_in),
+                    } => {
+                        let (msg_snd, msg_recv) =
                             mpsc::channel::<RawMessage>(self.conf.async_msg_buffer_size);
-                        let sink = MessageSink::new(self.peer_id, out_chan);
+                        let sink = MessageSink::new(self.peer_id, msg_snd);
                         self.pending_events
                             .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::Opened {
                                 protocol_tag: negotiated_tag,
@@ -253,10 +257,13 @@ impl ConnectionHandler for PeerConnHandler {
                         ProtocolState::Opened {
                             substream_in,
                             substream_out: upgrade.substream,
-                            pending_messages: in_chan,
+                            pending_messages_recv: msg_recv.fuse().peekable(),
                         }
                     }
-                    _ => state, // todo: warn, inconsistent state
+                    // todo: handle this in the case we decide to re-open out substream.
+                    ProtocolState::OutboundClosedByPeer { .. } => state,
+                    // todo: warn, inconsistent state; discard other options explicitly.
+                    _ => state,
                 };
                 protocol.state = Some(state_next);
             };
@@ -304,7 +311,9 @@ impl ConnectionHandler for PeerConnHandler {
                                     // Peer is waiting for handshake, so we send it.
                                     substream_in.send_handshake(hs)
                                 }
-                                ProtocolState::Accepting { substream_in }
+                                ProtocolState::Accepting {
+                                    substream_in: Some(substream_in),
+                                }
                             }
                             _ => state, // todo: warn, incosistent view
                         };
@@ -335,19 +344,42 @@ impl ConnectionHandler for PeerConnHandler {
 
     fn inject_dial_upgrade_error(
         &mut self,
-        info: Self::OutboundOpenInfo,
-        error: ConnectionHandlerUpgrErr<<Self::OutboundProtocol as OutboundUpgradeSend>::Error>,
+        protocol_tag: Self::OutboundOpenInfo,
+        _: ConnectionHandlerUpgrErr<ProtocolUpgradeErr>,
     ) {
-        todo!()
+        let protocol_id = protocol_tag.protocol_id();
+        if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
+            if let Some(state) = &protocol.state {
+                match state {
+                    ProtocolState::Opening | ProtocolState::Accepting { .. } => self
+                        .pending_events
+                        .push_back(ConnectionHandlerEvent::Custom(
+                            ConnHandlerOut::RefusedToOpen(protocol_id),
+                        )),
+                    _ => {}
+                }
+            }
+            protocol.state = Some(ProtocolState::Closed)
+        }
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
-        todo!()
+        // Keep alive unless all protocols are inactive.
+        // Otherwise close connection once initial_keep_alive interval passed.
+        if self
+            .protocols
+            .values()
+            .any(|p| !matches!(p.state, Some(ProtocolState::Closed)))
+        {
+            KeepAlive::Yes
+        } else {
+            KeepAlive::Until(self.created_at + self.conf.initial_keep_alive)
+        }
     }
 
     fn poll(
         &mut self,
-        cx: &mut Context<'_>,
+        cx: &mut Context,
     ) -> Poll<
         ConnectionHandlerEvent<
             Self::OutboundProtocol,
@@ -356,6 +388,155 @@ impl ConnectionHandler for PeerConnHandler {
             Self::Error,
         >,
     > {
-        todo!()
+        if let Some(out) = self.pending_events.pop_front() {
+            Poll::Ready(out)
+        } else {
+            // For each open substream, try send messages from `pending_messages_recv`.
+            for (_, protocol) in &mut self.protocols {
+                if let Some(
+                    ProtocolState::Opened {
+                        substream_out,
+                        pending_messages_recv,
+                        ..
+                    }
+                    | ProtocolState::InboundClosedByPeer {
+                        substream_out,
+                        pending_messages_recv,
+                    },
+                ) = &mut protocol.state
+                {
+                    loop {
+                        // Only proceed with `out_substream.poll_ready_unpin` if there is an element
+                        // available in `notifications_sink_rx`. This avoids waking up the task when
+                        // a substream is ready to send if there isn't actually something to send.
+                        match Pin::new(&mut *pending_messages_recv).as_mut().poll_peek(cx) {
+                            Poll::Ready(Some(_)) => {}
+                            Poll::Ready(None) | Poll::Pending => break,
+                        }
+                        // Before we extract the element from `pending_messages`, check that the
+                        // substream is ready to accept a message.
+                        match substream_out.poll_ready_unpin(cx) {
+                            Poll::Ready(_) => {}
+                            Poll::Pending => break,
+                        }
+
+                        // Now that the substream is ready for a message, grab what to send.
+                        let message = match pending_messages_recv.poll_next_unpin(cx) {
+                            Poll::Ready(Some(message)) => message,
+                            _ => panic!(), // Should never be reached, as per `poll_peek` above.
+                        };
+
+                        let _ = substream_out.start_send_unpin(message);
+                        // Note that flushing is performed later down this function.
+                    }
+                }
+            }
+
+            // Flush all outbound substreams.
+            // When `poll` returns `Poll::Ready`, the libp2p `Swarm` may decide to no longer call
+            // `poll` again before it is ready to accept more events.
+            // In order to make sure that substreams are flushed as soon as possible, the flush is
+            // performed before the code paths that can produce `Ready` (with some rare exceptions).
+            // Importantly, however, the flush is performed *after* notifications are queued with
+            // `Sink::start_send`.
+            for (protocol_id, protocol) in &mut self.protocols {
+                if let Some(state) = &mut protocol.state {
+                    if let ProtocolState::Opened { substream_out, .. }
+                    | ProtocolState::PartiallyOpened { substream_out, .. }
+                    | ProtocolState::InboundClosedByPeer { substream_out, .. } = state
+                    {
+                        match Sink::poll_flush(Pin::new(substream_out), cx) {
+                            Poll::Pending | Poll::Ready(Ok(())) => {}
+                            Poll::Ready(Err(_)) => {
+                                if let Some(ProtocolState::Opened { substream_in, .. }) =
+                                    mem::replace(&mut protocol.state, None)
+                                {
+                                    protocol.state =
+                                        Some(ProtocolState::OutboundClosedByPeer { substream_in });
+                                    let event = ConnHandlerOut::ClosedByPeer(*protocol_id);
+                                    return Poll::Ready(ConnectionHandlerEvent::Custom(event));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Poll inbound substreams.
+            for (protocol_id, protocol) in &mut self.protocols {
+                if let Some(state) = &mut protocol.state {
+                    match state {
+                        ProtocolState::Opened { substream_in, .. }
+                        | ProtocolState::OutboundClosedByPeer { substream_in } => {
+                            match Stream::poll_next(Pin::new(substream_in), cx) {
+                                Poll::Pending => {}
+                                Poll::Ready(Some(Ok(msg))) => {
+                                    let event = ConnHandlerOut::Message {
+                                        protocol_tag: ProtocolTag::new(*protocol_id, protocol.ver),
+                                        content: msg,
+                                    };
+                                    return Poll::Ready(ConnectionHandlerEvent::Custom(event));
+                                }
+                                Poll::Ready(None) | Poll::Ready(Some(Err(_))) => {
+                                    if let Some(ProtocolState::Opened {
+                                        substream_out,
+                                        pending_messages_recv,
+                                        ..
+                                    }) = mem::replace(&mut protocol.state, None)
+                                    {
+                                        protocol.state = Some(ProtocolState::InboundClosedByPeer {
+                                            substream_out,
+                                            pending_messages_recv,
+                                        });
+                                    } else {
+                                        protocol.state = Some(ProtocolState::Closed);
+                                        return Poll::Ready(ConnectionHandlerEvent::Custom(
+                                            ConnHandlerOut::ClosedByPeer(*protocol_id),
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        ProtocolState::PartiallyOpenedByPeer { substream_in } => {
+                            match ProtocolSubstreamIn::poll_process_handshake(
+                                Pin::new(substream_in),
+                                cx,
+                            ) {
+                                Poll::Pending => {}
+                                Poll::Ready(Ok(void)) => match void {},
+                                Poll::Ready(Err(_)) => {
+                                    protocol.state = Some(ProtocolState::Closed);
+                                    return Poll::Ready(ConnectionHandlerEvent::Custom(
+                                        ConnHandlerOut::ClosedByPeer(*protocol_id),
+                                    ));
+                                }
+                            }
+                        }
+                        ProtocolState::Accepting {
+                            substream_in: Some(substream_in),
+                        } => {
+                            match ProtocolSubstreamIn::poll_process_handshake(
+                                Pin::new(substream_in),
+                                cx,
+                            ) {
+                                Poll::Pending => {}
+                                Poll::Ready(Ok(void)) => match void {},
+                                Poll::Ready(Err(_)) => {
+                                    protocol.state =
+                                        Some(ProtocolState::Accepting { substream_in: None })
+                                }
+                            }
+                        }
+                        ProtocolState::Closed
+                        | ProtocolState::Opening
+                        | ProtocolState::PartiallyOpened { .. }
+                        | ProtocolState::InboundClosedByPeer { .. }
+                        | ProtocolState::Accepting { .. } => {}
+                    }
+                }
+            }
+
+            Poll::Pending
+        }
     }
 }

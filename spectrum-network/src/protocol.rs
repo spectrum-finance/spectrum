@@ -1,12 +1,11 @@
 use crate::protocol::substream::{ProtocolSubstreamIn, ProtocolSubstreamOut};
-use crate::protocol::upgrade::ProtocolUpgradeIn;
 use crate::types::{ProtocolId, ProtocolVer, RawMessage};
 use futures::channel::mpsc;
 use futures::stream;
 use libp2p::swarm::NegotiatedSubstream;
 
 pub mod combinators;
-mod substream;
+pub(crate) mod substream;
 pub mod sync;
 pub(crate) mod upgrade;
 
@@ -40,13 +39,14 @@ pub enum ProtocolState {
     Closed,
     /// Outbound protocol negotiation is requsted.
     Opening,
-    /// Inbound stream is negotiated by peer.
+    /// Inbound stream is negotiated by peer. The stream hasn't been approved yet.
     PartiallyOpenedByPeer {
         substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
     },
     /// Inbound stream is accepted, negotiating outbound upgrade.
     Accepting {
-        substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
+        /// None in the case when peer closed inbound substream.
+        substream_in: Option<ProtocolSubstreamIn<NegotiatedSubstream>>,
     },
     /// Outbound stream is negotiated with peer.
     PartiallyOpened {
@@ -56,6 +56,17 @@ pub enum ProtocolState {
     Opened {
         substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
         substream_out: ProtocolSubstreamOut<NegotiatedSubstream>,
-        pending_messages: mpsc::Receiver<RawMessage>,
+        pending_messages_recv: stream::Peekable<stream::Fuse<mpsc::Receiver<RawMessage>>>,
+    },
+    /// Inbound substream is closed by peer.
+    InboundClosedByPeer {
+        /// None in the case when the peer closed inbound substream while outbound one
+        /// hasn't been negotiated yet.
+        substream_out: ProtocolSubstreamOut<NegotiatedSubstream>,
+        pending_messages_recv: stream::Peekable<stream::Fuse<mpsc::Receiver<RawMessage>>>,
+    },
+    /// Outbound substream is closed by peer.
+    OutboundClosedByPeer {
+        substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
     },
 }

@@ -85,6 +85,12 @@ impl From<Vec<u8>> for RawMessage {
     }
 }
 
+impl Into<Vec<u8>> for RawMessage {
+    fn into(self) -> Vec<u8> {
+        self.0
+    }
+}
+
 impl AsRef<[u8]> for RawMessage {
     fn as_ref(&self) -> &[u8] {
         &*self.0
