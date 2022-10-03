@@ -1,6 +1,7 @@
 use crate::peer_manager::data::ReputationChange;
 use libp2p::core::upgrade;
 use std::cmp::Ordering;
+use libp2p::bytes::BytesMut;
 
 /// Opaque identifier for an incoming connection. Allocated by the network.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -82,6 +83,12 @@ pub struct RawMessage(Vec<u8>);
 impl From<Vec<u8>> for RawMessage {
     fn from(xs: Vec<u8>) -> Self {
         RawMessage(xs)
+    }
+}
+
+impl From<BytesMut> for RawMessage {
+    fn from(xs: BytesMut) -> Self {
+        RawMessage(xs.freeze().to_vec())
     }
 }
 

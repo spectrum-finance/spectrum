@@ -1,5 +1,5 @@
 use crate::protocol::substream::{
-    ProtocolSubstreamHandshakeState, ProtocolSubstreamIn, ProtocolSubstreamOut,
+    ProtocolHandshakeState, ProtocolSubstreamIn, ProtocolSubstreamOut,
 };
 use crate::protocol::ProtocolSpec;
 use crate::types::{ProtocolId, ProtocolVer, RawMessage};
@@ -141,13 +141,13 @@ where
                 None
             };
             let handshake_state = if pspec.handshake_required {
-                ProtocolSubstreamHandshakeState::NotSent
+                Some(ProtocolHandshakeState::NotSent)
             } else {
-                ProtocolSubstreamHandshakeState::NotRequired
+                None
             };
             let substream = ProtocolSubstreamIn {
                 socket: Framed::new(socket, codec),
-                handshake_state: handshake_state,
+                handshake_state,
             };
             Ok(ProtocolUpgraded {
                 negotiated_tag,

@@ -2,17 +2,15 @@ use crate::types::RawMessage;
 use asynchronous_codec::Framed;
 use futures::{AsyncRead, AsyncWrite, Sink, Stream};
 use std::convert::Infallible;
-use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::{io, mem};
 use unsigned_varint::codec::UviBytes;
 
 /// State of the handshake sending back process.
-pub enum ProtocolSubstreamHandshakeState {
+pub enum ProtocolHandshakeState {
     /// Waiting for the user to give us the handshake message.
     NotSent,
-    /// Initial handshake not required.
-    NotRequired,
     /// User gave us the handshake message. Trying to push it in the socket.
     PendingSend(RawMessage),
     /// Handshake message was pushed in the socket. Still need to flush.
@@ -41,16 +39,17 @@ pub enum ProtocolSubstreamOutError {
 pub struct ProtocolSubstreamIn<Substream> {
     #[pin]
     pub socket: Framed<Substream, UviBytes<io::Cursor<Vec<u8>>>>,
-    pub handshake_state: ProtocolSubstreamHandshakeState,
+    /// None in the case handshake not required.
+    pub handshake_state: Option<ProtocolHandshakeState>,
 }
 
-impl<Substream> ProtocolSubstreamIn<Substream> {
+impl<Substream> ProtocolSubstreamIn<Substream>
+where
+    Substream: AsyncRead + AsyncWrite + Unpin,
+{
     pub fn send_handshake(&mut self, hanshake: RawMessage) {
-        if matches!(
-            self.handshake_state,
-            ProtocolSubstreamHandshakeState::NotSent
-        ) {
-            self.handshake_state = ProtocolSubstreamHandshakeState::PendingSend(hanshake);
+        if matches!(self.handshake_state, Some(ProtocolHandshakeState::NotSent)) {
+            self.handshake_state = Some(ProtocolHandshakeState::PendingSend(hanshake));
         }
     }
 
@@ -60,15 +59,151 @@ impl<Substream> ProtocolSubstreamIn<Substream> {
         self: Pin<&mut Self>,
         cx: &mut Context,
     ) -> Poll<Result<Infallible, io::Error>> {
-        todo!()
+        let mut this = self.project();
+        loop {
+            if let Some(state) = this.handshake_state {
+                match mem::replace(state, ProtocolHandshakeState::Sent) {
+                    ProtocolHandshakeState::PendingSend(msg) => {
+                        match Sink::poll_ready(this.socket.as_mut(), cx) {
+                            Poll::Ready(_) => {
+                                *this.handshake_state = Some(ProtocolHandshakeState::Flush);
+                                match Sink::start_send(
+                                    this.socket.as_mut(),
+                                    io::Cursor::new(msg.into()),
+                                ) {
+                                    Ok(()) => {}
+                                    Err(err) => return Poll::Ready(Err(err)),
+                                }
+                            }
+                            Poll::Pending => {
+                                *this.handshake_state =
+                                    Some(ProtocolHandshakeState::PendingSend(msg));
+                                return Poll::Pending;
+                            }
+                        }
+                    }
+                    ProtocolHandshakeState::Flush => {
+                        match Sink::poll_flush(this.socket.as_mut(), cx)? {
+                            Poll::Ready(()) => {
+                                *this.handshake_state = Some(ProtocolHandshakeState::Sent)
+                            }
+                            Poll::Pending => {
+                                *this.handshake_state = Some(ProtocolHandshakeState::Flush);
+                                return Poll::Pending;
+                            }
+                        }
+                    }
+                    st @ ProtocolHandshakeState::NotSent
+                    | st @ ProtocolHandshakeState::Sent
+                    | st @ ProtocolHandshakeState::ClosingInResponseToRemote
+                    | st @ ProtocolHandshakeState::BothSidesClosed => {
+                        *this.handshake_state = Some(st);
+                        return Poll::Pending;
+                    }
+                }
+            } else {
+                return Poll::Pending;
+            }
+        }
     }
 }
 
-impl<Substream> Stream for ProtocolSubstreamIn<Substream> {
+impl<Substream> Stream for ProtocolSubstreamIn<Substream>
+where
+    Substream: AsyncRead + AsyncWrite + Unpin,
+{
     type Item = Result<RawMessage, io::Error>;
 
+    /// First tries to drive handshake delivery to completion if neccessary.
+    /// Then process incoming bytes.
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        todo!()
+        let mut this = self.project();
+
+        loop {
+            if let Some(state) = this.handshake_state {
+                match mem::replace(state, ProtocolHandshakeState::Sent) {
+                    ProtocolHandshakeState::NotSent => {
+                        *this.handshake_state = Some(ProtocolHandshakeState::NotSent);
+                        return Poll::Pending;
+                    }
+                    ProtocolHandshakeState::PendingSend(msg) => {
+                        match Sink::poll_ready(this.socket.as_mut(), cx) {
+                            Poll::Ready(_) => {
+                                *this.handshake_state = Some(ProtocolHandshakeState::Flush);
+                                match Sink::start_send(this.socket.as_mut(), io::Cursor::new(msg.into())) {
+                                    Ok(()) => {}
+                                    Err(err) => return Poll::Ready(Some(Err(err))),
+                                }
+                            }
+                            Poll::Pending => {
+                                *this.handshake_state =
+                                    Some(ProtocolHandshakeState::PendingSend(msg));
+                                return Poll::Pending;
+                            }
+                        }
+                    }
+                    ProtocolHandshakeState::Flush => {
+                        match Sink::poll_flush(this.socket.as_mut(), cx)? {
+                            Poll::Ready(()) => {
+                                *this.handshake_state = Some(ProtocolHandshakeState::Sent)
+                            }
+                            Poll::Pending => {
+                                *this.handshake_state = Some(ProtocolHandshakeState::Flush);
+                                return Poll::Pending;
+                            }
+                        }
+                    }
+
+                    ProtocolHandshakeState::Sent => {
+                        match Stream::poll_next(this.socket.as_mut(), cx) {
+                            Poll::Ready(None) => {
+                                *this.handshake_state =
+                                    Some(ProtocolHandshakeState::ClosingInResponseToRemote)
+                            }
+                            Poll::Ready(Some(msg)) => {
+                                *this.handshake_state = Some(ProtocolHandshakeState::Sent);
+                                return Poll::Ready(Some(msg.map(|xs| RawMessage::from(xs))));
+                            }
+                            Poll::Pending => {
+                                *this.handshake_state = Some(ProtocolHandshakeState::Sent);
+                                return Poll::Pending;
+                            }
+                        }
+                    }
+
+                    ProtocolHandshakeState::ClosingInResponseToRemote => {
+                        match Sink::poll_close(this.socket.as_mut(), cx)? {
+                            Poll::Ready(()) => {
+                                *this.handshake_state =
+                                    Some(ProtocolHandshakeState::BothSidesClosed)
+                            }
+                            Poll::Pending => {
+                                *this.handshake_state =
+                                    Some(ProtocolHandshakeState::ClosingInResponseToRemote);
+                                return Poll::Pending;
+                            }
+                        }
+                    }
+
+                    ProtocolHandshakeState::BothSidesClosed => return Poll::Ready(None),
+                }
+            } else {
+                match Stream::poll_next(this.socket.as_mut(), cx) {
+                    Poll::Ready(None) => {
+                        *this.handshake_state =
+                            Some(ProtocolHandshakeState::ClosingInResponseToRemote)
+                    }
+                    Poll::Ready(Some(msg)) => {
+                        *this.handshake_state = Some(ProtocolHandshakeState::Sent);
+                        return Poll::Ready(Some(msg.map(|xs| RawMessage::from(xs))));
+                    }
+                    Poll::Pending => {
+                        *this.handshake_state = Some(ProtocolHandshakeState::Sent);
+                        return Poll::Pending;
+                    }
+                }
+            }
+        }
     }
 }
 
