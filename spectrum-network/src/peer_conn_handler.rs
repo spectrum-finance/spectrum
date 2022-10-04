@@ -437,7 +437,7 @@ impl ConnectionHandler for PeerConnHandler {
             // `poll` again before it is ready to accept more events.
             // In order to make sure that substreams are flushed as soon as possible, the flush is
             // performed before the code paths that can produce `Ready` (with some rare exceptions).
-            // Importantly, however, the flush is performed *after* notifications are queued with
+            // Importantly, the flush is performed *after* notifications are queued with
             // `Sink::start_send`.
             for (protocol_id, protocol) in &mut self.protocols {
                 if let Some(state) = &mut protocol.state {
