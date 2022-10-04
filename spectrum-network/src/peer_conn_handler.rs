@@ -206,7 +206,8 @@ impl ConnectionHandler for PeerConnHandler {
                     // in mind that it is invalid for the remote to open multiple such
                     // substreams, and therefore sending a "RST" is the most correct thing
                     // to do.
-                    ProtocolState::PartiallyOpened { substream_out } => {
+                    ProtocolState::PartiallyOpened { substream_out } |
+                    ProtocolState::InboundClosedByPeer { substream_out, .. } => {
                         let (msg_snd, msg_recv) =
                             mpsc::channel::<RawMessage>(self.conf.async_msg_buffer_size);
                         let sink = MessageSink::new(self.peer_id, msg_snd);
