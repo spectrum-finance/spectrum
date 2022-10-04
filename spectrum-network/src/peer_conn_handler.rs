@@ -2,7 +2,7 @@ mod message_sink;
 
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::protocol::combinators::AnyUpgradeOf;
-use crate::protocol::substream::{ProtocolSubstreamIn};
+use crate::protocol::substream::ProtocolSubstreamIn;
 use crate::protocol::upgrade::{
     ProtocolTag, ProtocolUpgradeErr, ProtocolUpgradeIn, ProtocolUpgradeOut,
 };
@@ -442,7 +442,6 @@ impl ConnectionHandler for PeerConnHandler {
             for (protocol_id, protocol) in &mut self.protocols {
                 if let Some(state) = &mut protocol.state {
                     if let ProtocolState::Opened { substream_out, .. }
-                    | ProtocolState::PartiallyOpened { substream_out, .. }
                     | ProtocolState::InboundClosedByPeer { substream_out, .. } = state
                     {
                         match Sink::poll_flush(Pin::new(substream_out), cx) {
@@ -452,10 +451,12 @@ impl ConnectionHandler for PeerConnHandler {
                                     mem::replace(&mut protocol.state, None)
                                 {
                                     protocol.state =
-                                        Some(ProtocolState::OutboundClosedByPeer { substream_in });
-                                    let event = ConnHandlerOut::ClosedByPeer(*protocol_id);
-                                    return Poll::Ready(ConnectionHandlerEvent::Custom(event));
+                                        Some(ProtocolState::OutboundClosedByPeer { substream_in })
+                                } else {
+                                    protocol.state = Some(ProtocolState::Closed)
                                 }
+                                let event = ConnHandlerOut::ClosedByPeer(*protocol_id);
+                                return Poll::Ready(ConnectionHandlerEvent::Custom(event));
                             }
                         }
                     }
@@ -484,15 +485,16 @@ impl ConnectionHandler for PeerConnHandler {
                                         ..
                                     }) = mem::replace(&mut protocol.state, None)
                                     {
+                                        // Inbound substreams being closed are tolerated.
                                         protocol.state = Some(ProtocolState::InboundClosedByPeer {
                                             substream_out,
                                             pending_messages_recv,
                                         });
                                     } else {
                                         protocol.state = Some(ProtocolState::Closed);
-                                        return Poll::Ready(ConnectionHandlerEvent::Custom(
-                                            ConnHandlerOut::ClosedByPeer(*protocol_id),
-                                        ));
+                                        // Note, that `ConnHandlerOut::ClosedByPeer` was already
+                                        // generated earlier when the peer closed outbound substream.
+                                        // todo: Emit event that both substreams were closed by the peer?
                                     }
                                 }
                             }
