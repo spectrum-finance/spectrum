@@ -1,7 +1,6 @@
 use crate::peer_manager::data::ReputationChange;
-use libp2p::core::upgrade;
-use std::cmp::Ordering;
 use libp2p::bytes::BytesMut;
+use std::cmp::Ordering;
 
 /// Opaque identifier for an incoming connection. Allocated by the network.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

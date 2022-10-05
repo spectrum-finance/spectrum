@@ -128,7 +128,7 @@ where
                         }
                         Poll::Ready(Some(msg)) => {
                             *this.handshake_state = Some(ProtocolHandshakeState::Sent);
-                            return Poll::Ready(Some(msg.map(|xs| RawMessage::from(xs))));
+                            return Poll::Ready(Some(msg.map(RawMessage::from)));
                         }
                         Poll::Pending => {
                             *this.handshake_state = Some(ProtocolHandshakeState::Sent);
