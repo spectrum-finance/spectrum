@@ -71,7 +71,7 @@ impl From<ProtocolSpec> for InboundProtocolSpec {
     fn from(spec: ProtocolSpec) -> Self {
         Self {
             max_message_size: spec.max_message_size,
-            handshake_required: spec.handshake.is_some(),
+            handshake_required: spec.handshake_required,
         }
     }
 }
@@ -166,11 +166,11 @@ pub struct OutboundProtocolSpec {
     handshake: Option<RawMessage>,
 }
 
-impl From<ProtocolSpec> for OutboundProtocolSpec {
-    fn from(spec: ProtocolSpec) -> Self {
+impl OutboundProtocolSpec {
+    pub fn new(max_message_size: usize, handshake: Option<RawMessage>) -> Self {
         Self {
-            max_message_size: spec.max_message_size,
-            handshake: spec.handshake,
+            max_message_size,
+            handshake,
         }
     }
 }
@@ -189,12 +189,17 @@ pub struct ProtocolUpgradeOut {
 impl ProtocolUpgradeOut {
     pub fn new(
         protocol_id: ProtocolId,
-        supported_versions: Vec<(ProtocolVer, ProtocolSpec)>,
+        supported_versions: Vec<(ProtocolVer, ProtocolSpec, Option<RawMessage>)>,
     ) -> Self {
         let supported_versions = BTreeMap::from_iter(
             supported_versions
                 .into_iter()
-                .map(|(ver, spec)| (ver, OutboundProtocolSpec::from(spec)))
+                .map(|(ver, spec, handshake)| {
+                    (
+                        ver,
+                        OutboundProtocolSpec::new(spec.max_message_size, handshake),
+                    )
+                })
                 .into_iter(),
         );
         Self {

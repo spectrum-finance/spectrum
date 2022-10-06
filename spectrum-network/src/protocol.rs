@@ -5,16 +5,17 @@ use futures::stream;
 use libp2p::swarm::NegotiatedSubstream;
 
 pub mod combinators;
+pub mod handshake;
 pub(crate) mod substream;
 pub mod sync;
 pub(crate) mod upgrade;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProtocolSpec {
-    /// Maximum allowed size for a single notification.
+    /// Maximum allowed size for a single message.
     pub max_message_size: usize,
-    /// Initial message to send when we start communicating.
-    pub handshake: Option<RawMessage>,
+    /// An initial message to send when we start communicating.
+    pub handshake_required: bool,
 }
 
 pub struct ProtocolConfig {
@@ -31,6 +32,7 @@ pub struct Protocol {
     /// Always `Some`. `None` only during update (state transition).
     pub state: Option<ProtocolState>,
     /// Specs for all supported versions of this protocol
+    /// Note, versions must be listed in descending order.
     pub all_versions_specs: Vec<(ProtocolVer, ProtocolSpec)>,
 }
 

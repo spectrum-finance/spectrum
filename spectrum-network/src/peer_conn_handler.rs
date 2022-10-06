@@ -2,6 +2,7 @@ mod message_sink;
 
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::protocol::combinators::AnyUpgradeOf;
+use crate::protocol::handshake::PolyVerHandshakeSpec;
 use crate::protocol::substream::ProtocolSubstreamIn;
 use crate::protocol::upgrade::{
     ProtocolTag, ProtocolUpgradeErr, ProtocolUpgradeIn, ProtocolUpgradeOut,
@@ -39,7 +40,10 @@ pub enum ConnHandlerIn {
     ///
     /// Importantly, it is forbidden to send a [`ConnHandlerIn::Open`] while a previous one is
     /// already in the fly. It is however possible if a `Close` is still in the fly.
-    Open(ProtocolId),
+    Open {
+        protocol_id: ProtocolId,
+        handshake: PolyVerHandshakeSpec,
+    },
     /// Instruct the handler to close the notification substreams, or reject any pending incoming
     /// substream request.
     ///
@@ -273,7 +277,10 @@ impl ConnectionHandler for PeerConnHandler {
 
     fn inject_event(&mut self, cmd: ConnHandlerIn) {
         match cmd {
-            ConnHandlerIn::Open(protocol_id) => {
+            ConnHandlerIn::Open {
+                protocol_id,
+                handshake,
+            } => {
                 if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
                     let state = protocol.state.take();
                     if let Some(state) = state {
@@ -281,7 +288,13 @@ impl ConnectionHandler for PeerConnHandler {
                             ProtocolState::Closed => {
                                 let upgrade = ProtocolUpgradeOut::new(
                                     protocol_id,
-                                    protocol.all_versions_specs.clone(),
+                                    protocol
+                                        .all_versions_specs
+                                        .clone()
+                                        .into_iter()
+                                        .zip::<Vec<_>>(handshake.into())
+                                        .map(|((ver, spec), (_, hs))| (ver, spec, hs))
+                                        .collect(),
                                 );
                                 self.pending_events.push_back(
                                     ConnectionHandlerEvent::OutboundSubstreamRequest {
@@ -295,9 +308,16 @@ impl ConnectionHandler for PeerConnHandler {
                                 ProtocolState::Opening
                             }
                             ProtocolState::PartiallyOpenedByPeer { mut substream_in } => {
+                                let hs = handshake.handshake_for(protocol.ver);
                                 let upgrade = ProtocolUpgradeOut::new(
                                     protocol_id,
-                                    protocol.all_versions_specs.clone(),
+                                    protocol
+                                        .all_versions_specs
+                                        .clone()
+                                        .into_iter()
+                                        .zip::<Vec<_>>(handshake.into())
+                                        .map(|((ver, spec), (_, hs))| (ver, spec, hs))
+                                        .collect(),
                                 );
                                 self.pending_events.push_back(
                                     ConnectionHandlerEvent::OutboundSubstreamRequest {
@@ -308,7 +328,7 @@ impl ConnectionHandler for PeerConnHandler {
                                         .with_timeout(self.conf.open_timeout),
                                     },
                                 );
-                                if let Some(hs) = protocol.spec.handshake.clone() {
+                                if let Some(hs) = hs {
                                     // Peer is waiting for handshake, so we send it.
                                     substream_in.send_handshake(hs)
                                 }
