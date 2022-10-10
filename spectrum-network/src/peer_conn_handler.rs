@@ -1,4 +1,4 @@
-mod message_sink;
+pub mod message_sink;
 
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::protocol::combinators::AnyUpgradeOf;
@@ -92,7 +92,16 @@ pub trait PeerConnHandlerActions {
 
 pub struct PartialPeerConnHandler {
     conf: PeerConnHandlerConf,
-    protocols: Vec<ProtocolConfig>,
+    supported_protocols: Vec<ProtocolConfig>,
+}
+
+impl PartialPeerConnHandler {
+    pub fn new(conf: PeerConnHandlerConf, supported_protocols: Vec<ProtocolConfig>) -> Self {
+        Self {
+            conf,
+            supported_protocols,
+        }
+    }
 }
 
 impl IntoConnectionHandler for PartialPeerConnHandler {
@@ -103,7 +112,7 @@ impl IntoConnectionHandler for PartialPeerConnHandler {
         remote_peer_id: &PeerId,
         connected_point: &ConnectedPoint,
     ) -> Self::Handler {
-        let protocols = HashMap::from_iter(self.protocols.iter().flat_map(|p| {
+        let protocols = HashMap::from_iter(self.supported_protocols.iter().flat_map(|p| {
             p.supported_versions.iter().map(|(ver, spec)| {
                 (
                     p.protocol_id,
@@ -127,7 +136,7 @@ impl IntoConnectionHandler for PartialPeerConnHandler {
     }
 
     fn inbound_protocol(&self) -> AnyUpgradeOf<ProtocolUpgradeIn> {
-        self.protocols
+        self.supported_protocols
             .iter()
             .map(|p| ProtocolUpgradeIn::new(p.protocol_id, p.supported_versions.clone()))
             .collect::<AnyUpgradeOf<_>>()

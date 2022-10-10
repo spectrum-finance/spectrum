@@ -18,6 +18,7 @@ pub struct ProtocolSpec {
     pub handshake_required: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProtocolConfig {
     pub protocol_id: ProtocolId,
     pub supported_versions: Vec<(ProtocolVer, ProtocolSpec)>,
