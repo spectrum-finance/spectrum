@@ -1,15 +1,21 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
-use crate::peer_manager::Peers;
+use crate::peer_manager::{PeerManagerNotifications, Peers};
 use crate::protocol::upgrade::ProtocolTag;
 use crate::protocol::ProtocolConfig;
 use crate::routing::{Message, OutboxRouter};
 use crate::types::{ProtocolId, ProtocolVer, RawMessage};
 use libp2p::core::connection::ConnectionId;
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
-use libp2p::PeerId;
+use libp2p::core::transport::ListenerId;
+use libp2p::core::ConnectedPoint;
+use libp2p::swarm::{
+    DialError, IntoConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
+};
+use libp2p::{Multiaddr, PeerId};
 use log::trace;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
+use std::error::Error;
 use std::task::{Context, Poll};
 
 /// States of an enabled protocol.
@@ -28,6 +34,8 @@ pub enum ConnectedPeer {
         conn_id: ConnectionId,
         enabled_protocols: HashMap<ProtocolId, EnabledProtocol>,
     },
+    /// The peer is connected but not approved by PM yet.
+    PendingApprove(ConnectionId),
     /// PM requested that we should connect to this peer.
     PendingConnect,
     /// PM requested that we should disconnect this peer.
@@ -54,7 +62,7 @@ pub struct NetworkController<TPeers, TRouter> {
 
 impl<TPeers, TRouter> NetworkBehaviour for NetworkController<TPeers, TRouter>
 where
-    TPeers: Peers + 'static,
+    TPeers: PeerManagerNotifications + 'static,
     TRouter: OutboxRouter + 'static,
 {
     type ConnectionHandler = PartialPeerConnHandler;
@@ -65,6 +73,33 @@ where
             self.conn_handler_conf.clone(),
             self.supported_protocols.clone(),
         )
+    }
+
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        conn_id: &ConnectionId,
+        _endpoint: &ConnectedPoint,
+        _failed_addresses: Option<&Vec<Multiaddr>>,
+        _other_established: usize,
+    ) {
+        match self.enabled_peers.entry(*peer_id) {
+            Entry::Occupied(mut entry) => match entry.get() {
+                ConnectedPeer::PendingConnect => {
+                    entry.insert(ConnectedPeer::Connected {
+                        conn_id: *conn_id,
+                        enabled_protocols: HashMap::new(),
+                    });
+                }
+                ConnectedPeer::Connected { .. }
+                | ConnectedPeer::PendingDisconnect(..)
+                | ConnectedPeer::PendingApprove(..) => {}
+            },
+            Entry::Vacant(entry) => {
+                self.peer_manager.incoming_connection(*peer_id, *conn_id);
+                entry.insert(ConnectedPeer::PendingApprove(*conn_id));
+            }
+        }
     }
 
     fn inject_event(&mut self, peer_id: PeerId, connection: ConnectionId, event: ConnHandlerOut) {
