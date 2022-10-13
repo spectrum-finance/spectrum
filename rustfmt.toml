@@ -2,3 +2,4 @@ brace_style = "PreferSameLine"
 max_width = 100
 trailing_semicolon = false
 enum_discrim_align_threshold = 20
+condense_wildcard_suffixes = true

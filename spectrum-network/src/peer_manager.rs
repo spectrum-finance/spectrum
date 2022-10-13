@@ -9,13 +9,13 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use futures::channel::oneshot::Receiver;
 use futures::Stream;
+use libp2p::core::connection::ConnectionId;
 use libp2p::PeerId;
 use std::collections::{HashSet, VecDeque};
 use std::ops::Add;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
-use libp2p::core::connection::ConnectionId;
 
 /// Peer Manager output commands.
 #[derive(Debug, PartialEq)]

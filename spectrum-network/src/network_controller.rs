@@ -2,10 +2,10 @@ use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{
     ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf,
 };
-use crate::peer_manager::PeerManagerNotifications;
+use crate::peer_manager::{PeerManagerNotifications, Peers};
 use crate::protocol::upgrade::ProtocolTag;
 use crate::protocol::ProtocolConfig;
-use crate::routing::{Message, OutboxRouter};
+use crate::protocol_handler::ProtocolHandler;
 use crate::types::{ProtocolId, ProtocolVer, RawMessage};
 use libp2p::core::connection::ConnectionId;
 
@@ -16,6 +16,7 @@ use log::trace;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 
+use crate::peer_manager::data::ReputationChange;
 use std::task::{Context, Poll};
 
 /// States of an enabled protocol.
@@ -30,11 +31,11 @@ pub enum EnabledProtocol {
     PendingDisable,
 }
 
-pub enum ConnectedPeer {
+pub enum ConnectedPeer<THandler> {
     /// We are connected to this peer.
     Connected {
         conn_id: ConnectionId,
-        enabled_protocols: HashMap<ProtocolId, EnabledProtocol>,
+        enabled_protocols: HashMap<ProtocolId, (EnabledProtocol, THandler)>,
     },
     /// The peer is connected but not approved by PM yet.
     PendingApprove(ConnectionId),
@@ -53,19 +54,19 @@ pub enum NetworkControllerOut {
     },
 }
 
-pub struct NetworkController<TPeers, TRouter> {
+pub struct NetworkController<TPeers, THandler> {
     conn_handler_conf: PeerConnHandlerConf,
-    supported_protocols: Vec<ProtocolConfig>,
+    supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
     peer_manager: TPeers,
-    msg_router: TRouter,
-    enabled_peers: HashMap<PeerId, ConnectedPeer>,
+    enabled_peers: HashMap<PeerId, ConnectedPeer<THandler>>,
     pending_actions: VecDeque<NetworkBehaviourAction<NetworkControllerOut, PartialPeerConnHandler>>,
 }
 
-impl<TPeers, TRouter> NetworkBehaviour for NetworkController<TPeers, TRouter>
+// todo: implement NotEnabled => PendingEnable
+impl<TPeers, THandler> NetworkBehaviour for NetworkController<TPeers, THandler>
 where
-    TPeers: PeerManagerNotifications + 'static,
-    TRouter: OutboxRouter + 'static,
+    TPeers: Peers + PeerManagerNotifications + 'static,
+    THandler: ProtocolHandler + Clone + 'static,
 {
     type ConnectionHandler = PartialPeerConnHandler;
     type OutEvent = NetworkControllerOut;
@@ -73,7 +74,11 @@ where
     fn new_handler(&mut self) -> Self::ConnectionHandler {
         PartialPeerConnHandler::new(
             self.conn_handler_conf.clone(),
-            self.supported_protocols.clone(),
+            self.supported_protocols
+                .values()
+                .cloned()
+                .map(|(conf, _)| conf)
+                .collect(),
         )
     }
 
@@ -115,18 +120,39 @@ where
                     enabled_protocols, ..
                 }) = self.enabled_peers.get_mut(&peer_id)
                 {
-                    match enabled_protocols.entry(protocol_tag.protocol_id()) {
+                    let protocol_id = protocol_tag.protocol_id();
+                    let protocol_ver = protocol_tag.protocol_ver();
+                    match enabled_protocols.entry(protocol_id) {
                         Entry::Occupied(mut entry) => {
-                            if let EnabledProtocol::PendingEnable = entry.get() {
-                                if let Some(hs) = handshake {
-                                    // todo:
-                                    self.msg_router
-                                        .route(Message::new(peer_id, protocol_tag, hs));
-                                };
-                                entry.insert(EnabledProtocol::Enabled {
-                                    ver: protocol_tag.protocol_ver(),
-                                    sink: out_channel,
-                                });
+                            if let (EnabledProtocol::PendingEnable, handler) = entry.get() {
+                                if let Err(err) = handler.protocol_enabled(
+                                    peer_id,
+                                    protocol_ver,
+                                    handshake,
+                                    out_channel.clone(),
+                                ) {
+                                    trace!(
+                                        "Failed to enable protocol {:?} with peer {:?} due to {:?}",
+                                        protocol_id,
+                                        peer_id,
+                                        err
+                                    );
+                                    self.peer_manager
+                                        .report_peer(peer_id, ReputationChange::MalformedMessage);
+                                    self.pending_actions.push_back(
+                                        NetworkBehaviourAction::NotifyHandler {
+                                            peer_id,
+                                            handler: NotifyHandler::One(connection),
+                                            event: ConnHandlerIn::Close(protocol_id),
+                                        },
+                                    )
+                                } else {
+                                    let enabled_protocol = EnabledProtocol::Enabled {
+                                        ver: protocol_ver,
+                                        sink: out_channel,
+                                    };
+                                    entry.insert((enabled_protocol, handler.clone()));
+                                }
                             }
                         }
                         Entry::Vacant(entry) => {
@@ -135,15 +161,40 @@ where
                     }
                 }
             }
-            ConnHandlerOut::OpenedByPeer(protocol_id) => {
+            ConnHandlerOut::OpenedByPeer {
+                protocol_tag,
+                handshake,
+            } => {
                 if let Some(ConnectedPeer::Connected {
                     enabled_protocols, ..
                 }) = self.enabled_peers.get_mut(&peer_id)
                 {
+                    let protocol_id = protocol_tag.protocol_id();
+                    let (_, prot_handler) = self.supported_protocols.get(&protocol_id).unwrap();
                     match enabled_protocols.entry(protocol_id) {
                         Entry::Vacant(entry) => {
-                            entry.insert(EnabledProtocol::PendingApprove);
-                            //todo: self.handlers.get(protocol_id).protocol_requested()
+                            entry.insert((EnabledProtocol::PendingApprove, prot_handler.clone()));
+                            if let Err(err) = prot_handler.protocol_requested(
+                                peer_id,
+                                protocol_tag.protocol_ver(),
+                                handshake,
+                            ) {
+                                trace!(
+                                    "Peer {:?} failed his attempt to open protocol {:?} due to {:?}",
+                                    peer_id,
+                                    protocol_id,
+                                    err
+                                );
+                                self.peer_manager
+                                    .report_peer(peer_id, ReputationChange::MalformedMessage);
+                                self.pending_actions.push_back(
+                                    NetworkBehaviourAction::NotifyHandler {
+                                        peer_id,
+                                        handler: NotifyHandler::One(connection),
+                                        event: ConnHandlerIn::Close(protocol_id),
+                                    },
+                                )
+                            };
                         }
                         Entry::Occupied(_) => {
                             trace!(
@@ -185,11 +236,36 @@ where
                 protocol_tag,
                 content,
             } => {
-                if let Err(msg) =
-                    self.msg_router
-                        .route(Message::new(peer_id, protocol_tag, content))
+                if let Some(ConnectedPeer::Connected {
+                    enabled_protocols, ..
+                }) = self.enabled_peers.get_mut(&peer_id)
                 {
-                    trace!(target: "NetworkController", "Unhandled message from {}, {:?}", peer_id, msg)
+                    let protocol_id = protocol_tag.protocol_id();
+                    match enabled_protocols.get(&protocol_id) {
+                        Some((_, prot_handler)) => {
+                            if let Err(err) = prot_handler.incoming_msg(
+                                peer_id,
+                                protocol_tag.protocol_ver(),
+                                content,
+                            ) {
+                                trace!(
+                                    "Failed to handle msg from peer {:?}, protocol {:?}",
+                                    peer_id,
+                                    protocol_id
+                                );
+                                self.peer_manager
+                                    .report_peer(peer_id, ReputationChange::MalformedMessage);
+                                self.pending_actions.push_back(
+                                    NetworkBehaviourAction::NotifyHandler {
+                                        peer_id,
+                                        handler: NotifyHandler::One(connection),
+                                        event: ConnHandlerIn::Close(protocol_id),
+                                    },
+                                )
+                            };
+                        }
+                        None => {} // todo: probably possible?
+                    };
                 }
             }
         }

@@ -71,7 +71,10 @@ pub enum ConnHandlerOut {
     /// [`ConnHandlerIn::Open`] or [`ConnHandlerIn::Close`] has been sent before and has not
     /// yet been acknowledged by a matching [`ConnHandlerOut`], then you don't need to a send
     /// another [`ConnHandlerIn`].
-    OpenedByPeer(ProtocolId),
+    OpenedByPeer {
+        protocol_tag: ProtocolTag,
+        handshake: Option<RawMessage>,
+    },
     /// The remote would like the substreams to be closed. Send a [`ConnHandlerIn::Close`] in
     /// order to close them. If a [`ConnHandlerIn::Close`] has been sent before and has not yet
     /// been acknowledged by a [`ConnHandlerOut::CloseResult`], then you don't need to a send
@@ -200,9 +203,10 @@ impl ConnectionHandler for PeerConnHandler {
             if let Some(state) = state {
                 let state_next = match state {
                     ProtocolState::Closed => {
-                        let event = ConnectionHandlerEvent::Custom(ConnHandlerOut::OpenedByPeer(
-                            protocol_id,
-                        ));
+                        let event = ConnectionHandlerEvent::Custom(ConnHandlerOut::OpenedByPeer {
+                            protocol_tag: negotiated_tag,
+                            handshake: upgrade.handshake,
+                        });
                         self.pending_events.push_back(event);
                         ProtocolState::PartiallyOpenedByPeer {
                             substream_in: upgrade.substream,

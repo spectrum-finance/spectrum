@@ -3,11 +3,8 @@ use libp2p::Multiaddr;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReputationChange {
-    /// Reputation delta.
-    pub value: i32,
-    /// Reason for reputation change.
-    pub reason: &'static str,
+pub enum ReputationChange {
+    MalformedMessage = 10,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
