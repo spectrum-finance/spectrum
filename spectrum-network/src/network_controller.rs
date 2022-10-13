@@ -1,27 +1,29 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
-use crate::peer_conn_handler::{ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
-use crate::peer_manager::{PeerManagerNotifications, Peers};
+use crate::peer_conn_handler::{
+    ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf,
+};
+use crate::peer_manager::PeerManagerNotifications;
 use crate::protocol::upgrade::ProtocolTag;
 use crate::protocol::ProtocolConfig;
 use crate::routing::{Message, OutboxRouter};
 use crate::types::{ProtocolId, ProtocolVer, RawMessage};
 use libp2p::core::connection::ConnectionId;
-use libp2p::core::transport::ListenerId;
+
 use libp2p::core::ConnectedPoint;
-use libp2p::swarm::{
-    DialError, IntoConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
-};
+use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters};
 use libp2p::{Multiaddr, PeerId};
 use log::trace;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
-use std::error::Error;
+
 use std::task::{Context, Poll};
 
 /// States of an enabled protocol.
 pub enum EnabledProtocol {
     /// Bi-directional communication on this protocol is enabled.
     Enabled { ver: ProtocolVer, sink: MessageSink },
+    /// Substreams for this protocol are requested by peer.
+    PendingApprove,
     /// Substreams for this protocol are requested.
     PendingEnable,
     /// Waiting for the substreams to be closed.
@@ -104,15 +106,81 @@ where
 
     fn inject_event(&mut self, peer_id: PeerId, connection: ConnectionId, event: ConnHandlerOut) {
         match event {
-            ConnHandlerOut::Closed(protocol_id) => todo!(),
             ConnHandlerOut::Opened {
                 protocol_tag,
                 handshake,
                 out_channel,
-            } => todo!(),
-            ConnHandlerOut::ClosedByPeer(protocol_id) => todo!(),
-            ConnHandlerOut::OpenedByPeer(protocol_id) => todo!(),
-            ConnHandlerOut::RefusedToOpen(protocol_id) => todo!(),
+            } => {
+                if let Some(ConnectedPeer::Connected {
+                    enabled_protocols, ..
+                }) = self.enabled_peers.get_mut(&peer_id)
+                {
+                    match enabled_protocols.entry(protocol_tag.protocol_id()) {
+                        Entry::Occupied(mut entry) => {
+                            if let EnabledProtocol::PendingEnable = entry.get() {
+                                if let Some(hs) = handshake {
+                                    // todo:
+                                    self.msg_router
+                                        .route(Message::new(peer_id, protocol_tag, hs));
+                                };
+                                entry.insert(EnabledProtocol::Enabled {
+                                    ver: protocol_tag.protocol_ver(),
+                                    sink: out_channel,
+                                });
+                            }
+                        }
+                        Entry::Vacant(entry) => {
+                            trace!("Unknown protocol was opened {:?}", entry.key())
+                        }
+                    }
+                }
+            }
+            ConnHandlerOut::OpenedByPeer(protocol_id) => {
+                if let Some(ConnectedPeer::Connected {
+                    enabled_protocols, ..
+                }) = self.enabled_peers.get_mut(&peer_id)
+                {
+                    match enabled_protocols.entry(protocol_id) {
+                        Entry::Vacant(entry) => {
+                            entry.insert(EnabledProtocol::PendingApprove);
+                            //todo: self.handlers.get(protocol_id).protocol_requested()
+                        }
+                        Entry::Occupied(_) => {
+                            trace!(
+                                "Peer {:?} opened already enabled protocol {:?}",
+                                peer_id,
+                                protocol_id
+                            );
+                            self.pending_actions
+                                .push_back(NetworkBehaviourAction::NotifyHandler {
+                                    peer_id,
+                                    handler: NotifyHandler::One(connection),
+                                    event: ConnHandlerIn::Close(protocol_id),
+                                })
+                        }
+                    }
+                }
+            }
+            ConnHandlerOut::ClosedByPeer(protocol_id)
+            | ConnHandlerOut::RefusedToOpen(protocol_id)
+            | ConnHandlerOut::Closed(protocol_id) => {
+                if let Some(ConnectedPeer::Connected {
+                    enabled_protocols, ..
+                }) = self.enabled_peers.get_mut(&peer_id)
+                {
+                    match enabled_protocols.entry(protocol_id) {
+                        Entry::Occupied(entry) => {
+                            trace!(
+                                "Peer {:?} closed the substream for protocol {:?}",
+                                peer_id,
+                                protocol_id
+                            );
+                            entry.remove();
+                        }
+                        Entry::Vacant(_) => {}
+                    }
+                }
+            }
             ConnHandlerOut::Message {
                 protocol_tag,
                 content,

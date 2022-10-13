@@ -353,20 +353,11 @@ impl ConnectionHandler for PeerConnHandler {
             }
             ConnHandlerIn::Close(protocol_id) => {
                 if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
-                    match protocol.state {
-                        Some(ProtocolState::Opening) => {
-                            self.pending_events
-                                .push_back(ConnectionHandlerEvent::Custom(
-                                    ConnHandlerOut::RefusedToOpen(protocol_id),
-                                ))
-                        }
-                        _ => {}
-                    }
+                    protocol.state = Some(ProtocolState::Closed);
                     self.pending_events
                         .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::Closed(
                             protocol_id,
-                        )));
-                    protocol.state = Some(ProtocolState::Closed);
+                        )))
                 }
             }
         }
