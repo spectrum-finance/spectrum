@@ -2,9 +2,11 @@ pub mod data;
 pub mod peer_store;
 pub mod peers_state;
 
-use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
+use crate::peer_manager::data::{
+    ConnectionLossReason, ConnectionState, PeerInfo, ReputationChange,
+};
 use crate::peer_manager::peers_state::{PeerInState, PeerStateFilter, PeersState};
-use crate::types::{IncomingIndex, Reputation};
+use crate::types::{IncomingIndex, ProtocolId, Reputation};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use futures::channel::oneshot::Receiver;
@@ -23,15 +25,23 @@ pub enum OutCommand {
     /// Request to open a connection to the given peer. From the point of view of the PSM, we are
     /// immediately connected.
     Connect(PeerId),
-
     /// Drop the connection to the given peer, or cancel the connection attempt after a `Connect`.
     Drop(PeerId),
-
     /// Equivalent to `Connect` for the peer corresponding to this incoming index.
     Accept(ConnectionId),
-
     /// Equivalent to `Drop` for the peer corresponding to this incoming index.
     Reject(ConnectionId),
+    /// An instruction to start the specified protocol with the specified peer.
+    StartProtocol(ProtocolId, PeerId),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ProtocolSupportIsConfirmed(bool);
+
+impl Into<bool> for ProtocolSupportIsConfirmed {
+    fn into(self) -> bool {
+        self.0
+    }
 }
 
 /// Peer Manager inputs.
@@ -42,6 +52,13 @@ pub enum InRequest {
     SetReservedPeers(HashSet<PeerId>),
     ReportPeer(PeerId, ReputationChange),
     GetPeerReputation(PeerId, oneshot::Sender<Reputation>),
+    /// Update set of protocols that the given peer supports.
+    SetProtocols(PeerId, Vec<ProtocolId>),
+    /// Request to start the given protocol with a peer
+    /// which suits best for it (from PM's point of view).
+    /// Protocol support (by the peer) must be confirmed if `ProtocolSupportIsConfirmed(true)`.
+    /// PM issues a `StartProtocol` command if satisfiable peer is found.
+    RequestProtocol(ProtocolId, ProtocolSupportIsConfirmed),
 }
 
 /// Events Peer Manager reacts to.
@@ -63,6 +80,12 @@ pub trait Peers {
     fn set_reserved_peers(&mut self, peers: HashSet<PeerId>);
     fn report_peer(&mut self, peer_id: PeerId, change: ReputationChange);
     fn get_peer_reputation(&mut self, peer_id: PeerId) -> Receiver<Reputation>;
+    fn set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>);
+    fn protocol_request(
+        &mut self,
+        protocol_id: ProtocolId,
+        support_confirmed: ProtocolSupportIsConfirmed,
+    );
 }
 
 /// Async API to PeerManager notifications.
@@ -77,6 +100,12 @@ pub trait PeerManagerRequestsBehavior {
     fn on_set_reserved_peers(&mut self, peers: HashSet<PeerId>);
     fn on_report_peer(&mut self, peer_id: PeerId, change: ReputationChange);
     fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: oneshot::Sender<Reputation>);
+    fn on_set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>);
+    fn on_request_protocol(
+        &mut self,
+        protocol_id: ProtocolId,
+        support_confirmed: ProtocolSupportIsConfirmed,
+    );
 }
 
 pub trait PeerManagerNotificationsBehavior {
@@ -119,6 +148,22 @@ impl Peers for PeersLive {
             .requests_snd
             .unbounded_send(InRequest::GetPeerReputation(peer_id, sender));
         receiver
+    }
+
+    fn set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>) {
+        let _ = self
+            .requests_snd
+            .unbounded_send(InRequest::SetProtocols(peer_id, protocols));
+    }
+
+    fn protocol_request(
+        &mut self,
+        protocol_id: ProtocolId,
+        support_confirmed: ProtocolSupportIsConfirmed,
+    ) {
+        let _ = self
+            .requests_snd
+            .unbounded_send(InRequest::RequestProtocol(protocol_id, support_confirmed));
     }
 }
 
@@ -169,7 +214,9 @@ impl<S: PeersState> PeerManager<S> {
 
     /// Connect to a best peer we are not connected yet.
     pub fn connect_best(&mut self) {
-        if let Some(pid) = self.state.peek_best() {
+        if let Some(pid) = self.state.peek_best(Some(|pi: &PeerInfo| {
+            matches!(pi.state, ConnectionState::NotConnected)
+        })) {
             self.connect(pid)
         }
     }
@@ -223,6 +270,32 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
                 let _ = response.send(reputation);
             }
             None => {} // warn
+        }
+    }
+
+    fn on_set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>) {
+        match self.state.peer(&peer_id) {
+            Some(mut peer) => {
+                peer.set_protocols(protocols);
+            }
+            None => {} // warn
+        }
+    }
+
+    fn on_request_protocol(
+        &mut self,
+        protocol_id: ProtocolId,
+        support_confirmed: ProtocolSupportIsConfirmed,
+    ) {
+        let peer = self.state.peek_best(if support_confirmed.0 {
+            Some(|pi: &PeerInfo| pi.supports(&protocol_id).unwrap_or(false))
+        } else {
+            None
+        });
+        if let Some(pid) = peer {
+            let _ = self
+                .out_queue
+                .push_back(OutCommand::StartProtocol(protocol_id, pid));
         }
     }
 }
@@ -316,6 +389,12 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                         self.on_get_peer_reputation(pid, resp)
                     }
                     InRequest::SetReservedPeers(peers) => self.on_set_reserved_peers(peers),
+                    InRequest::SetProtocols(pid, protocols) => {
+                        self.on_set_peer_protocols(pid, protocols)
+                    }
+                    InRequest::RequestProtocol(protocol, require_support_confirmed) => {
+                        self.on_request_protocol(protocol, require_support_confirmed)
+                    }
                 }
             }
         }

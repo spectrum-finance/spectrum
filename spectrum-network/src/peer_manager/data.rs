@@ -1,4 +1,4 @@
-use crate::types::Reputation;
+use crate::types::{ProtocolId, Reputation};
 use libp2p::Multiaddr;
 use std::time::Instant;
 
@@ -48,6 +48,8 @@ pub struct PeerInfo {
     pub last_handshake: Option<Instant>,
     /// Backoff of the next outbound connection attempt.
     pub outbound_backoff_until: Option<Instant>,
+    /// Protocols supported by the peer. `None` if unknown.
+    pub supported_protocols: Option<Vec<ProtocolId>>,
 }
 
 impl PeerInfo {
@@ -59,6 +61,11 @@ impl PeerInfo {
             num_connections: 0,
             last_handshake: None,
             outbound_backoff_until: None,
+            supported_protocols: None
         }
+    }
+
+    pub fn supports(&self, protocol: &ProtocolId) -> Option<bool> {
+        self.supported_protocols.as_ref().map(|ps| ps.contains(protocol))
     }
 }

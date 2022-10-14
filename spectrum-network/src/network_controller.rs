@@ -18,6 +18,7 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::peer_manager::data::ReputationChange;
 use std::task::{Context, Poll};
+use futures::channel::mpsc::UnboundedReceiver;
 
 /// States of an enabled protocol.
 pub enum EnabledProtocol {
@@ -54,11 +55,22 @@ pub enum NetworkControllerOut {
     },
 }
 
+pub enum NetworkControllerIn {
+    RequestProtocol {
+        /// The desired protocol.
+        protocol: ProtocolId,
+        /// A specific peer we should start the protocol with
+        /// (in case requestor knows who to connect exactly).
+        specific_peer: Option<PeerId>,
+    },
+}
+
 pub struct NetworkController<TPeers, THandler> {
     conn_handler_conf: PeerConnHandlerConf,
     supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
     peer_manager: TPeers,
     enabled_peers: HashMap<PeerId, ConnectedPeer<THandler>>,
+    requests_recv: UnboundedReceiver<NetworkControllerIn>,
     pending_actions: VecDeque<NetworkBehaviourAction<NetworkControllerOut, PartialPeerConnHandler>>,
 }
 
