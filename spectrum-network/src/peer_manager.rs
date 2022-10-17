@@ -5,8 +5,8 @@ pub mod peers_state;
 use crate::peer_manager::data::{
     ConnectionLossReason, ConnectionState, PeerInfo, ReputationChange,
 };
-use crate::peer_manager::peers_state::{PeerInState, PeerStateFilter, PeersState};
-use crate::types::{IncomingIndex, ProtocolId, Reputation};
+use crate::peer_manager::peers_state::{PeerInState, PeersState, PeerStateFilter};
+use crate::types::{ProtocolId, Reputation};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use futures::channel::oneshot::Receiver;
@@ -21,9 +21,8 @@ use std::time::{Duration, Instant};
 
 /// Peer Manager output commands.
 #[derive(Debug, PartialEq)]
-pub enum OutCommand {
-    /// Request to open a connection to the given peer. From the point of view of the PSM, we are
-    /// immediately connected.
+pub enum PeerManagerOut {
+    /// Request to open a connection to the given peer.
     Connect(PeerId),
     /// Drop the connection to the given peer, or cancel the connection attempt after a `Connect`.
     Drop(PeerId),
@@ -46,7 +45,7 @@ impl Into<bool> for ProtocolSupportIsConfirmed {
 
 /// Peer Manager inputs.
 #[derive(Debug)]
-pub enum InRequest {
+pub enum PeerManagerRequestIn {
     AddPeer(PeerId),
     AddReservedPeer(PeerId),
     SetReservedPeers(HashSet<PeerId>),
@@ -63,14 +62,14 @@ pub enum InRequest {
 
 /// Events Peer Manager reacts to.
 #[derive(Debug)]
-pub enum InNotification {
+pub enum PeerManagerNotificationIn {
     IncomingConnection(PeerId, ConnectionId),
     ConnectionLost(PeerId, ConnectionLossReason),
 }
 
-pub enum Input {
-    Notification(InNotification),
-    Request(InRequest),
+pub enum PeerManagerIn {
+    Notification(PeerManagerNotificationIn),
+    Request(PeerManagerRequestIn),
 }
 
 /// Async API to PeerManager.
@@ -114,46 +113,46 @@ pub trait PeerManagerNotificationsBehavior {
 }
 
 pub struct PeersLive {
-    requests_snd: UnboundedSender<InRequest>,
+    requests_snd: UnboundedSender<PeerManagerRequestIn>,
 }
 
 impl Peers for PeersLive {
     fn add_peer(&mut self, peer_id: PeerId) {
         let _ = self
             .requests_snd
-            .unbounded_send(InRequest::AddPeer(peer_id));
+            .unbounded_send(PeerManagerRequestIn::AddPeer(peer_id));
     }
 
     fn add_reserved_peer(&mut self, peer_id: PeerId) {
         let _ = self
             .requests_snd
-            .unbounded_send(InRequest::AddReservedPeer(peer_id));
+            .unbounded_send(PeerManagerRequestIn::AddReservedPeer(peer_id));
     }
 
     fn set_reserved_peers(&mut self, peers: HashSet<PeerId>) {
         let _ = self
             .requests_snd
-            .unbounded_send(InRequest::SetReservedPeers(peers));
+            .unbounded_send(PeerManagerRequestIn::SetReservedPeers(peers));
     }
 
     fn report_peer(&mut self, peer_id: PeerId, change: ReputationChange) {
         let _ = self
             .requests_snd
-            .unbounded_send(InRequest::ReportPeer(peer_id, change));
+            .unbounded_send(PeerManagerRequestIn::ReportPeer(peer_id, change));
     }
 
     fn get_peer_reputation(&mut self, peer_id: PeerId) -> Receiver<Reputation> {
         let (sender, receiver) = oneshot::channel::<Reputation>();
         let _ = self
             .requests_snd
-            .unbounded_send(InRequest::GetPeerReputation(peer_id, sender));
+            .unbounded_send(PeerManagerRequestIn::GetPeerReputation(peer_id, sender));
         receiver
     }
 
     fn set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>) {
         let _ = self
             .requests_snd
-            .unbounded_send(InRequest::SetProtocols(peer_id, protocols));
+            .unbounded_send(PeerManagerRequestIn::SetProtocols(peer_id, protocols));
     }
 
     fn protocol_request(
@@ -163,25 +162,30 @@ impl Peers for PeersLive {
     ) {
         let _ = self
             .requests_snd
-            .unbounded_send(InRequest::RequestProtocol(protocol_id, support_confirmed));
+            .unbounded_send(PeerManagerRequestIn::RequestProtocol(
+                protocol_id,
+                support_confirmed,
+            ));
     }
 }
 
 pub struct PeerManagerNotificationsLive {
-    notifications_snd: UnboundedSender<InNotification>,
+    notifications_snd: UnboundedSender<PeerManagerNotificationIn>,
 }
 
 impl PeerManagerNotifications for PeerManagerNotificationsLive {
     fn incoming_connection(&mut self, peer_id: PeerId, conn_id: ConnectionId) {
-        let _ = self
-            .notifications_snd
-            .unbounded_send(InNotification::IncomingConnection(peer_id, conn_id));
+        let _ =
+            self.notifications_snd
+                .unbounded_send(PeerManagerNotificationIn::IncomingConnection(
+                    peer_id, conn_id,
+                ));
     }
 
     fn connection_lost(&mut self, peer_id: PeerId, reason: ConnectionLossReason) {
         let _ = self
             .notifications_snd
-            .unbounded_send(InNotification::ConnectionLost(peer_id, reason));
+            .unbounded_send(PeerManagerNotificationIn::ConnectionLost(peer_id, reason));
     }
 }
 
@@ -195,9 +199,9 @@ pub struct PeerManagerConfig {
 pub struct PeerManager<PState> {
     state: PState,
     conf: PeerManagerConfig,
-    notifications_recv: UnboundedReceiver<InNotification>,
-    requests_recv: UnboundedReceiver<InRequest>,
-    out_queue: VecDeque<OutCommand>,
+    notifications_recv: UnboundedReceiver<PeerManagerNotificationIn>,
+    requests_recv: UnboundedReceiver<PeerManagerRequestIn>,
+    out_queue: VecDeque<PeerManagerOut>,
     next_conn_alloc_at: Instant,
 }
 
@@ -212,11 +216,14 @@ impl<S: PeersState> PeerManager<S> {
         }
     }
 
-    /// Connect to a best peer we are not connected yet.
+    /// Connect to the best peer we are not connected yet.
     pub fn connect_best(&mut self) {
-        if let Some(pid) = self.state.peek_best(Some(|pi: &PeerInfo| {
-            matches!(pi.state, ConnectionState::NotConnected)
-        })) {
+        if let Some(pid) = self
+            .state
+            .peek_best(Some(|pi: &PeerInfo| {
+                matches!(pi.state, ConnectionState::NotConnected)
+            }))
+        {
             self.connect(pid)
         }
     }
@@ -229,7 +236,7 @@ impl<S: PeersState> PeerManager<S> {
                 true
             };
             if should_connect && ncp.try_connect().is_ok() {
-                self.out_queue.push_back(OutCommand::Connect(peer_id))
+                self.out_queue.push_back(PeerManagerOut::Connect(peer_id))
             }
         }
     }
@@ -247,10 +254,7 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
     fn on_set_reserved_peers(&mut self, peers: HashSet<PeerId>) {
         let unkown_peers = self.state.set_reserved_peers(peers);
         for pid in unkown_peers {
-            if let Some(_) = self.state.try_add_peer(pid, true) {
-                let _ = self.out_queue.push_back(OutCommand::Connect(pid));
-            } else {
-            } // warn
+            self.state.try_add_peer(pid, true);
         }
     }
 
@@ -295,7 +299,7 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
         if let Some(pid) = peer {
             let _ = self
                 .out_queue
-                .push_back(OutCommand::StartProtocol(protocol_id, pid));
+                .push_back(PeerManagerOut::StartProtocol(protocol_id, pid));
         }
     }
 }
@@ -307,23 +311,23 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                 if ncp.get_reputation() >= self.conf.min_reputation
                     && ncp.try_accept_connection().is_ok()
                 {
-                    self.out_queue.push_back(OutCommand::Accept(conn_id));
+                    self.out_queue.push_back(PeerManagerOut::Accept(conn_id));
                 } else {
-                    self.out_queue.push_back(OutCommand::Reject(conn_id));
+                    self.out_queue.push_back(PeerManagerOut::Reject(conn_id));
                 }
             }
             Some(PeerInState::Connected(_)) => {
-                self.out_queue.push_back(OutCommand::Reject(conn_id));
+                self.out_queue.push_back(PeerManagerOut::Reject(conn_id));
             }
             None => {
                 if let Some(ncp) = self.state.try_add_peer(peer_id, false) {
                     if ncp.try_accept_connection().is_ok() {
-                        self.out_queue.push_back(OutCommand::Accept(conn_id));
+                        self.out_queue.push_back(PeerManagerOut::Accept(conn_id));
                     } else {
-                        self.out_queue.push_back(OutCommand::Reject(conn_id));
+                        self.out_queue.push_back(PeerManagerOut::Reject(conn_id));
                     }
                 } else {
-                    self.out_queue.push_back(OutCommand::Reject(conn_id));
+                    self.out_queue.push_back(PeerManagerOut::Reject(conn_id));
                 }
             }
         }
@@ -351,7 +355,7 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
 }
 
 impl<S: Unpin + PeersState> Stream for PeerManager<S> {
-    type Item = OutCommand;
+    type Item = PeerManagerOut;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
@@ -370,10 +374,10 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                 Stream::poll_next(Pin::new(&mut self.notifications_recv), cx)
             {
                 match notif {
-                    InNotification::IncomingConnection(pid, conn_id) => {
+                    PeerManagerNotificationIn::IncomingConnection(pid, conn_id) => {
                         self.on_incoming_connection(pid, conn_id)
                     }
-                    InNotification::ConnectionLost(pid, reason) => {
+                    PeerManagerNotificationIn::ConnectionLost(pid, reason) => {
                         self.on_connection_lost(pid, reason)
                     }
                 }
@@ -382,17 +386,21 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
             if let Poll::Ready(Some(req)) = Stream::poll_next(Pin::new(&mut self.requests_recv), cx)
             {
                 match req {
-                    InRequest::AddPeer(pid) => self.on_add_peer(pid),
-                    InRequest::ReportPeer(pid, adjustment) => self.on_report_peer(pid, adjustment),
-                    InRequest::AddReservedPeer(pid) => self.on_add_reserved_peer(pid),
-                    InRequest::GetPeerReputation(pid, resp) => {
+                    PeerManagerRequestIn::AddPeer(pid) => self.on_add_peer(pid),
+                    PeerManagerRequestIn::ReportPeer(pid, adjustment) => {
+                        self.on_report_peer(pid, adjustment)
+                    }
+                    PeerManagerRequestIn::AddReservedPeer(pid) => self.on_add_reserved_peer(pid),
+                    PeerManagerRequestIn::GetPeerReputation(pid, resp) => {
                         self.on_get_peer_reputation(pid, resp)
                     }
-                    InRequest::SetReservedPeers(peers) => self.on_set_reserved_peers(peers),
-                    InRequest::SetProtocols(pid, protocols) => {
+                    PeerManagerRequestIn::SetReservedPeers(peers) => {
+                        self.on_set_reserved_peers(peers)
+                    }
+                    PeerManagerRequestIn::SetProtocols(pid, protocols) => {
                         self.on_set_peer_protocols(pid, protocols)
                     }
-                    InRequest::RequestProtocol(protocol, require_support_confirmed) => {
+                    PeerManagerRequestIn::RequestProtocol(protocol, require_support_confirmed) => {
                         self.on_request_protocol(protocol, require_support_confirmed)
                     }
                 }

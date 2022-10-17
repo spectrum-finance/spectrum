@@ -6,6 +6,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::{io, mem};
 use unsigned_varint::codec::UviBytes;
+use void::Void;
 
 /// State of the handshake sending back process.
 pub enum ProtocolHandshakeState {
@@ -58,7 +59,7 @@ where
     pub fn poll_process_handshake(
         self: Pin<&mut Self>,
         cx: &mut Context,
-    ) -> Poll<Result<Infallible, io::Error>> {
+    ) -> Poll<Result<Void, io::Error>> {
         let mut this = self.project();
         loop {
             if let Some(state) = this.handshake_state {

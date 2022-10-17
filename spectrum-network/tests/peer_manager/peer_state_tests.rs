@@ -1,5 +1,5 @@
 use libp2p::PeerId;
-use spectrum_network::peer_manager::peer_store::PeerSetsConfig;
+use spectrum_network::peer_manager::peer_store::PeerIndexConfig;
 use spectrum_network::peer_manager::peers_state::{DefaultPeersState, PeersState};
 
 #[test]
@@ -43,7 +43,7 @@ fn err_connect_to_peer_when_vacant_connections_not_available() {
 }
 
 fn mk_peers_state(max_incoming: usize, max_outgoing: usize, capacity: usize) -> impl PeersState {
-    let pset_config = PeerSetsConfig {
+    let pset_config = PeerIndexConfig {
         max_incoming,
         max_outgoing,
     };

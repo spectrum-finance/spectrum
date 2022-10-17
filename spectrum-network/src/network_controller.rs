@@ -2,7 +2,7 @@ use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{
     ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf,
 };
-use crate::peer_manager::{PeerManagerNotifications, Peers};
+use crate::peer_manager::{PeerManagerNotifications, PeerManagerOut, Peers};
 use crate::protocol::upgrade::ProtocolTag;
 use crate::protocol::ProtocolConfig;
 use crate::protocol_handler::ProtocolHandler;
@@ -10,15 +10,19 @@ use crate::types::{ProtocolId, ProtocolVer, RawMessage};
 use libp2p::core::connection::ConnectionId;
 
 use libp2p::core::ConnectedPoint;
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters};
+use libp2p::swarm::{
+    CloseConnection, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
+};
 use libp2p::{Multiaddr, PeerId};
 use log::trace;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
+use std::pin::Pin;
 
 use crate::peer_manager::data::ReputationChange;
-use std::task::{Context, Poll};
 use futures::channel::mpsc::UnboundedReceiver;
+use futures::Stream;
+use std::task::{Context, Poll};
 
 /// States of an enabled protocol.
 pub enum EnabledProtocol {
@@ -77,7 +81,7 @@ pub struct NetworkController<TPeers, THandler> {
 // todo: implement NotEnabled => PendingEnable
 impl<TPeers, THandler> NetworkBehaviour for NetworkController<TPeers, THandler>
 where
-    TPeers: Peers + PeerManagerNotifications + 'static,
+    TPeers: Peers + PeerManagerNotifications + Stream<Item = PeerManagerOut> + Unpin + 'static,
     THandler: ProtocolHandler + Clone + 'static,
 {
     type ConnectionHandler = PartialPeerConnHandler;
@@ -112,7 +116,13 @@ where
                 }
                 ConnectedPeer::Connected { .. }
                 | ConnectedPeer::PendingDisconnect(..)
-                | ConnectedPeer::PendingApprove(..) => {}
+                | ConnectedPeer::PendingApprove(..) => {
+                    self.pending_actions
+                        .push_back(NetworkBehaviourAction::CloseConnection {
+                            peer_id: *peer_id,
+                            connection: CloseConnection::One(*conn_id),
+                        })
+                }
             },
             Entry::Vacant(entry) => {
                 self.peer_manager.incoming_connection(*peer_id, *conn_id);
@@ -288,6 +298,32 @@ where
         cx: &mut Context<'_>,
         params: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
+        if let Some(action) = self.pending_actions.pop_front() {
+            return Poll::Ready(action);
+        };
+        loop {
+            match Stream::poll_next(Pin::new(&mut self.peer_manager), cx) {
+                Poll::Ready(Some(PeerManagerOut::Connect(pid))) => {
+                    let handler = self.new_handler();
+                    match self.enabled_peers.entry(pid) {
+                        Entry::Occupied(_) => {}
+                        Entry::Vacant(peer_entry) => {
+                            peer_entry.insert(ConnectedPeer::PendingConnect);
+                            self.pending_actions
+                                .push_back(NetworkBehaviourAction::Dial {
+                                    opts: pid.into(),
+                                    handler,
+                                })
+                        }
+                    }
+                }
+                Poll::Ready(Some(PeerManagerOut::Drop(pid))) => {}
+                Poll::Ready(Some(PeerManagerOut::Accept(pid))) => {}
+                Poll::Ready(Some(PeerManagerOut::Reject(pid))) => {}
+                Poll::Ready(Some(PeerManagerOut::StartProtocol(protocol, pid))) => {}
+                Poll::Pending | Poll::Ready(None) => break,
+            }
+        }
         // 1. Try to return a pending action.
         // 2. Poll for instructions from the PM.
         todo!()

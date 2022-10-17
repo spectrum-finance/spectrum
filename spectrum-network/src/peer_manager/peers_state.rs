@@ -1,5 +1,5 @@
 use crate::peer_manager::data::{ConnectionDirection, ConnectionState, PeerInfo, ReputationChange};
-use crate::peer_manager::peer_store::{PeerSets, PeerSetsConfig};
+use crate::peer_manager::peer_store::{PeerIndex, PeerIndexConfig};
 use crate::types::{ProtocolId, Reputation};
 use libp2p::PeerId;
 use std::borrow::{Borrow, Cow};
@@ -11,7 +11,7 @@ use std::time::Instant;
 pub struct ConnectedPeer<'a> {
     peer_id: Cow<'a, PeerId>,
     peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-    peer_sets: &'a mut PeerSets,
+    peer_sets: &'a mut PeerIndex,
     best_peers: &'a mut BTreeSet<(PeerId, Reputation)>,
 }
 
@@ -19,7 +19,7 @@ impl<'a> ConnectedPeer<'a> {
     fn new(
         peer_id: Cow<'a, PeerId>,
         peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-        peer_sets: &'a mut PeerSets,
+        peer_sets: &'a mut PeerIndex,
         best_peers: &'a mut BTreeSet<(PeerId, Reputation)>,
     ) -> Self {
         Self {
@@ -42,10 +42,10 @@ impl<'a> ConnectedPeer<'a> {
     pub fn disconnect(mut self) -> NotConnectedPeer<'a> {
         let peer_info = self.peer_info.get_mut();
         match peer_info.state {
-            ConnectionState::Connected(ConnectionDirection::Incoming) => {
+            ConnectionState::Connected(ConnectionDirection::Inbound) => {
                 self.peer_sets.drop_incoming(self.peer_id.borrow())
             }
-            ConnectionState::Connected(ConnectionDirection::Outgoing(_)) => {
+            ConnectionState::Connected(ConnectionDirection::Outbound(_)) => {
                 self.peer_sets.drop_outgoing(self.peer_id.borrow())
             }
             _ => panic!("impossible"),
@@ -62,12 +62,20 @@ impl<'a> ConnectedPeer<'a> {
     pub fn confirm_connection(&mut self) -> bool {
         let peer_info = self.peer_info.get_mut();
         match peer_info.state {
-            ConnectionState::Connected(ConnectionDirection::Outgoing(false)) => {
-                peer_info.state = ConnectionState::Connected(ConnectionDirection::Outgoing(true));
+            ConnectionState::Connected(ConnectionDirection::Outbound(false)) => {
+                peer_info.state = ConnectionState::Connected(ConnectionDirection::Outbound(true));
                 true
             }
             _ => false,
         }
+    }
+
+    pub fn is_confirmed(&self) -> bool {
+        let st = self.peer_info.get().state;
+        matches!(
+            st,
+            ConnectionState::Connected(ConnectionDirection::Outbound(true))
+        ) || matches!(st, ConnectionState::Connected(ConnectionDirection::Inbound))
     }
 
     pub fn get_reputation(&self) -> Reputation {
@@ -90,7 +98,7 @@ impl<'a> ConnectedPeer<'a> {
 pub struct NotConnectedPeer<'a> {
     peer_id: Cow<'a, PeerId>,
     peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-    peer_sets: &'a mut PeerSets,
+    peer_sets: &'a mut PeerIndex,
     sorted_peers: &'a mut BTreeSet<(PeerId, Reputation)>,
 }
 
@@ -98,7 +106,7 @@ impl<'a> NotConnectedPeer<'a> {
     fn new(
         peer_id: Cow<'a, PeerId>,
         peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-        peer_sets: &'a mut PeerSets,
+        peer_sets: &'a mut PeerIndex,
         sorted_peers: &'a mut BTreeSet<(PeerId, Reputation)>,
     ) -> Self {
         Self {
@@ -114,7 +122,7 @@ impl<'a> NotConnectedPeer<'a> {
             .peer_sets
             .try_add_outgoing(self.peer_id.clone().into_owned());
         if added {
-            Ok(self.connect(ConnectionDirection::Outgoing(false)))
+            Ok(self.connect(ConnectionDirection::Outbound(false)))
         } else {
             Err(self)
         }
@@ -125,7 +133,7 @@ impl<'a> NotConnectedPeer<'a> {
             .peer_sets
             .try_add_incoming(self.peer_id.clone().into_owned());
         if added {
-            Ok(self.connect(ConnectionDirection::Incoming))
+            Ok(self.connect(ConnectionDirection::Inbound))
         } else {
             Err(self)
         }
@@ -265,15 +273,15 @@ pub trait PeersState {
 pub struct DefaultPeersState {
     peers: HashMap<PeerId, PeerInfo>,
     sorted_peers: BTreeSet<(PeerId, Reputation)>,
-    sets: PeerSets,
+    sets: PeerIndex,
 }
 
 impl DefaultPeersState {
-    pub fn new(peer_set_conf: PeerSetsConfig) -> Self {
+    pub fn new(peer_index_conf: PeerIndexConfig) -> Self {
         DefaultPeersState {
             peers: HashMap::new(),
             sorted_peers: BTreeSet::new(),
-            sets: PeerSets::new(peer_set_conf),
+            sets: PeerIndex::new(peer_index_conf),
         }
     }
 }

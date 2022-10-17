@@ -1,42 +1,52 @@
+use crate::peer_manager::data::ConnectionDirection;
 use libp2p::PeerId;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Eq, PartialEq, Debug)]
-pub struct PeerSetsConfig {
+pub struct PeerIndexConfig {
     pub max_outgoing: usize,
     pub max_incoming: usize,
 }
 
-#[derive(Eq, PartialEq, Debug)]
-pub struct PeerSets {
-    pub connections_in: HashSet<PeerId>,
-    pub connections_out: HashSet<PeerId>,
+#[derive(Debug)]
+pub struct PeerIndex {
     pub reserved_peers: HashSet<PeerId>,
-    config: PeerSetsConfig,
+    pub connections: HashMap<PeerId, ConnectionDirection>,
+    pub num_inbound: usize,
+    pub num_outbound: usize,
+    config: PeerIndexConfig,
 }
 
-impl PeerSets {
-    pub fn new(config: PeerSetsConfig) -> Self {
+impl PeerIndex {
+    pub fn new(config: PeerIndexConfig) -> Self {
         Self {
-            connections_in: HashSet::new(),
-            connections_out: HashSet::new(),
             reserved_peers: HashSet::new(),
+            connections: HashMap::new(),
+            num_inbound: 0,
+            num_outbound: 0,
             config,
         }
     }
 
     pub fn try_add_outgoing(&mut self, peer_id: PeerId) -> bool {
-        if self.connections_out.len() < self.config.max_outgoing {
-            self.connections_out.insert(peer_id);
+        if self.num_outbound < self.config.max_outgoing {
+            self.connections
+                .insert(peer_id, ConnectionDirection::Outbound(false));
             true
         } else {
             false
         }
     }
 
+    pub fn confirm_outbound(&mut self, peer_id: PeerId) {
+        self.connections
+            .insert(peer_id, ConnectionDirection::Outbound(true));
+    }
+
     pub fn try_add_incoming(&mut self, peer_id: PeerId) -> bool {
-        if self.connections_in.len() < self.config.max_incoming {
-            self.connections_in.insert(peer_id);
+        if self.num_inbound < self.config.max_incoming {
+            self.connections
+                .insert(peer_id, ConnectionDirection::Inbound);
             true
         } else {
             false
@@ -44,11 +54,13 @@ impl PeerSets {
     }
 
     pub fn drop_outgoing(&mut self, peer_id: &PeerId) -> bool {
-        self.connections_out.remove(peer_id)
+        self.num_outbound -= 1;
+        self.connections.remove(peer_id).is_some()
     }
 
     pub fn drop_incoming(&mut self, peer_id: &PeerId) -> bool {
-        self.connections_in.remove(peer_id)
+        self.num_inbound -= 1;
+        self.connections.remove(peer_id).is_some()
     }
 
     pub fn reserve_peer(&mut self, peer_id: PeerId) {

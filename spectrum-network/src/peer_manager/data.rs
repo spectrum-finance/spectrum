@@ -23,8 +23,8 @@ pub enum ConnectionState {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ConnectionDirection {
-    Incoming,
-    Outgoing(bool), // confirmed or not
+    Inbound,
+    Outbound(bool), // confirmed or not
 }
 
 #[derive(PartialEq, Debug)]
@@ -67,5 +67,9 @@ impl PeerInfo {
 
     pub fn supports(&self, protocol: &ProtocolId) -> Option<bool> {
         self.supported_protocols.as_ref().map(|ps| ps.contains(protocol))
+    }
+
+    pub fn confirm_new_conn(&mut self) {
+        let _ = self.num_connections.saturating_add(1);
     }
 }
