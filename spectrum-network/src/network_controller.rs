@@ -17,6 +17,7 @@ use libp2p::{Multiaddr, PeerId};
 use log::trace;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
+use std::ops::DerefMut;
 use std::pin::Pin;
 
 use crate::peer_manager::data::ReputationChange;
@@ -51,13 +52,7 @@ pub enum ConnectedPeer<THandler> {
 }
 
 #[derive(Debug)]
-pub enum NetworkControllerOut {
-    Message {
-        peer_id: PeerId,
-        protocol_tag: ProtocolTag,
-        content: RawMessage,
-    },
-}
+pub enum NetworkControllerOut {}
 
 pub enum NetworkControllerIn {
     RequestProtocol {
@@ -317,7 +312,41 @@ where
                         }
                     }
                 }
-                Poll::Ready(Some(PeerManagerOut::Drop(pid))) => {}
+                Poll::Ready(Some(PeerManagerOut::Drop(peer_id))) => {
+                    if let Some(ConnectedPeer::Connected {
+                        conn_id,
+                        enabled_protocols,
+                    }) = self.enabled_peers.get_mut(&peer_id)
+                    {
+                        let mut protocols = Vec::new();
+                        for prot_id in enabled_protocols.keys() {
+                           protocols.push(*prot_id);
+                        };
+                        for prot_id in protocols {
+                            match enabled_protocols.entry(prot_id) {
+                                Entry::Occupied(mut prot) => {
+                                    let (st, han) = prot.get();
+                                    match st {
+                                        EnabledProtocol::Enabled { .. }
+                                        | EnabledProtocol::PendingEnable
+                                        | EnabledProtocol::PendingApprove => {
+                                            prot.insert((EnabledProtocol::PendingDisable, han.clone()));
+                                            self
+                                                .pending_actions
+                                                .push_back(NetworkBehaviourAction::NotifyHandler {
+                                                    peer_id,
+                                                    handler: NotifyHandler::One(*conn_id),
+                                                    event: ConnHandlerIn::Close(prot_id),
+                                                })
+                                        },
+                                        EnabledProtocol::PendingDisable => {}
+                                    }
+                                }
+                                Entry::Vacant(_) => {}
+                            }
+                        }
+                    }
+                }
                 Poll::Ready(Some(PeerManagerOut::Accept(pid))) => {}
                 Poll::Ready(Some(PeerManagerOut::Reject(pid))) => {}
                 Poll::Ready(Some(PeerManagerOut::StartProtocol(protocol, pid))) => {}

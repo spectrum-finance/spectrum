@@ -2,11 +2,12 @@
 name = "spectrum-network"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.64.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libp2p = "0.46.1"
+libp2p = "0.49.0"
 futures = "0.3.21"
 async-std = { version = "1.10.0", features = ["attributes"] }
 unsigned-varint = { version = "0.7.1", features = ["futures", "asynchronous_codec"] }
