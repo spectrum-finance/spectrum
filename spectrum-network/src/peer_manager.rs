@@ -5,7 +5,7 @@ pub mod peers_state;
 use crate::peer_manager::data::{
     ConnectionLossReason, ConnectionState, PeerInfo, ReputationChange,
 };
-use crate::peer_manager::peers_state::{PeerInState, PeersState, PeerStateFilter};
+use crate::peer_manager::peers_state::{PeerInState, PeerStateFilter, PeersState};
 use crate::types::{ProtocolId, Reputation};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
@@ -26,10 +26,10 @@ pub enum PeerManagerOut {
     Connect(PeerId),
     /// Drop the connection to the given peer, or cancel the connection attempt after a `Connect`.
     Drop(PeerId),
-    /// Equivalent to `Connect` for the peer corresponding to this incoming index.
-    Accept(ConnectionId),
-    /// Equivalent to `Drop` for the peer corresponding to this incoming index.
-    Reject(ConnectionId),
+    /// Approves an incoming connection.
+    Accept(PeerId, ConnectionId),
+    /// Rejects an incoming connection.
+    Reject(PeerId, ConnectionId),
     /// An instruction to start the specified protocol with the specified peer.
     StartProtocol(ProtocolId, PeerId),
 }
@@ -80,11 +80,6 @@ pub trait Peers {
     fn report_peer(&mut self, peer_id: PeerId, change: ReputationChange);
     fn get_peer_reputation(&mut self, peer_id: PeerId) -> Receiver<Reputation>;
     fn set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>);
-    fn protocol_request(
-        &mut self,
-        protocol_id: ProtocolId,
-        support_confirmed: ProtocolSupportIsConfirmed,
-    );
 }
 
 /// Async API to PeerManager notifications.
@@ -154,19 +149,6 @@ impl Peers for PeersLive {
             .requests_snd
             .unbounded_send(PeerManagerRequestIn::SetProtocols(peer_id, protocols));
     }
-
-    fn protocol_request(
-        &mut self,
-        protocol_id: ProtocolId,
-        support_confirmed: ProtocolSupportIsConfirmed,
-    ) {
-        let _ = self
-            .requests_snd
-            .unbounded_send(PeerManagerRequestIn::RequestProtocol(
-                protocol_id,
-                support_confirmed,
-            ));
-    }
 }
 
 pub struct PeerManagerNotificationsLive {
@@ -218,12 +200,9 @@ impl<S: PeersState> PeerManager<S> {
 
     /// Connect to the best peer we are not connected yet.
     pub fn connect_best(&mut self) {
-        if let Some(pid) = self
-            .state
-            .peek_best(Some(|pi: &PeerInfo| {
-                matches!(pi.state, ConnectionState::NotConnected)
-            }))
-        {
+        if let Some(pid) = self.state.peek_best(Some(|pi: &PeerInfo| {
+            matches!(pi.state, ConnectionState::NotConnected)
+        })) {
             self.connect(pid)
         }
     }
@@ -291,7 +270,7 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
         protocol_id: ProtocolId,
         support_confirmed: ProtocolSupportIsConfirmed,
     ) {
-        let peer = self.state.peek_best(if support_confirmed.0 {
+        let peer = self.state.peek_best(if support_confirmed.into() {
             Some(|pi: &PeerInfo| pi.supports(&protocol_id).unwrap_or(false))
         } else {
             None
@@ -311,23 +290,29 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                 if ncp.get_reputation() >= self.conf.min_reputation
                     && ncp.try_accept_connection().is_ok()
                 {
-                    self.out_queue.push_back(PeerManagerOut::Accept(conn_id));
+                    self.out_queue
+                        .push_back(PeerManagerOut::Accept(peer_id, conn_id));
                 } else {
-                    self.out_queue.push_back(PeerManagerOut::Reject(conn_id));
+                    self.out_queue
+                        .push_back(PeerManagerOut::Reject(peer_id, conn_id));
                 }
             }
             Some(PeerInState::Connected(_)) => {
-                self.out_queue.push_back(PeerManagerOut::Reject(conn_id));
+                self.out_queue
+                    .push_back(PeerManagerOut::Reject(peer_id, conn_id));
             }
             None => {
                 if let Some(ncp) = self.state.try_add_peer(peer_id, false) {
                     if ncp.try_accept_connection().is_ok() {
-                        self.out_queue.push_back(PeerManagerOut::Accept(conn_id));
+                        self.out_queue
+                            .push_back(PeerManagerOut::Accept(peer_id, conn_id));
                     } else {
-                        self.out_queue.push_back(PeerManagerOut::Reject(conn_id));
+                        self.out_queue
+                            .push_back(PeerManagerOut::Reject(peer_id, conn_id));
                     }
                 } else {
-                    self.out_queue.push_back(PeerManagerOut::Reject(conn_id));
+                    self.out_queue
+                        .push_back(PeerManagerOut::Reject(peer_id, conn_id));
                 }
             }
         }

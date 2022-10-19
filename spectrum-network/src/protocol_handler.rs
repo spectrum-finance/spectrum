@@ -1,5 +1,4 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
-use crate::protocol::upgrade::ProtocolTag;
 use crate::types::{ProtocolVer, RawMessage};
 use libp2p::PeerId;
 use void::Void;
@@ -43,6 +42,9 @@ pub trait ProtocolHandler {
         protocol_ver: ProtocolVer,
         handshake: Option<RawMessage>,
     ) -> Result<(), ProtocolHandlerError>;
+
+    /// Notify protocol handler that the protocol with the given peer was requested by us.
+    fn protocol_requested_local(&self, peer_id: PeerId) -> Result<(), Void>;
 
     /// Notify protocol handler that the protocol was enabled with the given peer.
     fn protocol_enabled(
