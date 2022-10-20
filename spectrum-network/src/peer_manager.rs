@@ -52,6 +52,8 @@ pub enum PeerManagerRequestIn {
 pub enum PeerManagerNotificationIn {
     IncomingConnection(PeerId, ConnectionId),
     ConnectionLost(PeerId, ConnectionLossReason),
+    /// Specified protocol is enabled with the specified peer by the ProtocolHandler.
+    ForceEnabled(PeerId, ProtocolId),
 }
 
 pub enum PeerManagerIn {
@@ -73,6 +75,7 @@ pub trait Peers {
 pub trait PeerManagerNotifications {
     fn incoming_connection(&mut self, peer_id: PeerId, conn_id: ConnectionId);
     fn connection_lost(&mut self, peer_id: PeerId, reason: ConnectionLossReason);
+    fn force_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
 }
 
 pub trait PeerManagerRequestsBehavior {
@@ -87,6 +90,7 @@ pub trait PeerManagerRequestsBehavior {
 pub trait PeerManagerNotificationsBehavior {
     fn on_incoming_connection(&mut self, peer_id: PeerId, conn_id: ConnectionId);
     fn on_connection_lost(&mut self, peer_id: PeerId, reason: ConnectionLossReason);
+    fn on_force_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
 }
 
 pub struct PeersLive {
@@ -139,17 +143,21 @@ pub struct PeerManagerNotificationsLive {
 
 impl PeerManagerNotifications for PeerManagerNotificationsLive {
     fn incoming_connection(&mut self, peer_id: PeerId, conn_id: ConnectionId) {
-        let _ =
-            self.notifications_snd
-                .unbounded_send(PeerManagerNotificationIn::IncomingConnection(
-                    peer_id, conn_id,
-                ));
+        let _ = self
+            .notifications_snd
+            .unbounded_send(PeerManagerNotificationIn::IncomingConnection(peer_id, conn_id));
     }
 
     fn connection_lost(&mut self, peer_id: PeerId, reason: ConnectionLossReason) {
         let _ = self
             .notifications_snd
             .unbounded_send(PeerManagerNotificationIn::ConnectionLost(peer_id, reason));
+    }
+
+    fn force_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
+        let _ = self
+            .notifications_snd
+            .unbounded_send(PeerManagerNotificationIn::ForceEnabled(peer_id, protocol_id));
     }
 }
 
@@ -173,9 +181,7 @@ pub struct PeerManager<PState> {
 impl<S: PeersState> PeerManager<S> {
     /// Connect to reserved peers we are not connected yet.
     pub fn connect_reserved(&mut self) {
-        let peers = self
-            .state
-            .get_reserved_peers(Some(PeerStateFilter::NotConnected));
+        let peers = self.state.get_reserved_peers(Some(PeerStateFilter::NotConnected));
         for pid in peers {
             self.connect(pid)
         }
@@ -253,32 +259,24 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
     fn on_incoming_connection(&mut self, peer_id: PeerId, conn_id: ConnectionId) {
         match self.state.peer(&peer_id) {
             Some(PeerInState::NotConnected(ncp)) => {
-                if ncp.get_reputation() >= self.conf.min_reputation
-                    && ncp.try_accept_connection().is_ok()
-                {
-                    self.out_queue
-                        .push_back(PeerManagerOut::Accept(peer_id, conn_id));
+                if ncp.get_reputation() >= self.conf.min_reputation && ncp.try_accept_connection().is_ok() {
+                    self.out_queue.push_back(PeerManagerOut::Accept(peer_id, conn_id));
                 } else {
-                    self.out_queue
-                        .push_back(PeerManagerOut::Reject(peer_id, conn_id));
+                    self.out_queue.push_back(PeerManagerOut::Reject(peer_id, conn_id));
                 }
             }
             Some(PeerInState::Connected(_)) => {
-                self.out_queue
-                    .push_back(PeerManagerOut::Reject(peer_id, conn_id));
+                self.out_queue.push_back(PeerManagerOut::Reject(peer_id, conn_id));
             }
             None => {
                 if let Some(ncp) = self.state.try_add_peer(peer_id, false) {
                     if ncp.try_accept_connection().is_ok() {
-                        self.out_queue
-                            .push_back(PeerManagerOut::Accept(peer_id, conn_id));
+                        self.out_queue.push_back(PeerManagerOut::Accept(peer_id, conn_id));
                     } else {
-                        self.out_queue
-                            .push_back(PeerManagerOut::Reject(peer_id, conn_id));
+                        self.out_queue.push_back(PeerManagerOut::Reject(peer_id, conn_id));
                     }
                 } else {
-                    self.out_queue
-                        .push_back(PeerManagerOut::Reject(peer_id, conn_id));
+                    self.out_queue.push_back(PeerManagerOut::Reject(peer_id, conn_id));
                 }
             }
         }
@@ -291,8 +289,7 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                 match reason {
                     ConnectionLossReason::ResetByPeer => {
                         if !ncp.is_reserved() {
-                            let backoff_until =
-                                Instant::now().add(self.conf.conn_reset_outbound_backoff);
+                            let backoff_until = Instant::now().add(self.conf.conn_reset_outbound_backoff);
                             ncp.set_backoff_until(backoff_until);
                         }
                     }
@@ -301,6 +298,12 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
             }
             Some(PeerInState::NotConnected(_)) => {} // warn
             None => {}                               // warn
+        }
+    }
+
+    fn on_force_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
+        if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&peer_id) {
+            cp.enable_protocol(protocol_id);
         }
     }
 }
@@ -321,9 +324,7 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                 self.next_conn_alloc_at = now.add(self.conf.periodic_conn_interval);
             }
 
-            if let Poll::Ready(Some(notif)) =
-                Stream::poll_next(Pin::new(&mut self.notifications_recv), cx)
-            {
+            if let Poll::Ready(Some(notif)) = Stream::poll_next(Pin::new(&mut self.notifications_recv), cx) {
                 match notif {
                     PeerManagerNotificationIn::IncomingConnection(pid, conn_id) => {
                         self.on_incoming_connection(pid, conn_id)
@@ -331,23 +332,21 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                     PeerManagerNotificationIn::ConnectionLost(pid, reason) => {
                         self.on_connection_lost(pid, reason)
                     }
+                    PeerManagerNotificationIn::ForceEnabled(pid, protocol_id) => {
+                        self.on_force_enabled(pid, protocol_id);
+                    }
                 }
             }
 
-            if let Poll::Ready(Some(req)) = Stream::poll_next(Pin::new(&mut self.requests_recv), cx)
-            {
+            if let Poll::Ready(Some(req)) = Stream::poll_next(Pin::new(&mut self.requests_recv), cx) {
                 match req {
                     PeerManagerRequestIn::AddPeer(pid) => self.on_add_peer(pid),
-                    PeerManagerRequestIn::ReportPeer(pid, adjustment) => {
-                        self.on_report_peer(pid, adjustment)
-                    }
+                    PeerManagerRequestIn::ReportPeer(pid, adjustment) => self.on_report_peer(pid, adjustment),
                     PeerManagerRequestIn::AddReservedPeer(pid) => self.on_add_reserved_peer(pid),
                     PeerManagerRequestIn::GetPeerReputation(pid, resp) => {
                         self.on_get_peer_reputation(pid, resp)
                     }
-                    PeerManagerRequestIn::SetReservedPeers(peers) => {
-                        self.on_set_reserved_peers(peers)
-                    }
+                    PeerManagerRequestIn::SetReservedPeers(peers) => self.on_set_reserved_peers(peers),
                     PeerManagerRequestIn::SetProtocols(pid, protocols) => {
                         self.on_set_peer_protocols(pid, protocols)
                     }
@@ -359,8 +358,7 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                 if let Some(enabled_peers) = self.state.get_enabled_peers(prot) {
                     let cond = match policy {
                         ProtocolAllocationPolicy::Bounded(max_conn_percent) => {
-                            enabled_peers.len() / self.state.num_connected_peers()
-                                < *max_conn_percent / 100
+                            enabled_peers.len() / self.state.num_connected_peers() < *max_conn_percent / 100
                         }
                         ProtocolAllocationPolicy::Max => {
                             enabled_peers.len() < self.state.num_connected_peers()
@@ -368,14 +366,10 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                         ProtocolAllocationPolicy::Zero => false,
                     };
                     if cond {
-                        if let Some(candidate) =
-                            self.state.peek_best(Some(|pid: &PeerId, pi: &PeerInfo| {
-                                !enabled_peers.contains(pid) && pi.supports(&prot).unwrap_or(false)
-                            }))
-                        {
-                            if let Some(PeerInState::Connected(mut cp)) =
-                                self.state.peer(&candidate)
-                            {
+                        if let Some(candidate) = self.state.peek_best(Some(|pid: &PeerId, pi: &PeerInfo| {
+                            !enabled_peers.contains(pid) && pi.supports(&prot).unwrap_or(false)
+                        })) {
+                            if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&candidate) {
                                 cp.enable_protocol(*prot);
                                 self.out_queue
                                     .push_back(PeerManagerOut::StartProtocol(*prot, candidate));
