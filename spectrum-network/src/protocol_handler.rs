@@ -18,6 +18,9 @@ pub enum ProtocolHandlerIn {
         sink: MessageSink,
     },
     Disabled(PeerId),
+    Requested {
+
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -1,5 +1,5 @@
 use crate::peer_manager::data::{ConnectionDirection, ConnectionState, PeerInfo, ReputationChange};
-use crate::peer_manager::peer_store::{PeerIndex, PeerIndexConfig};
+use crate::peer_manager::peer_index::{PeerIndex, PeerIndexConfig};
 use crate::types::{ProtocolId, Reputation};
 use libp2p::PeerId;
 use std::borrow::{Borrow, Cow};
@@ -89,8 +89,30 @@ impl<'a> ConnectedPeer<'a> {
         }
     }
 
-    pub fn handshake(&mut self) {
+    pub fn handshaked(&mut self) {
         self.peer_info.get_mut().last_handshake = Some(Instant::now());
+    }
+
+    pub fn supports_protocol(&self, protocol_id: &ProtocolId) -> bool {
+        self.peer_info
+            .get()
+            .supported_protocols
+            .as_ref()
+            .map(|ps| ps.contains(protocol_id))
+            .unwrap_or(false)
+    }
+
+    pub fn is_protocol_enabled(&self, protocol_id: &ProtocolId) -> bool {
+        self.peer_sets
+            .is_protocol_enabled(protocol_id, self.peer_id.borrow())
+    }
+
+    pub fn enable_protocol(&mut self, protocol_id: ProtocolId) {
+        self.peer_sets
+            .protocols
+            .entry(protocol_id)
+            .or_insert(HashSet::new())
+            .insert(self.peer_id.clone().into_owned());
     }
 }
 
@@ -265,15 +287,21 @@ pub trait PeersState {
     fn get_reserved_peers(&mut self, filter: Option<PeerStateFilter>) -> HashSet<PeerId>;
 
     /// Peek best peer.
-    fn peek_best<F>(&mut self, filter: Option<F>) -> Option<PeerId>
+    fn peek_best<F>(&self, filter: Option<F>) -> Option<PeerId>
     where
-        F: Fn(&PeerInfo) -> bool;
+        F: Fn(&PeerId, &PeerInfo) -> bool;
+
+    /// Get a set of peers we keep the given protocol enabled with.
+    fn get_enabled_peers(&self, protocol_id: &ProtocolId) -> Option<&HashSet<PeerId>>;
+
+    /// Get a number of connected peers.
+    fn num_connected_peers(&self) -> usize;
 }
 
 pub struct DefaultPeersState {
     peers: HashMap<PeerId, PeerInfo>,
     sorted_peers: BTreeSet<(PeerId, Reputation)>,
-    sets: PeerIndex,
+    index: PeerIndex,
 }
 
 impl DefaultPeersState {
@@ -281,7 +309,7 @@ impl DefaultPeersState {
         DefaultPeersState {
             peers: HashMap::new(),
             sorted_peers: BTreeSet::new(),
-            sets: PeerIndex::new(peer_index_conf),
+            index: PeerIndex::new(peer_index_conf),
         }
     }
 }
@@ -293,14 +321,14 @@ impl PeersState for DefaultPeersState {
                 ConnectionState::Connected(_) => Some(PeerInState::Connected(ConnectedPeer::new(
                     Cow::Borrowed(peer_id),
                     peer_info,
-                    &mut self.sets,
+                    &mut self.index,
                     &mut self.sorted_peers,
                 ))),
                 ConnectionState::NotConnected => {
                     Some(PeerInState::NotConnected(NotConnectedPeer::new(
                         Cow::Borrowed(peer_id),
                         peer_info,
-                        &mut self.sets,
+                        &mut self.index,
                         &mut self.sorted_peers,
                     )))
                 }
@@ -318,13 +346,13 @@ impl PeersState for DefaultPeersState {
             let peer_info = PeerInfo::new(is_reserved);
             self.peers.insert(peer_id, peer_info);
             if is_reserved {
-                self.sets.reserve_peer(peer_id)
+                self.index.reserve_peer(peer_id)
             }
             match self.peers.entry(peer_id) {
                 Entry::Occupied(peer_info) => Some(NotConnectedPeer::new(
                     Cow::Owned(peer_id),
                     peer_info,
-                    &mut self.sets,
+                    &mut self.index,
                     &mut self.sorted_peers,
                 )),
                 Entry::Vacant(_) => panic!("impossible"),
@@ -345,13 +373,13 @@ impl PeersState for DefaultPeersState {
                 unknown_peers.insert(pid);
             }
         }
-        self.sets.update_reserved_set(known_reserved_peers);
+        self.index.update_reserved_set(known_reserved_peers);
         unknown_peers
     }
 
     fn get_reserved_peers(&mut self, filter: Option<PeerStateFilter>) -> HashSet<PeerId> {
         let mut result = HashSet::<PeerId>::new();
-        for pid in &self.sets.reserved_peers {
+        for pid in &self.index.reserved_peers {
             match self.peers.get(pid) {
                 Some(peer) => {
                     if peer.is_reserved {
@@ -378,18 +406,26 @@ impl PeersState for DefaultPeersState {
         result
     }
 
-    fn peek_best<F>(&mut self, filter: Option<F>) -> Option<PeerId>
+    fn peek_best<F>(&self, filter: Option<F>) -> Option<PeerId>
     where
-        F: Fn(&PeerInfo) -> bool,
+        F: Fn(&PeerId, &PeerInfo) -> bool,
     {
         for (pid, _) in &self.sorted_peers {
             match self.peers.get(pid) {
-                Some(pi) if filter.as_ref().map(|f| f(pi)).unwrap_or(true) => {
+                Some(pi) if filter.as_ref().map(|f| f(pid, pi)).unwrap_or(true) => {
                     return Some(*pid);
                 }
                 _ => continue,
             }
         }
         None
+    }
+
+    fn get_enabled_peers(&self, protocol_id: &ProtocolId) -> Option<&HashSet<PeerId>> {
+        self.index.protocols.get(protocol_id)
+    }
+
+    fn num_connected_peers(&self) -> usize {
+        self.index.enabled_connections.len()
     }
 }

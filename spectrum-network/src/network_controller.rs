@@ -73,7 +73,9 @@ pub struct NetworkController<TPeers, THandler> {
     pending_actions: VecDeque<NetworkBehaviourAction<NetworkControllerOut, PartialPeerConnHandler>>,
 }
 
-// todo: implement NotEnabled => PendingEnable
+// todo: implement protocols allocation pipeline (Periodic allocs in PM + GetHS->Enable{prot, pid, hs})
+// todo: implement initial handshake
+// todo: implement connection confirmation
 impl<TPeers, THandler> NetworkBehaviour for NetworkController<TPeers, THandler>
 where
     TPeers: Peers + PeerManagerNotifications + Stream<Item = PeerManagerOut> + Unpin + 'static,
@@ -406,7 +408,7 @@ where
                 Poll::Pending | Poll::Ready(None) => break,
             }
         }
-        // 3. Poll protocol handlers.
+        // 3. Poll incoming requests.
         todo!()
     }
 }

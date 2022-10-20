@@ -1,9 +1,9 @@
 pub mod data;
-pub mod peer_store;
+pub mod peer_index;
 pub mod peers_state;
 
 use crate::peer_manager::data::{
-    ConnectionLossReason, ConnectionState, PeerInfo, ReputationChange,
+    ConnectionLossReason, ConnectionState, PeerInfo, ProtocolAllocationPolicy, ReputationChange,
 };
 use crate::peer_manager::peers_state::{PeerInState, PeerStateFilter, PeersState};
 use crate::types::{ProtocolId, Reputation};
@@ -13,6 +13,7 @@ use futures::channel::oneshot::Receiver;
 use futures::Stream;
 use libp2p::core::connection::ConnectionId;
 use libp2p::PeerId;
+use log::trace;
 use std::collections::{HashSet, VecDeque};
 use std::ops::Add;
 use std::pin::Pin;
@@ -53,11 +54,6 @@ pub enum PeerManagerRequestIn {
     GetPeerReputation(PeerId, oneshot::Sender<Reputation>),
     /// Update set of protocols that the given peer supports.
     SetProtocols(PeerId, Vec<ProtocolId>),
-    /// Request to start the given protocol with a peer
-    /// which suits best for it (from PM's point of view).
-    /// Protocol support (by the peer) must be confirmed if `ProtocolSupportIsConfirmed(true)`.
-    /// PM issues a `StartProtocol` command if satisfiable peer is found.
-    RequestProtocol(ProtocolId, ProtocolSupportIsConfirmed),
 }
 
 /// Events Peer Manager reacts to.
@@ -171,11 +167,12 @@ impl PeerManagerNotifications for PeerManagerNotificationsLive {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PeerManagerConfig {
     min_reputation: Reputation,
     conn_reset_outbound_backoff: Duration,
     periodic_conn_interval: Duration,
+    protocols_allocation: Vec<(ProtocolId, ProtocolAllocationPolicy)>,
 }
 
 pub struct PeerManager<PState> {
@@ -270,7 +267,7 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
         protocol_id: ProtocolId,
         support_confirmed: ProtocolSupportIsConfirmed,
     ) {
-        let peer = self.state.peek_best(if support_confirmed.into() {
+        let peer = self.state.peek_best(if support_confirmed.0 {
             Some(|pi: &PeerInfo| pi.supports(&protocol_id).unwrap_or(false))
         } else {
             None
@@ -385,8 +382,36 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                     PeerManagerRequestIn::SetProtocols(pid, protocols) => {
                         self.on_set_peer_protocols(pid, protocols)
                     }
-                    PeerManagerRequestIn::RequestProtocol(protocol, require_support_confirmed) => {
-                        self.on_request_protocol(protocol, require_support_confirmed)
+                }
+            }
+
+            // Allocate protocol substreams according to defined policies.
+            for (prot, policy) in self.conf.protocols_allocation.iter() {
+                if let Some(enabled_peers) = self.state.get_enabled_peers(prot) {
+                    let cond = match policy {
+                        ProtocolAllocationPolicy::Bounded(max_conn_percent) => {
+                            enabled_peers.len() / self.state.num_connected_peers()
+                                < *max_conn_percent / 100
+                        }
+                        ProtocolAllocationPolicy::Max => {
+                            enabled_peers.len() < self.state.num_connected_peers()
+                        }
+                        ProtocolAllocationPolicy::Zero => false,
+                    };
+                    if cond {
+                        if let Some(candidate) =
+                            self.state.peek_best(Some(|pid: &PeerId, pi: &PeerInfo| {
+                                !enabled_peers.contains(pid) && pi.supports(&prot).unwrap_or(false)
+                            }))
+                        {
+                            if let Some(PeerInState::Connected(mut cp)) =
+                                self.state.peer(&candidate)
+                            {
+                                cp.enable_protocol(*prot);
+                                self.out_queue
+                                    .push_back(PeerManagerOut::StartProtocol(*prot, candidate));
+                            }
+                        }
                     }
                 }
             }

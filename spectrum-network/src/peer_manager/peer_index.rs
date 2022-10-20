@@ -1,4 +1,5 @@
 use crate::peer_manager::data::ConnectionDirection;
+use crate::types::ProtocolId;
 use libp2p::PeerId;
 use std::collections::{HashMap, HashSet};
 
@@ -11,7 +12,8 @@ pub struct PeerIndexConfig {
 #[derive(Debug)]
 pub struct PeerIndex {
     pub reserved_peers: HashSet<PeerId>,
-    pub connections: HashMap<PeerId, ConnectionDirection>,
+    pub enabled_connections: HashMap<PeerId, ConnectionDirection>,
+    pub protocols: HashMap<ProtocolId, HashSet<PeerId>>,
     pub num_inbound: usize,
     pub num_outbound: usize,
     config: PeerIndexConfig,
@@ -21,7 +23,8 @@ impl PeerIndex {
     pub fn new(config: PeerIndexConfig) -> Self {
         Self {
             reserved_peers: HashSet::new(),
-            connections: HashMap::new(),
+            enabled_connections: HashMap::new(),
+            protocols: HashMap::new(),
             num_inbound: 0,
             num_outbound: 0,
             config,
@@ -30,7 +33,7 @@ impl PeerIndex {
 
     pub fn try_add_outgoing(&mut self, peer_id: PeerId) -> bool {
         if self.num_outbound < self.config.max_outgoing {
-            self.connections
+            self.enabled_connections
                 .insert(peer_id, ConnectionDirection::Outbound(false));
             true
         } else {
@@ -39,13 +42,13 @@ impl PeerIndex {
     }
 
     pub fn confirm_outbound(&mut self, peer_id: PeerId) {
-        self.connections
+        self.enabled_connections
             .insert(peer_id, ConnectionDirection::Outbound(true));
     }
 
     pub fn try_add_incoming(&mut self, peer_id: PeerId) -> bool {
         if self.num_inbound < self.config.max_incoming {
-            self.connections
+            self.enabled_connections
                 .insert(peer_id, ConnectionDirection::Inbound);
             true
         } else {
@@ -55,12 +58,12 @@ impl PeerIndex {
 
     pub fn drop_outgoing(&mut self, peer_id: &PeerId) -> bool {
         self.num_outbound -= 1;
-        self.connections.remove(peer_id).is_some()
+        self.enabled_connections.remove(peer_id).is_some()
     }
 
     pub fn drop_incoming(&mut self, peer_id: &PeerId) -> bool {
         self.num_inbound -= 1;
-        self.connections.remove(peer_id).is_some()
+        self.enabled_connections.remove(peer_id).is_some()
     }
 
     pub fn reserve_peer(&mut self, peer_id: PeerId) {
@@ -73,5 +76,21 @@ impl PeerIndex {
 
     pub fn update_reserved_set(&mut self, peers: HashSet<PeerId>) {
         self.reserved_peers = peers;
+    }
+
+    pub fn enable_protocol(&mut self, protocol_id: &ProtocolId, peer_id: PeerId) -> bool {
+        if let Some(peers) = self.protocols.get_mut(protocol_id) {
+            peers.insert(peer_id)
+        } else {
+            false
+        }
+    }
+
+    pub fn is_protocol_enabled(&self, protocol_id: &ProtocolId, peer_id: &PeerId) -> bool {
+        if let Some(peers) = self.protocols.get(protocol_id) {
+            peers.contains(peer_id)
+        } else {
+            false
+        }
     }
 }

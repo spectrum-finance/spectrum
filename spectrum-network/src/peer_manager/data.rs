@@ -61,15 +61,29 @@ impl PeerInfo {
             num_connections: 0,
             last_handshake: None,
             outbound_backoff_until: None,
-            supported_protocols: None
+            supported_protocols: None,
         }
     }
 
     pub fn supports(&self, protocol: &ProtocolId) -> Option<bool> {
-        self.supported_protocols.as_ref().map(|ps| ps.contains(protocol))
+        self.supported_protocols
+            .as_ref()
+            .map(|ps| ps.contains(protocol))
     }
 
     pub fn confirm_new_conn(&mut self) {
         let _ = self.num_connections.saturating_add(1);
     }
+}
+
+/// Policy of protocols allocation defines the way we should
+/// actively allocate connections for a particular protocol.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum ProtocolAllocationPolicy {
+    /// Allocate up to the specified % of all connectons.
+    Bounded(usize),
+    /// Allocate as many as possible connections.
+    Max,
+    /// Do not allocate any connections.
+    Zero,
 }

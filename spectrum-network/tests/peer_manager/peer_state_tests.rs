@@ -1,5 +1,5 @@
 use libp2p::PeerId;
-use spectrum_network::peer_manager::peer_store::PeerIndexConfig;
+use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
 use spectrum_network::peer_manager::peers_state::{DefaultPeersState, PeersState};
 
 #[test]
