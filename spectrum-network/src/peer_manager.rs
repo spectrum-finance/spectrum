@@ -35,15 +35,6 @@ pub enum PeerManagerOut {
     StartProtocol(ProtocolId, PeerId),
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct ProtocolSupportIsConfirmed(bool);
-
-impl Into<bool> for ProtocolSupportIsConfirmed {
-    fn into(self) -> bool {
-        self.0
-    }
-}
-
 /// Peer Manager inputs.
 #[derive(Debug)]
 pub enum PeerManagerRequestIn {
@@ -91,11 +82,6 @@ pub trait PeerManagerRequestsBehavior {
     fn on_report_peer(&mut self, peer_id: PeerId, change: ReputationChange);
     fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: oneshot::Sender<Reputation>);
     fn on_set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>);
-    fn on_request_protocol(
-        &mut self,
-        protocol_id: ProtocolId,
-        support_confirmed: ProtocolSupportIsConfirmed,
-    );
 }
 
 pub trait PeerManagerNotificationsBehavior {
@@ -197,7 +183,7 @@ impl<S: PeersState> PeerManager<S> {
 
     /// Connect to the best peer we are not connected yet.
     pub fn connect_best(&mut self) {
-        if let Some(pid) = self.state.peek_best(Some(|pi: &PeerInfo| {
+        if let Some(pid) = self.state.peek_best(Some(|_: &PeerId, pi: &PeerInfo| {
             matches!(pi.state, ConnectionState::NotConnected)
         })) {
             self.connect(pid)
@@ -259,23 +245,6 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
                 peer.set_protocols(protocols);
             }
             None => {} // warn
-        }
-    }
-
-    fn on_request_protocol(
-        &mut self,
-        protocol_id: ProtocolId,
-        support_confirmed: ProtocolSupportIsConfirmed,
-    ) {
-        let peer = self.state.peek_best(if support_confirmed.0 {
-            Some(|pi: &PeerInfo| pi.supports(&protocol_id).unwrap_or(false))
-        } else {
-            None
-        });
-        if let Some(pid) = peer {
-            let _ = self
-                .out_queue
-                .push_back(PeerManagerOut::StartProtocol(protocol_id, pid));
         }
     }
 }
@@ -386,7 +355,7 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
             }
 
             // Allocate protocol substreams according to defined policies.
-            for (prot, policy) in self.conf.protocols_allocation.iter() {
+            for (prot, policy) in self.conf.protocols_allocation.clone().iter() {
                 if let Some(enabled_peers) = self.state.get_enabled_peers(prot) {
                     let cond = match policy {
                         ProtocolAllocationPolicy::Bounded(max_conn_percent) => {
