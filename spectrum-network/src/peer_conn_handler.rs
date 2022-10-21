@@ -4,17 +4,15 @@ use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::protocol::combinators::AnyUpgradeOf;
 use crate::protocol::handshake::PolyVerHandshakeSpec;
 use crate::protocol::substream::ProtocolSubstreamIn;
-use crate::protocol::upgrade::{
-    ProtocolTag, ProtocolUpgradeErr, ProtocolUpgradeIn, ProtocolUpgradeOut,
-};
+use crate::protocol::upgrade::{ProtocolTag, ProtocolUpgradeErr, ProtocolUpgradeIn, ProtocolUpgradeOut};
 use crate::protocol::{Protocol, ProtocolConfig, ProtocolState};
 use crate::types::{ProtocolId, RawMessage};
 use futures::channel::mpsc;
 pub use futures::prelude::*;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::{
-    ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, IntoConnectionHandler,
-    KeepAlive, NegotiatedSubstream, SubstreamProtocol,
+    ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, IntoConnectionHandler, KeepAlive,
+    NegotiatedSubstream, SubstreamProtocol,
 };
 use libp2p::{InboundUpgrade, OutboundUpgrade, PeerId};
 
@@ -110,11 +108,7 @@ impl PartialPeerConnHandler {
 impl IntoConnectionHandler for PartialPeerConnHandler {
     type Handler = PeerConnHandler;
 
-    fn into_handler(
-        self,
-        remote_peer_id: &PeerId,
-        connected_point: &ConnectedPoint,
-    ) -> Self::Handler {
+    fn into_handler(self, remote_peer_id: &PeerId, connected_point: &ConnectedPoint) -> Self::Handler {
         let protocols = HashMap::from_iter(self.supported_protocols.iter().flat_map(|p| {
             p.supported_versions.iter().map(|(ver, spec)| {
                 (
@@ -164,12 +158,7 @@ pub struct PeerConnHandler {
     peer_id: PeerId,
     /// Events to return in priority from `poll`.
     pending_events: VecDeque<
-        ConnectionHandlerEvent<
-            ProtocolUpgradeOut,
-            ProtocolTag,
-            ConnHandlerOut,
-            PeerConnHandlerError,
-        >,
+        ConnectionHandlerEvent<ProtocolUpgradeOut, ProtocolTag, ConnHandlerOut, PeerConnHandlerError>,
     >,
 }
 
@@ -228,12 +217,13 @@ impl ConnectionHandler for PeerConnHandler {
                         let (msg_snd, msg_recv) =
                             mpsc::channel::<RawMessage>(self.conf.async_msg_buffer_size);
                         let sink = MessageSink::new(self.peer_id, msg_snd);
-                        self.pending_events
-                            .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::Opened {
+                        self.pending_events.push_back(ConnectionHandlerEvent::Custom(
+                            ConnHandlerOut::Opened {
                                 protocol_tag: negotiated_tag,
                                 out_channel: sink,
                                 handshake: upgrade.handshake,
-                            }));
+                            },
+                        ));
                         ProtocolState::Opened {
                             substream_out,
                             substream_in: upgrade.substream,
@@ -266,12 +256,13 @@ impl ConnectionHandler for PeerConnHandler {
                         let (msg_snd, msg_recv) =
                             mpsc::channel::<RawMessage>(self.conf.async_msg_buffer_size);
                         let sink = MessageSink::new(self.peer_id, msg_snd);
-                        self.pending_events
-                            .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::Opened {
+                        self.pending_events.push_back(ConnectionHandlerEvent::Custom(
+                            ConnHandlerOut::Opened {
                                 protocol_tag: negotiated_tag,
                                 out_channel: sink,
                                 handshake: upgrade.handshake,
-                            }));
+                            },
+                        ));
                         ProtocolState::Opened {
                             substream_in,
                             substream_out: upgrade.substream,
@@ -376,11 +367,11 @@ impl ConnectionHandler for PeerConnHandler {
         if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
             if let Some(state) = &protocol.state {
                 match state {
-                    ProtocolState::Opening | ProtocolState::Accepting { .. } => self
-                        .pending_events
-                        .push_back(ConnectionHandlerEvent::Custom(
+                    ProtocolState::Opening | ProtocolState::Accepting { .. } => {
+                        self.pending_events.push_back(ConnectionHandlerEvent::Custom(
                             ConnHandlerOut::RefusedToOpen(protocol_id),
-                        )),
+                        ))
+                    }
                     _ => {}
                 }
             }
@@ -406,12 +397,7 @@ impl ConnectionHandler for PeerConnHandler {
         &mut self,
         cx: &mut Context,
     ) -> Poll<
-        ConnectionHandlerEvent<
-            Self::OutboundProtocol,
-            Self::OutboundOpenInfo,
-            Self::OutEvent,
-            Self::Error,
-        >,
+        ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::OutEvent, Self::Error>,
     > {
         if let Some(out) = self.pending_events.pop_front() {
             Poll::Ready(out)
@@ -525,10 +511,7 @@ impl ConnectionHandler for PeerConnHandler {
                             }
                         }
                         ProtocolState::PartiallyOpenedByPeer { substream_in } => {
-                            match ProtocolSubstreamIn::poll_process_handshake(
-                                Pin::new(substream_in),
-                                cx,
-                            ) {
+                            match ProtocolSubstreamIn::poll_process_handshake(Pin::new(substream_in), cx) {
                                 Poll::Pending => {}
                                 Poll::Ready(Ok(void)) => match void {},
                                 Poll::Ready(Err(_)) => {
@@ -541,19 +524,13 @@ impl ConnectionHandler for PeerConnHandler {
                         }
                         ProtocolState::Accepting {
                             substream_in: Some(substream_in),
-                        } => {
-                            match ProtocolSubstreamIn::poll_process_handshake(
-                                Pin::new(substream_in),
-                                cx,
-                            ) {
-                                Poll::Pending => {}
-                                Poll::Ready(Ok(void)) => match void {},
-                                Poll::Ready(Err(_)) => {
-                                    protocol.state =
-                                        Some(ProtocolState::Accepting { substream_in: None })
-                                }
+                        } => match ProtocolSubstreamIn::poll_process_handshake(Pin::new(substream_in), cx) {
+                            Poll::Pending => {}
+                            Poll::Ready(Ok(void)) => match void {},
+                            Poll::Ready(Err(_)) => {
+                                protocol.state = Some(ProtocolState::Accepting { substream_in: None })
                             }
-                        }
+                        },
                         ProtocolState::Closed
                         | ProtocolState::Opening
                         | ProtocolState::PartiallyOpened { .. }

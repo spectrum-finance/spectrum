@@ -51,6 +51,7 @@ pub enum PeerManagerRequestIn {
 #[derive(Debug)]
 pub enum PeerManagerNotificationIn {
     IncomingConnection(PeerId, ConnectionId),
+    ConnectionEstablished(PeerId, ConnectionId),
     ConnectionLost(PeerId, ConnectionLossReason),
     /// Specified protocol is enabled with the specified peer by the ProtocolHandler.
     ForceEnabled(PeerId, ProtocolId),
@@ -74,6 +75,7 @@ pub trait Peers {
 /// Async API to PeerManager notifications.
 pub trait PeerManagerNotifications {
     fn incoming_connection(&mut self, peer_id: PeerId, conn_id: ConnectionId);
+    fn connection_established(&mut self, peer_id: PeerId, conn_id: ConnectionId);
     fn connection_lost(&mut self, peer_id: PeerId, reason: ConnectionLossReason);
     fn force_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
 }
@@ -89,6 +91,7 @@ pub trait PeerManagerRequestsBehavior {
 
 pub trait PeerManagerNotificationsBehavior {
     fn on_incoming_connection(&mut self, peer_id: PeerId, conn_id: ConnectionId);
+    fn on_connection_established(&mut self, peer_id: PeerId, conn_id: ConnectionId);
     fn on_connection_lost(&mut self, peer_id: PeerId, reason: ConnectionLossReason);
     fn on_force_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
 }
@@ -146,6 +149,12 @@ impl PeerManagerNotifications for PeerManagerNotificationsLive {
         let _ = self
             .notifications_snd
             .unbounded_send(PeerManagerNotificationIn::IncomingConnection(peer_id, conn_id));
+    }
+
+    fn connection_established(&mut self, peer_id: PeerId, conn_id: ConnectionId) {
+        let _ = self
+            .notifications_snd
+            .unbounded_send(PeerManagerNotificationIn::ConnectionEstablished(peer_id, conn_id));
     }
 
     fn connection_lost(&mut self, peer_id: PeerId, reason: ConnectionLossReason) {
@@ -282,6 +291,12 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
         }
     }
 
+    fn on_connection_established(&mut self, peer_id: PeerId, _conn_id: ConnectionId) {
+        if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&peer_id) {
+            cp.confirm_connection();
+        }
+    }
+
     fn on_connection_lost(&mut self, peer_id: PeerId, reason: ConnectionLossReason) {
         match self.state.peer(&peer_id) {
             Some(PeerInState::Connected(cp)) => {
@@ -327,6 +342,9 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
             if let Poll::Ready(Some(notif)) = Stream::poll_next(Pin::new(&mut self.notifications_recv), cx) {
                 match notif {
                     PeerManagerNotificationIn::IncomingConnection(pid, conn_id) => {
+                        self.on_incoming_connection(pid, conn_id)
+                    }
+                    PeerManagerNotificationIn::ConnectionEstablished(pid, conn_id) => {
                         self.on_incoming_connection(pid, conn_id)
                     }
                     PeerManagerNotificationIn::ConnectionLost(pid, reason) => {

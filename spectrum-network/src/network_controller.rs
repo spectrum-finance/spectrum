@@ -75,7 +75,6 @@ pub struct NetworkController<TPeers, THandler> {
 }
 
 // todo: implement initial handshake
-// todo: implement connection confirmation
 impl<TPeers, THandler> NetworkBehaviour for NetworkController<TPeers, THandler>
 where
     TPeers: Peers + PeerManagerNotifications + Stream<Item = PeerManagerOut> + Unpin + 'static,
@@ -106,6 +105,7 @@ where
         match self.enabled_peers.entry(*peer_id) {
             Entry::Occupied(mut peer_entry) => match peer_entry.get() {
                 ConnectedPeer::PendingConnect => {
+                    self.peer_manager.connection_established(*peer_id, *conn_id); // confirm connection
                     peer_entry.insert(ConnectedPeer::Connected {
                         conn_id: *conn_id,
                         enabled_protocols: HashMap::new(),
@@ -286,8 +286,9 @@ where
                                 prot_handler.incoming_msg(peer_id, protocol_tag.protocol_ver(), content)
                             {
                                 trace!(
-                                    "Failed to handle msg from peer {:?}, protocol {:?}",
+                                    "Failed to handle msg from peer {:?} due to err {:?}, protocol {:?}",
                                     peer_id,
+                                    err,
                                     protocol_id
                                 );
                                 self.peer_manager
