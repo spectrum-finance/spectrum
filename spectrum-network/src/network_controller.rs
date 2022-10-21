@@ -4,26 +4,25 @@ use crate::peer_manager::{PeerManagerNotifications, PeerManagerOut, Peers};
 use crate::protocol::ProtocolConfig;
 use crate::protocol_handler::ProtocolHandler;
 use crate::types::{ProtocolId, ProtocolVer};
+
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::{
-    CloseConnection, DialError, IntoConnectionHandler, NetworkBehaviour, NetworkBehaviourAction,
-    NotifyHandler, PollParameters,
+    CloseConnection, IntoConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
+    PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
+
 use log::trace;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
-use std::error::Error;
 use std::pin::Pin;
+use std::task::{Context, Poll};
 
-use crate::peer_conn_handler::ConnHandlerIn::Open;
-use crate::peer_manager::data::ReputationChange;
+use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
 use crate::protocol::handshake::PolyVerHandshakeSpec;
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::Stream;
-use libp2p::core::transport::ListenerId;
-use std::task::{Context, Poll};
 
 /// States of an enabled protocol.
 pub enum EnabledProtocol {
@@ -75,7 +74,6 @@ pub struct NetworkController<TPeers, THandler> {
     pending_actions: VecDeque<NetworkBehaviourAction<NetworkControllerOut, PartialPeerConnHandler>>,
 }
 
-// todo: implement protocols allocation pipeline (Periodic allocs in PM + GetHS->Enable{prot, pid, hs})
 // todo: implement initial handshake
 // todo: implement connection confirmation
 impl<TPeers, THandler> NetworkBehaviour for NetworkController<TPeers, THandler>
@@ -106,9 +104,9 @@ where
         _other_established: usize,
     ) {
         match self.enabled_peers.entry(*peer_id) {
-            Entry::Occupied(mut entry) => match entry.get() {
+            Entry::Occupied(mut peer_entry) => match peer_entry.get() {
                 ConnectedPeer::PendingConnect => {
-                    entry.insert(ConnectedPeer::Connected {
+                    peer_entry.insert(ConnectedPeer::Connected {
                         conn_id: *conn_id,
                         enabled_protocols: HashMap::new(),
                     });
@@ -132,13 +130,24 @@ where
 
     fn inject_connection_closed(
         &mut self,
-        _: &PeerId,
-        _: &ConnectionId,
-        _: &ConnectedPoint,
-        _: <Self::ConnectionHandler as IntoConnectionHandler>::Handler,
+        peer_id: &PeerId,
+        _conn_id: &ConnectionId,
+        _endpoint: &ConnectedPoint,
+        _handler: <Self::ConnectionHandler as IntoConnectionHandler>::Handler,
         _remaining_established: usize,
     ) {
-        todo!()
+        match self.enabled_peers.entry(*peer_id) {
+            Entry::Occupied(peer_entry) => match peer_entry.get() {
+                ConnectedPeer::Connected { .. } | ConnectedPeer::PendingDisconnect(..) => {
+                    self.peer_manager
+                        .connection_lost(*peer_id, ConnectionLossReason::ResetByPeer);
+                    peer_entry.remove();
+                }
+                // todo: is it possible in case of simultaneous connection?
+                ConnectedPeer::PendingConnect | ConnectedPeer::PendingApprove(..) => {}
+            },
+            Entry::Vacant(_) => {}
+        }
     }
 
     fn inject_event(&mut self, peer_id: PeerId, connection: ConnectionId, event: ConnHandlerOut) {
@@ -307,8 +316,8 @@ where
         if let Some(action) = self.pending_actions.pop_front() {
             return Poll::Ready(action);
         };
-        // 2. Poll for instructions from the PM.
         loop {
+            // 2. Poll for instructions from PM.
             match Stream::poll_next(Pin::new(&mut self.peer_manager), cx) {
                 Poll::Ready(Some(PeerManagerOut::Connect(pid))) => {
                     let handler = self.new_handler();
