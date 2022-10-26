@@ -1,8 +1,8 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
-use crate::peer_manager::{PeerManagerNotifications, PeerManagerOut, Peers};
+use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
 use crate::protocol::ProtocolConfig;
-use crate::protocol_handler::ProtocolHandler;
+use crate::protocol_handler::ProtocolHandlerEvents;
 use crate::types::{ProtocolId, ProtocolVer};
 
 use libp2p::core::connection::ConnectionId;
@@ -13,6 +13,7 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 
+use futures::channel::mpsc;
 use log::trace;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
@@ -21,7 +22,7 @@ use std::task::{Context, Poll};
 
 use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
 use crate::protocol::handshake::PolyVerHandshakeSpec;
-use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::Stream;
 
 /// States of an enabled protocol.
@@ -65,20 +66,47 @@ pub enum NetworkControllerIn {
     },
 }
 
-pub struct NetworkController<TPeers, THandler> {
+#[derive(Clone)]
+pub struct NetworkAPI {
+    requests_snd: UnboundedSender<NetworkControllerIn>,
+}
+
+pub struct NetworkController<TPeers, TPeerManager, THandler> {
     conn_handler_conf: PeerConnHandlerConf,
     supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
-    peer_manager: TPeers,
+    peers: TPeers,
+    peer_manager: TPeerManager,
     enabled_peers: HashMap<PeerId, ConnectedPeer<THandler>>,
     requests_recv: UnboundedReceiver<NetworkControllerIn>,
     pending_actions: VecDeque<NetworkBehaviourAction<NetworkControllerOut, PartialPeerConnHandler>>,
 }
 
+pub fn make<TPeers, TPeerManager, THandler>(
+    conn_handler_conf: PeerConnHandlerConf,
+    supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
+    peers: TPeers,
+    peer_manager: TPeerManager,
+) -> (NetworkController<TPeers, TPeerManager, THandler>, NetworkAPI) {
+    let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
+    let network_controller = NetworkController {
+        conn_handler_conf,
+        supported_protocols,
+        peers,
+        peer_manager,
+        enabled_peers: HashMap::new(),
+        requests_recv,
+        pending_actions: VecDeque::new(),
+    };
+    let network_api = NetworkAPI { requests_snd };
+    (network_controller, network_api)
+}
+
 // todo: implement initial handshake
-impl<TPeers, THandler> NetworkBehaviour for NetworkController<TPeers, THandler>
+impl<TPeers, TPeerManager, THandler> NetworkBehaviour for NetworkController<TPeers, TPeerManager, THandler>
 where
-    TPeers: Peers + PeerManagerNotifications + Stream<Item = PeerManagerOut> + Unpin + 'static,
-    THandler: ProtocolHandler + Clone + 'static,
+    TPeers: PeerEvents + 'static,
+    TPeerManager: Stream<Item = PeerManagerOut> + Unpin + 'static,
+    THandler: ProtocolHandlerEvents + Clone + 'static,
 {
     type ConnectionHandler = PartialPeerConnHandler;
     type OutEvent = NetworkControllerOut;
@@ -105,7 +133,7 @@ where
         match self.enabled_peers.entry(*peer_id) {
             Entry::Occupied(mut peer_entry) => match peer_entry.get() {
                 ConnectedPeer::PendingConnect => {
-                    self.peer_manager.connection_established(*peer_id, *conn_id); // confirm connection
+                    self.peers.connection_established(*peer_id, *conn_id); // confirm connection
                     peer_entry.insert(ConnectedPeer::Connected {
                         conn_id: *conn_id,
                         enabled_protocols: HashMap::new(),
@@ -122,7 +150,7 @@ where
                 }
             },
             Entry::Vacant(entry) => {
-                self.peer_manager.incoming_connection(*peer_id, *conn_id);
+                self.peers.incoming_connection(*peer_id, *conn_id);
                 entry.insert(ConnectedPeer::PendingApprove(*conn_id));
             }
         }
@@ -139,7 +167,7 @@ where
         match self.enabled_peers.entry(*peer_id) {
             Entry::Occupied(peer_entry) => match peer_entry.get() {
                 ConnectedPeer::Connected { .. } | ConnectedPeer::PendingDisconnect(..) => {
-                    self.peer_manager
+                    self.peers
                         .connection_lost(*peer_id, ConnectionLossReason::ResetByPeer);
                     peer_entry.remove();
                 }
@@ -166,33 +194,17 @@ where
                     match enabled_protocols.entry(protocol_id) {
                         Entry::Occupied(mut entry) => {
                             if let (EnabledProtocol::PendingEnable, handler) = entry.get() {
-                                if let Err(err) = handler.protocol_enabled(
+                                handler.protocol_enabled(
                                     peer_id,
                                     protocol_ver,
                                     handshake,
                                     out_channel.clone(),
-                                ) {
-                                    trace!(
-                                        "Failed to enable protocol {:?} with peer {:?} due to {:?}",
-                                        protocol_id,
-                                        peer_id,
-                                        err
-                                    );
-                                    self.peer_manager
-                                        .report_peer(peer_id, ReputationChange::MalformedMessage);
-                                    self.pending_actions
-                                        .push_back(NetworkBehaviourAction::NotifyHandler {
-                                            peer_id,
-                                            handler: NotifyHandler::One(connection),
-                                            event: ConnHandlerIn::Close(protocol_id),
-                                        })
-                                } else {
-                                    let enabled_protocol = EnabledProtocol::Enabled {
-                                        ver: protocol_ver,
-                                        sink: out_channel,
-                                    };
-                                    entry.insert((enabled_protocol, handler.clone()));
-                                }
+                                );
+                                let enabled_protocol = EnabledProtocol::Enabled {
+                                    ver: protocol_ver,
+                                    sink: out_channel,
+                                };
+                                entry.insert((enabled_protocol, handler.clone()));
                             }
                         }
                         Entry::Vacant(entry) => {
@@ -214,26 +226,7 @@ where
                     match enabled_protocols.entry(protocol_id) {
                         Entry::Vacant(entry) => {
                             entry.insert((EnabledProtocol::PendingApprove, prot_handler.clone()));
-                            if let Err(err) = prot_handler.protocol_requested(
-                                peer_id,
-                                protocol_tag.protocol_ver(),
-                                handshake,
-                            ) {
-                                trace!(
-                                    "Peer {:?} failed his attempt to open protocol {:?} due to {:?}",
-                                    peer_id,
-                                    protocol_id,
-                                    err
-                                );
-                                self.peer_manager
-                                    .report_peer(peer_id, ReputationChange::MalformedMessage);
-                                self.pending_actions
-                                    .push_back(NetworkBehaviourAction::NotifyHandler {
-                                        peer_id,
-                                        handler: NotifyHandler::One(connection),
-                                        event: ConnHandlerIn::Close(protocol_id),
-                                    })
-                            };
+                            prot_handler.protocol_requested(peer_id, protocol_tag.protocol_ver(), handshake);
                         }
                         Entry::Occupied(_) => {
                             trace!(
@@ -282,24 +275,7 @@ where
                     let protocol_id = protocol_tag.protocol_id();
                     match enabled_protocols.get(&protocol_id) {
                         Some((_, prot_handler)) => {
-                            if let Err(err) =
-                                prot_handler.incoming_msg(peer_id, protocol_tag.protocol_ver(), content)
-                            {
-                                trace!(
-                                    "Failed to handle msg from peer {:?} due to err {:?}, protocol {:?}",
-                                    peer_id,
-                                    err,
-                                    protocol_id
-                                );
-                                self.peer_manager
-                                    .report_peer(peer_id, ReputationChange::MalformedMessage);
-                                self.pending_actions
-                                    .push_back(NetworkBehaviourAction::NotifyHandler {
-                                        peer_id,
-                                        handler: NotifyHandler::One(connection),
-                                        event: ConnHandlerIn::Close(protocol_id),
-                                    })
-                            };
+                            prot_handler.incoming_msg(peer_id, protocol_tag.protocol_ver(), content);
                         }
                         None => {} // todo: probably possible?
                     };
@@ -407,7 +383,7 @@ where
                                                 EnabledProtocol::PendingEnable,
                                                 prot_handler.clone(),
                                             ));
-                                            if let Err(_void) = prot_handler.protocol_requested_local(pid) {};
+                                            prot_handler.protocol_requested_local(pid);
                                         }
                                     };
                                 }
@@ -459,7 +435,7 @@ where
                                     peer_id
                                 );
                                 protocol_entry.insert((EnabledProtocol::PendingEnable, prot_handler.clone()));
-                                self.peer_manager.force_enabled(peer_id, protocol_id); // notify PM
+                                self.peers.force_enabled(peer_id, protocol_id); // notify PM
                                 self.pending_actions
                                     .push_back(NetworkBehaviourAction::NotifyHandler {
                                         peer_id,

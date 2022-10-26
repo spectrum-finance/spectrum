@@ -140,9 +140,7 @@ impl<'a> NotConnectedPeer<'a> {
     }
 
     pub fn try_connect(self) -> Result<ConnectedPeer<'a>, Self> {
-        let added = self
-            .peer_sets
-            .try_add_outgoing(self.peer_id.clone().into_owned());
+        let added = self.peer_sets.try_add_outgoing(self.peer_id.clone().into_owned());
         if added {
             Ok(self.connect(ConnectionDirection::Outbound(false)))
         } else {
@@ -151,9 +149,7 @@ impl<'a> NotConnectedPeer<'a> {
     }
 
     pub fn try_accept_connection(self) -> Result<ConnectedPeer<'a>, Self> {
-        let added = self
-            .peer_sets
-            .try_add_incoming(self.peer_id.clone().into_owned());
+        let added = self.peer_sets.try_add_incoming(self.peer_id.clone().into_owned());
         if added {
             Ok(self.connect(ConnectionDirection::Inbound))
         } else {
@@ -298,15 +294,15 @@ pub trait PeersState {
     fn num_connected_peers(&self) -> usize;
 }
 
-pub struct DefaultPeersState {
+pub struct PeersStateDef {
     peers: HashMap<PeerId, PeerInfo>,
     sorted_peers: BTreeSet<(PeerId, Reputation)>,
     index: PeerIndex,
 }
 
-impl DefaultPeersState {
+impl PeersStateDef {
     pub fn new(peer_index_conf: PeerIndexConfig) -> Self {
-        DefaultPeersState {
+        PeersStateDef {
             peers: HashMap::new(),
             sorted_peers: BTreeSet::new(),
             index: PeerIndex::new(peer_index_conf),
@@ -314,7 +310,7 @@ impl DefaultPeersState {
     }
 }
 
-impl PeersState for DefaultPeersState {
+impl PeersState for PeersStateDef {
     fn peer<'a>(&'a mut self, peer_id: &'a PeerId) -> Option<PeerInState<'a>> {
         match self.peers.entry(peer_id.clone()) {
             Entry::Occupied(peer_info) => match peer_info.get().state {
@@ -324,14 +320,12 @@ impl PeersState for DefaultPeersState {
                     &mut self.index,
                     &mut self.sorted_peers,
                 ))),
-                ConnectionState::NotConnected => {
-                    Some(PeerInState::NotConnected(NotConnectedPeer::new(
-                        Cow::Borrowed(peer_id),
-                        peer_info,
-                        &mut self.index,
-                        &mut self.sorted_peers,
-                    )))
-                }
+                ConnectionState::NotConnected => Some(PeerInState::NotConnected(NotConnectedPeer::new(
+                    Cow::Borrowed(peer_id),
+                    peer_info,
+                    &mut self.index,
+                    &mut self.sorted_peers,
+                ))),
             },
             Entry::Vacant(_) => None,
         }
@@ -387,10 +381,7 @@ impl PeersState for DefaultPeersState {
                             (ConnectionState::Connected(_), Some(PeerStateFilter::Connected)) => {
                                 result.insert(*pid);
                             }
-                            (
-                                ConnectionState::NotConnected,
-                                Some(PeerStateFilter::NotConnected),
-                            ) => {
+                            (ConnectionState::NotConnected, Some(PeerStateFilter::NotConnected)) => {
                                 result.insert(*pid);
                             }
                             (_, None) => {

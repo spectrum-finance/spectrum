@@ -24,9 +24,9 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct PeerConnHandlerConf {
-    async_msg_buffer_size: usize,
-    open_timeout: Duration,
-    initial_keep_alive: Duration,
+    pub msg_buffer_size: usize,
+    pub open_timeout: Duration,
+    pub initial_keep_alive: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -215,7 +215,7 @@ impl ConnectionHandler for PeerConnHandler {
                     ProtocolState::PartiallyOpened { substream_out }
                     | ProtocolState::InboundClosedByPeer { substream_out, .. } => {
                         let (msg_snd, msg_recv) =
-                            mpsc::channel::<RawMessage>(self.conf.async_msg_buffer_size);
+                            mpsc::channel::<RawMessage>(self.conf.msg_buffer_size);
                         let sink = MessageSink::new(self.peer_id, msg_snd);
                         self.pending_events.push_back(ConnectionHandlerEvent::Custom(
                             ConnHandlerOut::Opened {
@@ -254,7 +254,7 @@ impl ConnectionHandler for PeerConnHandler {
                         substream_in: Some(substream_in),
                     } => {
                         let (msg_snd, msg_recv) =
-                            mpsc::channel::<RawMessage>(self.conf.async_msg_buffer_size);
+                            mpsc::channel::<RawMessage>(self.conf.msg_buffer_size);
                         let sink = MessageSink::new(self.peer_id, msg_snd);
                         self.pending_events.push_back(ConnectionHandlerEvent::Custom(
                             ConnHandlerOut::Opened {
