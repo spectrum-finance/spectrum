@@ -1,6 +1,8 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
-use crate::peer_conn_handler::{ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
-use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
+use crate::peer_conn_handler::{
+    ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf, PeerRole,
+};
+use crate::peer_manager::{PeerEvents, PeerManagerOut};
 use crate::protocol::ProtocolConfig;
 use crate::protocol_handler::ProtocolHandlerEvents;
 use crate::types::{ProtocolId, ProtocolVer};
@@ -20,7 +22,7 @@ use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
+use crate::peer_manager::data::ConnectionLossReason;
 use crate::protocol::handshake::PolyVerHandshakeSpec;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::Stream;
@@ -66,9 +68,25 @@ pub enum NetworkControllerIn {
     },
 }
 
+pub trait NetworkAPI {
+    fn enable_protocol(&self, protocol: ProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec);
+}
+
 #[derive(Clone)]
-pub struct NetworkAPI {
-    requests_snd: UnboundedSender<NetworkControllerIn>,
+pub struct NetworkMailbox {
+    mailbox_snd: UnboundedSender<NetworkControllerIn>,
+}
+
+impl NetworkAPI for NetworkMailbox {
+    fn enable_protocol(&self, protocol: ProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec) {
+        let _ = self
+            .mailbox_snd
+            .unbounded_send(NetworkControllerIn::EnableProtocol {
+                protocol,
+                peer,
+                handshake,
+            });
+    }
 }
 
 pub struct NetworkController<TPeers, TPeerManager, THandler> {
@@ -81,12 +99,32 @@ pub struct NetworkController<TPeers, TPeerManager, THandler> {
     pending_actions: VecDeque<NetworkBehaviourAction<NetworkControllerOut, PartialPeerConnHandler>>,
 }
 
+impl<TPeers, TPeerManager, THandler> NetworkController<TPeers, TPeerManager, THandler>
+where
+    THandler: Clone,
+{
+    fn init_handler(&self, role: PeerRole) -> PartialPeerConnHandler {
+        PartialPeerConnHandler::new(
+            role,
+            self.conn_handler_conf.clone(),
+            self.supported_protocols
+                .values()
+                .cloned()
+                .map(|(conf, _)| conf)
+                .collect(),
+        )
+    }
+}
+
 pub fn make<TPeers, TPeerManager, THandler>(
     conn_handler_conf: PeerConnHandlerConf,
     supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
     peers: TPeers,
     peer_manager: TPeerManager,
-) -> (NetworkController<TPeers, TPeerManager, THandler>, NetworkAPI) {
+) -> (
+    NetworkController<TPeers, TPeerManager, THandler>,
+    NetworkMailbox,
+) {
     let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
     let network_controller = NetworkController {
         conn_handler_conf,
@@ -97,7 +135,9 @@ pub fn make<TPeers, TPeerManager, THandler>(
         requests_recv,
         pending_actions: VecDeque::new(),
     };
-    let network_api = NetworkAPI { requests_snd };
+    let network_api = NetworkMailbox {
+        mailbox_snd: requests_snd,
+    };
     (network_controller, network_api)
 }
 
@@ -112,14 +152,7 @@ where
     type OutEvent = NetworkControllerOut;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
-        PartialPeerConnHandler::new(
-            self.conn_handler_conf.clone(),
-            self.supported_protocols
-                .values()
-                .cloned()
-                .map(|(conf, _)| conf)
-                .collect(),
-        )
+        self.init_handler(PeerRole::Listener)
     }
 
     fn inject_connection_established(
@@ -297,7 +330,7 @@ where
             // 2. Poll for instructions from PM.
             match Stream::poll_next(Pin::new(&mut self.peer_manager), cx) {
                 Poll::Ready(Some(PeerManagerOut::Connect(pid))) => {
-                    let handler = self.new_handler();
+                    let handler = self.init_handler(PeerRole::Dialer);
                     match self.enabled_peers.entry(pid) {
                         Entry::Occupied(_) => {}
                         Entry::Vacant(peer_entry) => {

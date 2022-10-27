@@ -86,19 +86,26 @@ pub enum ConnHandlerOut {
     },
 }
 
+pub enum PeerRole {
+    Dialer,
+    Listener,
+}
+
 pub trait PeerConnHandlerActions {
     fn open_protocol(&self, protocol_id: ProtocolId);
     fn close_protocol(&self, protocol_id: ProtocolId);
 }
 
 pub struct PartialPeerConnHandler {
+    role: PeerRole,
     conf: PeerConnHandlerConf,
     supported_protocols: Vec<ProtocolConfig>,
 }
 
 impl PartialPeerConnHandler {
-    pub fn new(conf: PeerConnHandlerConf, supported_protocols: Vec<ProtocolConfig>) -> Self {
+    pub fn new(role: PeerRole, conf: PeerConnHandlerConf, supported_protocols: Vec<ProtocolConfig>) -> Self {
         Self {
+            role,
             conf,
             supported_protocols,
         }
@@ -214,8 +221,7 @@ impl ConnectionHandler for PeerConnHandler {
                     // to do.
                     ProtocolState::PartiallyOpened { substream_out }
                     | ProtocolState::InboundClosedByPeer { substream_out, .. } => {
-                        let (msg_snd, msg_recv) =
-                            mpsc::channel::<RawMessage>(self.conf.msg_buffer_size);
+                        let (msg_snd, msg_recv) = mpsc::channel::<RawMessage>(self.conf.msg_buffer_size);
                         let sink = MessageSink::new(self.peer_id, msg_snd);
                         self.pending_events.push_back(ConnectionHandlerEvent::Custom(
                             ConnHandlerOut::Opened {
@@ -253,8 +259,7 @@ impl ConnectionHandler for PeerConnHandler {
                     ProtocolState::Accepting {
                         substream_in: Some(substream_in),
                     } => {
-                        let (msg_snd, msg_recv) =
-                            mpsc::channel::<RawMessage>(self.conf.msg_buffer_size);
+                        let (msg_snd, msg_recv) = mpsc::channel::<RawMessage>(self.conf.msg_buffer_size);
                         let sink = MessageSink::new(self.peer_id, msg_snd);
                         self.pending_events.push_back(ConnectionHandlerEvent::Custom(
                             ConnHandlerOut::Opened {

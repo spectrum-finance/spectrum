@@ -1,7 +1,6 @@
 use crate::types::RawMessage;
 use asynchronous_codec::Framed;
 use futures::{AsyncRead, AsyncWrite, Sink, Stream};
-use std::convert::Infallible;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::{io, mem};

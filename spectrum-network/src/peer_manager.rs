@@ -62,7 +62,7 @@ pub enum PeerManagerIn {
 }
 
 /// Async API to PeerManager.
-pub trait Peers {
+pub trait PeersAPI {
     fn add_peer(&mut self, peer_id: PeerId);
     fn add_reserved_peer(&mut self, peer_id: PeerId);
     fn set_reserved_peers(&mut self, peers: HashSet<PeerId>);
@@ -95,12 +95,11 @@ pub trait PeerManagerNotificationsBehavior {
     fn on_force_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
 }
 
-/// An interface to PM's events and actions.
-pub struct PeersAPI {
+pub struct PeersMailbox {
     mailbox_snd: UnboundedSender<PeerManagerIn>,
 }
 
-impl Peers for PeersAPI {
+impl PeersAPI for PeersMailbox {
     fn add_peer(&mut self, peer_id: PeerId) {
         let _ = self
             .mailbox_snd
@@ -150,7 +149,7 @@ impl Peers for PeersAPI {
     }
 }
 
-impl PeerEvents for PeersAPI {
+impl PeerEvents for PeersMailbox {
     fn incoming_connection(&mut self, peer_id: PeerId, conn_id: ConnectionId) {
         let _ = self
             .mailbox_snd
@@ -413,7 +412,7 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
     }
 }
 
-pub fn make<S>(state: S, conf: PeerManagerConfig) -> (PeerManager<S>, PeersAPI) {
+pub fn make<S>(state: S, conf: PeerManagerConfig) -> (PeerManager<S>, PeersMailbox) {
     let (snd, recv) = mpsc::unbounded::<PeerManagerIn>();
     let pm = PeerManager {
         state,
@@ -422,6 +421,6 @@ pub fn make<S>(state: S, conf: PeerManagerConfig) -> (PeerManager<S>, PeersAPI) 
         out_queue: VecDeque::new(),
         next_conn_alloc_at: Instant::now(),
     };
-    let peers = PeersAPI { mailbox_snd: snd };
+    let peers = PeersMailbox { mailbox_snd: snd };
     (pm, peers)
 }

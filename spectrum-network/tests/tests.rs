@@ -19,7 +19,7 @@ use spectrum_network::network_controller::NetworkController;
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
 use spectrum_network::peer_manager::peers_state::PeersStateDef;
-use spectrum_network::peer_manager::{PeerManager, PeerManagerConfig, PeersAPI};
+use spectrum_network::peer_manager::{PeerManager, PeerManagerConfig, PeersMailbox};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
 use std::collections::HashMap;
@@ -31,12 +31,12 @@ use std::{
 
 /// Wraps around the `CustomBehaviour` network behaviour, and adds hardcoded node addresses to it.
 pub struct CustomProtoWithAddr {
-    inner: NetworkController<PeersAPI, PeerManager<PeersStateDef>, ProtocolHandler>,
+    inner: NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolHandler>,
     addrs: Vec<(PeerId, Multiaddr)>,
 }
 
 impl std::ops::Deref for CustomProtoWithAddr {
-    type Target = NetworkController<PeersAPI, PeerManager<PeersStateDef>, ProtocolHandler>;
+    type Target = NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolHandler>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -50,8 +50,8 @@ impl std::ops::DerefMut for CustomProtoWithAddr {
 }
 
 impl NetworkBehaviour for CustomProtoWithAddr {
-    type ConnectionHandler = <NetworkController<PeersAPI, PeerManager<PeersStateDef>, ProtocolHandler> as NetworkBehaviour>::ConnectionHandler;
-    type OutEvent = <NetworkController<PeersAPI, PeerManager<PeersStateDef>, ProtocolHandler> as NetworkBehaviour>::OutEvent;
+    type ConnectionHandler = <NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolHandler> as NetworkBehaviour>::ConnectionHandler;
+    type OutEvent = <NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolHandler> as NetworkBehaviour>::OutEvent;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
         self.inner.new_handler()
@@ -148,15 +148,15 @@ impl NetworkBehaviour for CustomProtoWithAddr {
 
 /// Builds two nodes that have each other as bootstrap nodes.
 /// This is to be used only for testing, and a panic will happen if something goes wrong.
-pub fn build_nodes() -> (Swarm<CustomProtoWithAddr>, Swarm<CustomProtoWithAddr>) {
-    let mut out = Vec::with_capacity(2);
+pub fn build_nodes(n: usize) -> Vec<Swarm<CustomProtoWithAddr>> {
+    let mut out = Vec::with_capacity(n);
 
-    let keypairs: Vec<_> = (0..2).map(|_| identity::Keypair::generate_ed25519()).collect();
-    let addrs: Vec<Multiaddr> = (0..2)
+    let keypairs: Vec<_> = (0..n).map(|_| identity::Keypair::generate_ed25519()).collect();
+    let addrs: Vec<Multiaddr> = (0..n)
         .map(|_| format!("/memory/{}", rand::random::<u64>()).parse().unwrap())
         .collect();
 
-    for index in 0..2 {
+    for index in 0..n {
         let keypair = keypairs[index].clone();
 
         let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
@@ -213,9 +213,5 @@ pub fn build_nodes() -> (Swarm<CustomProtoWithAddr>, Swarm<CustomProtoWithAddr>)
         out.push(swarm);
     }
 
-    // Final output
-    let mut out_iter = out.into_iter();
-    let first = out_iter.next().unwrap();
-    let second = out_iter.next().unwrap();
-    (first, second)
+    out
 }
