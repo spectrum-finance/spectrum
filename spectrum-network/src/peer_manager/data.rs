@@ -1,4 +1,4 @@
-use crate::peer::types::Reputation;
+use crate::types::Reputation;
 use libp2p::Multiaddr;
 use std::time::Instant;
 
