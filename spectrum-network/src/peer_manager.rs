@@ -62,7 +62,7 @@ pub enum PeerManagerIn {
 }
 
 /// Async API to PeerManager.
-pub trait PeersAPI {
+pub trait PeerActions {
     fn add_peer(&mut self, peer_id: PeerId);
     fn add_reserved_peer(&mut self, peer_id: PeerId);
     fn set_reserved_peers(&mut self, peers: HashSet<PeerId>);
@@ -99,7 +99,7 @@ pub struct PeersMailbox {
     mailbox_snd: UnboundedSender<PeerManagerIn>,
 }
 
-impl PeersAPI for PeersMailbox {
+impl PeerActions for PeersMailbox {
     fn add_peer(&mut self, peer_id: PeerId) {
         let _ = self
             .mailbox_snd

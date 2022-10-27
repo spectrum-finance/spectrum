@@ -21,6 +21,7 @@ use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+use void::Void;
 
 #[derive(Debug, Clone)]
 pub struct PeerConnHandlerConf {
@@ -86,26 +87,19 @@ pub enum ConnHandlerOut {
     },
 }
 
-pub enum PeerRole {
-    Dialer,
-    Listener,
-}
-
 pub trait PeerConnHandlerActions {
     fn open_protocol(&self, protocol_id: ProtocolId);
     fn close_protocol(&self, protocol_id: ProtocolId);
 }
 
 pub struct PartialPeerConnHandler {
-    role: PeerRole,
     conf: PeerConnHandlerConf,
-    supported_protocols: Vec<ProtocolConfig>,
+    supported_protocols: Vec<(ProtocolId, ProtocolConfig)>,
 }
 
 impl PartialPeerConnHandler {
-    pub fn new(role: PeerRole, conf: PeerConnHandlerConf, supported_protocols: Vec<ProtocolConfig>) -> Self {
+    pub fn new(conf: PeerConnHandlerConf, supported_protocols: Vec<(ProtocolId, ProtocolConfig)>) -> Self {
         Self {
-            role,
             conf,
             supported_protocols,
         }
@@ -116,10 +110,10 @@ impl IntoConnectionHandler for PartialPeerConnHandler {
     type Handler = PeerConnHandler;
 
     fn into_handler(self, remote_peer_id: &PeerId, connected_point: &ConnectedPoint) -> Self::Handler {
-        let protocols = HashMap::from_iter(self.supported_protocols.iter().flat_map(|p| {
+        let protocols = HashMap::from_iter(self.supported_protocols.iter().flat_map(|(protocol_id, p)| {
             p.supported_versions.iter().map(|(ver, spec)| {
                 (
-                    p.protocol_id,
+                    *protocol_id,
                     Protocol {
                         ver: *ver,
                         spec: spec.clone(),
@@ -142,16 +136,9 @@ impl IntoConnectionHandler for PartialPeerConnHandler {
     fn inbound_protocol(&self) -> AnyUpgradeOf<ProtocolUpgradeIn> {
         self.supported_protocols
             .iter()
-            .map(|p| ProtocolUpgradeIn::new(p.protocol_id, p.supported_versions.clone()))
+            .map(|(protocol_id, p)| ProtocolUpgradeIn::new(*protocol_id, p.supported_versions.clone()))
             .collect::<AnyUpgradeOf<_>>()
     }
-}
-
-/// Error specific to the collection of protocols.
-#[derive(Debug, thiserror::Error)]
-pub enum PeerConnHandlerError {
-    #[error("Channel of synchronous notifications is full.")]
-    SyncNotificationsClogged,
 }
 
 pub struct PeerConnHandler {
@@ -164,15 +151,13 @@ pub struct PeerConnHandler {
     /// Remote we are connected to.
     peer_id: PeerId,
     /// Events to return in priority from `poll`.
-    pending_events: VecDeque<
-        ConnectionHandlerEvent<ProtocolUpgradeOut, ProtocolTag, ConnHandlerOut, PeerConnHandlerError>,
-    >,
+    pending_events: VecDeque<ConnectionHandlerEvent<ProtocolUpgradeOut, ProtocolTag, ConnHandlerOut, Void>>,
 }
 
 impl ConnectionHandler for PeerConnHandler {
     type InEvent = ConnHandlerIn;
     type OutEvent = ConnHandlerOut;
-    type Error = PeerConnHandlerError;
+    type Error = Void;
     type InboundProtocol = AnyUpgradeOf<ProtocolUpgradeIn>;
     type OutboundProtocol = ProtocolUpgradeOut;
     type InboundOpenInfo = ();

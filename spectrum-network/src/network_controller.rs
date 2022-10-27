@@ -1,9 +1,7 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
-use crate::peer_conn_handler::{
-    ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf, PeerRole,
-};
-use crate::peer_manager::{PeerEvents, PeerManagerOut};
-use crate::protocol::ProtocolConfig;
+use crate::peer_conn_handler::{ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
+use crate::peer_manager::{PeerActions, PeerEvents, PeerManagerOut};
+use crate::protocol::{ProtocolConfig, SYNC_PROTOCOL_ID};
 use crate::protocol_handler::ProtocolHandlerEvents;
 use crate::types::{ProtocolId, ProtocolVer};
 
@@ -66,10 +64,15 @@ pub enum NetworkControllerIn {
         /// A handshake to send to the peer upon negotiation of protocol substream.
         handshake: PolyVerHandshakeSpec,
     },
+    DeclarePeerFeatures {
+        peer: PeerId,
+        protocols: Vec<ProtocolId>,
+    },
 }
 
 pub trait NetworkAPI {
     fn enable_protocol(&self, protocol: ProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec);
+    fn declare_peer_features(&self, peer: PeerId, protocols: Vec<ProtocolId>);
 }
 
 #[derive(Clone)]
@@ -87,12 +90,22 @@ impl NetworkAPI for NetworkMailbox {
                 handshake,
             });
     }
+    fn declare_peer_features(&self, peer: PeerId, protocols: Vec<ProtocolId>) {
+        let _ = self
+            .mailbox_snd
+            .unbounded_send(NetworkControllerIn::DeclarePeerFeatures { peer, protocols });
+    }
 }
 
 pub struct NetworkController<TPeers, TPeerManager, THandler> {
     conn_handler_conf: PeerConnHandlerConf,
+    /// Sync protocol is always enabled
+    sync_protocol: (ProtocolConfig, THandler),
+    /// Other supported protocols
     supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
+    /// PeerManager API
     peers: TPeers,
+    /// PeerManager stream itself
     peer_manager: TPeerManager,
     enabled_peers: HashMap<PeerId, ConnectedPeer<THandler>>,
     requests_recv: UnboundedReceiver<NetworkControllerIn>,
@@ -103,31 +116,33 @@ impl<TPeers, TPeerManager, THandler> NetworkController<TPeers, TPeerManager, THa
 where
     THandler: Clone,
 {
-    fn init_handler(&self, role: PeerRole) -> PartialPeerConnHandler {
+    fn init_handler(&self) -> PartialPeerConnHandler {
         PartialPeerConnHandler::new(
-            role,
             self.conn_handler_conf.clone(),
-            self.supported_protocols
-                .values()
-                .cloned()
-                .map(|(conf, _)| conf)
-                .collect(),
+            vec![(SYNC_PROTOCOL_ID, self.sync_protocol.0.clone())]
+                .into_iter()
+                .chain(
+                    self.supported_protocols
+                        .iter()
+                        .clone()
+                        .map(|(prot_id, (conf, _))| (*prot_id, conf.clone())),
+                )
+                .collect::<Vec<_>>(),
         )
     }
 }
 
 pub fn make<TPeers, TPeerManager, THandler>(
     conn_handler_conf: PeerConnHandlerConf,
+    sync_protocol: (ProtocolConfig, THandler),
     supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
     peers: TPeers,
     peer_manager: TPeerManager,
-) -> (
-    NetworkController<TPeers, TPeerManager, THandler>,
-    NetworkMailbox,
-) {
+) -> (NetworkController<TPeers, TPeerManager, THandler>, NetworkMailbox) {
     let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
     let network_controller = NetworkController {
         conn_handler_conf,
+        sync_protocol,
         supported_protocols,
         peers,
         peer_manager,
@@ -144,7 +159,7 @@ pub fn make<TPeers, TPeerManager, THandler>(
 // todo: implement initial handshake
 impl<TPeers, TPeerManager, THandler> NetworkBehaviour for NetworkController<TPeers, TPeerManager, THandler>
 where
-    TPeers: PeerEvents + 'static,
+    TPeers: PeerEvents + PeerActions + 'static,
     TPeerManager: Stream<Item = PeerManagerOut> + Unpin + 'static,
     THandler: ProtocolHandlerEvents + Clone + 'static,
 {
@@ -152,7 +167,7 @@ where
     type OutEvent = NetworkControllerOut;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
-        self.init_handler(PeerRole::Listener)
+        self.init_handler()
     }
 
     fn inject_connection_established(
@@ -171,6 +186,8 @@ where
                         conn_id: *conn_id,
                         enabled_protocols: HashMap::new(),
                     });
+                    // Immediately request sync protocol.
+                    self.sync_protocol.1.protocol_requested_local(*peer_id);
                 }
                 ConnectedPeer::Connected { .. }
                 | ConnectedPeer::PendingDisconnect(..)
@@ -330,7 +347,7 @@ where
             // 2. Poll for instructions from PM.
             match Stream::poll_next(Pin::new(&mut self.peer_manager), cx) {
                 Poll::Ready(Some(PeerManagerOut::Connect(pid))) => {
-                    let handler = self.init_handler(PeerRole::Dialer);
+                    let handler = self.init_handler();
                     match self.enabled_peers.entry(pid) {
                         Entry::Occupied(_) => {}
                         Entry::Vacant(peer_entry) => {
@@ -434,6 +451,9 @@ where
         // 3. Poll incoming requests.
         if let Poll::Ready(Some(input)) = Stream::poll_next(Pin::new(&mut self.requests_recv), cx) {
             match input {
+                NetworkControllerIn::DeclarePeerFeatures { peer, protocols } => {
+                    self.peers.set_peer_protocols(peer, protocols);
+                }
                 NetworkControllerIn::EnableProtocol {
                     peer: peer_id,
                     protocol: protocol_id,

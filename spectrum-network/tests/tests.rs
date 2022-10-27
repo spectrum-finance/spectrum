@@ -189,6 +189,7 @@ pub fn build_nodes(n: usize) -> Vec<Swarm<CustomProtoWithAddr>> {
         let (peer_manager, peers) = spectrum_network::peer_manager::make(peer_state, peer_manager_conf);
         let (nc, napi) = spectrum_network::network_controller::make(
             peer_conn_handler_conf,
+            todo!(),
             HashMap::new(),
             peers,
             peer_manager,

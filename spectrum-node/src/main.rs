@@ -1,5 +1,5 @@
 use futures::prelude::*;
-use libp2p::ping::{Ping, PingConfig};
+use libp2p::ping;
 use libp2p::swarm::{dial_opts::DialOpts, Swarm, SwarmEvent};
 use libp2p::{identity, Multiaddr, PeerId};
 use std::error::Error;
@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // For illustrative purposes, the ping protocol is configured to
     // keep the peer alive, so a continuous sequence of pings
     // can be observed.
-    let behaviour = Ping::new(PingConfig::new().with_keep_alive(true));
+    let behaviour = ping::Behaviour::new(ping::Config::new().with_keep_alive(true));
 
     let mut swarm = Swarm::new(transport, behaviour, local_peer_id);
 

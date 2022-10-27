@@ -10,6 +10,8 @@ pub(crate) mod substream;
 pub mod sync;
 pub(crate) mod upgrade;
 
+pub const SYNC_PROTOCOL_ID: ProtocolId = ProtocolId::from_u8(0);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProtocolSpec {
     /// Maximum allowed size for a single message.
@@ -20,7 +22,6 @@ pub struct ProtocolSpec {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProtocolConfig {
-    pub protocol_id: ProtocolId,
     pub supported_versions: Vec<(ProtocolVer, ProtocolSpec)>,
 }
 

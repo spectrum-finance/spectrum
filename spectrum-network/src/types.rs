@@ -36,6 +36,12 @@ impl From<i32> for Reputation {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProtocolId(u8);
 
+impl ProtocolId {
+    pub const fn from_u8(x: u8) -> Self {
+        Self(x)
+    }
+}
+
 impl Into<u8> for ProtocolId {
     fn into(self) -> u8 {
         self.0
