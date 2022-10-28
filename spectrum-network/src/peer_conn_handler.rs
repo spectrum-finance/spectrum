@@ -1,12 +1,10 @@
 pub mod message_sink;
 
 use crate::peer_conn_handler::message_sink::MessageSink;
-use crate::protocol::combinators::AnyUpgradeOf;
-use crate::protocol::handshake::PolyVerHandshakeSpec;
-use crate::protocol::substream::ProtocolSubstreamIn;
-use crate::protocol::upgrade::{ProtocolTag, ProtocolUpgradeErr, ProtocolUpgradeIn, ProtocolUpgradeOut};
-use crate::protocol::{Protocol, ProtocolConfig, ProtocolState};
-use crate::types::{ProtocolId, RawMessage};
+use crate::protocol_upgrade::combinators::AnyUpgradeOf;
+use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
+use crate::protocol_upgrade::substream::{ProtocolSubstreamIn, ProtocolSubstreamOut};
+use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 use futures::channel::mpsc;
 pub use futures::prelude::*;
 use libp2p::core::ConnectedPoint;
@@ -16,12 +14,64 @@ use libp2p::swarm::{
 };
 use libp2p::{InboundUpgrade, OutboundUpgrade, PeerId};
 
+use crate::protocol::{ProtocolConfig, ProtocolSpec};
+use crate::protocol_upgrade::{ProtocolUpgradeErr, ProtocolUpgradeIn, ProtocolUpgradeOut};
 use std::collections::{HashMap, VecDeque};
 use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use void::Void;
+
+pub struct Protocol {
+    /// Negotiated protocol version
+    pub ver: ProtocolVer,
+    /// Spec for negotiated protocol version
+    pub spec: ProtocolSpec,
+    /// Protocol state
+    /// Always `Some`. `None` only during update (state transition).
+    pub state: Option<ProtocolState>,
+    /// Specs for all supported versions of this protocol
+    /// Note, versions must be listed in descending order.
+    pub all_versions_specs: Vec<(ProtocolVer, ProtocolSpec)>,
+}
+
+pub enum ProtocolState {
+    /// Protocol is closed.
+    Closed,
+    /// Outbound protocol negotiation is requsted.
+    Opening,
+    /// Inbound stream is negotiated by peer. The stream hasn't been approved yet.
+    PartiallyOpenedByPeer {
+        substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
+    },
+    /// Inbound stream is accepted, negotiating outbound upgrade.
+    Accepting {
+        /// None in the case when peer closed inbound substream.
+        substream_in: Option<ProtocolSubstreamIn<NegotiatedSubstream>>,
+    },
+    /// Outbound stream is negotiated with peer.
+    PartiallyOpened {
+        substream_out: ProtocolSubstreamOut<NegotiatedSubstream>,
+    },
+    /// Protocol is negotiated
+    Opened {
+        substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
+        substream_out: ProtocolSubstreamOut<NegotiatedSubstream>,
+        pending_messages_recv: stream::Peekable<stream::Fuse<mpsc::Receiver<RawMessage>>>,
+    },
+    /// Inbound substream is closed by peer.
+    InboundClosedByPeer {
+        /// None in the case when the peer closed inbound substream while outbound one
+        /// hasn't been negotiated yet.
+        substream_out: ProtocolSubstreamOut<NegotiatedSubstream>,
+        pending_messages_recv: stream::Peekable<stream::Fuse<mpsc::Receiver<RawMessage>>>,
+    },
+    /// Outbound substream is closed by peer.
+    OutboundClosedByPeer {
+        substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
+    },
+}
 
 #[derive(Debug, Clone)]
 pub struct PeerConnHandlerConf {

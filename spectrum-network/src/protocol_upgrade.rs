@@ -1,8 +1,10 @@
-use crate::protocol::substream::{
-    ProtocolHandshakeState, ProtocolSubstreamIn, ProtocolSubstreamOut,
-};
+pub mod combinators;
+pub mod handshake;
+pub(crate) mod substream;
+
 use crate::protocol::ProtocolSpec;
-use crate::types::{ProtocolId, ProtocolVer, RawMessage};
+use crate::protocol_upgrade::substream::{ProtocolHandshakeState, ProtocolSubstreamIn, ProtocolSubstreamOut};
+use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 use asynchronous_codec::Framed;
 use futures::{AsyncRead, AsyncWrite};
 use libp2p::core::{upgrade, UpgradeInfo};
@@ -12,38 +14,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::{io, vec};
 use unsigned_varint::codec::UviBytes;
-
-/// Tag of a protocol. Consists of ProtocolId + ProtocolVer.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ProtocolTag([u8; 2]);
-
-impl ProtocolTag {
-    pub fn protocol_ver(&self) -> ProtocolVer {
-        ProtocolVer::from(self.0[1])
-    }
-
-    pub fn protocol_id(&self) -> ProtocolId {
-        ProtocolId::from(self.0[0])
-    }
-}
-
-impl ProtocolTag {
-    pub fn new(protocol_id: ProtocolId, protocol_ver: ProtocolVer) -> Self {
-        Self([protocol_id.into(), protocol_ver.into()])
-    }
-}
-
-impl Into<ProtocolVer> for ProtocolTag {
-    fn into(self) -> ProtocolVer {
-        ProtocolVer::from(self.0[1])
-    }
-}
-
-impl upgrade::ProtocolName for ProtocolTag {
-    fn protocol_name(&self) -> &[u8] {
-        &self.0
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolHandshakeErr {
@@ -88,10 +58,7 @@ pub struct ProtocolUpgradeIn {
 }
 
 impl ProtocolUpgradeIn {
-    pub fn new(
-        protocol_id: ProtocolId,
-        supported_versions: Vec<(ProtocolVer, ProtocolSpec)>,
-    ) -> Self {
+    pub fn new(protocol_id: ProtocolId, supported_versions: Vec<(ProtocolVer, ProtocolSpec)>) -> Self {
         let supported_versions = BTreeMap::from_iter(
             supported_versions
                 .into_iter()
@@ -195,10 +162,7 @@ impl ProtocolUpgradeOut {
             supported_versions
                 .into_iter()
                 .map(|(ver, spec, handshake)| {
-                    (
-                        ver,
-                        OutboundProtocolSpec::new(spec.max_message_size, handshake),
-                    )
+                    (ver, OutboundProtocolSpec::new(spec.max_message_size, handshake))
                 })
                 .into_iter(),
         );

@@ -1,6 +1,6 @@
 use libp2p::PeerId;
 use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
-use spectrum_network::peer_manager::peers_state::{PeersStateDef, PeersState};
+use spectrum_network::peer_manager::peers_state::{PeersState, PeersStateDef};
 
 #[test]
 fn should_add_peer() {

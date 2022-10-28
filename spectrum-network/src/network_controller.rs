@@ -21,7 +21,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use crate::peer_manager::data::ConnectionLossReason;
-use crate::protocol::handshake::PolyVerHandshakeSpec;
+use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::Stream;
 
@@ -64,7 +64,8 @@ pub enum NetworkControllerIn {
         /// A handshake to send to the peer upon negotiation of protocol substream.
         handshake: PolyVerHandshakeSpec,
     },
-    DeclarePeerFeatures {
+    /// A directive to update the set of protocols supported by the specified peer.
+    UpdatePeerProtocols {
         peer: PeerId,
         protocols: Vec<ProtocolId>,
     },
@@ -72,7 +73,7 @@ pub enum NetworkControllerIn {
 
 pub trait NetworkAPI {
     fn enable_protocol(&self, protocol: ProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec);
-    fn declare_peer_features(&self, peer: PeerId, protocols: Vec<ProtocolId>);
+    fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>);
 }
 
 #[derive(Clone)]
@@ -90,10 +91,10 @@ impl NetworkAPI for NetworkMailbox {
                 handshake,
             });
     }
-    fn declare_peer_features(&self, peer: PeerId, protocols: Vec<ProtocolId>) {
+    fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>) {
         let _ = self
             .mailbox_snd
-            .unbounded_send(NetworkControllerIn::DeclarePeerFeatures { peer, protocols });
+            .unbounded_send(NetworkControllerIn::UpdatePeerProtocols { peer, protocols });
     }
 }
 
@@ -451,7 +452,7 @@ where
         // 3. Poll incoming requests.
         if let Poll::Ready(Some(input)) = Stream::poll_next(Pin::new(&mut self.requests_recv), cx) {
             match input {
-                NetworkControllerIn::DeclarePeerFeatures { peer, protocols } => {
+                NetworkControllerIn::UpdatePeerProtocols { peer, protocols } => {
                     self.peers.set_peer_protocols(peer, protocols);
                 }
                 NetworkControllerIn::EnableProtocol {

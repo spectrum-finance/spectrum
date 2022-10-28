@@ -66,9 +66,7 @@ impl PeerInfo {
     }
 
     pub fn supports(&self, protocol: &ProtocolId) -> Option<bool> {
-        self.supported_protocols
-            .as_ref()
-            .map(|ps| ps.contains(protocol))
+        self.supported_protocols.as_ref().map(|ps| ps.contains(protocol))
     }
 
     pub fn confirm_new_conn(&mut self) {

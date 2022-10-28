@@ -92,7 +92,7 @@ impl<'a> ConnectedPeer<'a> {
     pub fn handshaked(&mut self) {
         self.peer_info.get_mut().last_handshake = Some(Instant::now());
     }
-    
+
     pub fn is_protocol_enabled(&self, protocol_id: &ProtocolId) -> bool {
         self.peer_sets
             .is_protocol_enabled(protocol_id, self.peer_id.borrow())
