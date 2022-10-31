@@ -247,13 +247,6 @@ impl ConnectionHandler for PeerConnHandler {
                     ProtocolState::Opening => ProtocolState::PartiallyOpenedByPeer {
                         substream_in: upgrade.substream,
                     },
-                    // If a substream already exists, silently drop the new one.
-                    // Note that we drop the substream, which will send an equivalent to a
-                    // TCP "RST" to the remote and force-close the substream. It might
-                    // seem like an unclean way to get rid of a substream. However, keep
-                    // in mind that it is invalid for the remote to open multiple such
-                    // substreams, and therefore sending a "RST" is the most correct thing
-                    // to do.
                     ProtocolState::PartiallyOpened { substream_out }
                     | ProtocolState::InboundClosedByPeer { substream_out, .. } => {
                         let (msg_snd, msg_recv) = mpsc::channel::<RawMessage>(self.conf.msg_buffer_size);
@@ -271,7 +264,17 @@ impl ConnectionHandler for PeerConnHandler {
                             pending_messages_recv: msg_recv.fuse().peekable(),
                         }
                     }
-                    _ => state,
+                    // If a substream already exists, silently drop the new one.
+                    // Note that we drop the substream, which will send an equivalent to a
+                    // TCP "RST" to the remote and force-close the substream. It might
+                    // seem like an unclean way to get rid of a substream. However, keep
+                    // in mind that it is invalid for the remote to open multiple such
+                    // substreams, and therefore sending a "RST" is the most correct thing
+                    // to do.
+                    ProtocolState::PartiallyOpenedByPeer { .. }
+                    | ProtocolState::Opened { .. }
+                    | ProtocolState::Accepting { .. }
+                    | ProtocolState::OutboundClosedByPeer { .. } => state,
                 };
                 protocol.state = Some(state_next);
             };

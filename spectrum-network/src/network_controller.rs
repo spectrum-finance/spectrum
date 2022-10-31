@@ -2,7 +2,7 @@ use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
 use crate::peer_manager::{PeerActions, PeerEvents, PeerManagerOut};
 use crate::protocol::{ProtocolConfig, SYNC_PROTOCOL_ID};
-use crate::protocol_handler::ProtocolHandlerEvents;
+use crate::protocol_handler::ProtocolEvents;
 use crate::types::{ProtocolId, ProtocolVer};
 
 use libp2p::core::connection::ConnectionId;
@@ -162,7 +162,7 @@ impl<TPeers, TPeerManager, THandler> NetworkBehaviour for NetworkController<TPee
 where
     TPeers: PeerEvents + PeerActions + 'static,
     TPeerManager: Stream<Item = PeerManagerOut> + Unpin + 'static,
-    THandler: ProtocolHandlerEvents + Clone + 'static,
+    THandler: ProtocolEvents + Clone + 'static,
 {
     type ConnectionHandler = PartialPeerConnHandler;
     type OutEvent = NetworkControllerOut;

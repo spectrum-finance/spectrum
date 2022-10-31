@@ -20,7 +20,7 @@ use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
 use spectrum_network::peer_manager::peers_state::PeersStateDef;
 use spectrum_network::peer_manager::{PeerManager, PeerManagerConfig, PeersMailbox};
-use spectrum_network::protocol_handler::ProtocolHandler;
+use spectrum_network::protocol_handler::ProtocolMailbox;
 use spectrum_network::types::Reputation;
 use std::collections::HashMap;
 use std::{
@@ -31,12 +31,12 @@ use std::{
 
 /// Wraps around the `CustomBehaviour` network behaviour, and adds hardcoded node addresses to it.
 pub struct CustomProtoWithAddr {
-    inner: NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolHandler>,
+    inner: NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolMailbox>,
     addrs: Vec<(PeerId, Multiaddr)>,
 }
 
 impl std::ops::Deref for CustomProtoWithAddr {
-    type Target = NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolHandler>;
+    type Target = NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolMailbox>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -50,8 +50,8 @@ impl std::ops::DerefMut for CustomProtoWithAddr {
 }
 
 impl NetworkBehaviour for CustomProtoWithAddr {
-    type ConnectionHandler = <NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolHandler> as NetworkBehaviour>::ConnectionHandler;
-    type OutEvent = <NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolHandler> as NetworkBehaviour>::OutEvent;
+    type ConnectionHandler = <NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolMailbox> as NetworkBehaviour>::ConnectionHandler;
+    type OutEvent = <NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolMailbox> as NetworkBehaviour>::OutEvent;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
         self.inner.new_handler()

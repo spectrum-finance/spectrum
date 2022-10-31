@@ -1,7 +1,5 @@
 use crate::types::{ProtocolId, ProtocolVer};
 
-pub mod sync;
-
 pub const SYNC_PROTOCOL_ID: ProtocolId = ProtocolId::from_u8(0);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
