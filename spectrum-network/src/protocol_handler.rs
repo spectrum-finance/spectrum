@@ -1,45 +1,59 @@
+use crate::network_controller::{NetworkAPI, NetworkControllerIn};
 use crate::peer_conn_handler::message_sink::MessageSink;
-use crate::protocol_handler::codec::BinCodec;
-use crate::types::{ProtocolVer, RawMessage};
-use futures::channel::mpsc::UnboundedSender;
+use crate::protocol_api::ProtocolEvent;
+use crate::protocol_handler::versioning::Versioned;
+use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
+use crate::types::{ProtocolId, ProtocolVer, RawMessage};
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::FutureExt;
 use futures::Stream;
 use libp2p::PeerId;
 use log::trace;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::thread;
 
 pub mod codec;
 pub mod sync;
+pub mod versioning;
 
-pub enum ProtocolHandlerIn {
+pub enum ProtocolBehaviourIn<THandshake, TMessage> {
     Message {
         peer_id: PeerId,
-        protocol_ver: ProtocolVer,
-        content: RawMessage,
+        content: TMessage,
     },
     Requested {
         peer_id: PeerId,
-        protocol_ver: ProtocolVer,
-        handshake: Option<RawMessage>,
-    },
-    RequestedLocal {
-        peer_id: PeerId,
+        handshake: Option<THandshake>,
     },
     Enabled {
         peer_id: PeerId,
-        protocol_ver: ProtocolVer,
-        handshake: Option<RawMessage>,
+        handshake: Option<THandshake>,
         sink: MessageSink,
     },
     Disabled(PeerId),
 }
 
-pub enum ProtocolHandlerOut<TMessage> {
+pub enum NetworkAction<THandshake> {
+    /// A directive to enable the specified protocol with the specified peer.
+    EnablePeer {
+        /// A specific peer we should start the protocol with.
+        peer: PeerId,
+        /// A set of all possible handshakes (of all versions, as long as concrete version
+        /// not yet negotiated) to send to the peer upon negotiation of protocol substream.
+        handshakes: Vec<(ProtocolVer, Option<THandshake>)>,
+    },
+    /// A directive to update the set of protocols supported by the specified peer.
+    UpdatePeerProtocols {
+        peer: PeerId,
+        protocols: Vec<ProtocolId>,
+    },
+}
+
+pub enum ProtocolBehaviourOut<THandshake, TMessage> {
     Send { peer_id: PeerId, message: TMessage },
-    SetSink { peer_id: PeerId, sink: MessageSink },
+    NetworkAction(NetworkAction<THandshake>),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -48,108 +62,205 @@ pub enum ProtocolHandlerError {
     MalformedMessage(RawMessage),
 }
 
-pub trait ProtocolEvents {
-    /// Send message to the protocol handler.
-    fn incoming_msg(&self, peer_id: PeerId, protocol_ver: ProtocolVer, msg: RawMessage);
+pub trait ProtocolSpec {
+    type THandshake: codec::BinCodec + Versioned + Send;
+    type TMessage: codec::BinCodec + Versioned + Send;
+}
 
-    /// Notify protocol handler that the protocol was requested by the given peer.
-    fn protocol_requested(&self, peer_id: PeerId, protocol_ver: ProtocolVer, handshake: Option<RawMessage>);
+pub enum MalformedMessage {
+    VersionMismatch {
+        negotiated_ver: ProtocolVer,
+        actual_ver: ProtocolVer,
+    },
+    UnknownFormat,
+}
 
-    /// Notify protocol handler that the protocol with the given peer was requested by us.
-    fn protocol_requested_local(&self, peer_id: PeerId);
+pub trait ProtocolBehaviour {
+    /// Protocol specification.
+    type TProto: ProtocolSpec;
 
-    /// Notify protocol handler that the protocol was enabled with the given peer.
-    fn protocol_enabled(
+    /// Returns ID of the protocol this behaviour implements.
+    fn get_protocol_id(&self) -> ProtocolId;
+
+    /// Inject a new message coming from a peer.
+    fn inject_message(&self, peer_id: PeerId, content: <Self::TProto as ProtocolSpec>::TMessage);
+
+    /// Inject an event when the peer sent a malformed message.
+    fn inject_malformed_mesage(&self, peer_id: PeerId, details: MalformedMessage);
+
+    /// Inject protocol request coming from a peer.
+    fn inject_protocol_requested(
         &self,
         peer_id: PeerId,
-        protocol_ver: ProtocolVer,
-        handshake: Option<RawMessage>,
-        sink: MessageSink,
+        handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
     );
 
-    /// Notify protocol handler that the given protocol was enabled with the given peer.
-    fn protocol_disabled(&self, peer_id: PeerId);
-}
+    /// Inject local protocol request coming from a peer.
+    fn inject_protocol_requested_locally(&self, peer_id: PeerId);
 
-#[derive(Clone)]
-pub struct ProtocolMailbox {
-    notifications_snd: UnboundedSender<ProtocolHandlerIn>,
-}
-
-impl ProtocolEvents for ProtocolMailbox {
-    fn incoming_msg(&self, peer_id: PeerId, protocol_ver: ProtocolVer, content: RawMessage) {
-        let _ = self.notifications_snd.unbounded_send(ProtocolHandlerIn::Message {
-            peer_id,
-            protocol_ver,
-            content,
-        });
-    }
-
-    fn protocol_requested(&self, peer_id: PeerId, protocol_ver: ProtocolVer, handshake: Option<RawMessage>) {
-        let _ = self
-            .notifications_snd
-            .unbounded_send(ProtocolHandlerIn::Requested {
-                peer_id,
-                protocol_ver,
-                handshake,
-            });
-    }
-
-    fn protocol_requested_local(&self, peer_id: PeerId) {
-        let _ = self
-            .notifications_snd
-            .unbounded_send(ProtocolHandlerIn::RequestedLocal { peer_id });
-    }
-
-    fn protocol_enabled(
+    /// Inject an event of protocol being enabled with a peer.
+    fn inject_protocol_enabled(
         &self,
         peer_id: PeerId,
-        protocol_ver: ProtocolVer,
-        handshake: Option<RawMessage>,
-        sink: MessageSink,
-    ) {
-        let _ = self.notifications_snd.unbounded_send(ProtocolHandlerIn::Enabled {
-            peer_id,
-            protocol_ver,
-            handshake,
-            sink,
-        });
-    }
+        handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
+    );
 
-    fn protocol_disabled(&self, peer_id: PeerId) {
-        let _ = self
-            .notifications_snd
-            .unbounded_send(ProtocolHandlerIn::Disabled(peer_id));
-    }
+    /// Inject an event of protocol being disabled with a peer.
+    fn inject_protocol_disabled(&self, peer_id: PeerId);
+
+    /// Poll for output actions.
+    fn poll(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<
+        ProtocolBehaviourOut<
+            <Self::TProto as ProtocolSpec>::THandshake,
+            <Self::TProto as ProtocolSpec>::TMessage,
+        >,
+    >;
 }
 
 /// A layer that facilitate massage transmission from protocol handlers to peers.
-pub struct ProtocolRouter<THandler> {
+pub struct ProtocolHandler<TBehaviour: ProtocolBehaviour, TNetwork> {
     peers: HashMap<PeerId, MessageSink>,
-    handler: THandler,
+    inbox: UnboundedReceiver<ProtocolEvent>,
+    behaviour: TBehaviour,
+    network: TNetwork,
 }
 
-impl<THandler, TMessage> Stream for ProtocolRouter<THandler>
+impl<TBehaviour, TNetwork> Stream for ProtocolHandler<TBehaviour, TNetwork>
 where
-    THandler: Stream<Item = ProtocolHandlerOut<TMessage>> + Unpin,
-    TMessage: BinCodec + Send,
+    TBehaviour: ProtocolBehaviour + Unpin,
+    TNetwork: NetworkAPI + Unpin,
 {
     type Item = ();
 
+    /// Polls the behaviour and the network, forwarding events from the former to the latter and
+    /// vice versa.
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
-            if let Poll::Ready(Some(out)) = Stream::poll_next(Pin::new(&mut self.handler), cx) {
+            if let Poll::Ready(Some(notif)) = Stream::poll_next(Pin::new(&mut self.inbox), cx) {
+                match notif {
+                    ProtocolEvent::Message {
+                        peer_id,
+                        protocol_ver: negotiated_ver,
+                        content,
+                    } => {
+                        if let Ok(msg) = codec::decode::<
+                            <<TBehaviour as ProtocolBehaviour>::TProto as ProtocolSpec>::TMessage,
+                        >(content)
+                        {
+                            let actual_ver = msg.version();
+                            if actual_ver == negotiated_ver {
+                                self.behaviour.inject_message(peer_id, msg);
+                            } else {
+                                self.behaviour.inject_malformed_mesage(
+                                    peer_id,
+                                    MalformedMessage::VersionMismatch {
+                                        negotiated_ver,
+                                        actual_ver,
+                                    },
+                                )
+                            }
+                        } else {
+                            self.behaviour
+                                .inject_malformed_mesage(peer_id, MalformedMessage::UnknownFormat);
+                        }
+                    }
+                    ProtocolEvent::Requested {
+                        peer_id,
+                        protocol_ver: negotiated_ver,
+                        handshake,
+                    } => {
+                        match handshake.map(
+                            codec::decode::<
+                                <<TBehaviour as ProtocolBehaviour>::TProto as ProtocolSpec>::THandshake,
+                            >,
+                        ) {
+                            Some(Ok(hs)) => {
+                                let actual_ver = hs.version();
+                                if actual_ver == negotiated_ver {
+                                    self.behaviour.inject_protocol_requested(peer_id, Some(hs));
+                                } else {
+                                    self.behaviour.inject_malformed_mesage(
+                                        peer_id,
+                                        MalformedMessage::VersionMismatch {
+                                            negotiated_ver,
+                                            actual_ver,
+                                        },
+                                    )
+                                }
+                            }
+                            Some(Err(_)) => self
+                                .behaviour
+                                .inject_malformed_mesage(peer_id, MalformedMessage::UnknownFormat),
+                            None => self.behaviour.inject_protocol_requested(peer_id, None),
+                        }
+                    }
+                    ProtocolEvent::RequestedLocal(peer_id) => {
+                        self.behaviour.inject_protocol_requested_locally(peer_id);
+                    }
+                    ProtocolEvent::Enabled {
+                        peer_id,
+                        protocol_ver: negotiated_ver,
+                        handshake,
+                        sink,
+                    } => {
+                        self.peers.insert(peer_id, sink);
+                        match handshake.map(
+                            codec::decode::<
+                                <<TBehaviour as ProtocolBehaviour>::TProto as ProtocolSpec>::THandshake,
+                            >,
+                        ) {
+                            Some(Ok(hs)) => {
+                                let actual_ver = hs.version();
+                                if actual_ver == negotiated_ver {
+                                    self.behaviour.inject_protocol_enabled(peer_id, Some(hs));
+                                } else {
+                                    self.behaviour.inject_malformed_mesage(
+                                        peer_id,
+                                        MalformedMessage::VersionMismatch {
+                                            negotiated_ver,
+                                            actual_ver,
+                                        },
+                                    )
+                                }
+                            }
+                            Some(Err(_)) => self
+                                .behaviour
+                                .inject_malformed_mesage(peer_id, MalformedMessage::UnknownFormat),
+                            None => self.behaviour.inject_protocol_enabled(peer_id, None),
+                        }
+                    }
+                    ProtocolEvent::Disabled(peer_id) => {
+                        self.behaviour.inject_protocol_disabled(peer_id);
+                    }
+                }
+            }
+            if let Poll::Ready(out) = self.behaviour.poll(cx) {
                 match out {
-                    ProtocolHandlerOut::Send { peer_id, message } => {
+                    ProtocolBehaviourOut::Send { peer_id, message } => {
                         if let Some(sink) = self.peers.get(&peer_id) {
-                            if let Err(_) = sink.send_message(BinCodec::encode(message)) {
+                            if let Err(_) = sink.send_message(codec::BinCodec::encode(message)) {
                                 trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
                             }
                         }
                     }
-                    ProtocolHandlerOut::SetSink { peer_id, sink } => {
-                        self.peers.insert(peer_id, sink);
-                    }
+                    ProtocolBehaviourOut::NetworkAction(action) => match action {
+                        NetworkAction::EnablePeer { peer, handshakes } => {
+                            let poly_spec = PolyVerHandshakeSpec::from(
+                                handshakes
+                                    .into_iter()
+                                    .map(|(v, m)| (v, m.map(codec::BinCodec::encode)))
+                                    .collect::<BTreeMap<_, _>>(),
+                            );
+                            self.network
+                                .enable_protocol(self.behaviour.get_protocol_id(), peer, poly_spec);
+                        }
+                        NetworkAction::UpdatePeerProtocols { peer, protocols } => {
+                            self.network.update_peer_protocols(peer, protocols);
+                        }
+                    },
                 }
             }
         }

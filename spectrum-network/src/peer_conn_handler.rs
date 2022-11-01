@@ -1,6 +1,6 @@
 pub mod message_sink;
 
-use crate::peer_conn_handler::message_sink::MessageSink;
+use crate::peer_conn_handler::message_sink::{MessageSink, StreamNotification};
 use crate::protocol_upgrade::combinators::AnyUpgradeOf;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use crate::protocol_upgrade::substream::{ProtocolSubstreamIn, ProtocolSubstreamOut};
@@ -58,14 +58,24 @@ pub enum ProtocolState {
     Opened {
         substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
         substream_out: ProtocolSubstreamOut<NegotiatedSubstream>,
-        pending_messages_recv: stream::Peekable<stream::Fuse<mpsc::Receiver<RawMessage>>>,
+        pending_messages_recv: stream::Peekable<
+            stream::Select<
+                stream::Fuse<mpsc::Receiver<StreamNotification>>,
+                stream::Fuse<mpsc::Receiver<StreamNotification>>,
+            >,
+        >,
     },
     /// Inbound substream is closed by peer.
     InboundClosedByPeer {
         /// None in the case when the peer closed inbound substream while outbound one
         /// hasn't been negotiated yet.
         substream_out: ProtocolSubstreamOut<NegotiatedSubstream>,
-        pending_messages_recv: stream::Peekable<stream::Fuse<mpsc::Receiver<RawMessage>>>,
+        pending_messages_recv: stream::Peekable<
+            stream::Select<
+                stream::Fuse<mpsc::Receiver<StreamNotification>>,
+                stream::Fuse<mpsc::Receiver<StreamNotification>>,
+            >,
+        >,
     },
     /// Outbound substream is closed by peer.
     OutboundClosedByPeer {
@@ -75,7 +85,8 @@ pub enum ProtocolState {
 
 #[derive(Debug, Clone)]
 pub struct PeerConnHandlerConf {
-    pub msg_buffer_size: usize,
+    pub async_msg_buffer_size: usize,
+    pub sync_msg_buffer_size: usize,
     pub open_timeout: Duration,
     pub initial_keep_alive: Duration,
 }
@@ -135,6 +146,13 @@ pub enum ConnHandlerOut {
         protocol_tag: ProtocolTag,
         content: RawMessage,
     },
+}
+
+/// Error specific to the collection of protocols.
+#[derive(Debug, thiserror::Error)]
+pub enum ConnHandlerError {
+    #[error("Channel of synchronous notifications is exhausted.")]
+    SyncChannelExhausted,
 }
 
 pub trait PeerConnHandlerActions {
@@ -201,13 +219,14 @@ pub struct PeerConnHandler {
     /// Remote we are connected to.
     peer_id: PeerId,
     /// Events to return in priority from `poll`.
-    pending_events: VecDeque<ConnectionHandlerEvent<ProtocolUpgradeOut, ProtocolTag, ConnHandlerOut, Void>>,
+    pending_events:
+        VecDeque<ConnectionHandlerEvent<ProtocolUpgradeOut, ProtocolTag, ConnHandlerOut, ConnHandlerError>>,
 }
 
 impl ConnectionHandler for PeerConnHandler {
     type InEvent = ConnHandlerIn;
     type OutEvent = ConnHandlerOut;
-    type Error = Void;
+    type Error = ConnHandlerError;
     type InboundProtocol = AnyUpgradeOf<ProtocolUpgradeIn>;
     type OutboundProtocol = ProtocolUpgradeOut;
     type InboundOpenInfo = ();
@@ -249,8 +268,11 @@ impl ConnectionHandler for PeerConnHandler {
                     },
                     ProtocolState::PartiallyOpened { substream_out }
                     | ProtocolState::InboundClosedByPeer { substream_out, .. } => {
-                        let (msg_snd, msg_recv) = mpsc::channel::<RawMessage>(self.conf.msg_buffer_size);
-                        let sink = MessageSink::new(self.peer_id, msg_snd);
+                        let (async_msg_snd, async_msg_recv) =
+                            mpsc::channel::<StreamNotification>(self.conf.async_msg_buffer_size);
+                        let (sync_msg_snd, sync_msg_recv) =
+                            mpsc::channel::<StreamNotification>(self.conf.sync_msg_buffer_size);
+                        let sink = MessageSink::new(self.peer_id, async_msg_snd, sync_msg_snd);
                         self.pending_events.push_back(ConnectionHandlerEvent::Custom(
                             ConnHandlerOut::Opened {
                                 protocol_tag: negotiated_tag,
@@ -261,7 +283,11 @@ impl ConnectionHandler for PeerConnHandler {
                         ProtocolState::Opened {
                             substream_out,
                             substream_in: upgrade.substream,
-                            pending_messages_recv: msg_recv.fuse().peekable(),
+                            pending_messages_recv: stream::select(
+                                async_msg_recv.fuse(),
+                                sync_msg_recv.fuse(),
+                            )
+                            .peekable(),
                         }
                     }
                     // If a substream already exists, silently drop the new one.
@@ -297,8 +323,11 @@ impl ConnectionHandler for PeerConnHandler {
                     ProtocolState::Accepting {
                         substream_in: Some(substream_in),
                     } => {
-                        let (msg_snd, msg_recv) = mpsc::channel::<RawMessage>(self.conf.msg_buffer_size);
-                        let sink = MessageSink::new(self.peer_id, msg_snd);
+                        let (async_msg_snd, async_msg_recv) =
+                            mpsc::channel::<StreamNotification>(self.conf.async_msg_buffer_size);
+                        let (sync_msg_snd, sync_msg_recv) =
+                            mpsc::channel::<StreamNotification>(self.conf.sync_msg_buffer_size);
+                        let sink = MessageSink::new(self.peer_id, async_msg_snd, sync_msg_snd);
                         self.pending_events.push_back(ConnectionHandlerEvent::Custom(
                             ConnHandlerOut::Opened {
                                 protocol_tag: negotiated_tag,
@@ -309,7 +338,11 @@ impl ConnectionHandler for PeerConnHandler {
                         ProtocolState::Opened {
                             substream_in,
                             substream_out: upgrade.substream,
-                            pending_messages_recv: msg_recv.fuse().peekable(),
+                            pending_messages_recv: stream::select(
+                                async_msg_recv.fuse(),
+                                sync_msg_recv.fuse(),
+                            )
+                            .peekable(),
                         }
                     }
                     // todo: handle this in the case we decide to re-open out substream.
@@ -460,14 +493,19 @@ impl ConnectionHandler for PeerConnHandler {
                 ) = &mut protocol.state
                 {
                     loop {
-                        // Only proceed with `out_substream.poll_ready_unpin` if there is an element
-                        // available in `notifications_sink_rx`. This avoids waking up the task when
+                        // Only proceed with `substream_out.poll_ready_unpin` if there is an element
+                        // available in `pending_messages_recv`. This avoids waking up the task when
                         // a substream is ready to send if there isn't actually something to send.
                         match Pin::new(&mut *pending_messages_recv).as_mut().poll_peek(cx) {
+                            Poll::Ready(Some(StreamNotification::ForceClose)) => {
+                                return Poll::Ready(ConnectionHandlerEvent::Close(
+                                    ConnHandlerError::SyncChannelExhausted,
+                                ))
+                            }
                             Poll::Ready(Some(_)) => {}
                             Poll::Ready(None) | Poll::Pending => break,
                         }
-                        // Before we extract the element from `pending_messages`, check that the
+                        // Before we extract the element from `pending_messages_recv`, check that the
                         // substream is ready to accept a message.
                         match substream_out.poll_ready_unpin(cx) {
                             Poll::Ready(_) => {}
@@ -476,8 +514,11 @@ impl ConnectionHandler for PeerConnHandler {
 
                         // Now that the substream is ready for a message, grab what to send.
                         let message = match pending_messages_recv.poll_next_unpin(cx) {
-                            Poll::Ready(Some(message)) => message,
-                            _ => panic!(), // Should never be reached, as per `poll_peek` above.
+                            Poll::Ready(Some(StreamNotification::Message(message))) => message,
+                            // Should never be reached, as per `poll_peek` above.
+                            Poll::Ready(Some(StreamNotification::ForceClose))
+                            | Poll::Ready(None)
+                            | Poll::Pending => break,
                         };
 
                         let _ = substream_out.start_send_unpin(message);

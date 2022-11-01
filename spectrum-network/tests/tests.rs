@@ -20,7 +20,7 @@ use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
 use spectrum_network::peer_manager::peers_state::PeersStateDef;
 use spectrum_network::peer_manager::{PeerManager, PeerManagerConfig, PeersMailbox};
-use spectrum_network::protocol_handler::ProtocolMailbox;
+use spectrum_network::protocol_api::ProtocolMailbox;
 use spectrum_network::types::Reputation;
 use std::collections::HashMap;
 use std::{
@@ -171,7 +171,8 @@ pub fn build_nodes(n: usize) -> Vec<Swarm<CustomProtoWithAddr>> {
             .boxed();
 
         let peer_conn_handler_conf = PeerConnHandlerConf {
-            msg_buffer_size: 10,
+            async_msg_buffer_size: 10,
+            sync_msg_buffer_size: 40,
             open_timeout: Duration::from_secs(60),
             initial_keep_alive: Duration::from_secs(60),
         };

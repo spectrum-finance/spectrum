@@ -2,7 +2,7 @@ use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
 use crate::peer_manager::{PeerActions, PeerEvents, PeerManagerOut};
 use crate::protocol::{ProtocolConfig, SYNC_PROTOCOL_ID};
-use crate::protocol_handler::ProtocolEvents;
+use crate::protocol_api::ProtocolEvents;
 use crate::types::{ProtocolId, ProtocolVer};
 
 use libp2p::core::connection::ConnectionId;
