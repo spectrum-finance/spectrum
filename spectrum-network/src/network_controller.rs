@@ -212,14 +212,19 @@ where
         peer_id: &PeerId,
         _conn_id: &ConnectionId,
         _endpoint: &ConnectedPoint,
-        _handler: <Self::ConnectionHandler as IntoConnectionHandler>::Handler,
+        handler: <Self::ConnectionHandler as IntoConnectionHandler>::Handler,
         _remaining_established: usize,
     ) {
         match self.enabled_peers.entry(*peer_id) {
             Entry::Occupied(peer_entry) => match peer_entry.get() {
                 ConnectedPeer::Connected { .. } | ConnectedPeer::PendingDisconnect(..) => {
-                    self.peers
-                        .connection_lost(*peer_id, ConnectionLossReason::ResetByPeer);
+                    if let Some(err) = handler.get_fault() {
+                        self.peers
+                            .connection_lost(*peer_id, ConnectionLossReason::Reset(err));
+                    } else {
+                        self.peers
+                            .connection_lost(*peer_id, ConnectionLossReason::ResetByPeer);
+                    }
                     peer_entry.remove();
                 }
                 // todo: is it possible in case of simultaneous connection?

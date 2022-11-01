@@ -1,3 +1,4 @@
+use crate::peer_conn_handler::ConnHandlerError;
 use crate::types::{ProtocolId, Reputation};
 use libp2p::Multiaddr;
 use std::time::Instant;
@@ -11,6 +12,8 @@ pub enum ReputationChange {
 pub enum ConnectionLossReason {
     /// Connection has been explicitly reset by peer.
     ResetByPeer,
+    /// Connection has been closed by us because of the err.
+    Reset(ConnHandlerError),
     /// Connection has been closed for an unknown reason.
     Unknown,
 }

@@ -149,7 +149,7 @@ pub enum ConnHandlerOut {
 }
 
 /// Error specific to the collection of protocols.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ConnHandlerError {
     #[error("Channel of synchronous notifications is exhausted.")]
     SyncChannelExhausted,
@@ -198,6 +198,7 @@ impl IntoConnectionHandler for PartialPeerConnHandler {
             endpoint: connected_point.clone(),
             peer_id: *remote_peer_id,
             pending_events: VecDeque::new(),
+            fault: None,
         }
     }
 
@@ -221,6 +222,14 @@ pub struct PeerConnHandler {
     /// Events to return in priority from `poll`.
     pending_events:
         VecDeque<ConnectionHandlerEvent<ProtocolUpgradeOut, ProtocolTag, ConnHandlerOut, ConnHandlerError>>,
+    /// This handler is going to terminate due to this err.
+    fault: Option<ConnHandlerError>,
+}
+
+impl PeerConnHandler {
+    pub fn get_fault(&self) -> Option<ConnHandlerError> {
+        self.fault
+    }
 }
 
 impl ConnectionHandler for PeerConnHandler {
@@ -498,9 +507,9 @@ impl ConnectionHandler for PeerConnHandler {
                         // a substream is ready to send if there isn't actually something to send.
                         match Pin::new(&mut *pending_messages_recv).as_mut().poll_peek(cx) {
                             Poll::Ready(Some(StreamNotification::ForceClose)) => {
-                                return Poll::Ready(ConnectionHandlerEvent::Close(
-                                    ConnHandlerError::SyncChannelExhausted,
-                                ))
+                                let err = ConnHandlerError::SyncChannelExhausted;
+                                self.fault = Some(err);
+                                return Poll::Ready(ConnectionHandlerEvent::Close(err));
                             }
                             Poll::Ready(Some(_)) => {}
                             Poll::Ready(None) | Poll::Pending => break,

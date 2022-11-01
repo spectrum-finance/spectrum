@@ -2,6 +2,7 @@ pub mod data;
 pub mod peer_index;
 pub mod peers_state;
 
+use crate::peer_conn_handler::ConnHandlerError;
 use crate::peer_manager::data::{
     ConnectionLossReason, ConnectionState, PeerInfo, ProtocolAllocationPolicy, ReputationChange,
 };
@@ -319,6 +320,13 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                         if !ncp.is_reserved() {
                             let backoff_until = Instant::now().add(self.conf.conn_reset_outbound_backoff);
                             ncp.set_backoff_until(backoff_until);
+                        }
+                    }
+                    ConnectionLossReason::Reset(err) => {
+                        match err {
+                            ConnHandlerError::SyncChannelExhausted => {
+                                // todo: the peer is too slow, adjust reputation.
+                            }
                         }
                     }
                     ConnectionLossReason::Unknown => {}
