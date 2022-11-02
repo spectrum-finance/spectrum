@@ -1,6 +1,7 @@
 mod generators;
 mod peer_manager;
 
+use futures::channel::mpsc;
 use futures::prelude::*;
 use libp2p::{
     core::{
@@ -15,12 +16,16 @@ use libp2p::{
     },
     yamux, Multiaddr, PeerId, Transport,
 };
-use spectrum_network::network_controller::NetworkController;
+use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
 use spectrum_network::peer_manager::peers_state::PeersStateDef;
 use spectrum_network::peer_manager::{PeerManager, PeerManagerConfig, PeersMailbox};
+use spectrum_network::protocol::{ProtocolConfig, ProtocolSpec};
 use spectrum_network::protocol_api::ProtocolMailbox;
+use spectrum_network::protocol_handler::sync::message::SyncSpec;
+use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
+use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
 use std::collections::HashMap;
 use std::{
@@ -187,13 +192,32 @@ pub fn build_nodes(n: usize) -> Vec<Swarm<CustomProtoWithAddr>> {
             protocols_allocation: Vec::new(),
         };
         let peer_state = PeersStateDef::new(peer_index_conf);
-        let (peer_manager, peers) = spectrum_network::peer_manager::make(peer_state, peer_manager_conf);
-        let (nc, napi) = spectrum_network::network_controller::make(
+        let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
+        let sync_conf = ProtocolConfig {
+            supported_versions: vec![(
+                SyncSpec::v1(),
+                ProtocolSpec {
+                    max_message_size: 100,
+                    handshake_required: true,
+                },
+            )],
+        };
+        let sync_behaviour = SyncBehaviour::new(NodeStatus {
+            supported_protocols: Vec::new(),
+            height: 10,
+        });
+        let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
+        let network_api = NetworkMailbox {
+            mailbox_snd: requests_snd,
+        };
+        let (sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api);
+        let nc = NetworkController::new(
             peer_conn_handler_conf,
-            todo!(),
+            (sync_conf, sync_mailbox),
             HashMap::new(),
             peers,
             peer_manager,
+            requests_recv,
         );
         let behaviour = CustomProtoWithAddr {
             inner: nc,

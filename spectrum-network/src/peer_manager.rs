@@ -202,6 +202,19 @@ pub struct PeerManager<TState> {
 }
 
 impl<S: PeersState> PeerManager<S> {
+    pub fn new(state: S, conf: PeerManagerConfig) -> (Self, PeersMailbox) {
+        let (snd, recv) = mpsc::unbounded::<PeerManagerIn>();
+        let pm = Self {
+            state,
+            conf,
+            mailbox: recv,
+            out_queue: VecDeque::new(),
+            next_conn_alloc_at: Instant::now(),
+        };
+        let peers = PeersMailbox { mailbox_snd: snd };
+        (pm, peers)
+    }
+
     /// Connect to reserved peers we are not connected yet.
     pub fn connect_reserved(&mut self) {
         let peers = self.state.get_reserved_peers(Some(PeerStateFilter::NotConnected));
@@ -325,7 +338,7 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                     ConnectionLossReason::Reset(err) => {
                         match err {
                             ConnHandlerError::SyncChannelExhausted => {
-                                // todo: the peer is too slow, adjust reputation.
+                                // todo: DEV-385: the peer is too slow, adjust reputation.
                             }
                         }
                     }
@@ -418,17 +431,4 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
             }
         }
     }
-}
-
-pub fn make<S>(state: S, conf: PeerManagerConfig) -> (PeerManager<S>, PeersMailbox) {
-    let (snd, recv) = mpsc::unbounded::<PeerManagerIn>();
-    let pm = PeerManager {
-        state,
-        conf,
-        mailbox: recv,
-        out_queue: VecDeque::new(),
-        next_conn_alloc_at: Instant::now(),
-    };
-    let peers = PeersMailbox { mailbox_snd: snd };
-    (pm, peers)
 }

@@ -3,6 +3,7 @@ use crate::types::{ProtocolVer, RawMessage};
 use futures::channel::mpsc::UnboundedSender;
 use libp2p::PeerId;
 
+#[derive(Clone)]
 pub enum ProtocolEvent {
     Message {
         peer_id: PeerId,
@@ -50,12 +51,18 @@ pub trait ProtocolEvents {
 
 #[derive(Clone)]
 pub struct ProtocolMailbox {
-    notifications_snd: UnboundedSender<ProtocolEvent>,
+    events_snd: UnboundedSender<ProtocolEvent>,
+}
+
+impl ProtocolMailbox {
+    pub fn new(events_snd: UnboundedSender<ProtocolEvent>) -> Self {
+        Self { events_snd }
+    }
 }
 
 impl ProtocolEvents for ProtocolMailbox {
     fn incoming_msg(&self, peer_id: PeerId, protocol_ver: ProtocolVer, content: RawMessage) {
-        let _ = self.notifications_snd.unbounded_send(ProtocolEvent::Message {
+        let _ = self.events_snd.unbounded_send(ProtocolEvent::Message {
             peer_id,
             protocol_ver,
             content,
@@ -63,7 +70,7 @@ impl ProtocolEvents for ProtocolMailbox {
     }
 
     fn protocol_requested(&self, peer_id: PeerId, protocol_ver: ProtocolVer, handshake: Option<RawMessage>) {
-        let _ = self.notifications_snd.unbounded_send(ProtocolEvent::Requested {
+        let _ = self.events_snd.unbounded_send(ProtocolEvent::Requested {
             peer_id,
             protocol_ver,
             handshake,
@@ -72,7 +79,7 @@ impl ProtocolEvents for ProtocolMailbox {
 
     fn protocol_requested_local(&self, peer_id: PeerId) {
         let _ = self
-            .notifications_snd
+            .events_snd
             .unbounded_send(ProtocolEvent::RequestedLocal(peer_id));
     }
 
@@ -83,7 +90,7 @@ impl ProtocolEvents for ProtocolMailbox {
         handshake: Option<RawMessage>,
         sink: MessageSink,
     ) {
-        let _ = self.notifications_snd.unbounded_send(ProtocolEvent::Enabled {
+        let _ = self.events_snd.unbounded_send(ProtocolEvent::Enabled {
             peer_id,
             protocol_ver,
             handshake,
@@ -93,7 +100,7 @@ impl ProtocolEvents for ProtocolMailbox {
 
     fn protocol_disabled(&self, peer_id: PeerId) {
         let _ = self
-            .notifications_snd
+            .events_snd
             .unbounded_send(ProtocolEvent::Disabled(peer_id));
     }
 }

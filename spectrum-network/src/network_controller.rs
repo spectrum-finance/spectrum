@@ -78,7 +78,7 @@ pub trait NetworkAPI {
 
 #[derive(Clone)]
 pub struct NetworkMailbox {
-    mailbox_snd: UnboundedSender<NetworkControllerIn>,
+    pub mailbox_snd: UnboundedSender<NetworkControllerIn>,
 }
 
 impl NetworkAPI for NetworkMailbox {
@@ -117,6 +117,26 @@ impl<TPeers, TPeerManager, THandler> NetworkController<TPeers, TPeerManager, THa
 where
     THandler: Clone,
 {
+    pub fn new(
+        conn_handler_conf: PeerConnHandlerConf,
+        sync_protocol: (ProtocolConfig, THandler),
+        supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
+        peers: TPeers,
+        peer_manager: TPeerManager,
+        requests_recv: UnboundedReceiver<NetworkControllerIn>,
+    ) -> Self {
+        Self {
+            conn_handler_conf,
+            sync_protocol,
+            supported_protocols,
+            peers,
+            peer_manager,
+            enabled_peers: HashMap::new(),
+            requests_recv,
+            pending_actions: VecDeque::new(),
+        }
+    }
+
     fn init_handler(&self) -> PartialPeerConnHandler {
         PartialPeerConnHandler::new(
             self.conn_handler_conf.clone(),
@@ -131,30 +151,6 @@ where
                 .collect::<Vec<_>>(),
         )
     }
-}
-
-pub fn make<TPeers, TPeerManager, THandler>(
-    conn_handler_conf: PeerConnHandlerConf,
-    sync_protocol: (ProtocolConfig, THandler),
-    supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
-    peers: TPeers,
-    peer_manager: TPeerManager,
-) -> (NetworkController<TPeers, TPeerManager, THandler>, NetworkMailbox) {
-    let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
-    let network_controller = NetworkController {
-        conn_handler_conf,
-        sync_protocol,
-        supported_protocols,
-        peers,
-        peer_manager,
-        enabled_peers: HashMap::new(),
-        requests_recv,
-        pending_actions: VecDeque::new(),
-    };
-    let network_api = NetworkMailbox {
-        mailbox_snd: requests_snd,
-    };
-    (network_controller, network_api)
 }
 
 // todo: implement initial handshake
@@ -187,7 +183,7 @@ where
                         conn_id: *conn_id,
                         enabled_protocols: HashMap::new(),
                     });
-                    // Immediately request sync protocol.
+                    // todo: Elim hardcode. Immediately request sync protocol.
                     self.sync_protocol.1.protocol_requested_local(*peer_id);
                 }
                 ConnectedPeer::Connected { .. }

@@ -7,18 +7,27 @@ use std::collections::{HashMap, VecDeque};
 use std::task::{Context, Poll};
 
 pub mod data;
-pub(crate) mod message;
+pub mod message;
 
 pub struct NodeStatus {
-    supported_protocols: Vec<ProtocolId>,
-    height: usize,
+    pub supported_protocols: Vec<ProtocolId>,
+    pub height: usize,
 }
 
 pub struct SyncBehaviour {
     local_status: NodeStatus,
-    versions: HashMap<ProtocolVer, ProtocolSpec>,
     outbox: VecDeque<ProtocolBehaviourOut<SyncHandshake, SyncMessage>>,
     peers: HashMap<PeerId, NodeStatus>,
+}
+
+impl SyncBehaviour {
+    pub fn new(local_status: NodeStatus) -> Self {
+        Self {
+            local_status,
+            outbox: VecDeque::new(),
+            peers: HashMap::new(),
+        }
+    }
 }
 
 impl ProtocolBehaviour for SyncBehaviour {
@@ -52,7 +61,7 @@ impl ProtocolBehaviour for SyncBehaviour {
             .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
                 peer_id,
                 handshakes: vec![(
-                    SyncHandshake::v1(),
+                    SyncSpec::v1(),
                     Some(SyncHandshake::HandshakeV1(HandshakeV1 {
                         supported_protocols: status.supported_protocols.clone(),
                         height: status.height,

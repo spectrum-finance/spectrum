@@ -8,12 +8,6 @@ pub enum SyncHandshake {
     HandshakeV1(HandshakeV1),
 }
 
-impl SyncHandshake {
-    pub const fn v1() -> ProtocolVer {
-        ProtocolVer::from(1)
-    }
-}
-
 pub struct HandshakeV1 {
     pub supported_protocols: Vec<ProtocolId>,
     pub height: usize,
@@ -22,7 +16,7 @@ pub struct HandshakeV1 {
 impl Versioned for SyncHandshake {
     fn version(&self) -> ProtocolVer {
         match self {
-            SyncHandshake::HandshakeV1(_) => SyncHandshake::v1()
+            SyncHandshake::HandshakeV1(_) => SyncSpec::v1()
         }
     }
 }
@@ -56,6 +50,12 @@ impl BinCodec for SyncMessage {
 }
 
 pub struct SyncSpec;
+
+impl SyncSpec {
+    pub fn v1() -> ProtocolVer {
+        ProtocolVer::from(1)
+    }
+}
 
 impl ProtocolSpec for SyncSpec {
     type THandshake = SyncHandshake;
