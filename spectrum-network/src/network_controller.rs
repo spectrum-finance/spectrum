@@ -454,7 +454,7 @@ where
                 Poll::Pending | Poll::Ready(None) => break,
             }
         }
-        // 3. Poll incoming requests.
+        // 3. Poll commands from protocol handlers.
         if let Poll::Ready(Some(input)) = Stream::poll_next(Pin::new(&mut self.requests_recv), cx) {
             match input {
                 NetworkControllerIn::UpdatePeerProtocols { peer, protocols } => {

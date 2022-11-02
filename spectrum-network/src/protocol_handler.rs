@@ -39,7 +39,7 @@ pub enum NetworkAction<THandshake> {
     /// A directive to enable the specified protocol with the specified peer.
     EnablePeer {
         /// A specific peer we should start the protocol with.
-        peer: PeerId,
+        peer_id: PeerId,
         /// A set of all possible handshakes (of all versions, as long as concrete version
         /// not yet negotiated) to send to the peer upon negotiation of protocol substream.
         handshakes: Vec<(ProtocolVer, Option<THandshake>)>,
@@ -49,6 +49,7 @@ pub enum NetworkAction<THandshake> {
         peer: PeerId,
         protocols: Vec<ProtocolId>,
     },
+    // todo: Add banning API
 }
 
 pub enum ProtocolBehaviourOut<THandshake, TMessage> {
@@ -83,30 +84,30 @@ pub trait ProtocolBehaviour {
     fn get_protocol_id(&self) -> ProtocolId;
 
     /// Inject a new message coming from a peer.
-    fn inject_message(&self, peer_id: PeerId, content: <Self::TProto as ProtocolSpec>::TMessage);
+    fn inject_message(&mut self, peer_id: PeerId, content: <Self::TProto as ProtocolSpec>::TMessage);
 
     /// Inject an event when the peer sent a malformed message.
-    fn inject_malformed_mesage(&self, peer_id: PeerId, details: MalformedMessage);
+    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage);
 
     /// Inject protocol request coming from a peer.
     fn inject_protocol_requested(
-        &self,
+        &mut self,
         peer_id: PeerId,
         handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
     );
 
     /// Inject local protocol request coming from a peer.
-    fn inject_protocol_requested_locally(&self, peer_id: PeerId);
+    fn inject_protocol_requested_locally(&mut self, peer_id: PeerId);
 
     /// Inject an event of protocol being enabled with a peer.
     fn inject_protocol_enabled(
-        &self,
+        &mut self,
         peer_id: PeerId,
         handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
     );
 
     /// Inject an event of protocol being disabled with a peer.
-    fn inject_protocol_disabled(&self, peer_id: PeerId);
+    fn inject_protocol_disabled(&mut self, peer_id: PeerId);
 
     /// Poll for output actions.
     fn poll(
@@ -247,7 +248,7 @@ where
                         }
                     }
                     ProtocolBehaviourOut::NetworkAction(action) => match action {
-                        NetworkAction::EnablePeer { peer, handshakes } => {
+                        NetworkAction::EnablePeer { peer_id: peer, handshakes } => {
                             let poly_spec = PolyVerHandshakeSpec::from(
                                 handshakes
                                     .into_iter()

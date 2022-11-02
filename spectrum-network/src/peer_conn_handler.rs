@@ -222,7 +222,7 @@ pub struct PeerConnHandler {
     /// Events to return in priority from `poll`.
     pending_events:
         VecDeque<ConnectionHandlerEvent<ProtocolUpgradeOut, ProtocolTag, ConnHandlerOut, ConnHandlerError>>,
-    /// This handler is going to terminate due to this err.
+    /// Is the handler going to terminate due to this err.
     fault: Option<ConnHandlerError>,
 }
 
