@@ -5,6 +5,7 @@ use libp2p::PeerId;
 
 #[derive(Clone)]
 pub enum ProtocolEvent {
+    Connected(PeerId),
     Message {
         peer_id: PeerId,
         protocol_ver: ProtocolVer,
@@ -27,6 +28,9 @@ pub enum ProtocolEvent {
 
 /// API to protocol handler without information about particular message/codec types.
 pub trait ProtocolEvents {
+    /// Notify protocol handler that we have established conn with a peer.
+    fn connected(&self, peer_id: PeerId);
+
     /// Send message to the protocol handler.
     fn incoming_msg(&self, peer_id: PeerId, protocol_ver: ProtocolVer, msg: RawMessage);
 
@@ -61,6 +65,10 @@ impl ProtocolMailbox {
 }
 
 impl ProtocolEvents for ProtocolMailbox {
+    fn connected(&self, peer_id: PeerId) {
+        let _ = self.events_snd.unbounded_send(ProtocolEvent::Connected(peer_id));
+    }
+
     fn incoming_msg(&self, peer_id: PeerId, protocol_ver: ProtocolVer, content: RawMessage) {
         let _ = self.events_snd.unbounded_send(ProtocolEvent::Message {
             peer_id,
@@ -99,8 +107,6 @@ impl ProtocolEvents for ProtocolMailbox {
     }
 
     fn protocol_disabled(&self, peer_id: PeerId) {
-        let _ = self
-            .events_snd
-            .unbounded_send(ProtocolEvent::Disabled(peer_id));
+        let _ = self.events_snd.unbounded_send(ProtocolEvent::Disabled(peer_id));
     }
 }

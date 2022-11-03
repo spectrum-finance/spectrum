@@ -1,6 +1,7 @@
 use crate::protocol::{ProtocolSpec, SYNC_PROTOCOL_ID};
 use crate::protocol_handler::sync::message::{HandshakeV1, SyncHandshake, SyncMessage, SyncSpec};
 use crate::protocol_handler::{MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut};
+use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use crate::types::{ProtocolId, ProtocolVer};
 use libp2p::PeerId;
 use std::collections::{HashMap, VecDeque};
@@ -28,6 +29,17 @@ impl SyncBehaviour {
             peers: HashMap::new(),
         }
     }
+
+    fn make_poly_handshake(&self) -> Vec<(ProtocolVer, Option<SyncHandshake>)> {
+        let status = &self.local_status;
+        vec![(
+            SyncSpec::v1(),
+            Some(SyncHandshake::HandshakeV1(HandshakeV1 {
+                supported_protocols: status.supported_protocols.clone(),
+                height: status.height,
+            })),
+        )]
+    }
 }
 
 impl ProtocolBehaviour for SyncBehaviour {
@@ -35,6 +47,15 @@ impl ProtocolBehaviour for SyncBehaviour {
 
     fn get_protocol_id(&self) -> ProtocolId {
         SYNC_PROTOCOL_ID
+    }
+
+    fn inject_peer_connected(&mut self, peer_id: PeerId) {
+        // Immediately enable sync with peer.
+        self.outbox
+            .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
+                peer_id,
+                handshakes: self.make_poly_handshake(),
+            }))
     }
 
     fn inject_message(&mut self, peer_id: PeerId, content: SyncMessage) {}
@@ -52,21 +73,18 @@ impl ProtocolBehaviour for SyncBehaviour {
             );
         }
         // todo: DEV-384: Maybe no need for PolyVerHandshake here (bc version should already be defined)?
-        self.inject_protocol_requested_locally(peer_id)
-    }
-
-    fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {
-        let status = &self.local_status;
         self.outbox
             .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
                 peer_id,
-                handshakes: vec![(
-                    SyncSpec::v1(),
-                    Some(SyncHandshake::HandshakeV1(HandshakeV1 {
-                        supported_protocols: status.supported_protocols.clone(),
-                        height: status.height,
-                    })),
-                )],
+                handshakes: self.make_poly_handshake(),
+            }))
+    }
+
+    fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {
+        self.outbox
+            .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
+                peer_id,
+                handshakes: self.make_poly_handshake(),
             }))
     }
 

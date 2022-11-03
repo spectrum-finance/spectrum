@@ -100,9 +100,7 @@ impl NetworkAPI for NetworkMailbox {
 
 pub struct NetworkController<TPeers, TPeerManager, THandler> {
     conn_handler_conf: PeerConnHandlerConf,
-    /// Sync protocol is always enabled
-    sync_protocol: (ProtocolConfig, THandler),
-    /// Other supported protocols
+    /// All supported protocols and their handlers
     supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
     /// PeerManager API
     peers: TPeers,
@@ -119,7 +117,6 @@ where
 {
     pub fn new(
         conn_handler_conf: PeerConnHandlerConf,
-        sync_protocol: (ProtocolConfig, THandler),
         supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
         peers: TPeers,
         peer_manager: TPeerManager,
@@ -127,7 +124,6 @@ where
     ) -> Self {
         Self {
             conn_handler_conf,
-            sync_protocol,
             supported_protocols,
             peers,
             peer_manager,
@@ -140,14 +136,10 @@ where
     fn init_handler(&self) -> PartialPeerConnHandler {
         PartialPeerConnHandler::new(
             self.conn_handler_conf.clone(),
-            vec![(SYNC_PROTOCOL_ID, self.sync_protocol.0.clone())]
-                .into_iter()
-                .chain(
-                    self.supported_protocols
-                        .iter()
-                        .clone()
-                        .map(|(prot_id, (conf, _))| (*prot_id, conf.clone())),
-                )
+            self.supported_protocols
+                .iter()
+                .clone()
+                .map(|(prot_id, (conf, _))| (*prot_id, conf.clone()))
                 .collect::<Vec<_>>(),
         )
     }
@@ -183,8 +175,10 @@ where
                         conn_id: *conn_id,
                         enabled_protocols: HashMap::new(),
                     });
-                    // todo: Elim hardcode. Immediately request sync protocol.
-                    self.sync_protocol.1.protocol_requested_local(*peer_id);
+                    // notify all handlers about a new connection.
+                    for (_, ph) in self.supported_protocols.values() {
+                        ph.connected(*peer_id);
+                    }
                 }
                 ConnectedPeer::Connected { .. }
                 | ConnectedPeer::PendingDisconnect(..)

@@ -84,6 +84,9 @@ pub trait ProtocolBehaviour {
     /// Returns ID of the protocol this behaviour implements.
     fn get_protocol_id(&self) -> ProtocolId;
 
+    /// Inject an event that we have established a conn with a peer.
+    fn inject_peer_connected(&mut self, peer_id: PeerId);
+
     /// Inject a new message coming from a peer.
     fn inject_message(&mut self, peer_id: PeerId, content: <Self::TProto as ProtocolSpec>::TMessage);
 
@@ -157,6 +160,7 @@ where
         loop {
             if let Poll::Ready(Some(notif)) = Stream::poll_next(Pin::new(&mut self.inbox), cx) {
                 match notif {
+                    ProtocolEvent::Connected(peer_id) => {}
                     ProtocolEvent::Message {
                         peer_id,
                         protocol_ver: negotiated_ver,
