@@ -1,19 +1,19 @@
-use crate::network_controller::{NetworkAPI, NetworkControllerIn};
+use crate::network_controller::NetworkAPI;
 use crate::peer_conn_handler::message_sink::MessageSink;
+use crate::peer_conn_handler::stream::FusedStream;
 use crate::protocol_api::{ProtocolEvent, ProtocolMailbox};
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use crate::types::{ProtocolId, ProtocolVer, RawMessage};
 use futures::channel::mpsc;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use futures::FutureExt;
+use futures::channel::mpsc::UnboundedReceiver;
 use futures::Stream;
+pub use libp2p::swarm::NetworkBehaviour;
 use libp2p::PeerId;
 use log::trace;
 use std::collections::{BTreeMap, HashMap};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::thread;
 
 pub mod codec;
 pub mod sync;
@@ -160,7 +160,10 @@ where
         loop {
             if let Poll::Ready(Some(notif)) = Stream::poll_next(Pin::new(&mut self.inbox), cx) {
                 match notif {
-                    ProtocolEvent::Connected(peer_id) => {}
+                    ProtocolEvent::Connected(peer_id) => {
+                        trace!("Connected {:?}", peer_id);
+                        self.behaviour.inject_peer_connected(peer_id);
+                    }
                     ProtocolEvent::Message {
                         peer_id,
                         protocol_ver: negotiated_ver,
@@ -287,5 +290,15 @@ where
                 }
             }
         }
+    }
+}
+
+/// The stream of protocol events never terminates, so we can implement fused for it.
+impl<TBehaviour, TNetwork> FusedStream for ProtocolHandler<TBehaviour, TNetwork>
+where
+    Self: Stream,
+{
+    fn is_terminated(&self) -> bool {
+        false
     }
 }

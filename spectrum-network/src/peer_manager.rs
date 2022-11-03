@@ -402,6 +402,7 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                         }
                     },
                 }
+                continue;
             }
 
             // Allocate protocol substreams according to defined policies.
@@ -429,6 +430,8 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                     }
                 }
             }
+
+            return Poll::Pending;
         }
     }
 }

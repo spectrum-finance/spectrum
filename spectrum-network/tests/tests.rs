@@ -1,7 +1,7 @@
-mod generators;
 mod peer_manager;
 
 use futures::channel::mpsc;
+use futures::prelude::*;
 use libp2p::identity::Keypair;
 use libp2p::{
     core::{

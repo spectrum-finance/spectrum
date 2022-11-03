@@ -8,5 +8,7 @@ rust-version = "1.64.0"
 
 [dependencies]
 futures = "0.3.21"
-libp2p = { version = "0.49.0", features = ["ping"] }
+libp2p = { version = "0.49.0", features = ["noise", "yamux", "ping"] }
 async-std = { version = "1.10.0", features = ["attributes"] }
+spectrum-network = { version = "0.1.0", path = "../spectrum-network" }
+rand = "0.8.5"

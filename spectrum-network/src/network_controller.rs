@@ -1,7 +1,7 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
 use crate::peer_manager::{PeerActions, PeerEvents, PeerManagerOut};
-use crate::protocol::{ProtocolConfig, SYNC_PROTOCOL_ID};
+use crate::protocol::ProtocolConfig;
 use crate::protocol_api::ProtocolEvents;
 use crate::types::{ProtocolId, ProtocolVer};
 
@@ -13,7 +13,6 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 
-use futures::channel::mpsc;
 use log::trace;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
@@ -37,6 +36,7 @@ pub enum EnabledProtocol {
     PendingDisable,
 }
 
+/// States of a connected peer.
 pub enum ConnectedPeer<THandler> {
     /// We are connected to this peer.
     Connected {
@@ -51,8 +51,21 @@ pub enum ConnectedPeer<THandler> {
     PendingDisconnect(ConnectionId),
 }
 
+/// Outbound network events.
 #[derive(Debug)]
-pub enum NetworkControllerOut {}
+pub enum NetworkControllerOut {
+    Connected(PeerId),
+    Disconnected(PeerId),
+    Enabled {
+        peer_id: PeerId,
+        protocol_id: ProtocolId,
+        protocol_ver: ProtocolVer,
+    },
+    Disabled {
+        peer_id: PeerId,
+        protocol_id: ProtocolId,
+    },
+}
 
 pub enum NetworkControllerIn {
     /// A directive to enable the specified protocol with the specified peer.
@@ -71,8 +84,20 @@ pub enum NetworkControllerIn {
     },
 }
 
+/// API to events emitted by the network (swarm in our case).
+pub trait NetworkEvents {
+    fn peer_connected(&mut self, peer_id: PeerId);
+    fn peer_disconnected(&mut self, peer_id: PeerId);
+    fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer);
+    fn protocol_disabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
+}
+
+/// External API to network controller.
 pub trait NetworkAPI {
+    /// Enables the specified protocol with the specified peer.
     fn enable_protocol(&self, protocol: ProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec);
+
+    /// Updates the set of protocols supported by the specified peer.
     fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>);
 }
 
@@ -142,6 +167,40 @@ where
                 .map(|(prot_id, (conf, _))| (*prot_id, conf.clone()))
                 .collect::<Vec<_>>(),
         )
+    }
+}
+
+impl<TPeers, TPeerManager, THandler> NetworkEvents for NetworkController<TPeers, TPeerManager, THandler> {
+    fn peer_connected(&mut self, peer_id: PeerId) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::Connected(peer_id),
+            ));
+    }
+
+    fn peer_disconnected(&mut self, peer_id: PeerId) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::Disconnected(peer_id),
+            ));
+    }
+
+    fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::Enabled {
+                    peer_id,
+                    protocol_id,
+                    protocol_ver,
+                },
+            ));
+    }
+
+    fn protocol_disabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::Disabled { peer_id, protocol_id },
+            ));
     }
 }
 
@@ -333,7 +392,7 @@ where
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
-        params: &mut impl PollParameters,
+        _: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
         // 1. Try to return a pending action.
         if let Some(action) = self.pending_actions.pop_front() {
@@ -444,6 +503,7 @@ where
                 Poll::Pending | Poll::Ready(None) => break,
             }
         }
+
         // 3. Poll commands from protocol handlers.
         if let Poll::Ready(Some(input)) = Stream::poll_next(Pin::new(&mut self.requests_recv), cx) {
             match input {
