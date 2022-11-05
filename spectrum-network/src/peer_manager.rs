@@ -15,10 +15,12 @@ use futures::Stream;
 use libp2p::core::connection::ConnectionId;
 use libp2p::PeerId;
 use std::collections::{HashSet, VecDeque};
+use std::future::Future;
 use std::ops::Add;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+use wasm_timer::Delay;
 
 /// Peer Manager output commands.
 #[derive(Debug, PartialEq)]
@@ -198,7 +200,7 @@ pub struct PeerManager<TState> {
     conf: PeerManagerConfig,
     mailbox: UnboundedReceiver<PeerManagerIn>,
     out_queue: VecDeque<PeerManagerOut>,
-    next_conn_alloc_at: Instant,
+    next_conn_alloc: Delay,
 }
 
 impl<S: PeersState> PeerManager<S> {
@@ -209,7 +211,7 @@ impl<S: PeersState> PeerManager<S> {
             conf,
             mailbox: recv,
             out_queue: VecDeque::new(),
-            next_conn_alloc_at: Instant::now(),
+            next_conn_alloc: Delay::new(Duration::new(0, 0)),
         };
         let peers = PeersMailbox { mailbox_snd: snd };
         (pm, peers)
@@ -366,11 +368,10 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                 return Poll::Ready(Some(out));
             }
 
-            let now = Instant::now();
-            if self.next_conn_alloc_at >= now {
+            if Future::poll(Pin::new(&mut self.next_conn_alloc), cx).is_ready() {
                 self.connect_reserved();
                 self.connect_best();
-                self.next_conn_alloc_at = now.add(self.conf.periodic_conn_interval);
+                self.next_conn_alloc = Delay::new(self.conf.periodic_conn_interval)
             }
 
             if let Poll::Ready(Some(notif)) = Stream::poll_next(Pin::new(&mut self.mailbox), cx) {

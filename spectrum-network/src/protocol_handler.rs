@@ -158,6 +158,40 @@ where
     /// vice versa.
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
+            // 1. Poll behaviour for commands
+            // (1) is polled before (2) to prioritize local work over incoming requests/events.
+            if let Poll::Ready(out) = self.behaviour.poll(cx) {
+                match out {
+                    ProtocolBehaviourOut::Send { peer_id, message } => {
+                        if let Some(sink) = self.peers.get(&peer_id) {
+                            if let Err(_) = sink.send_message(codec::BinCodec::encode(message)) {
+                                trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
+                            }
+                        }
+                    }
+                    ProtocolBehaviourOut::NetworkAction(action) => match action {
+                        NetworkAction::EnablePeer {
+                            peer_id: peer,
+                            handshakes,
+                        } => {
+                            let poly_spec = PolyVerHandshakeSpec::from(
+                                handshakes
+                                    .into_iter()
+                                    .map(|(v, m)| (v, m.map(codec::BinCodec::encode)))
+                                    .collect::<BTreeMap<_, _>>(),
+                            );
+                            self.network
+                                .enable_protocol(self.behaviour.get_protocol_id(), peer, poly_spec);
+                        }
+                        NetworkAction::UpdatePeerProtocols { peer, protocols } => {
+                            self.network.update_peer_protocols(peer, protocols);
+                        }
+                    },
+                }
+                continue
+            }
+
+            // 2. Poll incoming events.
             if let Poll::Ready(Some(notif)) = Stream::poll_next(Pin::new(&mut self.inbox), cx) {
                 match notif {
                     ProtocolEvent::Connected(peer_id) => {
@@ -259,36 +293,10 @@ where
                         self.behaviour.inject_protocol_disabled(peer_id);
                     }
                 }
+                continue
             }
-            if let Poll::Ready(out) = self.behaviour.poll(cx) {
-                match out {
-                    ProtocolBehaviourOut::Send { peer_id, message } => {
-                        if let Some(sink) = self.peers.get(&peer_id) {
-                            if let Err(_) = sink.send_message(codec::BinCodec::encode(message)) {
-                                trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
-                            }
-                        }
-                    }
-                    ProtocolBehaviourOut::NetworkAction(action) => match action {
-                        NetworkAction::EnablePeer {
-                            peer_id: peer,
-                            handshakes,
-                        } => {
-                            let poly_spec = PolyVerHandshakeSpec::from(
-                                handshakes
-                                    .into_iter()
-                                    .map(|(v, m)| (v, m.map(codec::BinCodec::encode)))
-                                    .collect::<BTreeMap<_, _>>(),
-                            );
-                            self.network
-                                .enable_protocol(self.behaviour.get_protocol_id(), peer, poly_spec);
-                        }
-                        NetworkAction::UpdatePeerProtocols { peer, protocols } => {
-                            self.network.update_peer_protocols(peer, protocols);
-                        }
-                    },
-                }
-            }
+
+            return Poll::Pending
         }
     }
 }

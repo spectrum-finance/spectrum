@@ -1,18 +1,13 @@
 use futures::prelude::*;
 use std::collections::HashMap;
+use std::error::Error;
 
-use libp2p::core::transport::MemoryTransport;
-use libp2p::core::upgrade;
-
-use libp2p::noise;
 use libp2p::swarm::{Swarm, SwarmEvent};
-use libp2p::yamux;
 use libp2p::Multiaddr;
 
 use futures::channel::mpsc;
 use libp2p::identity;
 use libp2p::PeerId;
-use libp2p::Transport;
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
@@ -23,24 +18,17 @@ use spectrum_network::protocol_handler::sync::message::SyncSpec;
 use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
-use std::error::Error;
 use std::time::Duration;
 
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    log4rs::init_file("conf/log4rs.yaml", Default::default()).unwrap();
+
     let local_key = identity::Keypair::generate_ed25519();
-    let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
-        .into_authentic(&local_key)
-        .unwrap();
     let local_peer_id = PeerId::from(local_key.public());
     println!("Local peer id: {:?}", local_peer_id);
 
-    let transport = MemoryTransport::new()
-        .upgrade(upgrade::Version::V1)
-        .authenticate(noise::NoiseConfig::xx(noise_keys).into_authenticated())
-        .multiplex(yamux::YamuxConfig::default())
-        .timeout(Duration::from_secs(20))
-        .boxed();
+    let transport = libp2p::development_transport(local_key).await?;
 
     let peer_conn_handler_conf = PeerConnHandlerConf {
         async_msg_buffer_size: 10,
@@ -90,10 +78,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut swarm = Swarm::new(transport, nc, local_peer_id);
 
-    let self_addr = format!("/memory/{}", rand::random::<u64>()).parse().unwrap();
-    // Tell the swarm to listen on all interfaces and a random, OS-assigned
-    // port.
-    swarm.listen_on(self_addr)?;
+    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
     // Dial the peer identified by the multi-address given as the second
     // command-line argument, if any.
@@ -103,6 +88,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         swarm.dial(remote)?;
         println!("Dialed {}", addr)
     }
+
+    async_std::task::spawn(async move {
+        loop {
+            let _ = sync_handler.select_next_some().await;
+        }
+    });
 
     loop {
         match swarm.select_next_some().await {

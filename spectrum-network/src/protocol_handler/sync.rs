@@ -1,7 +1,6 @@
-use crate::protocol::{ProtocolSpec, SYNC_PROTOCOL_ID};
+use crate::protocol::SYNC_PROTOCOL_ID;
 use crate::protocol_handler::sync::message::{HandshakeV1, SyncHandshake, SyncMessage, SyncSpec};
 use crate::protocol_handler::{MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut};
-use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use crate::types::{ProtocolId, ProtocolVer};
 use libp2p::PeerId;
 use std::collections::{HashMap, VecDeque};
@@ -50,7 +49,7 @@ impl ProtocolBehaviour for SyncBehaviour {
     }
 
     fn inject_peer_connected(&mut self, peer_id: PeerId) {
-        // Immediately enable sync with peer.
+        // Immediately enable sync with the peer.
         self.outbox
             .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
                 peer_id,
@@ -96,6 +95,6 @@ impl ProtocolBehaviour for SyncBehaviour {
         if let Some(out) = self.outbox.pop_front() {
             return Poll::Ready(out);
         }
-        return Poll::Pending;
+        Poll::Pending
     }
 }

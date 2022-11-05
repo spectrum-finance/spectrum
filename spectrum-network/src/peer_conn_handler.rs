@@ -21,6 +21,7 @@ use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+use log::trace;
 use void::Void;
 
 pub struct Protocol {

@@ -13,7 +13,7 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 
-use log::trace;
+use log::{trace, warn};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
@@ -215,6 +215,7 @@ where
     type OutEvent = NetworkControllerOut;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
+        trace!("New handler is created");
         self.init_handler()
     }
 
@@ -234,7 +235,7 @@ where
                         conn_id: *conn_id,
                         enabled_protocols: HashMap::new(),
                     });
-                    // notify all handlers about a new connection.
+                    // notify all handlers about new connection.
                     for (_, ph) in self.supported_protocols.values() {
                         ph.connected(*peer_id);
                     }
@@ -250,6 +251,7 @@ where
                 }
             },
             Entry::Vacant(entry) => {
+                trace!("Observing new inbound connection {}", peer_id);
                 self.peers.incoming_connection(*peer_id, *conn_id);
                 entry.insert(ConnectedPeer::PendingApprove(*conn_id));
             }
@@ -313,7 +315,7 @@ where
                             }
                         }
                         Entry::Vacant(entry) => {
-                            trace!("Unknown protocol was opened {:?}", entry.key())
+                            warn!("Unknown protocol was opened {:?}", entry.key())
                         }
                     }
                 }
@@ -334,10 +336,9 @@ where
                             prot_handler.protocol_requested(peer_id, protocol_tag.protocol_ver(), handshake);
                         }
                         Entry::Occupied(_) => {
-                            trace!(
+                            warn!(
                                 "Peer {:?} opened already enabled protocol {:?}",
-                                peer_id,
-                                protocol_id
+                                peer_id, protocol_id
                             );
                             self.pending_actions
                                 .push_back(NetworkBehaviourAction::NotifyHandler {
@@ -478,10 +479,9 @@ where
                                 } => {
                                     let (_, prot_handler) = self.supported_protocols.get(&protocol).unwrap();
                                     match enabled_protocols.entry(protocol) {
-                                        Entry::Occupied(_) => trace!(
+                                        Entry::Occupied(_) => warn!(
                                             "PM requested already enabled protocol {:?} with peer {:?}",
-                                            protocol,
-                                            pid
+                                            protocol, pid
                                         ),
                                         Entry::Vacant(protocol_entry) => {
                                             protocol_entry.insert((
