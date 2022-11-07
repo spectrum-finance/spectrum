@@ -1,6 +1,6 @@
 use libp2p::PeerId;
 use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
-use spectrum_network::peer_manager::peers_state::{PeersState, PeersStateDef};
+use spectrum_network::peer_manager::peers_state::{PeersState, PeerRepo};
 
 #[test]
 fn should_add_peer() {
@@ -47,5 +47,5 @@ fn mk_peers_state(max_incoming: usize, max_outgoing: usize, capacity: usize) -> 
         max_incoming,
         max_outgoing,
     };
-    PeersStateDef::new(pset_config)
+    PeerRepo::new(pset_config)
 }

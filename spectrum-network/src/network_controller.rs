@@ -404,7 +404,7 @@ where
             match Stream::poll_next(Pin::new(&mut self.peer_manager), cx) {
                 Poll::Ready(Some(PeerManagerOut::Connect(pid))) => {
                     let handler = self.init_handler();
-                    match self.enabled_peers.entry(pid) {
+                    match self.enabled_peers.entry(pid.peer_id()) {
                         Entry::Occupied(_) => {}
                         Entry::Vacant(peer_entry) => {
                             peer_entry.insert(ConnectedPeer::PendingConnect);

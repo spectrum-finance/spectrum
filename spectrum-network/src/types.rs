@@ -2,6 +2,7 @@ use crate::peer_manager::data::ReputationChange;
 use libp2p::bytes::BytesMut;
 use libp2p::core::upgrade;
 use std::cmp::Ordering;
+use serde::{Deserialize, Serialize};
 
 /// Opaque identifier for an incoming connection. Allocated by the network.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -34,7 +35,7 @@ impl From<i32> for Reputation {
 }
 
 /// Identifier of a protocol.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProtocolId(u8);
 
 impl ProtocolId {

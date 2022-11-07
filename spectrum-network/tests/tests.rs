@@ -19,7 +19,7 @@ use libp2p::{
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
-use spectrum_network::peer_manager::peers_state::PeersStateDef;
+use spectrum_network::peer_manager::peers_state::PeerRepo;
 use spectrum_network::peer_manager::{PeerManager, PeerManagerConfig, PeersMailbox};
 use spectrum_network::protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID};
 use spectrum_network::protocol_api::ProtocolMailbox;
@@ -36,12 +36,12 @@ use std::{
 
 /// Wraps around the `CustomBehaviour` network behaviour, and adds hardcoded node addresses to it.
 pub struct CustomProtoWithAddr {
-    inner: NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolMailbox>,
+    inner: NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>,
     addrs: Vec<(PeerId, Multiaddr)>,
 }
 
 impl std::ops::Deref for CustomProtoWithAddr {
-    type Target = NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolMailbox>;
+    type Target = NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -55,8 +55,8 @@ impl std::ops::DerefMut for CustomProtoWithAddr {
 }
 
 impl NetworkBehaviour for CustomProtoWithAddr {
-    type ConnectionHandler = <NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolMailbox> as NetworkBehaviour>::ConnectionHandler;
-    type OutEvent = <NetworkController<PeersMailbox, PeerManager<PeersStateDef>, ProtocolMailbox> as NetworkBehaviour>::OutEvent;
+    type ConnectionHandler = <NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox> as NetworkBehaviour>::ConnectionHandler;
+    type OutEvent = <NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox> as NetworkBehaviour>::OutEvent;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
         self.inner.new_handler()
@@ -187,7 +187,7 @@ pub fn build_node(
         periodic_conn_interval: Duration::from_secs(30),
         protocols_allocation: Vec::new(),
     };
-    let peer_state = PeersStateDef::new(peer_index_conf);
+    let peer_state = PeerRepo::new(peer_index_conf);
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
     let sync_conf = ProtocolConfig {
         supported_versions: vec![(

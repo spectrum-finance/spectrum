@@ -1,7 +1,39 @@
 use crate::peer_conn_handler::ConnHandlerError;
 use crate::types::{ProtocolId, Reputation};
-use libp2p::Multiaddr;
+use libp2p::swarm::dial_opts::DialOpts;
+use libp2p::{Multiaddr, PeerId};
 use std::time::Instant;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PeerIdentity {
+    PeerId(PeerId),
+    PeerIdWithAddr(PeerId, Multiaddr),
+}
+
+impl PeerIdentity {
+    pub fn peer_id(&self) -> PeerId {
+        match self {
+            PeerIdentity::PeerId(pid) => *pid,
+            PeerIdentity::PeerIdWithAddr(pid, _) => *pid,
+        }
+    }
+
+    pub fn into_addr(self) -> Option<Multiaddr> {
+        match self {
+            PeerIdentity::PeerIdWithAddr(_, addr) => Some(addr),
+            PeerIdentity::PeerId(_) => None,
+        }
+    }
+}
+
+impl Into<DialOpts> for PeerIdentity {
+    fn into(self) -> DialOpts {
+        match self {
+            PeerIdentity::PeerId(pid) => DialOpts::peer_id(pid).build(),
+            PeerIdentity::PeerIdWithAddr(pid, addr) => DialOpts::peer_id(pid).addresses(vec![addr]).build(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReputationChange {
@@ -38,9 +70,13 @@ pub struct Peer {
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct PeerInfo {
-    /// Is the node a reserved peer or not.
+    /// Is this peer a reserved one.
     /// We should do our best to remain connected to reserved peers.
     pub is_reserved: bool,
+    /// Is this peer a bootstrapping one.
+    pub is_boot: bool,
+    /// An address this peer can be reached at.
+    pub addr: Option<Multiaddr>,
     /// Reputation value of the node, between `i32::MIN` (we hate that node) and
     /// `i32::MAX` (we love that node).
     pub reputation: Reputation,
@@ -56,9 +92,11 @@ pub struct PeerInfo {
 }
 
 impl PeerInfo {
-    pub fn new(is_reserved: bool) -> Self {
+    pub fn new(addr: Option<Multiaddr>, is_reserved: bool, is_boot: bool) -> Self {
         Self {
             is_reserved,
+            is_boot,
+            addr,
             reputation: Reputation::initial(),
             state: ConnectionState::NotConnected,
             num_connections: 0,

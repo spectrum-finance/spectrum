@@ -4,7 +4,7 @@ pub mod peers_state;
 
 use crate::peer_conn_handler::ConnHandlerError;
 use crate::peer_manager::data::{
-    ConnectionLossReason, ConnectionState, PeerInfo, ProtocolAllocationPolicy, ReputationChange,
+    ConnectionLossReason, ConnectionState, PeerIdentity, PeerInfo, ProtocolAllocationPolicy, ReputationChange,
 };
 use crate::peer_manager::peers_state::{PeerInState, PeerStateFilter, PeersState};
 use crate::types::{ProtocolId, Reputation};
@@ -14,6 +14,7 @@ use futures::channel::{mpsc, oneshot};
 use futures::Stream;
 use libp2p::core::connection::ConnectionId;
 use libp2p::PeerId;
+use log::{error, warn};
 use std::collections::{HashSet, VecDeque};
 use std::future::Future;
 use std::ops::Add;
@@ -26,7 +27,7 @@ use wasm_timer::Delay;
 #[derive(Debug, PartialEq)]
 pub enum PeerManagerOut {
     /// Request to open a connection to the given peer.
-    Connect(PeerId),
+    Connect(PeerIdentity),
     /// Drop the connection to the given peer, or cancel the connection attempt after a `Connect`.
     Drop(PeerId),
     /// Approves an incoming connection.
@@ -40,8 +41,8 @@ pub enum PeerManagerOut {
 /// Peer Manager inputs.
 #[derive(Debug)]
 pub enum PeerManagerRequest {
-    AddPeer(PeerId),
-    AddReservedPeer(PeerId),
+    AddPeer(PeerIdentity),
+    AddReservedPeer(PeerIdentity),
     SetReservedPeers(HashSet<PeerId>),
     ReportPeer(PeerId, ReputationChange),
     GetPeerReputation(PeerId, oneshot::Sender<Reputation>),
@@ -66,8 +67,8 @@ pub enum PeerManagerIn {
 
 /// Async API to PeerManager.
 pub trait PeerActions {
-    fn add_peer(&mut self, peer_id: PeerId);
-    fn add_reserved_peer(&mut self, peer_id: PeerId);
+    fn add_peer(&mut self, peer_id: PeerIdentity);
+    fn add_reserved_peer(&mut self, peer_id: PeerIdentity);
     fn set_reserved_peers(&mut self, peers: HashSet<PeerId>);
     fn report_peer(&mut self, peer_id: PeerId, change: ReputationChange);
     fn get_peer_reputation(&mut self, peer_id: PeerId) -> Receiver<Reputation>;
@@ -83,8 +84,8 @@ pub trait PeerEvents {
 }
 
 pub trait PeerManagerRequestsBehavior {
-    fn on_add_peer(&mut self, peer_id: PeerId);
-    fn on_add_reserved_peer(&mut self, peer_id: PeerId);
+    fn on_add_peer(&mut self, peer_id: PeerIdentity);
+    fn on_add_reserved_peer(&mut self, peer_id: PeerIdentity);
     fn on_set_reserved_peers(&mut self, peers: HashSet<PeerId>);
     fn on_report_peer(&mut self, peer_id: PeerId, change: ReputationChange);
     fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: oneshot::Sender<Reputation>);
@@ -103,13 +104,13 @@ pub struct PeersMailbox {
 }
 
 impl PeerActions for PeersMailbox {
-    fn add_peer(&mut self, peer_id: PeerId) {
+    fn add_peer(&mut self, peer_id: PeerIdentity) {
         let _ = self
             .mailbox_snd
             .unbounded_send(PeerManagerIn::Request(PeerManagerRequest::AddPeer(peer_id)));
     }
 
-    fn add_reserved_peer(&mut self, peer_id: PeerId) {
+    fn add_reserved_peer(&mut self, peer_id: PeerIdentity) {
         let _ = self
             .mailbox_snd
             .unbounded_send(PeerManagerIn::Request(PeerManagerRequest::AddReservedPeer(
@@ -217,6 +218,10 @@ impl<S: PeersState> PeerManager<S> {
         (pm, peers)
     }
 
+    pub fn alloc_conns(&self) {
+
+    }
+
     /// Connect to reserved peers we are not connected yet.
     pub fn connect_reserved(&mut self) {
         let peers = self.state.get_reserved_peers(Some(PeerStateFilter::NotConnected));
@@ -234,6 +239,7 @@ impl<S: PeersState> PeerManager<S> {
         }
     }
 
+    /// Connect to a known peer.
     fn connect(&mut self, peer_id: PeerId) {
         if let Some(PeerInState::NotConnected(ncp)) = self.state.peer(&peer_id) {
             let should_connect = if let Some(backoff_until) = ncp.backoff_until() {
@@ -242,25 +248,26 @@ impl<S: PeersState> PeerManager<S> {
                 true
             };
             if should_connect && ncp.try_connect().is_ok() {
-                self.out_queue.push_back(PeerManagerOut::Connect(peer_id))
+                self.out_queue
+                    .push_back(PeerManagerOut::Connect(PeerIdentity::PeerId(peer_id)))
             }
         }
     }
 }
 
 impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
-    fn on_add_peer(&mut self, peer_id: PeerId) {
-        self.state.try_add_peer(peer_id, false);
+    fn on_add_peer(&mut self, peer_id: PeerIdentity) {
+        self.state.try_add_peer(peer_id, false, false);
     }
 
-    fn on_add_reserved_peer(&mut self, peer_id: PeerId) {
-        self.state.try_add_peer(peer_id, true);
+    fn on_add_reserved_peer(&mut self, peer_id: PeerIdentity) {
+        self.state.try_add_peer(peer_id, true, false);
     }
 
     fn on_set_reserved_peers(&mut self, peers: HashSet<PeerId>) {
         let unkown_peers = self.state.set_reserved_peers(peers);
         for pid in unkown_peers {
-            self.state.try_add_peer(pid, true);
+            self.state.try_add_peer(PeerIdentity::PeerId(pid), true, false);
         }
     }
 
@@ -307,7 +314,10 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                 self.out_queue.push_back(PeerManagerOut::Reject(peer_id, conn_id));
             }
             None => {
-                if let Some(ncp) = self.state.try_add_peer(peer_id, false) {
+                if let Some(ncp) = self
+                    .state
+                    .try_add_peer(PeerIdentity::PeerId(peer_id), false, false)
+                {
                     if ncp.try_accept_connection().is_ok() {
                         self.out_queue.push_back(PeerManagerOut::Accept(peer_id, conn_id));
                     } else {
@@ -323,6 +333,8 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
     fn on_connection_established(&mut self, peer_id: PeerId, _conn_id: ConnectionId) {
         if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&peer_id) {
             cp.confirm_connection();
+        } else {
+            error!("Peer {} hasn't been acknowledged as connected", peer_id)
         }
     }
 
@@ -369,8 +381,12 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
             }
 
             if Future::poll(Pin::new(&mut self.next_conn_alloc), cx).is_ready() {
-                self.connect_reserved();
-                self.connect_best();
+                if self.state.is_bootstrapped() {
+                    todo!()
+                } else {
+                    self.connect_reserved();
+                    self.connect_best();
+                }
                 self.next_conn_alloc = Delay::new(self.conf.periodic_conn_interval)
             }
 

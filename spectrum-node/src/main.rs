@@ -11,7 +11,7 @@ use libp2p::PeerId;
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
-use spectrum_network::peer_manager::peers_state::PeersStateDef;
+use spectrum_network::peer_manager::peers_state::PeerRepo;
 use spectrum_network::peer_manager::{PeerManager, PeerManagerConfig};
 use spectrum_network::protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID};
 use spectrum_network::protocol_handler::sync::message::SyncSpec;
@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         periodic_conn_interval: Duration::from_secs(30),
         protocols_allocation: Vec::new(),
     };
-    let peer_state = PeersStateDef::new(peer_index_conf);
+    let peer_state = PeerRepo::new(peer_index_conf);
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
     let sync_conf = ProtocolConfig {
         supported_versions: vec![(
