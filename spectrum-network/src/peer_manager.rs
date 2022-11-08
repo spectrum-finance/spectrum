@@ -192,7 +192,8 @@ impl PeerEvents for PeersMailbox {
 pub struct PeerManagerConfig {
     pub min_reputation: Reputation,
     pub conn_reset_outbound_backoff: Duration,
-    pub periodic_conn_interval: Duration,
+    pub conn_alloc_interval: Duration,
+    pub prot_alloc_interval: Duration,
     pub protocols_allocation: Vec<(ProtocolId, ProtocolAllocationPolicy)>,
 }
 
@@ -202,6 +203,7 @@ pub struct PeerManager<TState> {
     mailbox: UnboundedReceiver<PeerManagerIn>,
     out_queue: VecDeque<PeerManagerOut>,
     next_conn_alloc: Delay,
+    next_prot_alloc: Delay,
 }
 
 impl<S: PeersState> PeerManager<S> {
@@ -213,14 +215,13 @@ impl<S: PeersState> PeerManager<S> {
             mailbox: recv,
             out_queue: VecDeque::new(),
             next_conn_alloc: Delay::new(Duration::new(0, 0)),
+            next_prot_alloc: Delay::new(Duration::new(0, 0)),
         };
         let peers = PeersMailbox { mailbox_snd: snd };
         (pm, peers)
     }
 
-    pub fn alloc_conns(&self) {
-
-    }
+    pub fn alloc_conns(&self) {}
 
     /// Connect to reserved peers we are not connected yet.
     pub fn connect_reserved(&mut self) {
@@ -250,6 +251,32 @@ impl<S: PeersState> PeerManager<S> {
             if should_connect && ncp.try_connect().is_ok() {
                 self.out_queue
                     .push_back(PeerManagerOut::Connect(PeerIdentity::PeerId(peer_id)))
+            }
+        }
+    }
+
+    /// Allocate protocol substreams according to configured policies.
+    fn allocate_protocols(&mut self) {
+        for (prot, policy) in self.conf.protocols_allocation.clone().iter() {
+            if let Some(enabled_peers) = self.state.get_enabled_peers(prot) {
+                let cond = match policy {
+                    ProtocolAllocationPolicy::Bounded(max_conn_percent) => {
+                        enabled_peers.len() / self.state.num_connected_peers() < *max_conn_percent / 100
+                    }
+                    ProtocolAllocationPolicy::Max => enabled_peers.len() < self.state.num_connected_peers(),
+                    ProtocolAllocationPolicy::Zero => false,
+                };
+                if cond {
+                    if let Some(candidate) = self.state.peek_best(Some(|pid: &PeerId, pi: &PeerInfo| {
+                        !enabled_peers.contains(pid) && pi.supports(&prot).unwrap_or(false)
+                    })) {
+                        if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&candidate) {
+                            cp.enable_protocol(*prot);
+                            self.out_queue
+                                .push_back(PeerManagerOut::StartProtocol(*prot, candidate));
+                        }
+                    }
+                }
             }
         }
     }
@@ -380,16 +407,6 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                 return Poll::Ready(Some(out));
             }
 
-            if Future::poll(Pin::new(&mut self.next_conn_alloc), cx).is_ready() {
-                if self.state.is_bootstrapped() {
-                    todo!()
-                } else {
-                    self.connect_reserved();
-                    self.connect_best();
-                }
-                self.next_conn_alloc = Delay::new(self.conf.periodic_conn_interval)
-            }
-
             if let Poll::Ready(Some(notif)) = Stream::poll_next(Pin::new(&mut self.mailbox), cx) {
                 match notif {
                     PeerManagerIn::Notification(notification) => match notification {
@@ -422,30 +439,19 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                 continue;
             }
 
-            // Allocate protocol substreams according to defined policies.
-            for (prot, policy) in self.conf.protocols_allocation.clone().iter() {
-                if let Some(enabled_peers) = self.state.get_enabled_peers(prot) {
-                    let cond = match policy {
-                        ProtocolAllocationPolicy::Bounded(max_conn_percent) => {
-                            enabled_peers.len() / self.state.num_connected_peers() < *max_conn_percent / 100
-                        }
-                        ProtocolAllocationPolicy::Max => {
-                            enabled_peers.len() < self.state.num_connected_peers()
-                        }
-                        ProtocolAllocationPolicy::Zero => false,
-                    };
-                    if cond {
-                        if let Some(candidate) = self.state.peek_best(Some(|pid: &PeerId, pi: &PeerInfo| {
-                            !enabled_peers.contains(pid) && pi.supports(&prot).unwrap_or(false)
-                        })) {
-                            if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&candidate) {
-                                cp.enable_protocol(*prot);
-                                self.out_queue
-                                    .push_back(PeerManagerOut::StartProtocol(*prot, candidate));
-                            }
-                        }
-                    }
+            if Future::poll(Pin::new(&mut self.next_conn_alloc), cx).is_ready() {
+                if self.state.is_bootstrapped() {
+                    todo!()
+                } else {
+                    self.connect_reserved();
+                    self.connect_best();
                 }
+                self.next_conn_alloc = Delay::new(self.conf.conn_alloc_interval)
+            }
+
+            if Future::poll(Pin::new(&mut self.next_prot_alloc), cx).is_ready() {
+                self.allocate_protocols();
+                self.next_prot_alloc = Delay::new(self.conf.prot_alloc_interval);
             }
 
             return Poll::Pending;

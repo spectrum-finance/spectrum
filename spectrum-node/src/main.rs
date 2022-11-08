@@ -43,7 +43,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let peer_manager_conf = PeerManagerConfig {
         min_reputation: Reputation::from(10),
         conn_reset_outbound_backoff: Duration::from_secs(120),
-        periodic_conn_interval: Duration::from_secs(30),
+        conn_alloc_interval: Duration::from_secs(30),
+        prot_alloc_interval: Duration::from_secs(30),
         protocols_allocation: Vec::new(),
     };
     let peer_state = PeerRepo::new(peer_index_conf);
