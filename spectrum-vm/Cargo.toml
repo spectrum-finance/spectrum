@@ -1,0 +1,19 @@
+[package]
+name = "spectrum-vm"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+mv-vm-runtime = "0.3.2"
+derive_more = "0.99.17"
+mv-stdlib = "0.3.2"
+mv-cli = "0.3.2"
+move-vm-test-utils = "0.3.2"
+mv-binary-format = "0.3.2"
+mv-core-types = "0.3.2"
+mv-compiler = "0.3.2"
+anyhow = "1.0.52"
+bcs = "0.1.4"
