@@ -33,6 +33,8 @@ pub enum ProtocolHandshakeErr {
 pub enum ProtocolUpgradeErr {
     #[error(transparent)]
     HandshakeErr(#[from] ProtocolHandshakeErr),
+    #[error("Unsupported {0:?}")]
+    UnsupportedProtocolVer(ProtocolVer),
 }
 
 #[derive(Debug, Clone)]
@@ -103,10 +105,11 @@ where
         Box::pin(async move {
             let target = format!("Inbound({})", negotiated_tag);
             trace!(target: &target, "upgrade_inbound()");
+            let protocol_ver = negotiated_tag.protocol_ver();
             let pspec = self
                 .supported_versions
-                .get(&negotiated_tag.protocol_ver())
-                .unwrap();
+                .get(&protocol_ver)
+                .ok_or(ProtocolUpgradeErr::UnsupportedProtocolVer(protocol_ver))?;
             let mut codec = UviBytes::default();
             codec.set_max_len(pspec.max_message_size);
             let handshake = if pspec.handshake_required {
@@ -206,10 +209,11 @@ where
         Box::pin(async move {
             let target = format!("Outbound({})", negotiated_tag);
             trace!(target: &target, "upgrade_outbound()");
+            let protocol_ver = negotiated_tag.protocol_ver();
             let pspec = self
                 .supported_versions
-                .get(&negotiated_tag.protocol_ver())
-                .unwrap();
+                .get(&protocol_ver)
+                .ok_or(ProtocolUpgradeErr::UnsupportedProtocolVer(protocol_ver))?;
             let mut codec = UviBytes::default();
             codec.set_max_len(pspec.max_message_size);
             if let Some(handshake) = &pspec.handshake {
