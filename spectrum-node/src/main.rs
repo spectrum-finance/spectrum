@@ -1,6 +1,7 @@
 use futures::prelude::*;
 use std::collections::HashMap;
 use std::error::Error;
+use std::str::FromStr;
 
 use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::Multiaddr;
@@ -10,9 +11,9 @@ use libp2p::identity;
 use libp2p::PeerId;
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
-use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
+use spectrum_network::peer_manager::data::PeerDestination;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
-use spectrum_network::peer_manager::{PeerManager, PeerManagerConfig};
+use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerConfig};
 use spectrum_network::protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID};
 use spectrum_network::protocol_handler::sync::message::SyncSpec;
 use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
@@ -30,24 +31,38 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let transport = libp2p::development_transport(local_key).await?;
 
+    let mut boot_peers = Vec::new();
+    // Dial the peer identified by the multi-address given as the second
+    // command-line argument, if any.
+    println!("{:?}", (std::env::args().nth(1), std::env::args().nth(2)));
+    if let (Some(pid), Some(addr)) = (std::env::args().nth(1), std::env::args().nth(2)) {
+        let remote: Multiaddr = addr.parse()?;
+        boot_peers.push(PeerDestination::PeerIdWithAddr(
+            FromStr::from_str(pid.as_str()).unwrap(),
+            remote,
+        ))
+    }
+
     let peer_conn_handler_conf = PeerConnHandlerConf {
         async_msg_buffer_size: 10,
         sync_msg_buffer_size: 40,
         open_timeout: Duration::from_secs(60),
         initial_keep_alive: Duration::from_secs(60),
     };
-    let peer_index_conf = PeerIndexConfig {
-        max_incoming: 25,
-        max_outgoing: 50,
+    let netw_config = NetworkingConfig {
+        min_known_peers: 1,
+        min_outbound: 2,
+        max_inbound: 10,
+        max_outbound: 20,
     };
     let peer_manager_conf = PeerManagerConfig {
-        min_reputation: Reputation::from(10),
+        min_reputation: Reputation::from(0),
         conn_reset_outbound_backoff: Duration::from_secs(120),
         conn_alloc_interval: Duration::from_secs(30),
         prot_alloc_interval: Duration::from_secs(30),
         protocols_allocation: Vec::new(),
     };
-    let peer_state = PeerRepo::new(peer_index_conf);
+    let peer_state = PeerRepo::new(netw_config, boot_peers);
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
     let sync_conf = ProtocolConfig {
         supported_versions: vec![(
@@ -79,16 +94,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut swarm = Swarm::new(transport, nc, local_peer_id);
 
-    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
-
-    // Dial the peer identified by the multi-address given as the second
-    // command-line argument, if any.
-    println!("Passed addr {:?}", std::env::args().nth(1));
-    if let Some(addr) = std::env::args().nth(1) {
-        let remote: Multiaddr = addr.parse()?;
-        swarm.dial(remote)?;
-        println!("Dialed {}", addr)
-    }
+    swarm.listen_on("/ip4/0.0.0.0/tcp/9999".parse()?)?;
+    //swarm.listen_on("/ip4/0.0.0.0/tcp/8888".parse()?)?;
 
     async_std::task::spawn(async move {
         loop {

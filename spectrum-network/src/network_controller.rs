@@ -8,8 +8,8 @@ use crate::types::{ProtocolId, ProtocolVer};
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::{
-    CloseConnection, IntoConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
-    PollParameters,
+    CloseConnection, DialError, IntoConnectionHandler, NetworkBehaviour, NetworkBehaviourAction,
+    NotifyHandler, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
 
@@ -204,7 +204,6 @@ impl<TPeers, TPeerManager, THandler> NetworkEvents for NetworkController<TPeers,
     }
 }
 
-// todo: implement initial handshake
 impl<TPeers, TPeerManager, THandler> NetworkBehaviour for NetworkController<TPeers, TPeerManager, THandler>
 where
     TPeers: PeerEvents + PeerActions + 'static,
@@ -390,6 +389,10 @@ where
         }
     }
 
+    fn inject_dial_failure(&mut self, peer_id: Option<PeerId>, _: Self::ConnectionHandler, _: &DialError) {
+        // todo: DEV-418: notify PM
+    }
+
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
@@ -453,6 +456,7 @@ where
                 Poll::Ready(Some(PeerManagerOut::Accept(pid, cid))) => match self.enabled_peers.entry(pid) {
                     Entry::Occupied(mut peer) => {
                         if let ConnectedPeer::PendingApprove(_) = peer.get() {
+                            trace!("Inbound connection from peer {} accepted", pid);
                             peer.insert(ConnectedPeer::Connected {
                                 conn_id: cid,
                                 enabled_protocols: HashMap::new(),
@@ -461,10 +465,18 @@ where
                     }
                     Entry::Vacant(_) => {}
                 },
-                Poll::Ready(Some(PeerManagerOut::Reject(pid, _))) => match self.enabled_peers.entry(pid) {
+                Poll::Ready(Some(PeerManagerOut::Reject(pid, cid))) => match self.enabled_peers.entry(pid) {
                     Entry::Occupied(peer) => {
                         if let ConnectedPeer::PendingApprove(_) = peer.get() {
+                            trace!("Inbound connection from peer {} rejected", pid);
                             peer.remove();
+                            // todo: DEV-419: Close connection properly
+                            // self.pending_actions
+                            //     .push_back(NetworkBehaviourAction::NotifyHandler {
+                            //         peer_id: pid,
+                            //         handler: NotifyHandler::One(cid),
+                            //         event: ConnHandlerIn::Drop(pid),
+                            //     })
                         }
                     }
                     Entry::Vacant(_) => {}
@@ -500,7 +512,8 @@ where
                         Entry::Vacant(_) => {}
                     }
                 }
-                Poll::Pending | Poll::Ready(None) => break,
+                Poll::Pending => break,
+                Poll::Ready(None) => unreachable!("PeerManager should never terminate"),
             }
         }
 

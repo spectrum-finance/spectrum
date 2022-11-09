@@ -16,14 +16,16 @@ use libp2p::{InboundUpgrade, OutboundUpgrade, PeerId};
 
 use crate::protocol::{ProtocolConfig, ProtocolSpec};
 use crate::protocol_upgrade::{ProtocolUpgradeErr, ProtocolUpgradeIn, ProtocolUpgradeOut};
+use log::trace;
 use std::collections::{HashMap, VecDeque};
+use std::fmt::{Debug, Formatter};
 use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
-use log::trace;
 use void::Void;
 
+#[derive(Debug)]
 pub struct Protocol {
     /// Negotiated protocol version
     pub ver: ProtocolVer,
@@ -82,6 +84,23 @@ pub enum ProtocolState {
     OutboundClosedByPeer {
         substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
     },
+}
+
+impl Debug for ProtocolState {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            ProtocolState::Closed => f.write_str("ProtocolState::Closed"),
+            ProtocolState::Opening => f.write_str("ProtocolState::Opening"),
+            ProtocolState::PartiallyOpenedByPeer { .. } => {
+                f.write_str("ProtocolState::PartiallyOpenedByPeer")
+            }
+            ProtocolState::Accepting { .. } => f.write_str("ProtocolState::Accepting"),
+            ProtocolState::PartiallyOpened { .. } => f.write_str("ProtocolState::PartiallyOpened"),
+            ProtocolState::Opened { .. } => f.write_str("ProtocolState::Opened"),
+            ProtocolState::InboundClosedByPeer { .. } => f.write_str("ProtocolState::InboundClosedByPeer"),
+            ProtocolState::OutboundClosedByPeer { .. } => f.write_str("ProtocolState::OutboundClosedByPeer"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -256,11 +275,13 @@ impl ConnectionHandler for PeerConnHandler {
         (upgrade, _): <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
         _: Self::InboundOpenInfo,
     ) {
+        trace!("inject_fully_negotiated_inbound()");
         let negotiated_tag = upgrade.negotiated_tag;
         let protocol_id = negotiated_tag.protocol_id();
         if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
             let state = protocol.state.take();
             if let Some(state) = state {
+                trace!("Current protocol state is {:?}", state);
                 let state_next = match state {
                     ProtocolState::Closed => {
                         let event = ConnectionHandlerEvent::Custom(ConnHandlerOut::OpenedByPeer {
@@ -312,6 +333,7 @@ impl ConnectionHandler for PeerConnHandler {
                     | ProtocolState::Accepting { .. }
                     | ProtocolState::OutboundClosedByPeer { .. } => state,
                 };
+                trace!("Next protocol state is {:?}", state_next);
                 protocol.state = Some(state_next);
             };
         }
@@ -322,9 +344,11 @@ impl ConnectionHandler for PeerConnHandler {
         upgrade: <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Output,
         negotiated_tag: Self::OutboundOpenInfo,
     ) {
+        trace!("inject_fully_negotiated_outbound()");
         let protocol_id = negotiated_tag.protocol_id();
         if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
             let state = protocol.state.take();
+            trace!("Current protocol state is {:?}", state);
             if let Some(state) = state {
                 let state_next = match state {
                     ProtocolState::Opening => ProtocolState::PartiallyOpened {
@@ -360,6 +384,7 @@ impl ConnectionHandler for PeerConnHandler {
                     // todo: warn, inconsistent state; discard other options explicitly.
                     _ => state,
                 };
+                trace!("Next protocol state is {:?}", state_next);
                 protocol.state = Some(state_next);
             };
         }
@@ -371,6 +396,7 @@ impl ConnectionHandler for PeerConnHandler {
                 protocol_id,
                 handshake,
             } => {
+                trace!("ConnHandlerIn::Open[{:?}]", protocol_id);
                 if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
                     let state = protocol.state.take();
                     if let Some(state) = state {
@@ -447,13 +473,14 @@ impl ConnectionHandler for PeerConnHandler {
     fn inject_dial_upgrade_error(
         &mut self,
         protocol_tag: Self::OutboundOpenInfo,
-        _: ConnectionHandlerUpgrErr<ProtocolUpgradeErr>,
+        err: ConnectionHandlerUpgrErr<ProtocolUpgradeErr>,
     ) {
         let protocol_id = protocol_tag.protocol_id();
         if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
             if let Some(state) = &protocol.state {
                 match state {
                     ProtocolState::Opening | ProtocolState::Accepting { .. } => {
+                        trace!("Failed to open protocol {:?}, {:?}", protocol_id, err);
                         self.pending_events.push_back(ConnectionHandlerEvent::Custom(
                             ConnHandlerOut::RefusedToOpen(protocol_id),
                         ))
@@ -468,15 +495,16 @@ impl ConnectionHandler for PeerConnHandler {
     fn connection_keep_alive(&self) -> KeepAlive {
         // Keep alive unless all protocols are inactive.
         // Otherwise close connection once initial_keep_alive interval passed.
-        if self
-            .protocols
-            .values()
-            .any(|p| !matches!(p.state, Some(ProtocolState::Closed)))
-        {
-            KeepAlive::Yes
-        } else {
-            KeepAlive::Until(self.created_at + self.conf.initial_keep_alive)
-        }
+        // if self
+        //     .protocols
+        //     .values()
+        //     .any(|p| !matches!(p.state, Some(ProtocolState::Closed)))
+        // {
+        //     KeepAlive::Yes
+        // } else {
+        //     KeepAlive::Until(self.created_at + self.conf.initial_keep_alive)
+        // }
+        KeepAlive::Yes
     }
 
     fn poll(

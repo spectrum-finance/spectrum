@@ -5,32 +5,32 @@ use libp2p::{Multiaddr, PeerId};
 use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PeerIdentity {
+pub enum PeerDestination {
     PeerId(PeerId),
     PeerIdWithAddr(PeerId, Multiaddr),
 }
 
-impl PeerIdentity {
+impl PeerDestination {
     pub fn peer_id(&self) -> PeerId {
         match self {
-            PeerIdentity::PeerId(pid) => *pid,
-            PeerIdentity::PeerIdWithAddr(pid, _) => *pid,
+            PeerDestination::PeerId(pid) => *pid,
+            PeerDestination::PeerIdWithAddr(pid, _) => *pid,
         }
     }
 
     pub fn into_addr(self) -> Option<Multiaddr> {
         match self {
-            PeerIdentity::PeerIdWithAddr(_, addr) => Some(addr),
-            PeerIdentity::PeerId(_) => None,
+            PeerDestination::PeerIdWithAddr(_, addr) => Some(addr),
+            PeerDestination::PeerId(_) => None,
         }
     }
 }
 
-impl Into<DialOpts> for PeerIdentity {
+impl Into<DialOpts> for PeerDestination {
     fn into(self) -> DialOpts {
         match self {
-            PeerIdentity::PeerId(pid) => DialOpts::peer_id(pid).build(),
-            PeerIdentity::PeerIdWithAddr(pid, addr) => DialOpts::peer_id(pid).addresses(vec![addr]).build(),
+            PeerDestination::PeerId(pid) => DialOpts::peer_id(pid).build(),
+            PeerDestination::PeerIdWithAddr(pid, addr) => DialOpts::peer_id(pid).addresses(vec![addr]).build(),
         }
     }
 }
@@ -54,6 +54,15 @@ pub enum ConnectionLossReason {
 pub enum ConnectionState {
     Connected(ConnectionDirection),
     NotConnected,
+}
+
+impl ConnectionState {
+    pub fn is_connected(self) -> bool {
+        match self {
+            ConnectionState::Connected(_) => true,
+            ConnectionState::NotConnected => false,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

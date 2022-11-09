@@ -1,9 +1,12 @@
 use crate::peer_manager::data::{
-    ConnectionDirection, ConnectionState, PeerIdentity, PeerInfo, ReputationChange,
+    ConnectionDirection, ConnectionState, PeerDestination, PeerInfo, ReputationChange,
 };
-use crate::peer_manager::peer_index::{PeerIndex, PeerIndexConfig};
+use crate::peer_manager::peer_index::PeerIndex;
+use crate::peer_manager::NetworkingConfig;
 use crate::types::{ProtocolId, Reputation};
 use libp2p::PeerId;
+use log::trace;
+use smallvec::SmallVec;
 use std::borrow::{Borrow, Cow};
 use std::collections::hash_map::{Entry, OccupiedEntry};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -13,31 +16,35 @@ use std::time::Instant;
 pub struct ConnectedPeer<'a> {
     peer_id: Cow<'a, PeerId>,
     peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-    peer_sets: &'a mut PeerIndex,
+    index: &'a mut PeerIndex,
     best_peers: &'a mut BTreeSet<(PeerId, Reputation)>,
+    netw_conf: NetworkingConfig,
 }
 
 impl<'a> ConnectedPeer<'a> {
     fn new(
         peer_id: Cow<'a, PeerId>,
         peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-        peer_sets: &'a mut PeerIndex,
+        index: &'a mut PeerIndex,
         best_peers: &'a mut BTreeSet<(PeerId, Reputation)>,
+        netw_conf: NetworkingConfig,
     ) -> Self {
         Self {
             peer_id,
             peer_info,
-            peer_sets,
+            index,
             best_peers,
+            netw_conf,
         }
     }
 
-    fn from_peer(not_connected_peer: NotConnectedPeer<'a>) -> Self {
+    fn from_peer(ncp: NotConnectedPeer<'a>) -> Self {
         Self {
-            peer_id: not_connected_peer.peer_id,
-            peer_info: not_connected_peer.peer_info,
-            peer_sets: not_connected_peer.peer_sets,
-            best_peers: not_connected_peer.sorted_peers,
+            peer_id: ncp.peer_id,
+            peer_info: ncp.peer_info,
+            index: ncp.index,
+            best_peers: ncp.sorted_peers,
+            netw_conf: ncp.netw_conf,
         }
     }
 
@@ -45,19 +52,20 @@ impl<'a> ConnectedPeer<'a> {
         let peer_info = self.peer_info.get_mut();
         match peer_info.state {
             ConnectionState::Connected(ConnectionDirection::Inbound) => {
-                self.peer_sets.drop_incoming(self.peer_id.borrow())
+                self.index.drop_incoming(self.peer_id.borrow());
             }
             ConnectionState::Connected(ConnectionDirection::Outbound(_)) => {
-                self.peer_sets.drop_outgoing(self.peer_id.borrow())
+                self.index.drop_outgoing(self.peer_id.borrow(), peer_info.is_boot);
             }
-            _ => panic!("impossible"),
+            _ => {}
         };
         peer_info.state = ConnectionState::NotConnected;
         NotConnectedPeer {
             peer_id: self.peer_id,
             peer_info: self.peer_info,
-            peer_sets: self.peer_sets,
+            index: self.index,
             sorted_peers: self.best_peers,
+            netw_conf: self.netw_conf,
         }
     }
 
@@ -96,16 +104,24 @@ impl<'a> ConnectedPeer<'a> {
     }
 
     pub fn is_protocol_enabled(&self, protocol_id: &ProtocolId) -> bool {
-        self.peer_sets
-            .is_protocol_enabled(protocol_id, self.peer_id.borrow())
+        self.index.is_protocol_enabled(protocol_id, self.peer_id.borrow())
     }
 
     pub fn enable_protocol(&mut self, protocol_id: ProtocolId) {
-        self.peer_sets
+        self.index
             .protocols
             .entry(protocol_id)
             .or_insert(HashSet::new())
             .insert(self.peer_id.clone().into_owned());
+    }
+
+    pub fn destination(&self) -> PeerDestination {
+        let pid = self.peer_id.clone().into_owned();
+        if let Some(addr) = &self.peer_info.get().addr {
+            PeerDestination::PeerIdWithAddr(pid, addr.clone())
+        } else {
+            PeerDestination::PeerId(pid)
+        }
     }
 }
 
@@ -113,8 +129,9 @@ impl<'a> ConnectedPeer<'a> {
 pub struct NotConnectedPeer<'a> {
     peer_id: Cow<'a, PeerId>,
     peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
-    peer_sets: &'a mut PeerIndex,
+    index: &'a mut PeerIndex,
     sorted_peers: &'a mut BTreeSet<(PeerId, Reputation)>,
+    netw_conf: NetworkingConfig,
 }
 
 impl<'a> NotConnectedPeer<'a> {
@@ -123,34 +140,31 @@ impl<'a> NotConnectedPeer<'a> {
         peer_info: OccupiedEntry<'a, PeerId, PeerInfo>,
         peer_sets: &'a mut PeerIndex,
         sorted_peers: &'a mut BTreeSet<(PeerId, Reputation)>,
+        netw_conf: NetworkingConfig,
     ) -> Self {
         Self {
             peer_id,
             peer_info,
-            peer_sets,
+            index: peer_sets,
             sorted_peers,
+            netw_conf,
         }
     }
 
-    pub fn try_connect(self) -> Result<ConnectedPeer<'a>, Self> {
-        let added = self.peer_sets.try_add_outgoing(self.peer_id.clone().into_owned());
-        if added {
-            Ok(self.connect(ConnectionDirection::Outbound(false)))
-        } else {
-            Err(self)
-        }
+    pub fn connect(self) -> ConnectedPeer<'a> {
+        self.index.add_outgoing(self.peer_id.clone().into_owned());
+        self.force_connect(ConnectionDirection::Outbound(false))
     }
 
     pub fn try_accept_connection(self) -> Result<ConnectedPeer<'a>, Self> {
-        let added = self.peer_sets.try_add_incoming(self.peer_id.clone().into_owned());
-        if added {
-            Ok(self.connect(ConnectionDirection::Inbound))
+        if self.index.num_inbound < self.netw_conf.max_inbound {
+            Ok(self.force_connect(ConnectionDirection::Inbound))
         } else {
             Err(self)
         }
     }
 
-    pub fn forget_peer(self) -> PeerInfo {
+    pub fn forget(self) -> PeerInfo {
         self.sorted_peers
             .remove(&(*self.peer_id, self.peer_info.get().reputation));
         self.peer_info.remove()
@@ -172,7 +186,7 @@ impl<'a> NotConnectedPeer<'a> {
         self.peer_info.get().outbound_backoff_until
     }
 
-    fn connect(mut self, direction: ConnectionDirection) -> ConnectedPeer<'a> {
+    fn force_connect(mut self, direction: ConnectionDirection) -> ConnectedPeer<'a> {
         let peer_info = self.peer_info.get_mut();
         let _ = peer_info.num_connections.saturating_add(1);
         peer_info.state = ConnectionState::Connected(direction);
@@ -233,17 +247,17 @@ impl<'a> PeerInState<'a> {
         match self {
             PeerInState::Connected(ref mut cp) => {
                 if is_reserved {
-                    cp.peer_sets.reserve_peer(cp.peer_id.clone().into_owned());
+                    cp.index.reserve_peer(cp.peer_id.clone().into_owned());
                 } else {
-                    cp.peer_sets.drop_reserved_peer(cp.peer_id.borrow());
+                    cp.index.drop_reserved_peer(cp.peer_id.borrow());
                 }
                 cp.peer_info.get_mut().is_reserved = is_reserved;
             }
             PeerInState::NotConnected(ref mut ncp) => {
                 if is_reserved {
-                    ncp.peer_sets.reserve_peer(ncp.peer_id.clone().into_owned());
+                    ncp.index.reserve_peer(ncp.peer_id.clone().into_owned());
                 } else {
-                    ncp.peer_sets.drop_reserved_peer(ncp.peer_id.borrow());
+                    ncp.index.drop_reserved_peer(ncp.peer_id.borrow());
                 }
                 ncp.peer_info.get_mut().is_reserved = is_reserved;
             }
@@ -254,6 +268,20 @@ impl<'a> PeerInState<'a> {
 pub enum PeerStateFilter {
     Connected,
     NotConnected,
+}
+
+const MAX_BOOT_PEERS: usize = 8;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NetworkingState {
+    /// The node has few known peers.
+    NotBootstrapped(SmallVec<[PeerDestination; MAX_BOOT_PEERS]>),
+    /// The node has few outbound connections.
+    BootInProgress,
+    /// The node has enough outbound connects, but still can allocate more.
+    Bootstrapped,
+    /// The node doesn't need more outbound connections.
+    Saturated,
 }
 
 /// Peer state transitions.
@@ -268,7 +296,7 @@ pub trait PeersState {
     /// Returns a NotConnectedPeer if succeeded.
     fn try_add_peer(
         &mut self,
-        peer_id: PeerIdentity,
+        peer_id: PeerDestination,
         is_reserved: bool,
         is_boot: bool,
     ) -> Option<NotConnectedPeer>;
@@ -278,7 +306,7 @@ pub trait PeersState {
     fn set_reserved_peers(&mut self, peers: HashSet<PeerId>) -> HashSet<PeerId>;
 
     /// Get reserved peers.
-    fn get_reserved_peers(&mut self, filter: Option<PeerStateFilter>) -> HashSet<PeerId>;
+    fn get_reserved_peers(&self, filter: Option<PeerStateFilter>) -> HashSet<PeerId>;
 
     /// Get a set of peers we keep the given protocol enabled with.
     fn get_enabled_peers(&self, protocol_id: &ProtocolId) -> Option<&HashSet<PeerId>>;
@@ -286,8 +314,13 @@ pub trait PeersState {
     /// Get number of connected peers.
     fn num_connected_peers(&self) -> usize;
 
-    /// Is our node bootstrapped.
-    fn is_bootstrapped(&self) -> bool;
+    /// Get actual networking state.
+    fn networking_state(&self) -> NetworkingState;
+
+    /// Get peers satisfying the given predicate.
+    fn filter_peers<F>(&mut self, predicate: F) -> Vec<PeerId>
+    where
+        F: Fn(&PeerId, &PeerInfo) -> bool;
 
     /// Peek best peer.
     fn peek_best<F>(&self, filter: Option<F>) -> Option<PeerId>
@@ -295,20 +328,23 @@ pub trait PeersState {
         F: Fn(&PeerId, &PeerInfo) -> bool;
 }
 
-// todo: track bootstrapping stage
 pub struct PeerRepo {
     // known peers and what we known about them.
     peers: HashMap<PeerId, PeerInfo>,
     sorted_peers: BTreeSet<(PeerId, Reputation)>,
     index: PeerIndex,
+    netw_conf: NetworkingConfig,
+    boot_peers: Vec<PeerDestination>,
 }
 
 impl PeerRepo {
-    pub fn new(peer_index_conf: PeerIndexConfig) -> Self {
+    pub fn new(netw_conf: NetworkingConfig, boot_peers: Vec<PeerDestination>) -> Self {
         PeerRepo {
             peers: HashMap::new(),
             sorted_peers: BTreeSet::new(),
-            index: PeerIndex::new(peer_index_conf),
+            index: PeerIndex::new(),
+            netw_conf,
+            boot_peers,
         }
     }
 }
@@ -322,12 +358,14 @@ impl PeersState for PeerRepo {
                     peer_info,
                     &mut self.index,
                     &mut self.sorted_peers,
+                    self.netw_conf,
                 ))),
                 ConnectionState::NotConnected => Some(PeerInState::NotConnected(NotConnectedPeer::new(
                     Cow::Borrowed(peer_id),
                     peer_info,
                     &mut self.index,
                     &mut self.sorted_peers,
+                    self.netw_conf,
                 ))),
             },
             Entry::Vacant(_) => None,
@@ -340,25 +378,28 @@ impl PeersState for PeerRepo {
 
     fn try_add_peer(
         &mut self,
-        peer_id: PeerIdentity,
+        peer_dest: PeerDestination,
         is_reserved: bool,
         is_boot: bool,
     ) -> Option<NotConnectedPeer> {
-        let pid = peer_id.peer_id();
+        let pid = peer_dest.peer_id();
         if !self.peers.contains_key(&pid) {
-            let peer_info = PeerInfo::new(peer_id.into_addr(), is_reserved, is_boot);
+            self.sorted_peers.insert((pid, Reputation::initial()));
+            let peer_info = PeerInfo::new(peer_dest.into_addr(), is_reserved, is_boot);
             self.peers.insert(pid, peer_info);
             if is_reserved {
                 self.index.reserve_peer(pid)
             }
+            // DEV-399: use Entry::insert_entry() when the feature is stable.
             match self.peers.entry(pid) {
                 Entry::Occupied(peer_info) => Some(NotConnectedPeer::new(
                     Cow::Owned(pid),
                     peer_info,
                     &mut self.index,
                     &mut self.sorted_peers,
+                    self.netw_conf,
                 )),
-                Entry::Vacant(_) => panic!("impossible"),
+                Entry::Vacant(_) => None,
             }
         } else {
             None
@@ -380,8 +421,8 @@ impl PeersState for PeerRepo {
         unknown_peers
     }
 
-    fn get_reserved_peers(&mut self, filter: Option<PeerStateFilter>) -> HashSet<PeerId> {
-        let mut result = HashSet::<PeerId>::new();
+    fn get_reserved_peers(&self, filter: Option<PeerStateFilter>) -> HashSet<PeerId> {
+        let mut result = HashSet::new();
         for pid in &self.index.reserved_peers {
             match self.peers.get(pid) {
                 Some(peer) => {
@@ -414,8 +455,29 @@ impl PeersState for PeerRepo {
         self.index.enabled_connections.len()
     }
 
-    fn is_bootstrapped(&self) -> bool {
-        self.peers.len() > 0
+    fn networking_state(&self) -> NetworkingState {
+        if self.peers.len() < self.netw_conf.min_known_peers {
+            NetworkingState::NotBootstrapped(SmallVec::from_vec(self.boot_peers.clone()))
+        } else if self.index.num_outbound - self.index.boot_peers.len() < self.netw_conf.min_outbound {
+            NetworkingState::BootInProgress
+        } else if self.index.num_outbound < self.netw_conf.max_outbound {
+            NetworkingState::Bootstrapped
+        } else {
+            NetworkingState::Saturated
+        }
+    }
+
+    fn filter_peers<F>(&mut self, predicate: F) -> Vec<PeerId>
+    where
+        F: Fn(&PeerId, &PeerInfo) -> bool,
+    {
+        let mut res = Vec::new();
+        for (pid, pif) in self.peers.iter() {
+            if predicate(pid, pif) {
+                res.push(*pid)
+            }
+        }
+        res
     }
 
     fn peek_best<F>(&self, filter: Option<F>) -> Option<PeerId>

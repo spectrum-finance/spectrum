@@ -21,3 +21,4 @@ rand = "0.8.5"
 wasm-timer = "0.2.5"
 serde = { version = "1.0.147", features = ["derive"] }
 ciborium = "0.2.0"
+smallvec = "1.10.0"

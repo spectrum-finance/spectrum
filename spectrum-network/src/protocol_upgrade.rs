@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::{io, vec};
+use log::trace;
 use unsigned_varint::codec::UviBytes;
 
 #[derive(Debug, thiserror::Error)]
@@ -95,6 +96,7 @@ where
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_inbound(self, mut socket: Substream, negotiated_tag: Self::Info) -> Self::Future {
+        trace!("Upgrade inbound negotiated_tag={:?}", negotiated_tag);
         Box::pin(async move {
             let pspec = self
                 .supported_versions
@@ -103,10 +105,12 @@ where
             let mut codec = UviBytes::default();
             codec.set_max_len(pspec.max_message_size);
             let handshake = if pspec.handshake_required {
+                trace!("Waiting for handshake");
                 Some(read_handshake(&mut socket, pspec.max_message_size).await?)
             } else {
                 None
             };
+            trace!("Handshake is {:?}", handshake);
             let handshake_state = if pspec.handshake_required {
                 Some(ProtocolHandshakeState::NotSent)
             } else {
@@ -196,6 +200,7 @@ where
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_outbound(self, mut socket: Substream, negotiated_tag: Self::Info) -> Self::Future {
+        trace!("Upgrade outbound negotiated_tag={:?}", negotiated_tag);
         Box::pin(async move {
             let pspec = self
                 .supported_versions
@@ -204,14 +209,18 @@ where
             let mut codec = UviBytes::default();
             codec.set_max_len(pspec.max_message_size);
             if let Some(handshake) = &pspec.handshake {
+                trace!("Sending handshake");
                 write_handshake(&mut socket, handshake).await?;
+                trace!("Handshake sent");
             }
             // Wait for handshake in response if required.
             let handshake = if pspec.handshake.is_some() {
+                trace!("Waiting for handshake in response");
                 Some(read_handshake(&mut socket, pspec.max_message_size).await?)
             } else {
                 None
             };
+            trace!("Handshake is {:?}", handshake);
             let substream = ProtocolSubstreamOut {
                 socket: Framed::new(socket, codec),
             };

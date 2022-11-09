@@ -8,6 +8,7 @@ use unsigned_varint::codec::UviBytes;
 use void::Void;
 
 /// State of the handshake sending back process.
+#[derive(Debug, Clone)]
 pub enum ProtocolHandshakeState {
     /// Waiting for the user to give us the handshake message.
     NotSent,
