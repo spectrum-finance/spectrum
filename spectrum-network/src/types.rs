@@ -1,9 +1,9 @@
 use crate::peer_manager::data::ReputationChange;
 use libp2p::bytes::BytesMut;
 use libp2p::core::upgrade;
-use std::cmp::Ordering;
-use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+use std::fmt::{Debug, Display, Formatter};
 
 /// Opaque identifier for an incoming connection. Allocated by the network.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -88,6 +88,16 @@ impl From<u8> for ProtocolVer {
 /// Tag of a protocol. Consists of ProtocolId + ProtocolVer.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProtocolTag([u8; 3]);
+
+impl Display for ProtocolTag {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!(
+            "ProtocolTag(/{}/{})",
+            Into::<u8>::into(self.protocol_id()),
+            Into::<u8>::into(self.protocol_ver())
+        ))
+    }
+}
 
 impl ProtocolTag {
     pub fn protocol_ver(&self) -> ProtocolVer {

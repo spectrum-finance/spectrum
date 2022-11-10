@@ -13,6 +13,7 @@ use libp2p::core::{upgrade, UpgradeInfo};
 use libp2p::{InboundUpgrade, OutboundUpgrade};
 use log::trace;
 use std::collections::BTreeMap;
+use std::fmt::{format, Debug};
 use std::future::Future;
 use std::pin::Pin;
 use std::{io, vec};
@@ -100,8 +101,9 @@ where
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_inbound(self, mut socket: Substream, negotiated_tag: Self::Info) -> Self::Future {
-        trace!("upgrade_inbound(negotiated_tag={:?})", negotiated_tag);
         Box::pin(async move {
+            let target = format!("Inbound({})", negotiated_tag);
+            trace!(target: &target, "upgrade_inbound()");
             let pspec = self
                 .supported_versions
                 .get(&negotiated_tag.protocol_ver())
@@ -109,15 +111,17 @@ where
             let mut codec = UviBytes::default();
             codec.set_max_len(pspec.max_message_size);
             let handshake = if pspec.handshake_required {
-                trace!("Waiting for handshake");
-                Some(read_handshake(&mut socket, pspec.max_message_size).await?)
+                trace!(target: &target, "Waiting for handshake");
+                let hs = Some(read_handshake(&mut socket, pspec.max_message_size).await?);
+                trace!(target: &target, "Received handshake");
+                hs
             } else {
                 None
             };
-            trace!("Handshake is {:?}", handshake);
             let approve_state = if pspec.handshake_required {
                 Some(ProtocolApproveState::NotSent)
             } else {
+                trace!(target: &target, "Approval not required");
                 None
             };
             let substream = ProtocolSubstreamIn {
@@ -204,8 +208,9 @@ where
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_outbound(self, mut socket: Substream, negotiated_tag: Self::Info) -> Self::Future {
-        trace!("upgrade_outbound(negotiated_tag={:?})", negotiated_tag);
         Box::pin(async move {
+            let target = format!("Outbound({})", negotiated_tag);
+            trace!(target: &target, "upgrade_outbound()");
             let pspec = self
                 .supported_versions
                 .get(&negotiated_tag.protocol_ver())
@@ -213,15 +218,15 @@ where
             let mut codec = UviBytes::default();
             codec.set_max_len(pspec.max_message_size);
             if let Some(handshake) = &pspec.handshake {
-                trace!("Sending handshake");
+                trace!(target: &target, "Sending handshake");
                 write_handshake(&mut socket, handshake).await?;
-                trace!("Handshake sent");
+                trace!(target: &target, "Handshake sent");
             }
             // Wait for approve in response if required.
             if pspec.handshake.is_some() {
-                trace!("Waiting for approve");
+                trace!(target: &target, "Waiting for approve");
                 read_approve(&mut socket).await?;
-                trace!("Approved");
+                trace!(target: &target, "Approved");
             };
             let substream = ProtocolSubstreamOut {
                 socket: Framed::new(socket, codec),

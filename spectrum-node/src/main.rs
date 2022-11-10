@@ -34,13 +34,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut boot_peers = Vec::new();
     // Dial the peer identified by the multi-address given as the second
     // command-line argument, if any.
-    println!("{:?}", (std::env::args().nth(1), std::env::args().nth(2)));
-    if let (Some(pid), Some(addr)) = (std::env::args().nth(1), std::env::args().nth(2)) {
-        let remote: Multiaddr = addr.parse()?;
-        boot_peers.push(PeerDestination::PeerIdWithAddr(
-            FromStr::from_str(pid.as_str()).unwrap(),
-            remote,
-        ))
+    println!(
+        "{:?}",
+        (
+            std::env::args().nth(1),
+            std::env::args().nth(2),
+            std::env::args().nth(3)
+        )
+    );
+    if let (Some(pid), Some(addr)) = (std::env::args().nth(2), std::env::args().nth(3)) {
+        if !pid.starts_with("--") {
+            let remote: Multiaddr = addr.parse()?;
+            boot_peers.push(PeerDestination::PeerIdWithAddr(
+                FromStr::from_str(pid.as_str()).unwrap(),
+                remote,
+            ))
+        }
     }
 
     let peer_conn_handler_conf = PeerConnHandlerConf {
@@ -94,8 +103,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut swarm = Swarm::new(transport, nc, local_peer_id);
 
-    swarm.listen_on("/ip4/0.0.0.0/tcp/9999".parse()?)?;
-    //swarm.listen_on("/ip4/0.0.0.0/tcp/8888".parse()?)?;
+    swarm.listen_on(std::env::args().nth(1).unwrap().parse()?)?;
 
     async_std::task::spawn(async move {
         loop {

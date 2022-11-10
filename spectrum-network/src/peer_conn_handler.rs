@@ -493,16 +493,15 @@ impl ConnectionHandler for PeerConnHandler {
     fn connection_keep_alive(&self) -> KeepAlive {
         // Keep alive unless all protocols are inactive.
         // Otherwise close connection once initial_keep_alive interval passed.
-        // if self
-        //     .protocols
-        //     .values()
-        //     .any(|p| !matches!(p.state, Some(ProtocolState::Closed)))
-        // {
-        //     KeepAlive::Yes
-        // } else {
-        //     KeepAlive::Until(self.created_at + self.conf.initial_keep_alive)
-        // }
-        KeepAlive::Yes
+        if self
+            .protocols
+            .values()
+            .any(|p| !matches!(p.state, Some(ProtocolState::Closed)))
+        {
+            KeepAlive::Yes
+        } else {
+            KeepAlive::Until(self.created_at + self.conf.initial_keep_alive)
+        }
     }
 
     fn poll(
