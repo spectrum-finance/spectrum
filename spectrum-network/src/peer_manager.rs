@@ -184,7 +184,9 @@ impl PeerEvents for PeersMailbox {
     }
 
     fn dial_failure(&mut self, peer_id: PeerId) {
-        todo!()
+        let _ = self
+            .mailbox_snd
+            .unbounded_send(PeerManagerIn::Notification(PeerEvent::DialFailure(peer_id)));
     }
 
     fn force_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
