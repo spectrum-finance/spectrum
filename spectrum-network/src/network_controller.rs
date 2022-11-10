@@ -288,7 +288,6 @@ where
         match event {
             ConnHandlerOut::Opened {
                 protocol_tag,
-                handshake,
                 out_channel,
             } => {
                 if let Some(ConnectedPeer::Connected {
@@ -303,7 +302,6 @@ where
                                 handler.protocol_enabled(
                                     peer_id,
                                     protocol_ver,
-                                    handshake,
                                     out_channel.clone(),
                                 );
                                 let enabled_protocol = EnabledProtocol::Enabled {

@@ -1,6 +1,6 @@
 use crate::peer_conn_handler::ConnHandlerError;
 use crate::types::{ProtocolId, Reputation};
-use libp2p::swarm::dial_opts::DialOpts;
+use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::{Multiaddr, PeerId};
 use std::time::Instant;
 
@@ -29,8 +29,13 @@ impl PeerDestination {
 impl Into<DialOpts> for PeerDestination {
     fn into(self) -> DialOpts {
         match self {
-            PeerDestination::PeerId(pid) => DialOpts::peer_id(pid).build(),
-            PeerDestination::PeerIdWithAddr(pid, addr) => DialOpts::peer_id(pid).addresses(vec![addr]).build(),
+            PeerDestination::PeerId(pid) => DialOpts::peer_id(pid)
+                .condition(PeerCondition::NotDialing)
+                .build(),
+            PeerDestination::PeerIdWithAddr(pid, addr) => DialOpts::peer_id(pid)
+                .condition(PeerCondition::NotDialing)
+                .addresses(vec![addr])
+                .build(),
         }
     }
 }

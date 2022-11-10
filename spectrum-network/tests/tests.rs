@@ -194,7 +194,7 @@ pub fn build_node(
             SyncSpec::v1(),
             ProtocolSpec {
                 max_message_size: 100,
-                handshake_required: true,
+                approve_required: true,
             },
         )],
     };

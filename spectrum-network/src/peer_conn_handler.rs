@@ -138,7 +138,6 @@ pub enum ConnHandlerOut {
     Opened {
         protocol_tag: ProtocolTag,
         out_channel: MessageSink,
-        handshake: Option<RawMessage>,
     },
     /// Ack [`ConnHandlerIn::Open`]. Peer refused to open a substream.
     RefusedToOpen(ProtocolId),
@@ -272,7 +271,7 @@ impl ConnectionHandler for PeerConnHandler {
 
     fn inject_fully_negotiated_inbound(
         &mut self,
-        (upgrade, _): <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
+        (mut upgrade, _): <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
         _: Self::InboundOpenInfo,
     ) {
         trace!("inject_fully_negotiated_inbound()");
@@ -299,6 +298,11 @@ impl ConnectionHandler for PeerConnHandler {
                     },
                     ProtocolState::PartiallyOpened { substream_out }
                     | ProtocolState::InboundClosedByPeer { substream_out, .. } => {
+                        if protocol.spec.approve_required {
+                            // Approve immediately if required.
+                            trace!("Sending approve for outbound protocol {:?}", protocol_id);
+                            upgrade.substream.send_approve();
+                        }
                         let (async_msg_snd, async_msg_recv) =
                             mpsc::channel::<StreamNotification>(self.conf.async_msg_buffer_size);
                         let (sync_msg_snd, sync_msg_recv) =
@@ -308,7 +312,6 @@ impl ConnectionHandler for PeerConnHandler {
                             ConnHandlerOut::Opened {
                                 protocol_tag: negotiated_tag,
                                 out_channel: sink,
-                                handshake: upgrade.handshake,
                             },
                         ));
                         ProtocolState::Opened {
@@ -366,7 +369,6 @@ impl ConnectionHandler for PeerConnHandler {
                             ConnHandlerOut::Opened {
                                 protocol_tag: negotiated_tag,
                                 out_channel: sink,
-                                handshake: upgrade.handshake,
                             },
                         ));
                         ProtocolState::Opened {
@@ -424,16 +426,16 @@ impl ConnectionHandler for PeerConnHandler {
                                 ProtocolState::Opening
                             }
                             ProtocolState::PartiallyOpenedByPeer { mut substream_in } => {
-                                let hs = handshake.handshake_for(protocol.ver);
+                                let ver_handshake = handshake.handshake_for(protocol.ver);
+                                if ver_handshake.is_some() {
+                                    // If handshake is defined dialer is waiting for approve, so we send it.
+                                    trace!("Sending approve for inbound protocol {:?}", protocol_id);
+                                    substream_in.send_approve()
+                                }
                                 let upgrade = ProtocolUpgradeOut::new(
                                     protocol_id,
-                                    protocol
-                                        .all_versions_specs
-                                        .clone()
-                                        .into_iter()
-                                        .zip::<Vec<_>>(handshake.into())
-                                        .map(|((ver, spec), (_, hs))| (ver, spec, hs))
-                                        .collect(),
+                                    // Version is negotiated during inbound upgr, so we pass it exclusively to outbound upgr.
+                                    vec![(protocol.ver, protocol.spec, ver_handshake)],
                                 );
                                 self.pending_events.push_back(
                                     ConnectionHandlerEvent::OutboundSubstreamRequest {
@@ -444,10 +446,6 @@ impl ConnectionHandler for PeerConnHandler {
                                         .with_timeout(self.conf.open_timeout),
                                     },
                                 );
-                                if let Some(hs) = hs {
-                                    // Peer is waiting for handshake, so we send it.
-                                    substream_in.send_handshake(hs)
-                                }
                                 ProtocolState::Accepting {
                                     substream_in: Some(substream_in),
                                 }
@@ -516,7 +514,7 @@ impl ConnectionHandler for PeerConnHandler {
         if let Some(out) = self.pending_events.pop_front() {
             Poll::Ready(out)
         } else {
-            // For each open substream, try send messages from `pending_messages_recv`.
+            // For each open substream, try to send messages from `pending_messages_recv`.
             for (_, protocol) in &mut self.protocols {
                 if let Some(
                     ProtocolState::Opened {

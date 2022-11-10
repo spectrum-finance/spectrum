@@ -3,6 +3,7 @@ use crate::protocol_handler::sync::message::{HandshakeV1, SyncHandshake, SyncMes
 use crate::protocol_handler::{MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut};
 use crate::types::{ProtocolId, ProtocolVer};
 use libp2p::PeerId;
+use log::info;
 use std::collections::{HashMap, VecDeque};
 use std::task::{Context, Poll};
 
@@ -87,7 +88,9 @@ impl ProtocolBehaviour for SyncBehaviour {
             }))
     }
 
-    fn inject_protocol_enabled(&mut self, peer_id: PeerId, handshake: Option<SyncHandshake>) {}
+    fn inject_protocol_enabled(&mut self, peer_id: PeerId) {
+        info!("Sync protocol enabled with peer {}", peer_id)
+    }
 
     fn inject_protocol_disabled(&mut self, peer_id: PeerId) {}
 

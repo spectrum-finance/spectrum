@@ -104,11 +104,7 @@ pub trait ProtocolBehaviour {
     fn inject_protocol_requested_locally(&mut self, peer_id: PeerId);
 
     /// Inject an event of protocol being enabled with a peer.
-    fn inject_protocol_enabled(
-        &mut self,
-        peer_id: PeerId,
-        handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
-    );
+    fn inject_protocol_enabled(&mut self, peer_id: PeerId);
 
     /// Inject an event of protocol being disabled with a peer.
     fn inject_protocol_disabled(&mut self, peer_id: PeerId);
@@ -188,7 +184,7 @@ where
                         }
                     },
                 }
-                continue
+                continue;
             }
 
             // 2. Poll incoming events.
@@ -260,43 +256,19 @@ where
                     ProtocolEvent::Enabled {
                         peer_id,
                         protocol_ver: negotiated_ver,
-                        handshake,
                         sink,
                     } => {
                         self.peers.insert(peer_id, sink);
-                        match handshake.map(
-                            codec::decode::<
-                                <<TBehaviour as ProtocolBehaviour>::TProto as ProtocolSpec>::THandshake,
-                            >,
-                        ) {
-                            Some(Ok(hs)) => {
-                                let actual_ver = hs.version();
-                                if actual_ver == negotiated_ver {
-                                    self.behaviour.inject_protocol_enabled(peer_id, Some(hs));
-                                } else {
-                                    self.behaviour.inject_malformed_mesage(
-                                        peer_id,
-                                        MalformedMessage::VersionMismatch {
-                                            negotiated_ver,
-                                            actual_ver,
-                                        },
-                                    )
-                                }
-                            }
-                            Some(Err(_)) => self
-                                .behaviour
-                                .inject_malformed_mesage(peer_id, MalformedMessage::UnknownFormat),
-                            None => self.behaviour.inject_protocol_enabled(peer_id, None),
-                        }
+                        self.behaviour.inject_protocol_enabled(peer_id);
                     }
                     ProtocolEvent::Disabled(peer_id) => {
                         self.behaviour.inject_protocol_disabled(peer_id);
                     }
                 }
-                continue
+                continue;
             }
 
-            return Poll::Pending
+            return Poll::Pending;
         }
     }
 }
