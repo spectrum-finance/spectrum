@@ -7,6 +7,10 @@ states of all supported protocols at each point of upgrade flow:
 
 ![Protocol States in PCH](./assets/ProtocolState_PCH.svg)
 
+Protocol negotiation flow in terms of state transitions on both peers:
+
+![Protocol negotiation flow](./assets/ProtocolNegotiation.svg)
+
 ## Peer Manager
 
 Peer Manager (PM) tracks states and reputation of all peers. PM decides who to connect who our node should connect to, 
