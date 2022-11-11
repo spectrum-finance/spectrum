@@ -299,11 +299,7 @@ where
                     match enabled_protocols.entry(protocol_id) {
                         Entry::Occupied(mut entry) => {
                             if let (EnabledProtocol::PendingEnable, handler) = entry.get() {
-                                handler.protocol_enabled(
-                                    peer_id,
-                                    protocol_ver,
-                                    out_channel.clone(),
-                                );
+                                handler.protocol_enabled(peer_id, protocol_ver, out_channel.clone());
                                 let enabled_protocol = EnabledProtocol::Enabled {
                                     ver: protocol_ver,
                                     sink: out_channel,
@@ -388,7 +384,9 @@ where
     }
 
     fn inject_dial_failure(&mut self, peer_id: Option<PeerId>, _: Self::ConnectionHandler, _: &DialError) {
-        // todo: DEV-418: notify PM
+        if let Some(peer_id) = peer_id {
+            self.peers.dial_failure(peer_id);
+        }
     }
 
     fn poll(
