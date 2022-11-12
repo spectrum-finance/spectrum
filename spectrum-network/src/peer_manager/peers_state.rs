@@ -88,6 +88,10 @@ impl<'a> ConnectedPeer<'a> {
         ) || matches!(st, ConnectionState::Connected(ConnectionDirection::Inbound))
     }
 
+    pub fn adjust_reputation(&mut self, change: ReputationChange) {
+        self.peer_info.get_mut().reputation.apply(change);
+    }
+
     pub fn get_reputation(&self) -> Reputation {
         self.peer_info.get().reputation
     }
