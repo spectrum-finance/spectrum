@@ -42,7 +42,17 @@ impl Into<DialOpts> for PeerDestination {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReputationChange {
-    MalformedMessage = 10,
+    MalformedMessage,
+    NoResponse,
+}
+
+impl From<ReputationChange> for i32 {
+    fn from(c: ReputationChange) -> Self {
+        match c {
+            ReputationChange::MalformedMessage => -10,
+            ReputationChange::NoResponse => -10,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

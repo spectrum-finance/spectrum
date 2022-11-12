@@ -485,9 +485,9 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
 
     fn on_dial_failure(&mut self, peer_id: PeerId) {
         match self.state.peer(&peer_id) {
-            Some(PeerInState::Connected(cp)) => {
+            Some(PeerInState::Connected(mut cp)) => {
+                cp.adjust_reputation(ReputationChange::NoResponse);
                 cp.disconnect();
-                // todo: DEV-410: peer did not respond, adjust reputation.
             }
             Some(PeerInState::NotConnected(_)) => {} // warn
             None => {}                               // warn
