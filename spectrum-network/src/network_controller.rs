@@ -53,19 +53,7 @@ pub enum ConnectedPeer<THandler> {
 
 /// Outbound network events.
 #[derive(Debug)]
-pub enum NetworkControllerOut {
-    Connected(PeerId),
-    Disconnected(PeerId),
-    Enabled {
-        peer_id: PeerId,
-        protocol_id: ProtocolId,
-        protocol_ver: ProtocolVer,
-    },
-    Disabled {
-        peer_id: PeerId,
-        protocol_id: ProtocolId,
-    },
-}
+pub enum NetworkControllerOut {}
 
 pub enum NetworkControllerIn {
     /// A directive to enable the specified protocol with the specified peer.
@@ -82,14 +70,6 @@ pub enum NetworkControllerIn {
         peer: PeerId,
         protocols: Vec<ProtocolId>,
     },
-}
-
-/// API to events emitted by the network (swarm in our case).
-pub trait NetworkEvents {
-    fn peer_connected(&mut self, peer_id: PeerId);
-    fn peer_disconnected(&mut self, peer_id: PeerId);
-    fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer);
-    fn protocol_disabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
 }
 
 /// External API to network controller.
@@ -167,40 +147,6 @@ where
                 .map(|(prot_id, (conf, _))| (*prot_id, conf.clone()))
                 .collect::<Vec<_>>(),
         )
-    }
-}
-
-impl<TPeers, TPeerManager, THandler> NetworkEvents for NetworkController<TPeers, TPeerManager, THandler> {
-    fn peer_connected(&mut self, peer_id: PeerId) {
-        self.pending_actions
-            .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::Connected(peer_id),
-            ));
-    }
-
-    fn peer_disconnected(&mut self, peer_id: PeerId) {
-        self.pending_actions
-            .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::Disconnected(peer_id),
-            ));
-    }
-
-    fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer) {
-        self.pending_actions
-            .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::Enabled {
-                    peer_id,
-                    protocol_id,
-                    protocol_ver,
-                },
-            ));
-    }
-
-    fn protocol_disabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
-        self.pending_actions
-            .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::Disabled { peer_id, protocol_id },
-            ));
     }
 }
 
