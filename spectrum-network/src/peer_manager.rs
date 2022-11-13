@@ -240,6 +240,10 @@ pub struct NetworkingConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PeerManagerConfig {
+    /// A peer with reputation below this value is classed as 'misbehaving', and its connection
+    /// should be dropped.
+    pub misbehaving_peer_threshold: Reputation,
+    /// Represents the minimum reputation a peer must have to accept its incoming connection.
     pub min_reputation: Reputation,
     pub conn_reset_outbound_backoff: Duration,
     pub conn_alloc_interval: Duration,
@@ -524,7 +528,11 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
         match self.state.peer(&peer_id) {
             Some(PeerInState::Connected(mut cp)) => {
                 cp.adjust_reputation(ReputationChange::NoResponse);
-                cp.disconnect();
+                if cp.get_reputation() < self.conf.misbehaving_peer_threshold {
+                    self.disconnect(peer_id, true);
+                } else {
+                    cp.disconnect();
+                }
             }
             Some(PeerInState::NotConnected(_)) => {} // warn
             None => {}                               // warn

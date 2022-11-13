@@ -323,6 +323,9 @@ where
                     }
                 }
             }
+            ConnHandlerOut::ClosedAllProtocols => {
+                assert!(self.enabled_peers.remove(&peer_id).is_some());
+            }
             ConnHandlerOut::Message {
                 protocol_tag,
                 content,
@@ -375,38 +378,15 @@ where
                     }
                 }
                 Poll::Ready(Some(PeerManagerOut::Drop(peer_id))) => {
-                    if let Some(ConnectedPeer::Connected {
-                        conn_id,
-                        enabled_protocols,
-                    }) = self.enabled_peers.get_mut(&peer_id)
+                    if let Some(ConnectedPeer::Connected { conn_id, .. }) =
+                        self.enabled_peers.get_mut(&peer_id)
                     {
-                        let mut protocols = Vec::new();
-                        for prot_id in enabled_protocols.keys() {
-                            protocols.push(*prot_id);
-                        }
-                        for prot_id in protocols {
-                            match enabled_protocols.entry(prot_id) {
-                                Entry::Occupied(mut prot) => {
-                                    let (st, han) = prot.get();
-                                    match st {
-                                        EnabledProtocol::Enabled { .. }
-                                        | EnabledProtocol::PendingEnable
-                                        | EnabledProtocol::PendingApprove => {
-                                            prot.insert((EnabledProtocol::PendingDisable, han.clone()));
-                                            self.pending_actions.push_back(
-                                                NetworkBehaviourAction::NotifyHandler {
-                                                    peer_id,
-                                                    handler: NotifyHandler::One(*conn_id),
-                                                    event: ConnHandlerIn::Close(prot_id),
-                                                },
-                                            )
-                                        }
-                                        EnabledProtocol::PendingDisable => {}
-                                    }
-                                }
-                                Entry::Vacant(_) => {}
-                            }
-                        }
+                        self.pending_actions
+                            .push_back(NetworkBehaviourAction::NotifyHandler {
+                                peer_id,
+                                handler: NotifyHandler::One(*conn_id),
+                                event: ConnHandlerIn::CloseAllProtocols,
+                            });
                     }
                 }
                 Poll::Ready(Some(PeerManagerOut::Accept(pid, cid))) => match self.enabled_peers.entry(pid) {
@@ -426,13 +406,12 @@ where
                         if let ConnectedPeer::PendingApprove(_) = peer.get() {
                             trace!("Inbound connection from peer {} rejected", pid);
                             peer.remove();
-                            // todo: DEV-419: Close connection properly
-                            // self.pending_actions
-                            //     .push_back(NetworkBehaviourAction::NotifyHandler {
-                            //         peer_id: pid,
-                            //         handler: NotifyHandler::One(cid),
-                            //         event: ConnHandlerIn::Drop(pid),
-                            //     })
+                            self.pending_actions
+                                .push_back(NetworkBehaviourAction::NotifyHandler {
+                                    peer_id: pid,
+                                    handler: NotifyHandler::One(cid),
+                                    event: ConnHandlerIn::CloseAllProtocols,
+                                })
                         }
                     }
                     Entry::Vacant(_) => {}
