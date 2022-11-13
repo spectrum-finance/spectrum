@@ -471,6 +471,7 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                     ConnectionLossReason::Reset(err) => match err {
                         ConnHandlerError::SyncChannelExhausted => {
                             ncp.adjust_reputation(ReputationChange::TooSlow);
+                            // todo: DEV-419: if reputation too low, disconnect the peer.
                         }
                     },
                     ConnectionLossReason::Unknown => {}
