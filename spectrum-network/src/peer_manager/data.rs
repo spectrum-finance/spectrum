@@ -2,6 +2,7 @@ use crate::peer_conn_handler::ConnHandlerError;
 use crate::types::{ProtocolId, Reputation};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::{Multiaddr, PeerId};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +24,24 @@ impl PeerDestination {
             PeerDestination::PeerIdWithAddr(_, addr) => Some(addr),
             PeerDestination::PeerId(_) => None,
         }
+    }
+}
+
+impl Serialize for PeerDestination {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        todo!()
+    }
+}
+
+impl<'de> Deserialize<'de> for PeerDestination {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        todo!()
     }
 }
 

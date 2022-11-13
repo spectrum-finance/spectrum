@@ -87,7 +87,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
         height: 0,
     };
-    let sync_behaviour = SyncBehaviour::new(local_status);
+    let sync_behaviour = SyncBehaviour::new(peers.clone(), local_status);
     let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,

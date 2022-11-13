@@ -1,8 +1,7 @@
-use crate::protocol_handler::codec::BinCodec;
+use crate::peer_manager::data::PeerDestination;
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_handler::ProtocolSpec;
-use crate::types::{ProtocolId, ProtocolVer, RawMessage};
-use ciborium::de::Error;
+use crate::types::{ProtocolId, ProtocolVer};
 use serde::{Deserialize, Serialize};
 
 /// Sync handshake provides initial node status.
@@ -25,34 +24,22 @@ impl Versioned for SyncHandshake {
     }
 }
 
-impl BinCodec for SyncHandshake {
-    fn encode(self) -> RawMessage {
-        let mut encoded = Vec::new();
-        ciborium::ser::into_writer(&self, &mut encoded).unwrap();
-        RawMessage::from(encoded)
-    }
-
-    fn decode(msg: RawMessage) -> Result<Self, Error<std::io::Error>> {
-        let bf: Vec<u8> = msg.into();
-        ciborium::de::from_reader(&bf[..])
-    }
+#[derive(Serialize, Deserialize, Debug)]
+pub enum SyncMessage {
+    SyncMessageV1(SyncMessageV1),
 }
 
-pub enum SyncMessage {}
+#[derive(Serialize, Deserialize, Debug)]
+pub enum SyncMessageV1 {
+    GetPeers,
+    Peers(Vec<PeerDestination>),
+}
 
 impl Versioned for SyncMessage {
     fn version(&self) -> ProtocolVer {
-        todo!()
-    }
-}
-
-impl BinCodec for SyncMessage {
-    fn encode(self) -> RawMessage {
-        todo!()
-    }
-
-    fn decode(msg: RawMessage) -> Result<Self, Error<std::io::Error>> {
-        todo!()
+        match self {
+            SyncMessage::SyncMessageV1(_) => SyncSpec::v1(),
+        }
     }
 }
 

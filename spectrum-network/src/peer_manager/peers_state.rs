@@ -293,6 +293,9 @@ pub trait PeersState {
     /// Grants access to a peer with the given peer_id if such peer is known.
     fn peer<'a>(&'a mut self, peer_id: &'a PeerId) -> Option<PeerInState<'a>>;
 
+    /// Get known peer destinations.
+    fn get_peers(&self, limit: usize) -> Vec<PeerDestination>;
+
     /// Get reputation of a peer with the given peer_id if such peer is known.
     fn get_peer_reputation(&self, peer_id: &PeerId) -> Option<Reputation>;
 
@@ -374,6 +377,20 @@ impl PeersState for PeerRepo {
             },
             Entry::Vacant(_) => None,
         }
+    }
+
+    fn get_peers(&self, limit: usize) -> Vec<PeerDestination> {
+        let mut peers = Vec::new();
+        for (pid, _) in self.sorted_peers.iter().take(limit) {
+            if let Some(pif) = self.peers.get(pid) {
+                if let Some(addr) = &pif.addr {
+                    peers.push(PeerDestination::PeerIdWithAddr(*pid, addr.clone()))
+                } else {
+                    peers.push(PeerDestination::PeerId(*pid))
+                }
+            }
+        }
+        peers
     }
 
     fn get_peer_reputation(&self, peer_id: &PeerId) -> Option<Reputation> {

@@ -1,6 +1,6 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
-use crate::peer_manager::{PeerActions, PeerEvents, PeerManagerOut};
+use crate::peer_manager::{Peers, PeerEvents, PeerManagerOut};
 use crate::protocol::ProtocolConfig;
 use crate::protocol_api::ProtocolEvents;
 use crate::types::{ProtocolId, ProtocolVer};
@@ -152,7 +152,7 @@ where
 
 impl<TPeers, TPeerManager, THandler> NetworkBehaviour for NetworkController<TPeers, TPeerManager, THandler>
 where
-    TPeers: PeerEvents + PeerActions + 'static,
+    TPeers: PeerEvents + Peers + 'static,
     TPeerManager: Stream<Item = PeerManagerOut> + Unpin + 'static,
     THandler: ProtocolEvents + Clone + 'static,
 {

@@ -10,12 +10,12 @@ use crate::peer_manager::data::{
 use crate::peer_manager::peers_state::{NetworkingState, PeerInState, PeerStateFilter, PeersState};
 use crate::types::{ProtocolId, Reputation};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use futures::channel::oneshot::Receiver;
+use futures::channel::oneshot::{Receiver, Sender};
 use futures::channel::{mpsc, oneshot};
 use futures::Stream;
 use libp2p::core::connection::ConnectionId;
 use libp2p::PeerId;
-use log::{error, trace, warn};
+use log::{error, info, trace, warn};
 use smallvec::SmallVec;
 use std::collections::{HashSet, VecDeque};
 use std::future::Future;
@@ -43,11 +43,15 @@ pub enum PeerManagerOut {
 /// Peer Manager inputs.
 #[derive(Debug)]
 pub enum PeerManagerRequest {
-    AddPeer(PeerDestination),
+    AddPeers(Vec<PeerDestination>),
     AddReservedPeer(PeerDestination),
     SetReservedPeers(HashSet<PeerId>),
     ReportPeer(PeerId, ReputationChange),
-    GetPeerReputation(PeerId, oneshot::Sender<Reputation>),
+    GetPeerReputation(PeerId, Sender<Reputation>),
+    GetPeers {
+        limit: usize,
+        snd: Sender<Vec<PeerDestination>>,
+    },
     /// Update set of protocols that the given peer supports.
     SetProtocols(PeerId, Vec<ProtocolId>),
 }
@@ -69,12 +73,20 @@ pub enum PeerManagerIn {
 }
 
 /// Async API to PeerManager.
-pub trait PeerActions {
-    fn add_peer(&mut self, peer_id: PeerDestination);
+pub trait Peers {
+    /// Add given peers to PM.
+    fn add_peers(&mut self, peers: Vec<PeerDestination>);
+    /// Get peers known to PM.
+    fn get_peers(&mut self, limit: usize) -> Receiver<Vec<PeerDestination>>;
+    /// Add reserved peer.
     fn add_reserved_peer(&mut self, peer_id: PeerDestination);
+    /// Update set of reserved peers.
     fn set_reserved_peers(&mut self, peers: HashSet<PeerId>);
+    /// Report peer behaviour.
     fn report_peer(&mut self, peer_id: PeerId, change: ReputationChange);
+    /// Get reputation of the given peer.
     fn get_peer_reputation(&mut self, peer_id: PeerId) -> Receiver<Reputation>;
+    /// Update the set of peer protocols.
     fn set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>);
 }
 
@@ -88,11 +100,12 @@ pub trait PeerEvents {
 }
 
 pub trait PeerManagerRequestsBehavior {
-    fn on_add_peer(&mut self, peer_id: PeerDestination);
+    fn on_add_peers(&mut self, peers: Vec<PeerDestination>);
+    fn on_get_peers(&mut self, limit: usize, response: Sender<Vec<PeerDestination>>);
     fn on_add_reserved_peer(&mut self, peer_id: PeerDestination);
     fn on_set_reserved_peers(&mut self, peers: HashSet<PeerId>);
     fn on_report_peer(&mut self, peer_id: PeerId, change: ReputationChange);
-    fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: oneshot::Sender<Reputation>);
+    fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: Sender<Reputation>);
     fn on_set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>);
 }
 
@@ -104,15 +117,27 @@ pub trait PeerManagerNotificationsBehavior {
     fn on_force_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
 }
 
+#[derive(Clone)]
 pub struct PeersMailbox {
     mailbox_snd: UnboundedSender<PeerManagerIn>,
 }
 
-impl PeerActions for PeersMailbox {
-    fn add_peer(&mut self, peer_id: PeerDestination) {
+impl Peers for PeersMailbox {
+    fn add_peers(&mut self, peers: Vec<PeerDestination>) {
         let _ = self
             .mailbox_snd
-            .unbounded_send(PeerManagerIn::Request(PeerManagerRequest::AddPeer(peer_id)));
+            .unbounded_send(PeerManagerIn::Request(PeerManagerRequest::AddPeers(peers)));
+    }
+
+    fn get_peers(&mut self, limit: usize) -> Receiver<Vec<PeerDestination>> {
+        let (sender, receiver) = oneshot::channel::<Vec<PeerDestination>>();
+        let _ = self
+            .mailbox_snd
+            .unbounded_send(PeerManagerIn::Request(PeerManagerRequest::GetPeers {
+                limit,
+                snd: sender,
+            }));
+        receiver
     }
 
     fn add_reserved_peer(&mut self, peer_id: PeerDestination) {
@@ -368,8 +393,18 @@ impl<S: PeersState> PeerManager<S> {
 }
 
 impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
-    fn on_add_peer(&mut self, peer_id: PeerDestination) {
-        self.state.try_add_peer(peer_id, false, false);
+    fn on_add_peers(&mut self, peers: Vec<PeerDestination>) {
+        for p in peers {
+            let pid = p.peer_id();
+            if let Some(_) = self.state.try_add_peer(p, false, false) {
+                info!("New peer {:?} added", pid);
+            };
+        }
+    }
+
+    fn on_get_peers(&mut self, limit: usize, response: Sender<Vec<PeerDestination>>) {
+        let peers = self.state.get_peers(limit);
+        let _ = response.send(peers);
     }
 
     fn on_add_reserved_peer(&mut self, peer_id: PeerDestination) {
@@ -392,7 +427,7 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
         }
     }
 
-    fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: oneshot::Sender<Reputation>) {
+    fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: Sender<Reputation>) {
         match self.state.peer(&peer_id) {
             Some(peer) => {
                 let reputation = peer.get_reputation();
@@ -526,7 +561,8 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                         }
                     },
                     PeerManagerIn::Request(req) => match req {
-                        PeerManagerRequest::AddPeer(pid) => self.on_add_peer(pid),
+                        PeerManagerRequest::AddPeers(peers) => self.on_add_peers(peers),
+                        PeerManagerRequest::GetPeers { limit, snd } => self.on_get_peers(limit, snd),
                         PeerManagerRequest::ReportPeer(pid, adjustment) => {
                             self.on_report_peer(pid, adjustment)
                         }
