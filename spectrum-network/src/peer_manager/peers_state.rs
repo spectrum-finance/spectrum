@@ -244,6 +244,13 @@ impl<'a> PeerInState<'a> {
         }
     }
 
+    pub fn is_reputation_acceptable(&self, min_acceptable_reputation: Reputation) -> bool {
+        match self {
+            PeerInState::Connected(cp) => cp.get_reputation() >= min_acceptable_reputation,
+            PeerInState::NotConnected(ncp) => ncp.get_reputation() >= min_acceptable_reputation,
+        }
+    }
+
     pub fn get_reputation(&self) -> Reputation {
         match self {
             PeerInState::Connected(cp) => cp.peer_info.get().reputation,

@@ -104,7 +104,9 @@ pub trait PeerManagerRequestsBehavior {
     fn on_get_peers(&mut self, limit: usize, response: Sender<Vec<PeerDestination>>);
     fn on_add_reserved_peer(&mut self, peer_id: PeerDestination);
     fn on_set_reserved_peers(&mut self, peers: HashSet<PeerId>);
-    fn on_report_peer(&mut self, peer_id: PeerId, change: ReputationChange);
+    /// Returns true if and only if peer's adjusted reputation is >= some minimum threshold (defined
+    /// by the trait impl).
+    fn on_report_peer(&mut self, peer_id: PeerId, change: ReputationChange) -> bool;
     fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: Sender<Reputation>);
     fn on_set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>);
 }
@@ -240,6 +242,10 @@ pub struct NetworkingConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PeerManagerConfig {
+    /// The minimum allowable reputation for a connected peer. A peer with reputation below this
+    /// value is classed as unacceptable, and its connection should be dropped.
+    pub min_acceptable_reputation: Reputation,
+    /// Represents the minimum reputation a peer must have to accept its incoming connection.
     pub min_reputation: Reputation,
     pub conn_reset_outbound_backoff: Duration,
     pub conn_alloc_interval: Duration,
@@ -421,12 +427,12 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
         }
     }
 
-    fn on_report_peer(&mut self, peer_id: PeerId, adjustment: ReputationChange) {
+    fn on_report_peer(&mut self, peer_id: PeerId, adjustment: ReputationChange) -> bool {
         match self.state.peer(&peer_id) {
-            Some(peer) => {
-                peer.adjust_reputation(adjustment);
-            }
-            None => {} // warn
+            Some(peer) => peer
+                .adjust_reputation(adjustment)
+                .is_reputation_acceptable(self.conf.min_acceptable_reputation),
+            None => false,
         }
     }
 
@@ -508,8 +514,7 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                     }
                     ConnectionLossReason::Reset(err) => match err {
                         ConnHandlerError::SyncChannelExhausted => {
-                            ncp.adjust_reputation(ReputationChange::TooSlow);
-                            // todo: DEV-419: if reputation too low, disconnect the peer.
+                            self.on_report_peer(peer_id, ReputationChange::TooSlow);
                         }
                     },
                     ConnectionLossReason::Unknown => {}
@@ -522,9 +527,8 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
 
     fn on_dial_failure(&mut self, peer_id: PeerId) {
         match self.state.peer(&peer_id) {
-            Some(PeerInState::Connected(mut cp)) => {
-                cp.adjust_reputation(ReputationChange::NoResponse);
-                cp.disconnect();
+            Some(PeerInState::Connected(_)) => {
+                self.on_report_peer(peer_id, ReputationChange::NoResponse);
             }
             Some(PeerInState::NotConnected(_)) => {} // warn
             None => {}                               // warn
@@ -566,7 +570,12 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                         PeerManagerRequest::AddPeers(peers) => self.on_add_peers(peers),
                         PeerManagerRequest::GetPeers { limit, snd } => self.on_get_peers(limit, snd),
                         PeerManagerRequest::ReportPeer(pid, adjustment) => {
-                            self.on_report_peer(pid, adjustment)
+                            // A peer with reputation below self.conf.min_acceptable_reputation is
+                            // classed as unacceptable, and its connection will be dropped.
+                            let peer_is_acceptable = self.on_report_peer(pid, adjustment);
+                            if !peer_is_acceptable {
+                                self.disconnect(pid, true);
+                            }
                         }
                         PeerManagerRequest::AddReservedPeer(pid) => self.on_add_reserved_peer(pid),
                         PeerManagerRequest::GetPeerReputation(pid, resp) => {

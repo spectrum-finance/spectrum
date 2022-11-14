@@ -125,10 +125,15 @@ pub enum ConnHandlerIn {
         handshake: PolyVerHandshakeSpec,
     },
     /// Instruct the handler to close the notification substreams, or reject any pending incoming
-    /// substream request.
+    /// substream request for the given [`ProtocolId`].
     ///
     /// Must always be answered by a [`ConnHandlerOut::Closed`] event.
     Close(ProtocolId),
+    /// Instruct the handler to close the notification substreams, or reject any pending incoming
+    /// substream request for all protocols.
+    ///
+    /// Must always be answered by a [`ConnHandlerOut::ClosedAllProtocols`] event.
+    CloseAllProtocols,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +149,8 @@ pub enum ConnHandlerOut {
     RefusedToOpen(ProtocolId),
     /// Ack [`ConnHandlerIn::Close`]
     Closed(ProtocolId),
+    /// Ack [`ConnHandlerIn::CloseAllProtocols`]
+    ClosedAllProtocols,
 
     // Events:
     /// The remote would like the substreams to be open. Send a [`ConnHandlerIn::Open`] or a
@@ -467,6 +474,13 @@ impl ConnectionHandler for PeerConnHandler {
                             protocol_id,
                         )))
                 }
+            }
+            ConnHandlerIn::CloseAllProtocols => {
+                for protocol in self.protocols.values_mut() {
+                    protocol.state = Some(ProtocolState::Closed);
+                }
+                self.pending_events
+                    .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::ClosedAllProtocols));
             }
         }
     }
