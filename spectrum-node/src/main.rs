@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         max_outbound: 20,
     };
     let peer_manager_conf = PeerManagerConfig {
-        misbehaving_peer_threshold: Reputation::from(0),
+        min_acceptable_reputation: Reputation::from(0),
         min_reputation: Reputation::from(0),
         conn_reset_outbound_backoff: Duration::from_secs(120),
         conn_alloc_interval: Duration::from_secs(30),
