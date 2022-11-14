@@ -3,13 +3,15 @@ use crate::protocol::SYNC_PROTOCOL_ID;
 use crate::protocol_handler::sync::message::{
     HandshakeV1, SyncHandshake, SyncMessage, SyncMessageV1, SyncSpec,
 };
-use crate::protocol_handler::{MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut};
+use crate::protocol_handler::{
+    MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec,
+};
 use crate::types::{ProtocolId, ProtocolVer};
 use derive_more::Display;
 use futures::stream::FuturesOrdered;
 use futures::Stream;
 use libp2p::PeerId;
-use log::{error, info};
+use log::{error, info, trace};
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
@@ -44,7 +46,10 @@ pub struct SyncBehaviour<TPeers> {
     peers: TPeers,
 }
 
-impl<TPeers> SyncBehaviour<TPeers> {
+impl<TPeers> SyncBehaviour<TPeers>
+where
+    TPeers: Peers,
+{
     pub fn new(peers: TPeers, local_status: NodeStatus) -> Self {
         Self {
             local_status,
@@ -64,6 +69,35 @@ impl<TPeers> SyncBehaviour<TPeers> {
                 height: status.height,
             })),
         )]
+    }
+
+    fn send_get_peers(&mut self, peer_id: PeerId) {
+        trace!("Requesting peers from {}", peer_id);
+        self.outbox.push_back(SyncBehaviourOut::Send {
+            peer_id,
+            message: SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers),
+        })
+    }
+
+    fn send_peers(&mut self, peer_id: PeerId) {
+        trace!("Sharing known peers with {}", peer_id);
+        let get_peers_fut = self.peers.get_peers(MAX_SHARED_PEERS);
+        self.tasks.push(Box::pin({
+            async move {
+                trace!("Waiting for peers");
+                if let Ok(peers) = get_peers_fut.await {
+                    trace!("My peers num {}", peers.len());
+                    Ok(ProtocolBehaviourOut::Send {
+                        peer_id,
+                        message: SyncMessage::SyncMessageV1(SyncMessageV1::Peers(
+                            peers.into_iter().filter(|p| p.peer_id() != peer_id).collect(),
+                        )),
+                    })
+                } else {
+                    Err(SyncBehaviorError::OperationCancelled)
+                }
+            }
+        }));
     }
 }
 
@@ -89,19 +123,7 @@ where
     fn inject_message(&mut self, peer_id: PeerId, msg: SyncMessage) {
         match msg {
             SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers) => {
-                let get_peers_fut = self.peers.get_peers(MAX_SHARED_PEERS);
-                self.tasks.push(Box::pin({
-                    async move {
-                        if let Ok(peers) = get_peers_fut.await {
-                            Ok(ProtocolBehaviourOut::Send {
-                                peer_id,
-                                message: SyncMessage::SyncMessageV1(SyncMessageV1::Peers(peers.into())),
-                            })
-                        } else {
-                            Err(SyncBehaviorError::OperationCancelled)
-                        }
-                    }
-                }));
+                self.send_peers(peer_id);
             }
             SyncMessage::SyncMessageV1(SyncMessageV1::Peers(peers)) => {
                 info!("Peer {} sent {} peers", peer_id, peers.len());
@@ -138,8 +160,13 @@ where
             }))
     }
 
-    fn inject_protocol_enabled(&mut self, peer_id: PeerId) {
-        info!("Sync protocol enabled with peer {}", peer_id)
+    fn inject_protocol_enabled(
+        &mut self,
+        peer_id: PeerId,
+        _handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
+    ) {
+        info!("Sync protocol enabled with peer {}", peer_id);
+        self.send_get_peers(peer_id);
     }
 
     fn inject_protocol_disabled(&mut self, peer_id: PeerId) {

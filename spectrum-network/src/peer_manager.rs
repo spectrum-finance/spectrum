@@ -130,6 +130,7 @@ impl Peers for PeersMailbox {
     }
 
     fn get_peers(&mut self, limit: usize) -> Receiver<Vec<PeerDestination>> {
+        trace!("get_peers()");
         let (sender, receiver) = oneshot::channel::<Vec<PeerDestination>>();
         let _ = self
             .mailbox_snd
@@ -292,7 +293,7 @@ impl<S: PeersState> PeerManager<S> {
     /// Connect to the best peer we are not connected yet.
     pub fn connect_best(&mut self) {
         trace!("Going to connect best known peer");
-        if let Some(pid) = self.state.peek_best(Some(|_: &PeerId, pi: &PeerInfo| {
+        if let Some(pid) = self.state.pick_best(Some(|_: &PeerId, pi: &PeerInfo| {
             matches!(pi.state, ConnectionState::NotConnected)
         })) {
             trace!("Going to connect peer {}", pid);
@@ -377,7 +378,7 @@ impl<S: PeersState> PeerManager<S> {
                     ProtocolAllocationPolicy::Zero => false,
                 };
                 if cond {
-                    if let Some(candidate) = self.state.peek_best(Some(|pid: &PeerId, pi: &PeerInfo| {
+                    if let Some(candidate) = self.state.pick_best(Some(|pid: &PeerId, pi: &PeerInfo| {
                         !enabled_peers.contains(pid) && pi.supports(&prot).unwrap_or(false)
                     })) {
                         if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&candidate) {
@@ -403,8 +404,10 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
     }
 
     fn on_get_peers(&mut self, limit: usize, response: Sender<Vec<PeerDestination>>) {
+        trace!("on_get_peers()");
         let peers = self.state.get_peers(limit);
         let _ = response.send(peers);
+        trace!("on_get_peers() -> ()");
     }
 
     fn on_add_reserved_peer(&mut self, peer_id: PeerDestination) {

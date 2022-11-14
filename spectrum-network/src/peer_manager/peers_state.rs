@@ -330,7 +330,7 @@ pub trait PeersState {
         F: Fn(&PeerId, &PeerInfo) -> bool;
 
     /// Peek best peer.
-    fn peek_best<F>(&self, filter: Option<F>) -> Option<PeerId>
+    fn pick_best<F>(&self, filter: Option<F>) -> Option<PeerId>
     where
         F: Fn(&PeerId, &PeerInfo) -> bool;
 }
@@ -501,7 +501,7 @@ impl PeersState for PeerRepo {
         res
     }
 
-    fn peek_best<F>(&self, filter: Option<F>) -> Option<PeerId>
+    fn pick_best<F>(&self, filter: Option<F>) -> Option<PeerId>
     where
         F: Fn(&PeerId, &PeerInfo) -> bool,
     {

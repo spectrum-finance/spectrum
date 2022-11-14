@@ -10,8 +10,9 @@ use futures::channel::mpsc::UnboundedReceiver;
 use futures::Stream;
 pub use libp2p::swarm::NetworkBehaviour;
 use libp2p::PeerId;
-use log::trace;
+use log::{error, trace};
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::Debug;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -19,23 +20,7 @@ pub mod codec;
 pub mod sync;
 pub mod versioning;
 
-pub enum ProtocolBehaviourIn<THandshake, TMessage> {
-    Message {
-        peer_id: PeerId,
-        content: TMessage,
-    },
-    Requested {
-        peer_id: PeerId,
-        handshake: Option<THandshake>,
-    },
-    Enabled {
-        peer_id: PeerId,
-        handshake: Option<THandshake>,
-        sink: MessageSink,
-    },
-    Disabled(PeerId),
-}
-
+#[derive(Debug)]
 pub enum NetworkAction<THandshake> {
     /// A directive to enable the specified protocol with the specified peer.
     EnablePeer {
@@ -53,6 +38,7 @@ pub enum NetworkAction<THandshake> {
     // todo: Add banning API
 }
 
+#[derive(Debug)]
 pub enum ProtocolBehaviourOut<THandshake, TMessage> {
     Send { peer_id: PeerId, message: TMessage },
     NetworkAction(NetworkAction<THandshake>),
@@ -66,7 +52,7 @@ pub enum ProtocolHandlerError {
 
 pub trait ProtocolSpec {
     type THandshake: codec::BinCodec + Versioned + Send;
-    type TMessage: codec::BinCodec + Versioned + Send;
+    type TMessage: codec::BinCodec + Versioned + Debug + Send;
 }
 
 pub enum MalformedMessage {
@@ -104,7 +90,11 @@ pub trait ProtocolBehaviour {
     fn inject_protocol_requested_locally(&mut self, peer_id: PeerId);
 
     /// Inject an event of protocol being enabled with a peer.
-    fn inject_protocol_enabled(&mut self, peer_id: PeerId);
+    fn inject_protocol_enabled(
+        &mut self,
+        peer_id: PeerId,
+        handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
+    );
 
     /// Inject an event of protocol being disabled with a peer.
     fn inject_protocol_disabled(&mut self, peer_id: PeerId);
@@ -159,10 +149,15 @@ where
             if let Poll::Ready(out) = self.behaviour.poll(cx) {
                 match out {
                     ProtocolBehaviourOut::Send { peer_id, message } => {
+                        trace!("Sending message {:?} to peer {}", message, peer_id);
                         if let Some(sink) = self.peers.get(&peer_id) {
+                            trace!("Sink is available");
                             if let Err(_) = sink.send_message(codec::BinCodec::encode(message)) {
                                 trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
                             }
+                            trace!("Sent");
+                        } else {
+                            error!("Cannot find sink for peer {}", peer_id);
                         }
                     }
                     ProtocolBehaviourOut::NetworkAction(action) => match action {
@@ -257,9 +252,33 @@ where
                         peer_id,
                         protocol_ver: negotiated_ver,
                         sink,
+                        handshake,
                     } => {
                         self.peers.insert(peer_id, sink);
-                        self.behaviour.inject_protocol_enabled(peer_id);
+                        match handshake.map(
+                            codec::decode::<
+                                <<TBehaviour as ProtocolBehaviour>::TProto as ProtocolSpec>::THandshake,
+                            >,
+                        ) {
+                            Some(Ok(hs)) => {
+                                let actual_ver = hs.version();
+                                if actual_ver == negotiated_ver {
+                                    self.behaviour.inject_protocol_enabled(peer_id, Some(hs));
+                                } else {
+                                    self.behaviour.inject_malformed_mesage(
+                                        peer_id,
+                                        MalformedMessage::VersionMismatch {
+                                            negotiated_ver,
+                                            actual_ver,
+                                        },
+                                    )
+                                }
+                            }
+                            Some(Err(_)) => self
+                                .behaviour
+                                .inject_malformed_mesage(peer_id, MalformedMessage::UnknownFormat),
+                            None => self.behaviour.inject_protocol_enabled(peer_id, None),
+                        }
                     }
                     ProtocolEvent::Disabled(peer_id) => {
                         self.behaviour.inject_protocol_disabled(peer_id);

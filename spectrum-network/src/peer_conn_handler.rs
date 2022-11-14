@@ -138,6 +138,7 @@ pub enum ConnHandlerOut {
     Opened {
         protocol_tag: ProtocolTag,
         out_channel: MessageSink,
+        handshake: Option<RawMessage>,
     },
     /// Ack [`ConnHandlerIn::Open`]. Peer refused to open a substream.
     RefusedToOpen(ProtocolId),
@@ -312,6 +313,7 @@ impl ConnectionHandler for PeerConnHandler {
                             ConnHandlerOut::Opened {
                                 protocol_tag: negotiated_tag,
                                 out_channel: sink,
+                                handshake: upgrade.handshake,
                             },
                         ));
                         ProtocolState::Opened {
@@ -369,6 +371,7 @@ impl ConnectionHandler for PeerConnHandler {
                             ConnHandlerOut::Opened {
                                 protocol_tag: negotiated_tag,
                                 out_channel: sink,
+                                handshake: None,
                             },
                         ));
                         ProtocolState::Opened {

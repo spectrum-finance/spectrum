@@ -21,6 +21,7 @@ pub enum ProtocolEvent {
         peer_id: PeerId,
         protocol_ver: ProtocolVer,
         sink: MessageSink,
+        handshake: Option<RawMessage>,
     },
     Disabled(PeerId),
 }
@@ -45,6 +46,7 @@ pub trait ProtocolEvents {
         peer_id: PeerId,
         protocol_ver: ProtocolVer,
         sink: MessageSink,
+        handshake: Option<RawMessage>,
     );
 
     /// Notify protocol handler that the given protocol was enabled with the given peer.
@@ -94,11 +96,13 @@ impl ProtocolEvents for ProtocolMailbox {
         peer_id: PeerId,
         protocol_ver: ProtocolVer,
         sink: MessageSink,
+        handshake: Option<RawMessage>,
     ) {
         let _ = self.events_snd.unbounded_send(ProtocolEvent::Enabled {
             peer_id,
             protocol_ver,
             sink,
+            handshake,
         });
     }
 

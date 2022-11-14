@@ -1,6 +1,6 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
-use crate::peer_manager::{Peers, PeerEvents, PeerManagerOut};
+use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
 use crate::protocol::ProtocolConfig;
 use crate::protocol_api::ProtocolEvents;
 use crate::types::{ProtocolId, ProtocolVer};
@@ -13,6 +13,7 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 
+use derive_more::Display;
 use log::{trace, warn};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
@@ -25,6 +26,7 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::Stream;
 
 /// States of an enabled protocol.
+#[derive(Debug)]
 pub enum EnabledProtocol {
     /// Bi-directional communication on this protocol is enabled.
     Enabled { ver: ProtocolVer, sink: MessageSink },
@@ -235,7 +237,9 @@ where
             ConnHandlerOut::Opened {
                 protocol_tag,
                 out_channel,
+                handshake,
             } => {
+                trace!("Protocol {} opened with peer {}", protocol_tag, peer_id);
                 if let Some(ConnectedPeer::Connected {
                     enabled_protocols, ..
                 }) = self.enabled_peers.get_mut(&peer_id)
@@ -244,8 +248,18 @@ where
                     let protocol_ver = protocol_tag.protocol_ver();
                     match enabled_protocols.entry(protocol_id) {
                         Entry::Occupied(mut entry) => {
+                            trace!(
+                                "Current state of protocol {:?} is {:?}",
+                                protocol_id,
+                                entry.get().0
+                            );
                             if let (EnabledProtocol::PendingEnable, handler) = entry.get() {
-                                handler.protocol_enabled(peer_id, protocol_ver, out_channel.clone());
+                                handler.protocol_enabled(
+                                    peer_id,
+                                    protocol_ver,
+                                    out_channel.clone(),
+                                    handshake,
+                                );
                                 let enabled_protocol = EnabledProtocol::Enabled {
                                     ver: protocol_ver,
                                     sink: out_channel,
@@ -477,19 +491,31 @@ where
                     {
                         let (_, prot_handler) = self.supported_protocols.get(&protocol_id).unwrap();
                         match enabled_protocols.entry(protocol_id) {
-                            Entry::Occupied(protocol_entry) => match protocol_entry.get() {
-                                // Protocol Handler approves either outbound or inbound protocol request.
-                                (EnabledProtocol::PendingEnable | EnabledProtocol::PendingApprove, _) => self
-                                    .pending_actions
-                                    .push_back(NetworkBehaviourAction::NotifyHandler {
-                                        peer_id,
-                                        handler: NotifyHandler::One(*conn_id),
-                                        event: ConnHandlerIn::Open {
-                                            protocol_id,
-                                            handshake,
-                                        },
-                                    }),
-                                (EnabledProtocol::Enabled { .. } | EnabledProtocol::PendingDisable, _) => {}
+                            Entry::Occupied(protocol_entry) => match protocol_entry.remove_entry().1 {
+                                // Protocol handler approves either outbound or inbound protocol request.
+                                (
+                                    EnabledProtocol::PendingEnable | EnabledProtocol::PendingApprove,
+                                    handler,
+                                ) => {
+                                    enabled_protocols
+                                        .insert(protocol_id, (EnabledProtocol::PendingEnable, handler));
+                                    self.pending_actions
+                                        .push_back(NetworkBehaviourAction::NotifyHandler {
+                                            peer_id,
+                                            handler: NotifyHandler::One(*conn_id),
+                                            event: ConnHandlerIn::Open {
+                                                protocol_id,
+                                                handshake,
+                                            },
+                                        });
+                                }
+                                (
+                                    st @ (EnabledProtocol::Enabled { .. } | EnabledProtocol::PendingDisable),
+                                    handler,
+                                ) => {
+                                    warn!("Handler requested to open already enabled protocol {:?} with peer {:?}", protocol_id, peer_id);
+                                    enabled_protocols.insert(protocol_id, (st, handler));
+                                }
                             },
                             // Also, Protocol Handler can request a substream on its own.
                             Entry::Vacant(protocol_entry) => {
