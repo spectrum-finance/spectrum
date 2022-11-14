@@ -174,6 +174,10 @@ impl<'a> NotConnectedPeer<'a> {
         self.peer_info.remove()
     }
 
+    pub fn adjust_reputation(&mut self, change: ReputationChange) {
+        self.peer_info.get_mut().reputation.apply(change);
+    }
+
     pub fn get_reputation(&self) -> Reputation {
         self.peer_info.get().reputation
     }

@@ -63,6 +63,7 @@ impl Into<DialOpts> for PeerDestination {
 pub enum ReputationChange {
     MalformedMessage,
     NoResponse,
+    TooSlow,
 }
 
 impl From<ReputationChange> for i32 {
@@ -70,6 +71,7 @@ impl From<ReputationChange> for i32 {
         match c {
             ReputationChange::MalformedMessage => -10,
             ReputationChange::NoResponse => -10,
+            ReputationChange::TooSlow => -10,
         }
     }
 }
