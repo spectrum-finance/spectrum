@@ -177,6 +177,7 @@ pub fn build_node(
         initial_keep_alive: Duration::from_secs(60),
     };
     let peer_manager_conf = PeerManagerConfig {
+        min_acceptable_reputation: Reputation::from(0),
         min_reputation: Reputation::from(10),
         conn_reset_outbound_backoff: Duration::from_secs(120),
         conn_alloc_interval: Duration::from_secs(30),
