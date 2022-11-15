@@ -23,7 +23,6 @@ use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
-use void::Void;
 
 #[derive(Debug)]
 pub struct Protocol {
@@ -211,7 +210,7 @@ impl IntoConnectionHandler for PartialPeerConnHandler {
                     *protocol_id,
                     Protocol {
                         ver: *ver,
-                        spec: spec.clone(),
+                        spec: *spec,
                         state: Some(ProtocolState::Closed),
                         all_versions_specs: p.supported_versions.clone(),
                     },
@@ -531,7 +530,7 @@ impl ConnectionHandler for PeerConnHandler {
             Poll::Ready(out)
         } else {
             // For each open substream, try to send messages from `pending_messages_recv`.
-            for (_, protocol) in &mut self.protocols {
+            for protocol in self.protocols.values_mut() {
                 if let Some(
                     ProtocolState::Opened {
                         substream_out,

@@ -17,9 +17,9 @@ impl PolyVerHandshakeSpec {
     }
 }
 
-impl Into<Vec<(ProtocolVer, Option<RawMessage>)>> for PolyVerHandshakeSpec {
-    fn into(self) -> Vec<(ProtocolVer, Option<RawMessage>)> {
-        self.0.into_iter().collect()
+impl From<PolyVerHandshakeSpec> for Vec<(ProtocolVer, Option<RawMessage>)> {
+    fn from(p: PolyVerHandshakeSpec) -> Self {
+        p.0.into_iter().collect()
     }
 }
 

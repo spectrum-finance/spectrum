@@ -11,8 +11,8 @@ impl Approve {
     }
 }
 
-impl Into<RawMessage> for Approve {
-    fn into(self) -> RawMessage {
+impl From<Approve> for RawMessage {
+    fn from(_: Approve) -> Self {
         RawMessage::from(Vec::from(Approve::bytes()))
     }
 }

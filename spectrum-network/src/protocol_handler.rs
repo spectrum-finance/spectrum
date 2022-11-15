@@ -152,7 +152,7 @@ where
                         trace!("Sending message {:?} to peer {}", message, peer_id);
                         if let Some(sink) = self.peers.get(&peer_id) {
                             trace!("Sink is available");
-                            if let Err(_) = sink.send_message(codec::BinCodec::encode(message)) {
+                            if sink.send_message(codec::BinCodec::encode(message)).is_err() {
                                 trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
                             }
                             trace!("Sent");

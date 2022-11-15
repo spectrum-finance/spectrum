@@ -41,6 +41,7 @@ fn err_connect_to_peer_when_vacant_connections_not_available() {
     let peer_id = PeerDestination::PeerId(PeerId::random());
 
     let peer = peer_state.try_add_peer(peer_id, false, false).unwrap();
+    let _connected_peer = peer.connect();
     //assert!(peer.connect().is_err());
 }
 

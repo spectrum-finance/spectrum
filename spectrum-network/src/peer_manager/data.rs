@@ -34,7 +34,7 @@ impl PeerDestination {
 }
 
 impl Serialize for PeerDestination {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -55,7 +55,7 @@ impl Serialize for PeerDestination {
 }
 
 impl<'de> Deserialize<'de> for PeerDestination {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -172,9 +172,9 @@ impl<'de> Deserialize<'de> for PeerDestination {
     }
 }
 
-impl Into<DialOpts> for PeerDestination {
-    fn into(self) -> DialOpts {
-        match self {
+impl From<PeerDestination> for DialOpts {
+    fn from(p: PeerDestination) -> Self {
+        match p {
             PeerDestination::PeerId(pid) => DialOpts::peer_id(pid)
                 .condition(PeerCondition::NotDialing)
                 .build(),
@@ -234,13 +234,13 @@ pub enum ConnectionDirection {
     Outbound(bool), // confirmed or not
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct Peer {
     pub addr: Multiaddr,
     pub info: PeerInfo,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct PeerInfo {
     /// Is this peer a reserved one.
     /// We should do our best to remain connected to reserved peers.

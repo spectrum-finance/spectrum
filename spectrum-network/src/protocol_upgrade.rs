@@ -13,7 +13,7 @@ use libp2p::core::{upgrade, UpgradeInfo};
 use libp2p::{InboundUpgrade, OutboundUpgrade};
 use log::trace;
 use std::collections::BTreeMap;
-use std::fmt::{format, Debug};
+use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::{io, vec};
@@ -68,8 +68,7 @@ impl ProtocolUpgradeIn {
         let supported_versions = BTreeMap::from_iter(
             supported_versions
                 .into_iter()
-                .map(|(ver, spec)| (ver, InboundProtocolSpec::from(spec)))
-                .into_iter(),
+                .map(|(ver, spec)| (ver, InboundProtocolSpec::from(spec))),
         );
         Self {
             protocol_id,
@@ -170,14 +169,10 @@ impl ProtocolUpgradeOut {
         protocol_id: ProtocolId,
         supported_versions: Vec<(ProtocolVer, ProtocolSpec, Option<RawMessage>)>,
     ) -> Self {
-        let supported_versions = BTreeMap::from_iter(
-            supported_versions
-                .into_iter()
-                .map(|(ver, spec, handshake)| {
-                    (ver, OutboundProtocolSpec::new(spec.max_message_size, handshake))
-                })
-                .into_iter(),
-        );
+        let supported_versions =
+            BTreeMap::from_iter(supported_versions.into_iter().map(|(ver, spec, handshake)| {
+                (ver, OutboundProtocolSpec::new(spec.max_message_size, handshake))
+            }));
         Self {
             protocol_id,
             supported_versions,

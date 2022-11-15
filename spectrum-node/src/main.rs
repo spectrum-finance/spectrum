@@ -108,7 +108,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     async_std::task::spawn(async move {
         loop {
-            let _ = sync_handler.select_next_some().await;
+            sync_handler.select_next_some().await;
         }
     });
 

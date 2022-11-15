@@ -5,7 +5,6 @@ use crate::peer_manager::peer_index::PeerIndex;
 use crate::peer_manager::NetworkingConfig;
 use crate::types::{ProtocolId, Reputation};
 use libp2p::PeerId;
-use log::trace;
 use smallvec::SmallVec;
 use std::borrow::{Borrow, Cow};
 use std::collections::hash_map::{Entry, OccupiedEntry};
@@ -115,7 +114,7 @@ impl<'a> ConnectedPeer<'a> {
         self.index
             .protocols
             .entry(protocol_id)
-            .or_insert(HashSet::new())
+            .or_insert_with(HashSet::new)
             .insert(self.peer_id.clone().into_owned());
     }
 
@@ -369,7 +368,7 @@ impl PeerRepo {
 
 impl PeersState for PeerRepo {
     fn peer<'a>(&'a mut self, peer_id: &'a PeerId) -> Option<PeerInState<'a>> {
-        match self.peers.entry(peer_id.clone()) {
+        match self.peers.entry(*peer_id) {
             Entry::Occupied(peer_info) => match peer_info.get().state {
                 ConnectionState::Connected(_) => Some(PeerInState::Connected(ConnectedPeer::new(
                     Cow::Borrowed(peer_id),
@@ -415,10 +414,10 @@ impl PeersState for PeerRepo {
         is_boot: bool,
     ) -> Option<NotConnectedPeer> {
         let pid = peer_dest.peer_id();
-        if !self.peers.contains_key(&pid) {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.peers.entry(pid) {
             self.sorted_peers.insert((pid, Reputation::initial()));
             let peer_info = PeerInfo::new(peer_dest.into_addr(), is_reserved, is_boot);
-            self.peers.insert(pid, peer_info);
+            e.insert(peer_info);
             if is_reserved {
                 self.index.reserve_peer(pid)
             }
@@ -456,24 +455,21 @@ impl PeersState for PeerRepo {
     fn get_reserved_peers(&self, filter: Option<PeerStateFilter>) -> HashSet<PeerId> {
         let mut result = HashSet::new();
         for pid in &self.index.reserved_peers {
-            match self.peers.get(pid) {
-                Some(peer) => {
-                    if peer.is_reserved {
-                        match (peer.state, &filter) {
-                            (ConnectionState::Connected(_), Some(PeerStateFilter::Connected)) => {
-                                result.insert(*pid);
-                            }
-                            (ConnectionState::NotConnected, Some(PeerStateFilter::NotConnected)) => {
-                                result.insert(*pid);
-                            }
-                            (_, None) => {
-                                result.insert(*pid);
-                            }
-                            _ => {}
+            if let Some(peer) = self.peers.get(pid) {
+                if peer.is_reserved {
+                    match (peer.state, &filter) {
+                        (ConnectionState::Connected(_), Some(PeerStateFilter::Connected)) => {
+                            result.insert(*pid);
                         }
+                        (ConnectionState::NotConnected, Some(PeerStateFilter::NotConnected)) => {
+                            result.insert(*pid);
+                        }
+                        (_, None) => {
+                            result.insert(*pid);
+                        }
+                        _ => {}
                     }
                 }
-                None => {}
             }
         }
         result

@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use wasm_timer::Delay;
 
 /// Peer Manager output commands.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PeerManagerOut {
     /// Request to open a connection to the given peer.
     Connect(PeerDestination),
@@ -383,7 +383,7 @@ impl<S: PeersState> PeerManager<S> {
                 };
                 if cond {
                     if let Some(candidate) = self.state.pick_best(Some(|pid: &PeerId, pi: &PeerInfo| {
-                        !enabled_peers.contains(pid) && pi.supports(&prot).unwrap_or(false)
+                        !enabled_peers.contains(pid) && pi.supports(prot).unwrap_or(false)
                     })) {
                         if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&candidate) {
                             cp.enable_protocol(*prot);
@@ -401,9 +401,9 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
     fn on_add_peers(&mut self, peers: Vec<PeerDestination>) {
         for p in peers {
             let pid = p.peer_id();
-            if let Some(_) = self.state.try_add_peer(p, false, false) {
+            if self.state.try_add_peer(p, false, false).is_some() {
                 info!("New peer {:?} added", pid);
-            };
+            }
         }
     }
 
@@ -435,21 +435,15 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
     }
 
     fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: Sender<Reputation>) {
-        match self.state.peer(&peer_id) {
-            Some(peer) => {
-                let reputation = peer.get_reputation();
-                let _ = response.send(reputation);
-            }
-            None => {} // warn
+        if let Some(peer) = self.state.peer(&peer_id) {
+            let reputation = peer.get_reputation();
+            let _ = response.send(reputation);
         }
     }
 
     fn on_set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>) {
-        match self.state.peer(&peer_id) {
-            Some(mut peer) => {
-                peer.set_protocols(protocols);
-            }
-            None => {} // warn
+        if let Some(mut peer) = self.state.peer(&peer_id) {
+            peer.set_protocols(protocols);
         }
     }
 }
