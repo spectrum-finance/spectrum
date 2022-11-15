@@ -13,7 +13,6 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 
-use derive_more::Display;
 use log::{trace, warn};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};

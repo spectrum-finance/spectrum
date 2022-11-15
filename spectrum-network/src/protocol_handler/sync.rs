@@ -17,7 +17,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub mod data;
 pub mod message;
 
 const MAX_SHARED_PEERS: usize = 128;

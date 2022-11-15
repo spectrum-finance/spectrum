@@ -15,8 +15,7 @@ use futures::channel::{mpsc, oneshot};
 use futures::Stream;
 use libp2p::core::connection::ConnectionId;
 use libp2p::PeerId;
-use log::{error, info, trace, warn};
-use smallvec::SmallVec;
+use log::{error, info, trace};
 use std::collections::{HashSet, VecDeque};
 use std::future::Future;
 use std::ops::Add;
@@ -132,7 +131,6 @@ impl Peers for PeersMailbox {
     }
 
     fn get_peers(&mut self, limit: usize) -> Receiver<Vec<PeerDestination>> {
-        trace!("get_peers()");
         let (sender, receiver) = oneshot::channel::<Vec<PeerDestination>>();
         let _ = self
             .mailbox_snd
