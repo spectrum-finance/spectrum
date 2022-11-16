@@ -520,7 +520,10 @@ where
                     }
                     continue;
                 }
-                Poll::Pending => {}
+                Poll::Ready(Some(PeerManagerOut::NotifyPeerPunished { peer_id, reason })) => {
+                    self.peer_punished(peer_id, reason);
+                }
+                Poll::Pending => break,
                 Poll::Ready(None) => unreachable!("PeerManager should never terminate"),
             }
 

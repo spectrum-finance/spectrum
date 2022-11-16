@@ -37,6 +37,11 @@ pub enum PeerManagerOut {
     Reject(PeerId, ConnectionId),
     /// An instruction to start the specified protocol with the specified peer.
     StartProtocol(ProtocolId, PeerId),
+    /// Notify that a peer was punished.
+    NotifyPeerPunished {
+        peer_id: PeerId,
+        reason: ReputationChange,
+    },
 }
 
 /// Peer Manager inputs.
@@ -425,6 +430,13 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
 
     fn on_report_peer(&mut self, peer_id: PeerId, adjustment: ReputationChange) {
         if let Some(peer) = self.state.peer(&peer_id) {
+            if adjustment.is_downgrade() {
+                self.out_queue.push_back(PeerManagerOut::NotifyPeerPunished {
+                    peer_id,
+                    reason: adjustment,
+                });
+            }
+
             // A peer with reputation below self.conf.min_acceptable_reputation is classed as
             // unacceptable, and its connection will be dropped.
             let is_acceptable = peer

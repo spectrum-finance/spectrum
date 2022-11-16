@@ -193,6 +193,17 @@ pub enum ReputationChange {
     TooSlow,
 }
 
+impl ReputationChange {
+    /// Returns true if reputation is downgraded.
+    pub fn is_downgrade(&self) -> bool {
+        match self {
+            ReputationChange::MalformedMessage => true,
+            ReputationChange::NoResponse => true,
+            ReputationChange::TooSlow => true,
+        }
+    }
+}
+
 impl From<ReputationChange> for i32 {
     fn from(c: ReputationChange) -> Self {
         match c {
