@@ -103,9 +103,7 @@ pub trait PeerManagerRequestsBehavior {
     fn on_get_peers(&mut self, limit: usize, response: Sender<Vec<PeerDestination>>);
     fn on_add_reserved_peer(&mut self, peer_id: PeerDestination);
     fn on_set_reserved_peers(&mut self, peers: HashSet<PeerId>);
-    /// Returns true if and only if peer's adjusted reputation is >= some minimum threshold (defined
-    /// by the trait impl).
-    fn on_report_peer(&mut self, peer_id: PeerId, change: ReputationChange) -> bool;
+    fn on_report_peer(&mut self, peer_id: PeerId, change: ReputationChange);
     fn on_get_peer_reputation(&mut self, peer_id: PeerId, response: Sender<Reputation>);
     fn on_set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>);
 }
@@ -425,12 +423,17 @@ impl<S: PeersState> PeerManagerRequestsBehavior for PeerManager<S> {
         }
     }
 
-    fn on_report_peer(&mut self, peer_id: PeerId, adjustment: ReputationChange) -> bool {
-        match self.state.peer(&peer_id) {
-            Some(peer) => peer
+    fn on_report_peer(&mut self, peer_id: PeerId, adjustment: ReputationChange) {
+        if let Some(peer) = self.state.peer(&peer_id) {
+            // A peer with reputation below self.conf.min_acceptable_reputation is classed as
+            // unacceptable, and its connection will be dropped.
+            let is_acceptable = peer
                 .adjust_reputation(adjustment)
-                .is_reputation_acceptable(self.conf.min_acceptable_reputation),
-            None => false,
+                .is_reputation_acceptable(self.conf.min_acceptable_reputation);
+
+            if !is_acceptable {
+                self.disconnect(peer_id, true);
+            }
         }
     }
 
@@ -562,12 +565,7 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                         PeerManagerRequest::AddPeers(peers) => self.on_add_peers(peers),
                         PeerManagerRequest::GetPeers { limit, snd } => self.on_get_peers(limit, snd),
                         PeerManagerRequest::ReportPeer(pid, adjustment) => {
-                            // A peer with reputation below self.conf.min_acceptable_reputation is
-                            // classed as unacceptable, and its connection will be dropped.
-                            let peer_is_acceptable = self.on_report_peer(pid, adjustment);
-                            if !peer_is_acceptable {
-                                self.disconnect(pid, true);
-                            }
+                            self.on_report_peer(pid, adjustment);
                         }
                         PeerManagerRequest::AddReservedPeer(pid) => self.on_add_reserved_peer(pid),
                         PeerManagerRequest::GetPeerReputation(pid, resp) => {
