@@ -19,7 +19,7 @@ use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use crate::peer_manager::data::ConnectionLossReason;
+use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::Stream;
@@ -65,6 +65,10 @@ pub enum NetworkControllerOut {
     Disabled {
         peer_id: PeerId,
         protocol_id: ProtocolId,
+    },
+    PeerPunished {
+        peer_id: PeerId,
+        reason: ReputationChange,
     },
 }
 
@@ -120,6 +124,7 @@ impl NetworkAPI for NetworkMailbox {
 pub trait NetworkEvents {
     fn peer_connected(&mut self, peer_id: PeerId);
     fn peer_disconnected(&mut self, peer_id: PeerId);
+    fn peer_punished(&mut self, peer_id: PeerId, reason: ReputationChange);
     fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer);
     fn protocol_disabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
 }
@@ -136,6 +141,13 @@ impl<TPeers, TPeerManager, THandler> NetworkEvents for NetworkController<TPeers,
         self.pending_actions
             .push_back(NetworkBehaviourAction::GenerateEvent(
                 NetworkControllerOut::Disconnected(peer_id),
+            ));
+    }
+
+    fn peer_punished(&mut self, peer_id: PeerId, reason: ReputationChange) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::PeerPunished { peer_id, reason },
             ));
     }
 
