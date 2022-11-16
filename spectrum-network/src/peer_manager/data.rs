@@ -2,7 +2,13 @@ use crate::peer_conn_handler::ConnHandlerError;
 use crate::types::{ProtocolId, Reputation};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::{Multiaddr, PeerId};
+
+use serde::de::{EnumAccess, Error, SeqAccess, Unexpected, VariantAccess, Visitor};
+use serde::ser::SerializeTupleVariant;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use std::fmt::Formatter;
+use std::str::from_utf8;
 use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,7 +38,19 @@ impl Serialize for PeerDestination {
     where
         S: Serializer,
     {
-        todo!()
+        match self {
+            PeerDestination::PeerId(pid) => {
+                let mut tv = serializer.serialize_tuple_variant("PeerDestination", 0, "PeerId", 1)?;
+                tv.serialize_field(&*pid.to_bytes())?;
+                tv.end()
+            }
+            PeerDestination::PeerIdWithAddr(pid, maddr) => {
+                let mut tv = serializer.serialize_tuple_variant("PeerDestination", 1, "PeerIdWithAddr", 2)?;
+                tv.serialize_field(&*pid.to_bytes())?;
+                tv.serialize_field(maddr)?;
+                tv.end()
+            }
+        }
     }
 }
 
@@ -41,7 +59,116 @@ impl<'de> Deserialize<'de> for PeerDestination {
     where
         D: Deserializer<'de>,
     {
-        todo!()
+        struct PeerIdVisitor;
+        impl<'de> Visitor<'de> for PeerIdVisitor {
+            type Value = PeerId;
+
+            fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+                formatter.write_str("Expected PeerId")
+            }
+
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: Error,
+            {
+                PeerId::from_bytes(v).map_err(|_| Error::custom("Cannon deserialize PeerId"))
+            }
+        }
+
+        struct PeerIdWithAddrVisitor;
+        impl<'de> Visitor<'de> for PeerIdWithAddrVisitor {
+            type Value = (PeerId, Multiaddr);
+
+            fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+                formatter.write_str("Expected (PeerId, Multiaddr)")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let pid = seq.next_element::<&[u8]>()?;
+                let maddr = seq.next_element()?;
+                match (pid, maddr) {
+                    (Some(pid), Some(maddr)) => PeerId::from_bytes(pid)
+                        .map_err(|_| Error::custom("Cannon deserialize PeerId"))
+                        .map(|pid| (pid, maddr)),
+                    (Some(_), None) => Err(Error::missing_field("Multiaddr")),
+                    (None, _) => Err(Error::missing_field("PeerId")),
+                }
+            }
+        }
+
+        enum Field {
+            PeerId,
+            PeerIdWithAddr,
+        }
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                struct FieldVisitor;
+                impl<'de> Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+                        formatter.write_str("Expected PeerId or PeerIdWithAddr")
+                    }
+
+                    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                    where
+                        E: Error,
+                    {
+                        match v {
+                            "PeerId" => Ok(Field::PeerId),
+                            "PeerIdWithAddr" => Ok(Field::PeerIdWithAddr),
+                            _ => Err(Error::unknown_variant(v, VARIANTS)),
+                        }
+                    }
+
+                    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+                    where
+                        E: Error,
+                    {
+                        match v {
+                            b"PeerId" => Ok(Field::PeerId),
+                            b"PeerIdWithAddr" => Ok(Field::PeerIdWithAddr),
+                            _ => match from_utf8(v) {
+                                Ok(value) => Err(Error::unknown_variant(value, VARIANTS)),
+                                Err(_) => Err(Error::invalid_value(Unexpected::Bytes(v), &self)),
+                            },
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct PeerDestinationVisitor;
+        impl<'de> Visitor<'de> for PeerDestinationVisitor {
+            type Value = PeerDestination;
+
+            fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+                formatter.write_str("Expected PeerDestination")
+            }
+
+            fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
+            where
+                A: EnumAccess<'de>,
+            {
+                match data.variant()? {
+                    (Field::PeerId, v) => v.tuple_variant(1, PeerIdVisitor).map(PeerDestination::PeerId),
+                    (Field::PeerIdWithAddr, v) => v
+                        .tuple_variant(2, PeerIdWithAddrVisitor)
+                        .map(|(pid, maddr)| PeerDestination::PeerIdWithAddr(pid, maddr)),
+                }
+            }
+        }
+
+        const VARIANTS: &'static [&'static str] = &["PeerId", "PeerIdWithAddr"];
+        deserializer.deserialize_enum("PeerDestination", VARIANTS, PeerDestinationVisitor)
     }
 }
 
