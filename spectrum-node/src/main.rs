@@ -15,7 +15,7 @@ use spectrum_network::peer_manager::data::PeerDestination;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
 use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerConfig};
 use spectrum_network::protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID};
-use spectrum_network::protocol_handler::sync::message::SyncSpec;
+use spectrum_network::protocol_handler::sync::message::{SyncMessage, SyncMessageV1, SyncSpec};
 use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     let netw_config = NetworkingConfig {
         min_known_peers: 1,
-        min_outbound: 2,
+        min_outbound: 1,
         max_inbound: 10,
         max_outbound: 20,
     };

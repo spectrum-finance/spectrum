@@ -52,7 +52,7 @@ pub enum ProtocolHandlerError {
 
 pub trait ProtocolSpec {
     type THandshake: codec::BinCodec + Versioned + Send;
-    type TMessage: codec::BinCodec + Versioned + Debug + Send;
+    type TMessage: codec::BinCodec + Versioned + Debug + Send + Clone;
 }
 
 pub enum MalformedMessage {
@@ -138,7 +138,7 @@ where
     TBehaviour: ProtocolBehaviour + Unpin,
     TNetwork: NetworkAPI + Unpin,
 {
-    type Item = ();
+    type Item = <TBehaviour::TProto as ProtocolSpec>::TMessage;
 
     /// Polls the behaviour and the network, forwarding events from the former to the latter and
     /// vice versa.
@@ -152,10 +152,11 @@ where
                         trace!("Sending message {:?} to peer {}", message, peer_id);
                         if let Some(sink) = self.peers.get(&peer_id) {
                             trace!("Sink is available");
-                            if sink.send_message(codec::BinCodec::encode(message)).is_err() {
+                            if let Err(_) = sink.send_message(codec::BinCodec::encode(message.clone())) {
                                 trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
                             }
                             trace!("Sent");
+                            return Poll::Ready(Some(message));
                         } else {
                             error!("Cannot find sink for peer {}", peer_id);
                         }

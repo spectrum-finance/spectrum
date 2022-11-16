@@ -55,7 +55,7 @@ pub enum ConnectedPeer<THandler> {
 /// Outbound network events.
 #[derive(Debug)]
 pub enum NetworkControllerOut {
-    Connected(PeerId),
+    ConnectedWithInboundPeer(PeerId),
     Disconnected(PeerId),
     Enabled {
         peer_id: PeerId,
@@ -122,7 +122,8 @@ impl NetworkAPI for NetworkMailbox {
 
 /// API to events emitted by the network (swarm in our case).
 pub trait NetworkEvents {
-    fn peer_connected(&mut self, peer_id: PeerId);
+    /// Connected with peer, initiated by external peer (inbound connection).
+    fn inbound_peer_connected(&mut self, peer_id: PeerId);
     fn peer_disconnected(&mut self, peer_id: PeerId);
     fn peer_punished(&mut self, peer_id: PeerId, reason: ReputationChange);
     fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer);
@@ -130,10 +131,10 @@ pub trait NetworkEvents {
 }
 
 impl<TPeers, TPeerManager, THandler> NetworkEvents for NetworkController<TPeers, TPeerManager, THandler> {
-    fn peer_connected(&mut self, peer_id: PeerId) {
+    fn inbound_peer_connected(&mut self, peer_id: PeerId) {
         self.pending_actions
             .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::Connected(peer_id),
+                NetworkControllerOut::ConnectedWithInboundPeer(peer_id),
             ));
     }
 
@@ -464,7 +465,7 @@ where
                                 conn_id: cid,
                                 enabled_protocols: HashMap::new(),
                             });
-                            self.peer_connected(pid);
+                            self.inbound_peer_connected(pid);
                         }
                         Entry::Vacant(_) => {}
                     }
