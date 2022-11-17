@@ -44,6 +44,11 @@ pub enum PeerManagerOut {
         peer_id: PeerId,
         reason: ReputationChange,
     },
+    /// Notify that connection was lost
+    NotifyConnectionLost {
+        peer_id: PeerId,
+        reason: ConnectionLossReason,
+    },
 }
 
 /// Peer Manager inputs.
@@ -532,6 +537,8 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                     },
                     ConnectionLossReason::Unknown => {}
                 }
+                self.out_queue
+                    .push_back(PeerManagerOut::NotifyConnectionLost { peer_id, reason });
             }
             Some(PeerInState::NotConnected(_)) => {} // warn
             None => {}                               // warn

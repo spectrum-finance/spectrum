@@ -59,7 +59,10 @@ pub enum NetworkControllerOut {
     ConnectedWithInboundPeer(PeerId),
     /// Connected with peer, initiated by us (outbound connection).
     ConnectedWithOutboundPeer(PeerId),
-    Disconnected(PeerId),
+    Disconnected {
+        peer_id: PeerId,
+        reason: ConnectionLossReason,
+    },
     Enabled {
         peer_id: PeerId,
         protocol_id: ProtocolId,
@@ -129,7 +132,7 @@ pub trait NetworkEvents {
     fn inbound_peer_connected(&mut self, peer_id: PeerId);
     /// Connected with peer, initiated by us (outbound connection).
     fn outbound_peer_connected(&mut self, peer_id: PeerId);
-    fn peer_disconnected(&mut self, peer_id: PeerId);
+    fn peer_disconnected(&mut self, peer_id: PeerId, reason: ConnectionLossReason);
     fn peer_punished(&mut self, peer_id: PeerId, reason: ReputationChange);
     fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer);
     fn protocol_disabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
@@ -150,10 +153,10 @@ impl<TPeers, TPeerManager, THandler> NetworkEvents for NetworkController<TPeers,
             ));
     }
 
-    fn peer_disconnected(&mut self, peer_id: PeerId) {
+    fn peer_disconnected(&mut self, peer_id: PeerId, reason: ConnectionLossReason) {
         self.pending_actions
             .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::Disconnected(peer_id),
+                NetworkControllerOut::Disconnected { peer_id, reason },
             ));
     }
 
@@ -549,6 +552,9 @@ where
                 }
                 Poll::Ready(Some(PeerManagerOut::NotifyPeerPunished { peer_id, reason })) => {
                     self.peer_punished(peer_id, reason);
+                }
+                Poll::Ready(Some(PeerManagerOut::NotifyConnectionLost { peer_id, reason })) => {
+                    self.peer_disconnected(peer_id, reason);
                 }
                 Poll::Pending => break,
                 Poll::Ready(None) => unreachable!("PeerManager should never terminate"),

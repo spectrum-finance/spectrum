@@ -9,8 +9,9 @@ use spectrum_network::{
     network_controller::{NetworkController, NetworkControllerIn, NetworkControllerOut, NetworkMailbox},
     peer_conn_handler::PeerConnHandlerConf,
     peer_manager::{
-        data::PeerDestination, peers_state::PeerRepo, NetworkingConfig, PeerManager, PeerManagerConfig,
-        PeersMailbox,
+        data::{ConnectionLossReason, PeerDestination},
+        peers_state::PeerRepo,
+        NetworkingConfig, PeerManager, PeerManagerConfig, PeersMailbox,
     },
     protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID},
     protocol_api::ProtocolMailbox,
@@ -90,6 +91,15 @@ async fn integration_test() {
             false
         }
     );
+    assert!(if let Some(NetworkControllerOut::Disconnected {
+        peer_id,
+        reason: ConnectionLossReason::ResetByPeer,
+    }) = res_peer_0.last()
+    {
+        *peer_id == local_peer_id_1
+    } else {
+        false
+    });
     assert!(
         if let Some(NetworkControllerOut::ConnectedWithOutboundPeer(pid)) = res_peer_1.first() {
             *pid == local_peer_id_0
