@@ -9,7 +9,7 @@ use spectrum_network::{
     network_controller::{NetworkController, NetworkControllerIn, NetworkControllerOut, NetworkMailbox},
     peer_conn_handler::PeerConnHandlerConf,
     peer_manager::{
-        data::{ConnectionLossReason, PeerDestination},
+        data::{ConnectionLossReason, PeerDestination, ReputationChange},
         peers_state::PeerRepo,
         NetworkingConfig, PeerManager, PeerManagerConfig, PeersMailbox,
     },
@@ -39,13 +39,18 @@ async fn integration_test() {
     let local_key_1 = identity::Keypair::generate_ed25519();
     let local_peer_id_1 = PeerId::from(local_key_1.public());
 
+    // We add the following non-existent peer into the bootstrap collection for `peer_0`, so we can
+    // witness this peer being punished for `NoResponse`.
+    let fake_peer_id = PeerId::random();
+    let fake_addr: Multiaddr = "/ip4/127.0.0.1/tcp/1236".parse().unwrap();
+
     let addr_0: Multiaddr = "/ip4/127.0.0.1/tcp/1234".parse().unwrap();
     let addr_1: Multiaddr = "/ip4/127.0.0.1/tcp/1235".parse().unwrap();
-    let peers_0 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1.clone())];
+    let peers_0 = vec![PeerDestination::PeerIdWithAddr(fake_peer_id, fake_addr)];
     let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
 
     let (nc_out_tx, mut nc_out_rx) = mpsc::channel(10);
-    let peer_0 = make_swarm_fut(vec![], local_key_0, addr_0, Peer::First, nc_out_tx.clone());
+    let peer_0 = make_swarm_fut(peers_0, local_key_0, addr_0, Peer::First, nc_out_tx.clone());
     let peer_1 = make_swarm_fut(peers_1, local_key_1, addr_1, Peer::Second, nc_out_tx);
     let (abortable_peer_0, handle_0) = futures::future::abortable(peer_0);
     let (abortable_peer_1, handle_1) = futures::future::abortable(peer_1);
@@ -84,9 +89,18 @@ async fn integration_test() {
     }
     dbg!(&res_peer_0);
     dbg!(&res_peer_1);
+    assert!(if let Some(NetworkControllerOut::PeerPunished {
+        peer_id,
+        reason: ReputationChange::NoResponse,
+    }) = res_peer_0.first()
+    {
+        *peer_id == fake_peer_id
+    } else {
+        false
+    });
     assert!(
-        if let Some(NetworkControllerOut::ConnectedWithInboundPeer(pid)) = res_peer_0.first() {
-            *pid == local_peer_id_1
+        if let NetworkControllerOut::ConnectedWithInboundPeer(pid) = res_peer_0[1] {
+            pid == local_peer_id_1
         } else {
             false
         }
