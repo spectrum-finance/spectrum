@@ -55,7 +55,10 @@ pub enum ConnectedPeer<THandler> {
 /// Outbound network events.
 #[derive(Debug)]
 pub enum NetworkControllerOut {
+    /// Connected with peer, initiated by external peer (inbound connection).
     ConnectedWithInboundPeer(PeerId),
+    /// Connected with peer, initiated by us (outbound connection).
+    ConnectedWithOutboundPeer(PeerId),
     Disconnected(PeerId),
     Enabled {
         peer_id: PeerId,
@@ -124,6 +127,8 @@ impl NetworkAPI for NetworkMailbox {
 pub trait NetworkEvents {
     /// Connected with peer, initiated by external peer (inbound connection).
     fn inbound_peer_connected(&mut self, peer_id: PeerId);
+    /// Connected with peer, initiated by us (outbound connection).
+    fn outbound_peer_connected(&mut self, peer_id: PeerId);
     fn peer_disconnected(&mut self, peer_id: PeerId);
     fn peer_punished(&mut self, peer_id: PeerId, reason: ReputationChange);
     fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer);
@@ -135,6 +140,13 @@ impl<TPeers, TPeerManager, THandler> NetworkEvents for NetworkController<TPeers,
         self.pending_actions
             .push_back(NetworkBehaviourAction::GenerateEvent(
                 NetworkControllerOut::ConnectedWithInboundPeer(peer_id),
+            ));
+    }
+
+    fn outbound_peer_connected(&mut self, peer_id: PeerId) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::ConnectedWithOutboundPeer(peer_id),
             ));
     }
 
@@ -457,33 +469,47 @@ where
                     }
                     continue;
                 }
-                Poll::Ready(Some(PeerManagerOut::Accept(pid, cid))) => match self.enabled_peers.entry(pid) {
-                    Entry::Occupied(mut peer) => {
-                        if let ConnectedPeer::PendingApprove(_) = peer.get() {
-                            trace!("Inbound connection from peer {} accepted", pid);
-                            peer.insert(ConnectedPeer::Connected {
-                                conn_id: cid,
-                                enabled_protocols: HashMap::new(),
-                            });
-                            self.inbound_peer_connected(pid);
+                Poll::Ready(Some(PeerManagerOut::AcceptIncomingConnection(pid, cid))) => {
+                    match self.enabled_peers.entry(pid) {
+                        Entry::Occupied(mut peer) => {
+                            if let ConnectedPeer::PendingApprove(_) = peer.get() {
+                                trace!("Inbound connection from peer {} accepted", pid);
+                                peer.insert(ConnectedPeer::Connected {
+                                    conn_id: cid,
+                                    enabled_protocols: HashMap::new(),
+                                });
+                                self.inbound_peer_connected(pid);
+                            }
                         }
                         Entry::Vacant(_) => {}
                     }
-                    continue;
                 }
-                Poll::Ready(Some(PeerManagerOut::Reject(pid, cid))) => {
+                Poll::Ready(Some(PeerManagerOut::EstablishOutgoingConnection(pid, cid))) => {
                     match self.enabled_peers.entry(pid) {
-                        Entry::Occupied(peer) => {
-                            if let ConnectedPeer::PendingApprove(_) = peer.get() {
-                                trace!("Inbound connection from peer {} rejected", pid);
-                                peer.remove();
-                                self.pending_actions
-                                    .push_back(NetworkBehaviourAction::NotifyHandler {
-                                        peer_id: pid,
-                                        handler: NotifyHandler::One(cid),
-                                        event: ConnHandlerIn::CloseAllProtocols,
-                                    })
+                        Entry::Occupied(mut peer) => {
+                            if let ConnectedPeer::Connected { .. } = peer.get() {
+                                println!("Outbound connection to peer {} established", pid);
+                                peer.insert(ConnectedPeer::Connected {
+                                    conn_id: cid,
+                                    enabled_protocols: HashMap::new(),
+                                });
+                                self.outbound_peer_connected(pid);
                             }
+                        }
+                        Entry::Vacant(_) => {}
+                    }
+                }
+                Poll::Ready(Some(PeerManagerOut::Reject(pid, cid))) => match self.enabled_peers.entry(pid) {
+                    Entry::Occupied(peer) => {
+                        if let ConnectedPeer::PendingApprove(_) = peer.get() {
+                            trace!("Inbound connection from peer {} rejected", pid);
+                            peer.remove();
+                            self.pending_actions
+                                .push_back(NetworkBehaviourAction::NotifyHandler {
+                                    peer_id: pid,
+                                    handler: NotifyHandler::One(cid),
+                                    event: ConnHandlerIn::CloseAllProtocols,
+                                })
                         }
                         Entry::Vacant(_) => {}
                     }

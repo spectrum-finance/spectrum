@@ -32,7 +32,9 @@ pub enum PeerManagerOut {
     /// Drop the connection to the given peer, or cancel the connection attempt after a `Connect`.
     Drop(PeerId),
     /// Approves an incoming connection.
-    Accept(PeerId, ConnectionId),
+    AcceptIncomingConnection(PeerId, ConnectionId),
+    /// Establish an outgoing connection.
+    EstablishOutgoingConnection(PeerId, ConnectionId),
     /// Rejects an incoming connection.
     Reject(PeerId, ConnectionId),
     /// An instruction to start the specified protocol with the specified peer.
@@ -470,7 +472,8 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
             Some(PeerInState::NotConnected(ncp)) => {
                 if ncp.get_reputation() >= self.conf.min_reputation && ncp.try_accept_connection().is_ok() {
                     trace!("Accepting connection from {}", peer_id);
-                    self.out_queue.push_back(PeerManagerOut::Accept(peer_id, conn_id));
+                    self.out_queue
+                        .push_back(PeerManagerOut::AcceptIncomingConnection(peer_id, conn_id));
                 } else {
                     trace!("Rejecting connection from {}", peer_id);
                     self.out_queue.push_back(PeerManagerOut::Reject(peer_id, conn_id));
@@ -487,7 +490,8 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                 {
                     if ncp.try_accept_connection().is_ok() {
                         trace!("Peer is unknown. Accepting connection from {}", peer_id);
-                        self.out_queue.push_back(PeerManagerOut::Accept(peer_id, conn_id));
+                        self.out_queue
+                            .push_back(PeerManagerOut::AcceptIncomingConnection(peer_id, conn_id));
                     } else {
                         trace!("Peer is unknown. Rejecting connection from {}", peer_id);
                         self.out_queue.push_back(PeerManagerOut::Reject(peer_id, conn_id));
@@ -500,9 +504,11 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
         }
     }
 
-    fn on_connection_established(&mut self, peer_id: PeerId, _conn_id: ConnectionId) {
+    fn on_connection_established(&mut self, peer_id: PeerId, conn_id: ConnectionId) {
         if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&peer_id) {
             cp.confirm_connection();
+            self.out_queue
+                .push_back(PeerManagerOut::EstablishOutgoingConnection(peer_id, conn_id))
         } else {
             error!("Peer {} hasn't been acknowledged as connected", peer_id)
         }
@@ -565,7 +571,7 @@ impl<S: Unpin + PeersState> Stream for PeerManager<S> {
                             self.on_incoming_connection(pid, conn_id)
                         }
                         PeerEvent::ConnectionEstablished(pid, conn_id) => {
-                            self.on_incoming_connection(pid, conn_id)
+                            self.on_connection_established(pid, conn_id)
                         }
                         PeerEvent::ConnectionLost(pid, reason) => self.on_connection_lost(pid, reason),
                         PeerEvent::DialFailure(pid) => self.on_dial_failure(pid),

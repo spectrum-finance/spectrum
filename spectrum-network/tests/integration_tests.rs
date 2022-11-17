@@ -57,7 +57,7 @@ async fn integration_test() {
         handle_0.abort();
     });
     async_std::task::spawn(async move {
-        wasm_timer::Delay::new(Duration::from_secs(3)).await.unwrap();
+        wasm_timer::Delay::new(Duration::from_secs(4)).await.unwrap();
         cancel_tx_0.send(()).unwrap();
     });
     async_std::task::spawn(abortable_peer_0);
@@ -74,16 +74,25 @@ async fn integration_test() {
     async_std::task::spawn(abortable_peer_1);
 
     let mut res_peer_0 = vec![];
+    let mut res_peer_1 = vec![];
     while let Some((peer, nc_msg)) = nc_out_rx.next().await {
         match peer {
             Peer::First => res_peer_0.push(nc_msg),
-            Peer::Second => (),
+            Peer::Second => res_peer_1.push(nc_msg),
         }
     }
     dbg!(&res_peer_0);
+    dbg!(&res_peer_1);
     assert!(
         if let Some(NetworkControllerOut::ConnectedWithInboundPeer(pid)) = res_peer_0.first() {
             *pid == local_peer_id_1
+        } else {
+            false
+        }
+    );
+    assert!(
+        if let Some(NetworkControllerOut::ConnectedWithOutboundPeer(pid)) = res_peer_1.first() {
+            *pid == local_peer_id_0
         } else {
             false
         }
@@ -162,12 +171,17 @@ async fn make_swarm_fut(
     loop {
         match swarm.select_next_some().await {
             SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {:?}", address),
-            SwarmEvent::Behaviour(event) => {
-                if let NetworkControllerOut::ConnectedWithInboundPeer(_) = event {
-                    tx.try_send((peer, event)).unwrap();
-                }
+            SwarmEvent::Behaviour(event) => tx.try_send((peer, event)).unwrap(),
+            //match event {
+            //    NetworkControllerOut::ConnectedWithInboundPeer(_)
+            //    | NetworkControllerOut::ConnectedWithOutboundPeer(_) => {
+            //        tx.try_send((peer, event)).unwrap();
+            //    }
+            //    _ => (),
+            //},
+            ce @ SwarmEvent::ConnectionEstablished { .. } => {
+                dbg!(ce);
             }
-            SwarmEvent::ConnectionEstablished { peer_id, .. } => println!("New conn {:?}", peer_id),
             _ => {}
         }
     }
