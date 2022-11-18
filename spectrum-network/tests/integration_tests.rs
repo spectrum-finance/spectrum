@@ -17,7 +17,7 @@ use spectrum_network::{
     protocol_api::ProtocolMailbox,
     protocol_handler::{
         sync::{message::SyncSpec, NodeStatus, SyncBehaviour},
-        ProtocolHandler,
+        ProtocolBehaviour, ProtocolHandler,
     },
     types::Reputation,
 };
@@ -28,12 +28,12 @@ enum Peer {
     Second,
 }
 
+/// Integration test which covers:
+///  - peer connection
+///  - peer disconnection
+///  - peer punishment due to no-response
 #[async_std::test]
 async fn integration_test() {
-    // In this test we have 2 peers `peer_0` and `peer_1`. `peer_0` is initialised without any
-    // bootstrap peers but `peer_1` has `peer_0` as a bootstrap peer. This ensures that `peer_1`
-    // will initiate a connection with `peer_0`.
-
     let local_key_0 = identity::Keypair::generate_ed25519();
     let local_peer_id_0 = PeerId::from(local_key_0.public());
     let local_key_1 = identity::Keypair::generate_ed25519();
@@ -49,9 +49,31 @@ async fn integration_test() {
     let peers_0 = vec![PeerDestination::PeerIdWithAddr(fake_peer_id, fake_addr)];
     let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
 
+    let local_status_0 = NodeStatus {
+        supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
+        height: 0,
+    };
+    let local_status_1 = local_status_0.clone();
+    let sync_behaviour_0 = |p| SyncBehaviour::new(p, local_status_0);
+    let sync_behaviour_1 = |p| SyncBehaviour::new(p, local_status_1);
+
     let (nc_out_tx, mut nc_out_rx) = mpsc::channel(10);
-    let peer_0 = make_swarm_fut(peers_0, local_key_0, addr_0, Peer::First, nc_out_tx.clone());
-    let peer_1 = make_swarm_fut(peers_1, local_key_1, addr_1, Peer::Second, nc_out_tx);
+    let peer_0 = make_swarm_fut(
+        peers_0,
+        local_key_0,
+        addr_0,
+        Peer::First,
+        sync_behaviour_0,
+        nc_out_tx.clone(),
+    );
+    let peer_1 = make_swarm_fut(
+        peers_1,
+        local_key_1,
+        addr_1,
+        Peer::Second,
+        sync_behaviour_1,
+        nc_out_tx,
+    );
     let (abortable_peer_0, handle_0) = futures::future::abortable(peer_0);
     let (abortable_peer_1, handle_1) = futures::future::abortable(peer_1);
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
@@ -79,6 +101,9 @@ async fn integration_test() {
     });
     async_std::task::spawn(abortable_peer_1);
 
+    // Collect messages from the peers. Note that the while loop below will end since
+    // `abortable_peer_0` and `abortable_peer_1` is guaranteed to drop, leading to the senders
+    // dropping too.
     let mut res_peer_0 = vec![];
     let mut res_peer_1 = vec![];
     while let Some((peer, nc_msg)) = nc_out_rx.next().await {
@@ -87,6 +112,7 @@ async fn integration_test() {
             Peer::Second => res_peer_1.push(nc_msg),
         }
     }
+
     dbg!(&res_peer_0);
     dbg!(&res_peer_1);
     assert!(if let Some(NetworkControllerOut::PeerPunished {
@@ -123,13 +149,17 @@ async fn integration_test() {
     );
 }
 
-async fn make_swarm_fut(
+async fn make_swarm_fut<P, F>(
     peers: Vec<PeerDestination>,
     local_key: identity::Keypair,
     addr: Multiaddr,
     peer: Peer,
+    gen_protocol_behaviour: F,
     mut tx: mpsc::Sender<(Peer, NetworkControllerOut)>,
-) {
+) where
+    P: ProtocolBehaviour + Unpin + std::marker::Send + 'static,
+    F: FnOnce(PeersMailbox) -> P,
+{
     let peer_conn_handler_conf = PeerConnHandlerConf {
         async_msg_buffer_size: 10,
         sync_msg_buffer_size: 40,
@@ -164,17 +194,12 @@ async fn make_swarm_fut(
         )],
     };
 
-    let local_status = NodeStatus {
-        supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
-        height: 0,
-    };
-    let sync_behaviour = SyncBehaviour::new(peers.clone(), local_status);
-
     let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };
-    let (mut sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api);
+    let (mut sync_handler, sync_mailbox) =
+        ProtocolHandler::new(gen_protocol_behaviour(peers.clone()), network_api);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(SYNC_PROTOCOL_ID, (sync_conf, sync_mailbox))]),

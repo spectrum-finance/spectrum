@@ -21,6 +21,7 @@ pub mod message;
 
 const MAX_SHARED_PEERS: usize = 128;
 
+#[derive(Clone)]
 pub struct NodeStatus {
     pub supported_protocols: Vec<ProtocolId>,
     pub height: usize,
