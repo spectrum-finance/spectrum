@@ -1,3 +1,4 @@
+mod integration_tests;
 mod peer_manager;
 
 use futures::channel::mpsc;

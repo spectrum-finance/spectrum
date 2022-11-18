@@ -1,3 +1,5 @@
+mod fake_sync_behaviour;
+
 use std::{collections::HashMap, time::Duration};
 
 use futures::{
@@ -7,20 +9,21 @@ use futures::{
 use libp2p::{identity, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
 use spectrum_network::{
     network_controller::{NetworkController, NetworkControllerIn, NetworkControllerOut, NetworkMailbox},
-    peer_conn_handler::PeerConnHandlerConf,
+    peer_conn_handler::{ConnHandlerError, PeerConnHandlerConf},
     peer_manager::{
         data::{ConnectionLossReason, PeerDestination, ReputationChange},
         peers_state::PeerRepo,
         NetworkingConfig, PeerManager, PeerManagerConfig, PeersMailbox,
     },
     protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID},
-    protocol_api::ProtocolMailbox,
     protocol_handler::{
         sync::{message::SyncSpec, NodeStatus, SyncBehaviour},
-        ProtocolBehaviour, ProtocolHandler,
+        MalformedMessage, ProtocolBehaviour, ProtocolHandler,
     },
     types::Reputation,
 };
+
+use crate::integration_tests::fake_sync_behaviour::FakeSyncBehaviour;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Peer {
@@ -30,17 +33,25 @@ enum Peer {
 
 /// Integration test which covers:
 ///  - peer connection
-///  - peer disconnection
+///  - peer disconnection by sudden shutdown (`ResetByPeer`)
 ///  - peer punishment due to no-response
 #[async_std::test]
-async fn integration_test() {
+async fn integration_test_0() {
+    //               --------             --------
+    // ?? <~~~~~~~~ | peer_0 | <~~~~~~~~ | peer_1 |
+    //               --------             --------
+    //
+    // In this scenario `peer_0` has a non-existent peer in the bootstrap-peer set and `peer_1` has
+    // only `peer_0` as a bootstrap peer.
+    //   - `peer_1` will successfully establish a connection with `peer_0`
+    //   - `peer_0`s attempted connection will trigger peer-punishment
+    //   - Afterwards we shutdown `peer_1` and check for peer disconnection event in `peer_0`.
     let local_key_0 = identity::Keypair::generate_ed25519();
     let local_peer_id_0 = PeerId::from(local_key_0.public());
     let local_key_1 = identity::Keypair::generate_ed25519();
     let local_peer_id_1 = PeerId::from(local_key_1.public());
 
-    // We add the following non-existent peer into the bootstrap collection for `peer_0`, so we can
-    // witness this peer being punished for `NoResponse`.
+    // Non-existent peer
     let fake_peer_id = PeerId::random();
     let fake_addr: Multiaddr = "/ip4/127.0.0.1/tcp/1236".parse().unwrap();
 
@@ -115,37 +126,143 @@ async fn integration_test() {
 
     dbg!(&res_peer_0);
     dbg!(&res_peer_1);
-    assert!(if let Some(NetworkControllerOut::PeerPunished {
-        peer_id,
-        reason: ReputationChange::NoResponse,
-    }) = res_peer_0.first()
-    {
-        *peer_id == fake_peer_id
-    } else {
-        false
-    });
-    assert!(
-        if let NetworkControllerOut::ConnectedWithInboundPeer(pid) = res_peer_0[1] {
-            pid == local_peer_id_1
-        } else {
-            false
-        }
+    assert_eq!(
+        NetworkControllerOut::PeerPunished {
+            peer_id: fake_peer_id,
+            reason: ReputationChange::NoResponse,
+        },
+        res_peer_0[0]
     );
-    assert!(if let Some(NetworkControllerOut::Disconnected {
-        peer_id,
-        reason: ConnectionLossReason::ResetByPeer,
-    }) = res_peer_0.last()
-    {
-        *peer_id == local_peer_id_1
-    } else {
-        false
+    assert_eq!(
+        NetworkControllerOut::ConnectedWithInboundPeer(local_peer_id_1),
+        res_peer_0[1]
+    );
+    assert_eq!(
+        Some(&NetworkControllerOut::Disconnected {
+            peer_id: local_peer_id_1,
+            reason: ConnectionLossReason::ResetByPeer,
+        }),
+        res_peer_0.last()
+    );
+    assert_eq!(
+        Some(&NetworkControllerOut::ConnectedWithOutboundPeer(local_peer_id_0)),
+        res_peer_1.first()
+    );
+}
+
+/// Integration test which covers:
+///  - peer connection
+///  - peer punishment due to malformed message
+///  - peer disconnection from reputation being too low
+#[async_std::test]
+async fn integration_test_1() {
+    //   --------             --------
+    //  | peer_0 | <~~~~~~~~ | peer_1 |
+    //   --------             --------
+    //
+    // In this scenario `peer_0` has no bootstrap peers and `peer_1` has only `peer_0` as a
+    // bootstrap peer. `peer_0` is running the Sync protocol and `peer_1` a fake-Sync protocol.
+    // After `peer_1` establishes a connection to `peer_0`, `peer_1` will send a message which is
+    // regarded as malformed by `peer_0`. `peer_0` then punishes `peer_1` and a disconnection is
+    // triggered due to reputation being too low.
+    let local_key_0 = identity::Keypair::generate_ed25519();
+    let local_peer_id_0 = PeerId::from(local_key_0.public());
+    let local_key_1 = identity::Keypair::generate_ed25519();
+    let local_peer_id_1 = PeerId::from(local_key_1.public());
+
+    let addr_0: Multiaddr = "/ip4/127.0.0.1/tcp/1237".parse().unwrap();
+    let addr_1: Multiaddr = "/ip4/127.0.0.1/tcp/1238".parse().unwrap();
+    let peers_0 = vec![];
+    let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
+
+    let local_status_0 = NodeStatus {
+        supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
+        height: 0,
+    };
+    let local_status_1 = local_status_0.clone();
+    let sync_behaviour_0 = |p| SyncBehaviour::new(p, local_status_0);
+    let fake_sync_behaviour = |p| FakeSyncBehaviour::new(p, local_status_1);
+
+    let (nc_out_tx, mut nc_out_rx) = mpsc::channel(10);
+    let peer_0 = make_swarm_fut(
+        peers_0,
+        local_key_0,
+        addr_0,
+        Peer::First,
+        sync_behaviour_0,
+        nc_out_tx.clone(),
+    );
+    let peer_1 = make_swarm_fut(
+        peers_1,
+        local_key_1,
+        addr_1,
+        Peer::Second,
+        fake_sync_behaviour,
+        nc_out_tx,
+    );
+    let (abortable_peer_0, handle_0) = futures::future::abortable(peer_0);
+    let (abortable_peer_1, handle_1) = futures::future::abortable(peer_1);
+    let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
+    let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
+
+    // Spawn tasks for peer_0
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_0.await;
+        handle_0.abort();
     });
-    assert!(
-        if let Some(NetworkControllerOut::ConnectedWithOutboundPeer(pid)) = res_peer_1.first() {
-            *pid == local_peer_id_0
-        } else {
-            false
+    async_std::task::spawn(async move {
+        wasm_timer::Delay::new(Duration::from_secs(4)).await.unwrap();
+        cancel_tx_0.send(()).unwrap();
+    });
+    async_std::task::spawn(abortable_peer_0);
+
+    // Spawn tasks for peer_1
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_1.await;
+        handle_1.abort();
+    });
+    async_std::task::spawn(async move {
+        wasm_timer::Delay::new(Duration::from_secs(3)).await.unwrap();
+        cancel_tx_1.send(()).unwrap();
+    });
+    async_std::task::spawn(abortable_peer_1);
+
+    // Collect messages from the peers. Note that the while loop below will end since
+    // `abortable_peer_0` and `abortable_peer_1` is guaranteed to drop, leading to the senders
+    // dropping too.
+    let mut res_peer_0 = vec![];
+    let mut res_peer_1 = vec![];
+    while let Some((peer, nc_msg)) = nc_out_rx.next().await {
+        match peer {
+            Peer::First => res_peer_0.push(nc_msg),
+            Peer::Second => res_peer_1.push(nc_msg),
         }
+    }
+
+    dbg!(&res_peer_0);
+    dbg!(&res_peer_1);
+
+    assert_eq!(
+        NetworkControllerOut::ConnectedWithInboundPeer(local_peer_id_1),
+        res_peer_0[0]
+    );
+    assert_eq!(
+        NetworkControllerOut::PeerPunished {
+            peer_id: local_peer_id_1,
+            reason: ReputationChange::MalformedMessage(MalformedMessage::UnknownFormat),
+        },
+        res_peer_0[1]
+    );
+    assert_eq!(
+        Some(&NetworkControllerOut::Disconnected {
+            peer_id: local_peer_id_1,
+            reason: ConnectionLossReason::Reset(ConnHandlerError::UnacceptablePeer),
+        }),
+        res_peer_0.last()
+    );
+    assert_eq!(
+        Some(&NetworkControllerOut::ConnectedWithOutboundPeer(local_peer_id_0)),
+        res_peer_1.first()
     );
 }
 
@@ -211,7 +328,8 @@ async fn make_swarm_fut<P, F>(
     let mut swarm = Swarm::new(transport, nc, local_peer_id);
     async_std::task::spawn(async move {
         loop {
-            let _ = sync_handler.select_next_some().await;
+            let msg = sync_handler.select_next_some().await;
+            dbg!(msg);
         }
     });
 
@@ -221,13 +339,6 @@ async fn make_swarm_fut<P, F>(
         match swarm.select_next_some().await {
             SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {:?}", address),
             SwarmEvent::Behaviour(event) => tx.try_send((peer, event)).unwrap(),
-            //match event {
-            //    NetworkControllerOut::ConnectedWithInboundPeer(_)
-            //    | NetworkControllerOut::ConnectedWithOutboundPeer(_) => {
-            //        tx.try_send((peer, event)).unwrap();
-            //    }
-            //    _ => (),
-            //},
             ce @ SwarmEvent::ConnectionEstablished { .. } => {
                 dbg!(ce);
             }

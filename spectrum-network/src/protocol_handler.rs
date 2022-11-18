@@ -55,6 +55,7 @@ pub trait ProtocolSpec {
     type TMessage: codec::BinCodec + Versioned + Debug + Send + Clone;
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MalformedMessage {
     VersionMismatch {
         negotiated_ver: ProtocolVer,

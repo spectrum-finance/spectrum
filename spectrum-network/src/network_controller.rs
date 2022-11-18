@@ -1,5 +1,7 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
-use crate::peer_conn_handler::{ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
+use crate::peer_conn_handler::{
+    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf,
+};
 use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
 use crate::protocol::ProtocolConfig;
 use crate::protocol_api::ProtocolEvents;
@@ -53,7 +55,7 @@ pub enum ConnectedPeer<THandler> {
 }
 
 /// Outbound network events.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NetworkControllerOut {
     /// Connected with peer, initiated by external peer (inbound connection).
     ConnectedWithInboundPeer(PeerId),
@@ -469,6 +471,10 @@ where
                                 handler: NotifyHandler::One(*conn_id),
                                 event: ConnHandlerIn::CloseAllProtocols,
                             });
+                        self.peer_disconnected(
+                            peer_id,
+                            ConnectionLossReason::Reset(ConnHandlerError::UnacceptablePeer),
+                        );
                     }
                     continue;
                 }

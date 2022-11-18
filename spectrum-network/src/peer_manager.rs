@@ -534,6 +534,7 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
                         ConnHandlerError::SyncChannelExhausted => {
                             self.on_report_peer(peer_id, ReputationChange::TooSlow);
                         }
+                        ConnHandlerError::UnacceptablePeer => (),
                     },
                     ConnectionLossReason::Unknown => {}
                 }

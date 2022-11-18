@@ -179,6 +179,8 @@ pub enum ConnHandlerOut {
 pub enum ConnHandlerError {
     #[error("Channel of synchronous notifications is exhausted.")]
     SyncChannelExhausted,
+    #[error("Peer has been deemed unacceptable (reputation too low).")]
+    UnacceptablePeer,
 }
 
 pub trait PeerConnHandlerActions {

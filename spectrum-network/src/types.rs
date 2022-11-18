@@ -25,7 +25,7 @@ impl Reputation {
         Self(0)
     }
     pub fn apply(&self, change: ReputationChange) -> Self {
-        Reputation(self.0 + change as i32)
+        Reputation(self.0 + i32::from(change))
     }
 }
 
