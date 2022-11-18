@@ -501,22 +501,26 @@ where
                         }
                         Entry::Vacant(_) => {}
                     }
+                    continue;
                 }
-                Poll::Ready(Some(PeerManagerOut::Reject(pid, cid))) => match self.enabled_peers.entry(pid) {
-                    Entry::Occupied(peer) => {
-                        if let ConnectedPeer::PendingApprove(_) = peer.get() {
-                            trace!("Inbound connection from peer {} rejected", pid);
-                            peer.remove();
-                            self.pending_actions
-                                .push_back(NetworkBehaviourAction::NotifyHandler {
-                                    peer_id: pid,
-                                    handler: NotifyHandler::One(cid),
-                                    event: ConnHandlerIn::CloseAllProtocols,
-                                })
+                Poll::Ready(Some(PeerManagerOut::Reject(pid, cid))) => {
+                    match self.enabled_peers.entry(pid) {
+                        Entry::Occupied(peer) => {
+                            if let ConnectedPeer::PendingApprove(_) = peer.get() {
+                                trace!("Inbound connection from peer {} rejected", pid);
+                                peer.remove();
+                                self.pending_actions
+                                    .push_back(NetworkBehaviourAction::NotifyHandler {
+                                        peer_id: pid,
+                                        handler: NotifyHandler::One(cid),
+                                        event: ConnHandlerIn::CloseAllProtocols,
+                                    })
+                            }
                         }
+                        Entry::Vacant(_) => {}
                     }
-                    Entry::Vacant(_) => {}
-                },
+                    continue;
+                }
                 Poll::Ready(Some(PeerManagerOut::StartProtocol(protocol, pid))) => {
                     match self.enabled_peers.entry(pid) {
                         Entry::Occupied(mut peer) => {
@@ -551,11 +555,13 @@ where
                 }
                 Poll::Ready(Some(PeerManagerOut::NotifyPeerPunished { peer_id, reason })) => {
                     self.peer_punished(peer_id, reason);
+                    continue;
                 }
                 Poll::Ready(Some(PeerManagerOut::NotifyConnectionLost { peer_id, reason })) => {
                     self.peer_disconnected(peer_id, reason);
+                    continue;
                 }
-                Poll::Pending => (),
+                Poll::Pending => {}
                 Poll::Ready(None) => unreachable!("PeerManager should never terminate"),
             }
 
