@@ -514,10 +514,9 @@ where
                                     event: ConnHandlerIn::CloseAllProtocols,
                                 })
                         }
-                        Entry::Vacant(_) => {}
                     }
-                    continue;
-                }
+                    Entry::Vacant(_) => {}
+                },
                 Poll::Ready(Some(PeerManagerOut::StartProtocol(protocol, pid))) => {
                     match self.enabled_peers.entry(pid) {
                         Entry::Occupied(mut peer) => {
@@ -556,7 +555,7 @@ where
                 Poll::Ready(Some(PeerManagerOut::NotifyConnectionLost { peer_id, reason })) => {
                     self.peer_disconnected(peer_id, reason);
                 }
-                Poll::Pending => break,
+                Poll::Pending => (),
                 Poll::Ready(None) => unreachable!("PeerManager should never terminate"),
             }
 
