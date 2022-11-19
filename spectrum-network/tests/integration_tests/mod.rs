@@ -18,13 +18,16 @@ use spectrum_network::{
     protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID},
     protocol_api::ProtocolMailbox,
     protocol_handler::{
-        sync::{message::SyncSpec, NodeStatus, SyncBehaviour},
+        sync::{
+            message::{SyncMessage, SyncSpec},
+            NodeStatus, SyncBehaviour,
+        },
         MalformedMessage, ProtocolBehaviour, ProtocolHandler,
     },
     types::Reputation,
 };
 
-use crate::integration_tests::fake_sync_behaviour::FakeSyncBehaviour;
+use crate::integration_tests::fake_sync_behaviour::{FakeSyncBehaviour, FakeSyncMessage};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Peer {
@@ -70,33 +73,41 @@ async fn integration_test_0() {
     let sync_behaviour_0 = |p| SyncBehaviour::new(p, local_status_0);
     let sync_behaviour_1 = |p| SyncBehaviour::new(p, local_status_1);
 
-    let (nc_out_tx, mut nc_out_rx) = mpsc::channel(10);
+    let (nc_out_tx, mut nc_out_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
     let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
     let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, sync_behaviour_1, 10);
 
+    let mut nc_out_tx_sync_handler_0 = nc_out_tx.clone();
     let sync_handler_0_handle = async_std::task::spawn(async move {
         loop {
             let msg = sync_handler_0.select_next_some().await;
-            dbg!(msg);
+            nc_out_tx_sync_handler_0
+                .try_send((Peer::First, Msg::Protocol(msg)))
+                .unwrap();
         }
     });
 
+    let mut nc_out_tx_sync_handler_1 = nc_out_tx.clone();
     let sync_handler_1_handle = async_std::task::spawn(async move {
         loop {
             let msg = sync_handler_1.select_next_some().await;
-            dbg!(msg);
+            nc_out_tx_sync_handler_1
+                .try_send((Peer::Second, Msg::Protocol(msg)))
+                .unwrap();
         }
     });
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm(
-        local_key_0,
-        nc_0,
-        addr_0,
-        Peer::First,
-        nc_out_tx.clone(),
-    ));
-    let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, Peer::Second, nc_out_tx));
+    let (abortable_peer_0, handle_0) =
+        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>>(
+            local_key_0,
+            nc_0,
+            addr_0,
+            Peer::First,
+            nc_out_tx.clone(),
+        ));
+    let (abortable_peer_1, handle_1) = futures::future::abortable(
+        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, nc_out_tx),
+    );
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -129,15 +140,25 @@ async fn integration_test_0() {
     // dropping too.
     let mut res_peer_0 = vec![];
     let mut res_peer_1 = vec![];
-    while let Some((peer, nc_msg)) = nc_out_rx.next().await {
-        match peer {
-            Peer::First => res_peer_0.push(nc_msg),
-            Peer::Second => res_peer_1.push(nc_msg),
+    let mut p_msg_peer_0 = vec![];
+    let mut p_msg_peer_1 = vec![];
+    while let Some((peer, msg)) = nc_out_rx.next().await {
+        match msg {
+            Msg::NetworkController(nc_msg) => match peer {
+                Peer::First => res_peer_0.push(nc_msg),
+                Peer::Second => res_peer_1.push(nc_msg),
+            },
+            Msg::Protocol(p_msg) => match peer {
+                Peer::First => p_msg_peer_0.push(p_msg),
+                Peer::Second => p_msg_peer_1.push(p_msg),
+            },
         }
     }
 
     dbg!(&res_peer_0);
     dbg!(&res_peer_1);
+    dbg!(&p_msg_peer_0);
+    dbg!(&p_msg_peer_1);
     assert_eq!(
         NetworkControllerOut::PeerPunished {
             peer_id: fake_peer_id,
@@ -196,32 +217,42 @@ async fn integration_test_1() {
     let sync_behaviour_0 = |p| SyncBehaviour::new(p, local_status_0);
     let fake_sync_behaviour = |p| FakeSyncBehaviour::new(p, local_status_1);
 
-    let (nc_out_tx, mut nc_out_rx) = mpsc::channel(10);
+    let (nc_out_tx, nc_out_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
+    let (fake_msg_tx, fake_msg_rx) = mpsc::channel::<(Peer, Msg<FakeSyncMessage>)>(10);
     let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
     let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, fake_sync_behaviour, 10);
+
+    let mut nc_out_tx_sync_handler_0 = nc_out_tx.clone();
     let sync_handler_0_handle = async_std::task::spawn(async move {
         loop {
             let msg = sync_handler_0.select_next_some().await;
-            dbg!(msg);
+            nc_out_tx_sync_handler_0
+                .try_send((Peer::First, Msg::Protocol(msg)))
+                .unwrap();
         }
     });
 
+    let mut fake_msg_tx_sync_handler_1 = fake_msg_tx.clone();
     let sync_handler_1_handle = async_std::task::spawn(async move {
         loop {
             let msg = sync_handler_1.select_next_some().await;
-            dbg!(msg);
+            fake_msg_tx_sync_handler_1
+                .try_send((Peer::Second, Msg::Protocol(msg)))
+                .unwrap();
         }
     });
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm(
-        local_key_0,
-        nc_0,
-        addr_0,
-        Peer::First,
-        nc_out_tx.clone(),
-    ));
+    let (abortable_peer_0, handle_0) = futures::future::abortable(
+        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, nc_out_tx),
+    );
     let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, Peer::Second, nc_out_tx));
+        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
+            local_key_1,
+            nc_1,
+            addr_1,
+            Peer::Second,
+            fake_msg_tx,
+        ));
 
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
@@ -250,20 +281,49 @@ async fn integration_test_1() {
     });
     async_std::task::spawn(abortable_peer_1);
 
+    enum C {
+        SyncMsg((Peer, Msg<SyncMessage>)),
+        FakeMsg((Peer, Msg<FakeSyncMessage>)),
+    }
+
+    type CombinedStream = std::pin::Pin<Box<dyn futures::stream::Stream<Item = C> + Send>>;
+
+    let streams: Vec<CombinedStream> = vec![
+        nc_out_rx.map(C::SyncMsg).boxed(),
+        fake_msg_rx.map(C::FakeMsg).boxed(),
+    ];
+    let mut combined_stream = futures::stream::select_all(streams);
+
     // Collect messages from the peers. Note that the while loop below will end since
     // `abortable_peer_0` and `abortable_peer_1` is guaranteed to drop, leading to the senders
     // dropping too.
     let mut res_peer_0 = vec![];
     let mut res_peer_1 = vec![];
-    while let Some((peer, nc_msg)) = nc_out_rx.next().await {
-        match peer {
-            Peer::First => res_peer_0.push(nc_msg),
-            Peer::Second => res_peer_1.push(nc_msg),
+    let mut p_msg_peer_0: Vec<SyncMessage> = vec![];
+    let mut p_msg_peer_1: Vec<FakeSyncMessage> = vec![];
+    while let Some(c) = combined_stream.next().await {
+        match c {
+            C::SyncMsg((peer, msg)) => match msg {
+                Msg::NetworkController(nc_msg) => match peer {
+                    Peer::First => res_peer_0.push(nc_msg),
+                    Peer::Second => res_peer_1.push(nc_msg),
+                },
+                Msg::Protocol(p_msg) => p_msg_peer_0.push(p_msg),
+            },
+            C::FakeMsg((peer, msg)) => match msg {
+                Msg::NetworkController(nc_msg) => match peer {
+                    Peer::First => res_peer_0.push(nc_msg),
+                    Peer::Second => res_peer_1.push(nc_msg),
+                },
+                Msg::Protocol(p_msg) => p_msg_peer_1.push(p_msg),
+            },
         }
     }
 
     dbg!(&res_peer_0);
     dbg!(&res_peer_1);
+    dbg!(&p_msg_peer_0);
+    dbg!(&p_msg_peer_1);
 
     assert_eq!(
         NetworkControllerOut::ConnectedWithInboundPeer(local_peer_id_1),
@@ -318,35 +378,44 @@ async fn integration_test_peer_punish_too_slow() {
     let sync_behaviour_0 = |p| SyncBehaviour::new(p, local_status_0);
     let sync_behaviour_1 = |p| SyncBehaviour::new(p, local_status_1);
 
-    let (nc_out_tx, mut nc_out_rx) = mpsc::channel(10);
+    let (nc_out_tx, mut nc_out_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
 
     // It's crucial to have a buffer of size 1 for this test
     let msg_buffer_size = 1;
     let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, msg_buffer_size);
     let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, sync_behaviour_1, msg_buffer_size);
+
+    let mut nc_out_tx_sync_handler_0 = nc_out_tx.clone();
     let sync_handler_0_handle = async_std::task::spawn(async move {
         loop {
             let msg = sync_handler_0.select_next_some().await;
-            dbg!(msg);
+            nc_out_tx_sync_handler_0
+                .try_send((Peer::First, Msg::Protocol(msg)))
+                .unwrap();
         }
     });
 
+    let mut nc_out_tx_sync_handler_1 = nc_out_tx.clone();
     let sync_handler_1_handle = async_std::task::spawn(async move {
         loop {
             let msg = sync_handler_1.select_next_some().await;
-            dbg!(msg);
+            nc_out_tx_sync_handler_1
+                .try_send((Peer::Second, Msg::Protocol(msg)))
+                .unwrap();
         }
     });
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm(
-        local_key_0,
-        nc_0,
-        addr_0,
-        Peer::First,
-        nc_out_tx.clone(),
-    ));
-    let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, Peer::Second, nc_out_tx));
+    let (abortable_peer_0, handle_0) =
+        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>>(
+            local_key_0,
+            nc_0,
+            addr_0,
+            Peer::First,
+            nc_out_tx.clone(),
+        ));
+    let (abortable_peer_1, handle_1) = futures::future::abortable(
+        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, nc_out_tx),
+    );
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -379,15 +448,25 @@ async fn integration_test_peer_punish_too_slow() {
     // dropping too.
     let mut res_peer_0 = vec![];
     let mut res_peer_1 = vec![];
-    while let Some((peer, nc_msg)) = nc_out_rx.next().await {
-        match peer {
-            Peer::First => res_peer_0.push(nc_msg),
-            Peer::Second => res_peer_1.push(nc_msg),
+    let mut p_msg_peer_0 = vec![];
+    let mut p_msg_peer_1 = vec![];
+    while let Some((peer, msg)) = nc_out_rx.next().await {
+        match msg {
+            Msg::NetworkController(nc_msg) => match peer {
+                Peer::First => res_peer_0.push(nc_msg),
+                Peer::Second => res_peer_1.push(nc_msg),
+            },
+            Msg::Protocol(p_msg) => match peer {
+                Peer::First => p_msg_peer_0.push(p_msg),
+                Peer::Second => p_msg_peer_1.push(p_msg),
+            },
         }
     }
 
     dbg!(&res_peer_0);
     dbg!(&res_peer_1);
+    dbg!(&p_msg_peer_0);
+    dbg!(&p_msg_peer_1);
 
     assert_eq!(
         NetworkControllerOut::ConnectedWithInboundPeer(local_peer_id_1),
@@ -474,13 +553,18 @@ where
     (sync_handler, nc)
 }
 
-async fn create_swarm(
+async fn create_swarm<P>(
     local_key: identity::Keypair,
     nc: NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>,
     addr: Multiaddr,
     peer: Peer,
-    mut tx: mpsc::Sender<(Peer, NetworkControllerOut)>,
-) {
+    mut tx: mpsc::Sender<(
+        Peer,
+        Msg<<<P as ProtocolBehaviour>::TProto as spectrum_network::protocol_handler::ProtocolSpec>::TMessage>,
+    )>,
+) where
+    P: ProtocolBehaviour + Unpin + std::marker::Send + 'static,
+{
     let transport = libp2p::development_transport(local_key.clone()).await.unwrap();
     let local_peer_id = PeerId::from(local_key.public());
     let mut swarm = Swarm::new(transport, nc, local_peer_id);
@@ -490,11 +574,16 @@ async fn create_swarm(
     loop {
         match swarm.select_next_some().await {
             SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {:?}", address),
-            SwarmEvent::Behaviour(event) => tx.try_send((peer, event)).unwrap(),
+            SwarmEvent::Behaviour(event) => tx.try_send((peer, Msg::NetworkController(event))).unwrap(),
             ce @ SwarmEvent::ConnectionEstablished { .. } => {
                 dbg!(ce);
             }
             _ => {}
         }
     }
+}
+
+enum Msg<M> {
+    NetworkController(NetworkControllerOut),
+    Protocol(M),
 }
