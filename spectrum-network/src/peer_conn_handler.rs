@@ -234,7 +234,7 @@ impl IntoConnectionHandler for PartialPeerConnHandler {
             pending_events: VecDeque::new(),
             fault: None,
             delay: wasm_timer::Delay::new(Duration::from_millis(300)),
-            throttle_recv,
+            throttle_stage: throttle_recv,
         }
     }
 
@@ -260,8 +260,10 @@ pub struct PeerConnHandler {
         VecDeque<ConnectionHandlerEvent<ProtocolUpgradeOut, ProtocolTag, ConnHandlerOut, ConnHandlerError>>,
     /// Is the handler going to terminate due to this err.
     fault: Option<ConnHandlerError>,
-    /// Stage of
-    throttle_recv: ThrottleStage,
+    /// Current throttle stage. Throttling is performed for each inbound `StreamNotification`.
+    throttle_stage: ThrottleStage,
+    /// If throttling inbound `StreamNotification`s, this represents the delay before processing a
+    /// new element.
     delay: wasm_timer::Delay,
 }
 
@@ -557,8 +559,8 @@ impl ConnectionHandler for PeerConnHandler {
                 ) = &mut protocol.state
                 {
                     loop {
-                        if self.throttle_recv == ThrottleStage::Finish {
-                            self.throttle_recv = ThrottleStage::Start;
+                        if self.throttle_stage == ThrottleStage::Finish {
+                            self.throttle_stage = ThrottleStage::Start;
                         };
                         // Only proceed with `substream_out.poll_ready_unpin` if there is an element
                         // available in `pending_messages_recv`. This avoids waking up the task when
@@ -570,17 +572,17 @@ impl ConnectionHandler for PeerConnHandler {
                                 return Poll::Ready(ConnectionHandlerEvent::Close(err));
                             }
                             Poll::Ready(Some(_)) => {
-                                if self.throttle_recv == ThrottleStage::Start {
-                                    self.throttle_recv = ThrottleStage::InProgress;
+                                if self.throttle_stage == ThrottleStage::Start {
+                                    self.throttle_stage = ThrottleStage::InProgress;
                                 }
                             }
                             Poll::Ready(None) | Poll::Pending => break,
                         }
 
-                        if self.throttle_recv == ThrottleStage::InProgress {
+                        if self.throttle_stage == ThrottleStage::InProgress {
                             match self.delay.poll_unpin(cx) {
                                 Poll::Ready(_) => {
-                                    self.throttle_recv = ThrottleStage::Finish;
+                                    self.throttle_stage = ThrottleStage::Finish;
                                 }
                                 Poll::Pending => {
                                     return Poll::Pending;
@@ -711,12 +713,11 @@ impl ConnectionHandler for PeerConnHandler {
     }
 }
 
+/// This is used to throttle `StreamNotification`s sent to us by the other peer.
 #[derive(PartialEq, Eq)]
 enum ThrottleStage {
     Start,
     InProgress,
-    /// Throttling has completed.
     Finish,
-    /// Throttling has been disabled.
     Disable,
 }
