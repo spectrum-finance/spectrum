@@ -219,6 +219,12 @@ impl IntoConnectionHandler for PartialPeerConnHandler {
                 )
             })
         }));
+
+        #[cfg(not(feature = "test_peer_punish_too_slow"))]
+        let throttle_recv = ThrottleStage::Disable;
+        #[cfg(feature = "test_peer_punish_too_slow")]
+        let throttle_recv = ThrottleStage::Start;
+
         PeerConnHandler {
             conf: self.conf,
             protocols,
@@ -227,6 +233,8 @@ impl IntoConnectionHandler for PartialPeerConnHandler {
             peer_id: *remote_peer_id,
             pending_events: VecDeque::new(),
             fault: None,
+            delay: wasm_timer::Delay::new(Duration::from_millis(300)),
+            throttle_recv,
         }
     }
 
@@ -252,6 +260,9 @@ pub struct PeerConnHandler {
         VecDeque<ConnectionHandlerEvent<ProtocolUpgradeOut, ProtocolTag, ConnHandlerOut, ConnHandlerError>>,
     /// Is the handler going to terminate due to this err.
     fault: Option<ConnHandlerError>,
+    /// Stage of
+    throttle_recv: ThrottleStage,
+    delay: wasm_timer::Delay,
 }
 
 impl PeerConnHandler {
@@ -546,6 +557,9 @@ impl ConnectionHandler for PeerConnHandler {
                 ) = &mut protocol.state
                 {
                     loop {
+                        if self.throttle_recv == ThrottleStage::Finish {
+                            self.throttle_recv = ThrottleStage::Start;
+                        };
                         // Only proceed with `substream_out.poll_ready_unpin` if there is an element
                         // available in `pending_messages_recv`. This avoids waking up the task when
                         // a substream is ready to send if there isn't actually something to send.
@@ -555,8 +569,23 @@ impl ConnectionHandler for PeerConnHandler {
                                 self.fault = Some(err);
                                 return Poll::Ready(ConnectionHandlerEvent::Close(err));
                             }
-                            Poll::Ready(Some(_)) => {}
+                            Poll::Ready(Some(_)) => {
+                                if self.throttle_recv == ThrottleStage::Start {
+                                    self.throttle_recv = ThrottleStage::InProgress;
+                                }
+                            }
                             Poll::Ready(None) | Poll::Pending => break,
+                        }
+
+                        if self.throttle_recv == ThrottleStage::InProgress {
+                            match self.delay.poll_unpin(cx) {
+                                Poll::Ready(_) => {
+                                    self.throttle_recv = ThrottleStage::Finish;
+                                }
+                                Poll::Pending => {
+                                    return Poll::Pending;
+                                }
+                            }
                         }
                         // Before we extract the element from `pending_messages_recv`, check that the
                         // substream is ready to accept a message.
@@ -680,4 +709,14 @@ impl ConnectionHandler for PeerConnHandler {
             Poll::Pending
         }
     }
+}
+
+#[derive(PartialEq, Eq)]
+enum ThrottleStage {
+    Start,
+    InProgress,
+    /// Throttling has completed.
+    Finish,
+    /// Throttling has been disabled.
+    Disable,
 }

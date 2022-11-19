@@ -77,7 +77,29 @@ where
         self.outbox.push_back(SyncBehaviourOut::Send {
             peer_id,
             message: SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers),
-        })
+        });
+
+        #[cfg(feature = "test_peer_punish_too_slow")]
+        {
+            // We send through extra messages to saturate the buffer to trigger peer-punishment for
+            // being `TooSlow`.
+            self.outbox.push_back(SyncBehaviourOut::Send {
+                peer_id,
+                message: SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers),
+            });
+            self.outbox.push_back(SyncBehaviourOut::Send {
+                peer_id,
+                message: SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers),
+            });
+            self.outbox.push_back(SyncBehaviourOut::Send {
+                peer_id,
+                message: SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers),
+            });
+            self.outbox.push_back(SyncBehaviourOut::Send {
+                peer_id,
+                message: SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers),
+            });
+        }
     }
 
     fn send_peers(&mut self, peer_id: PeerId) {

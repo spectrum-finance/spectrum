@@ -35,6 +35,7 @@ enum Peer {
 ///  - peer connection
 ///  - peer disconnection by sudden shutdown (`ResetByPeer`)
 ///  - peer punishment due to no-response
+#[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
 #[async_std::test]
 async fn integration_test_0() {
     //               --------             --------
@@ -75,6 +76,7 @@ async fn integration_test_0() {
         addr_0,
         Peer::First,
         sync_behaviour_0,
+        10,
         nc_out_tx.clone(),
     );
     let peer_1 = make_swarm_fut(
@@ -83,6 +85,7 @@ async fn integration_test_0() {
         addr_1,
         Peer::Second,
         sync_behaviour_1,
+        10,
         nc_out_tx,
     );
     let (abortable_peer_0, handle_0) = futures::future::abortable(peer_0);
@@ -96,7 +99,7 @@ async fn integration_test_0() {
         handle_0.abort();
     });
     async_std::task::spawn(async move {
-        wasm_timer::Delay::new(Duration::from_secs(4)).await.unwrap();
+        wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
         cancel_tx_0.send(()).unwrap();
     });
     async_std::task::spawn(abortable_peer_0);
@@ -107,7 +110,7 @@ async fn integration_test_0() {
         handle_1.abort();
     });
     async_std::task::spawn(async move {
-        wasm_timer::Delay::new(Duration::from_secs(3)).await.unwrap();
+        wasm_timer::Delay::new(Duration::from_secs(4)).await.unwrap();
         cancel_tx_1.send(()).unwrap();
     });
     async_std::task::spawn(abortable_peer_1);
@@ -154,6 +157,7 @@ async fn integration_test_0() {
 ///  - peer connection
 ///  - peer punishment due to malformed message
 ///  - peer disconnection from reputation being too low
+#[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
 #[async_std::test]
 async fn integration_test_1() {
     //   --------             --------
@@ -190,6 +194,7 @@ async fn integration_test_1() {
         addr_0,
         Peer::First,
         sync_behaviour_0,
+        10,
         nc_out_tx.clone(),
     );
     let peer_1 = make_swarm_fut(
@@ -198,6 +203,7 @@ async fn integration_test_1() {
         addr_1,
         Peer::Second,
         fake_sync_behaviour,
+        10,
         nc_out_tx,
     );
     let (abortable_peer_0, handle_0) = futures::future::abortable(peer_0);
@@ -211,7 +217,7 @@ async fn integration_test_1() {
         handle_0.abort();
     });
     async_std::task::spawn(async move {
-        wasm_timer::Delay::new(Duration::from_secs(4)).await.unwrap();
+        wasm_timer::Delay::new(Duration::from_secs(6)).await.unwrap();
         cancel_tx_0.send(()).unwrap();
     });
     async_std::task::spawn(abortable_peer_0);
@@ -222,7 +228,7 @@ async fn integration_test_1() {
         handle_1.abort();
     });
     async_std::task::spawn(async move {
-        wasm_timer::Delay::new(Duration::from_secs(3)).await.unwrap();
+        wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
         cancel_tx_1.send(()).unwrap();
     });
     async_std::task::spawn(abortable_peer_1);
@@ -266,20 +272,135 @@ async fn integration_test_1() {
     );
 }
 
+#[async_std::test]
+#[cfg_attr(not(feature = "test_peer_punish_too_slow"), ignore)]
+async fn integration_test_peer_punish_too_slow() {
+    //   --------             --------
+    //  | peer_0 | <~~~~~~~~ | peer_1 |
+    //   --------             --------
+    //
+    // In this scenario `peer_0` has no bootstrap peers and `peer_1` has only `peer_0` as a
+    // bootstrap peer.  After `peer_1` establishes a connection to `peer_0`, each peer will send
+    // multiple `GetPeers` messages in order to saturate the message buffers of each peer, resulting
+    // in peer disconnection.
+    let local_key_0 = identity::Keypair::generate_ed25519();
+    let local_peer_id_0 = PeerId::from(local_key_0.public());
+    let local_key_1 = identity::Keypair::generate_ed25519();
+    let local_peer_id_1 = PeerId::from(local_key_1.public());
+
+    let addr_0: Multiaddr = "/ip4/127.0.0.1/tcp/1237".parse().unwrap();
+    let addr_1: Multiaddr = "/ip4/127.0.0.1/tcp/1238".parse().unwrap();
+    let peers_0 = vec![];
+    let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
+
+    let local_status_0 = NodeStatus {
+        supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
+        height: 0,
+    };
+    let local_status_1 = local_status_0.clone();
+    let sync_behaviour_0 = |p| SyncBehaviour::new(p, local_status_0);
+    let fake_sync_behaviour = |p| SyncBehaviour::new(p, local_status_1);
+
+    let (nc_out_tx, mut nc_out_rx) = mpsc::channel(10);
+    let peer_0 = make_swarm_fut(
+        peers_0,
+        local_key_0,
+        addr_0,
+        Peer::First,
+        sync_behaviour_0,
+        1,
+        nc_out_tx.clone(),
+    );
+    let peer_1 = make_swarm_fut(
+        peers_1,
+        local_key_1,
+        addr_1,
+        Peer::Second,
+        fake_sync_behaviour,
+        1,
+        nc_out_tx,
+    );
+    let (abortable_peer_0, handle_0) = futures::future::abortable(peer_0);
+    let (abortable_peer_1, handle_1) = futures::future::abortable(peer_1);
+    let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
+    let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
+
+    // Spawn tasks for peer_0
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_0.await;
+        handle_0.abort();
+    });
+    async_std::task::spawn(async move {
+        wasm_timer::Delay::new(Duration::from_secs(6)).await.unwrap();
+        cancel_tx_0.send(()).unwrap();
+    });
+    async_std::task::spawn(abortable_peer_0);
+
+    // Spawn tasks for peer_1
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_1.await;
+        handle_1.abort();
+    });
+    async_std::task::spawn(async move {
+        wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
+        cancel_tx_1.send(()).unwrap();
+    });
+    async_std::task::spawn(abortable_peer_1);
+
+    // Collect messages from the peers. Note that the while loop below will end since
+    // `abortable_peer_0` and `abortable_peer_1` is guaranteed to drop, leading to the senders
+    // dropping too.
+    let mut res_peer_0 = vec![];
+    let mut res_peer_1 = vec![];
+    while let Some((peer, nc_msg)) = nc_out_rx.next().await {
+        match peer {
+            Peer::First => res_peer_0.push(nc_msg),
+            Peer::Second => res_peer_1.push(nc_msg),
+        }
+    }
+
+    dbg!(&res_peer_0);
+    dbg!(&res_peer_1);
+
+    assert_eq!(
+        NetworkControllerOut::ConnectedWithInboundPeer(local_peer_id_1),
+        res_peer_0[0]
+    );
+    assert_eq!(
+        NetworkControllerOut::PeerPunished {
+            peer_id: local_peer_id_1,
+            reason: ReputationChange::TooSlow,
+        },
+        res_peer_0[1]
+    );
+    assert_eq!(
+        Some(&NetworkControllerOut::Disconnected {
+            peer_id: local_peer_id_1,
+            reason: ConnectionLossReason::Reset(ConnHandlerError::SyncChannelExhausted),
+        }),
+        res_peer_0.last()
+    );
+    assert_eq!(
+        Some(&NetworkControllerOut::ConnectedWithOutboundPeer(local_peer_id_0)),
+        res_peer_1.first()
+    );
+}
+
 async fn make_swarm_fut<P, F>(
     peers: Vec<PeerDestination>,
     local_key: identity::Keypair,
     addr: Multiaddr,
     peer: Peer,
     gen_protocol_behaviour: F,
+    msg_buffer_size: usize,
     mut tx: mpsc::Sender<(Peer, NetworkControllerOut)>,
 ) where
     P: ProtocolBehaviour + Unpin + std::marker::Send + 'static,
     F: FnOnce(PeersMailbox) -> P,
 {
     let peer_conn_handler_conf = PeerConnHandlerConf {
-        async_msg_buffer_size: 10,
-        sync_msg_buffer_size: 40,
+        async_msg_buffer_size: msg_buffer_size,
+        sync_msg_buffer_size: msg_buffer_size,
         open_timeout: Duration::from_secs(60),
         initial_keep_alive: Duration::from_secs(60),
     };
