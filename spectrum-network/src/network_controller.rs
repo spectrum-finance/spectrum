@@ -398,25 +398,36 @@ where
                 }) = self.enabled_peers.get_mut(&peer_id)
                 {
                     let protocol_id = protocol_tag.protocol_id();
-                    let (_, prot_handler) = self.supported_protocols.get(&protocol_id).unwrap();
-                    match enabled_protocols.entry(protocol_id) {
-                        Entry::Vacant(entry) => {
-                            entry.insert((EnabledProtocol::PendingApprove, prot_handler.clone()));
-                            prot_handler.protocol_requested(peer_id, protocol_tag.protocol_ver(), handshake);
-                            self.protocol_pending_approve(peer_id, protocol_id);
-                        }
-                        Entry::Occupied(_) => {
-                            warn!(
-                                "Peer {:?} opened already enabled protocol {:?}",
-                                peer_id, protocol_id
-                            );
-                            self.pending_actions
-                                .push_back(NetworkBehaviourAction::NotifyHandler {
+                    if let Some((_, prot_handler)) = self.supported_protocols.get(&protocol_id) {
+                        match enabled_protocols.entry(protocol_id) {
+                            Entry::Vacant(entry) => {
+                                entry.insert((EnabledProtocol::PendingApprove, prot_handler.clone()));
+                                prot_handler.protocol_requested(
                                     peer_id,
-                                    handler: NotifyHandler::One(connection),
-                                    event: ConnHandlerIn::Close(protocol_id),
-                                })
+                                    protocol_tag.protocol_ver(),
+                                    handshake,
+                                );
+                            }
+                            Entry::Occupied(_) => {
+                                warn!(
+                                    "Peer {:?} opened already enabled protocol {:?}",
+                                    peer_id, protocol_id
+                                );
+                                self.pending_actions
+                                    .push_back(NetworkBehaviourAction::NotifyHandler {
+                                        peer_id,
+                                        handler: NotifyHandler::One(connection),
+                                        event: ConnHandlerIn::Close(protocol_id),
+                                    })
+                            }
                         }
+                    } else {
+                        self.pending_actions
+                            .push_back(NetworkBehaviourAction::NotifyHandler {
+                                peer_id,
+                                handler: NotifyHandler::One(connection),
+                                event: ConnHandlerIn::Close(protocol_id),
+                            })
                     }
                 }
             }
