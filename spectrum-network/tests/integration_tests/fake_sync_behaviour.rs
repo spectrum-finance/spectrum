@@ -24,12 +24,12 @@ use spectrum_network::{
     types::{ProtocolId, ProtocolVer},
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum FakeSyncMessage {
     SyncMessageV1(FakeSyncMessageV1),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum FakeSyncMessageV1 {
     /// This is the message which will be regarded as malformed by the receiving peer.
     FakeMsg,

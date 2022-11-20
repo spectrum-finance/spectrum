@@ -19,15 +19,15 @@ use spectrum_network::{
     protocol_api::ProtocolMailbox,
     protocol_handler::{
         sync::{
-            message::{SyncMessage, SyncSpec},
+            message::{SyncMessage, SyncMessageV1, SyncSpec},
             NodeStatus, SyncBehaviour,
         },
         MalformedMessage, ProtocolBehaviour, ProtocolHandler,
     },
-    types::Reputation,
+    types::{ProtocolId, ProtocolVer, Reputation},
 };
 
-use crate::integration_tests::fake_sync_behaviour::{FakeSyncBehaviour, FakeSyncMessage};
+use crate::integration_tests::fake_sync_behaviour::{FakeSyncBehaviour, FakeSyncMessage, FakeSyncMessageV1};
 
 /// Identifies particular peers
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -145,49 +145,74 @@ async fn integration_test_0() {
 
     // Collect messages from the peers. Note that the while loop below will end since all tasks that
     // use clones of `msg_tx` are guaranteed to drop, leading to the senders dropping too.
-    let mut res_peer_0 = vec![];
-    let mut res_peer_1 = vec![];
-    let mut p_msg_peer_0 = vec![];
-    let mut p_msg_peer_1 = vec![];
+    let mut nc_peer_0 = vec![];
+    let mut nc_peer_1 = vec![];
+    let mut prot_peer_0 = vec![];
+    let mut prot_peer_1 = vec![];
     while let Some((peer, msg)) = msg_rx.next().await {
         match msg {
             Msg::NetworkController(nc_msg) => match peer {
-                Peer::First => res_peer_0.push(nc_msg),
-                Peer::Second => res_peer_1.push(nc_msg),
+                Peer::First => nc_peer_0.push(nc_msg),
+                Peer::Second => nc_peer_1.push(nc_msg),
             },
             Msg::Protocol(p_msg) => match peer {
-                Peer::First => p_msg_peer_0.push(p_msg),
-                Peer::Second => p_msg_peer_1.push(p_msg),
+                Peer::First => prot_peer_0.push(p_msg),
+                Peer::Second => prot_peer_1.push(p_msg),
             },
         }
     }
 
-    dbg!(&res_peer_0);
-    dbg!(&res_peer_1);
-    dbg!(&p_msg_peer_0);
-    dbg!(&p_msg_peer_1);
-    assert_eq!(
+    dbg!(&nc_peer_0);
+    dbg!(&nc_peer_1);
+    dbg!(&prot_peer_0);
+    dbg!(&prot_peer_1);
+
+    let protocol_id = ProtocolId::from(0);
+    let protocol_ver = ProtocolVer::from(1);
+    let expected_nc_peer_0 = vec![
         NetworkControllerOut::PeerPunished {
             peer_id: fake_peer_id,
             reason: ReputationChange::NoResponse,
         },
-        res_peer_0[0]
-    );
-    assert_eq!(
         NetworkControllerOut::ConnectedWithInboundPeer(local_peer_id_1),
-        res_peer_0[1]
-    );
-    assert_eq!(
-        Some(&NetworkControllerOut::Disconnected {
+        NetworkControllerOut::ProtocolPendingApprove {
+            peer_id: local_peer_id_1,
+            protocol_id,
+        },
+        NetworkControllerOut::ProtocolEnabled {
+            peer_id: local_peer_id_1,
+            protocol_id,
+            protocol_ver,
+        },
+        NetworkControllerOut::Disconnected {
             peer_id: local_peer_id_1,
             reason: ConnectionLossReason::ResetByPeer,
-        }),
-        res_peer_0.last()
-    );
-    assert_eq!(
-        Some(&NetworkControllerOut::ConnectedWithOutboundPeer(local_peer_id_0)),
-        res_peer_1.first()
-    );
+        },
+    ];
+    assert_eq!(nc_peer_0, expected_nc_peer_0);
+
+    let expected_nc_peer_1 = vec![
+        NetworkControllerOut::ConnectedWithOutboundPeer(local_peer_id_0),
+        NetworkControllerOut::ProtocolPendingEnable {
+            peer_id: local_peer_id_0,
+            protocol_id,
+        },
+        NetworkControllerOut::ProtocolEnabled {
+            peer_id: local_peer_id_0,
+            protocol_id,
+            protocol_ver,
+        },
+    ];
+    assert_eq!(nc_peer_1, expected_nc_peer_1);
+
+    let expected_prot_peer_0 = vec![
+        SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers),
+        SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![])),
+    ];
+
+    let expected_prot_peer_1 = expected_prot_peer_0.clone();
+    assert_eq!(prot_peer_0, expected_prot_peer_0);
+    assert_eq!(prot_peer_1, expected_prot_peer_1);
 }
 
 /// Integration test which covers:
@@ -307,55 +332,80 @@ async fn integration_test_1() {
     // Collect messages from the peers. Note that the while loop below will end since all tasks that
     // use clones of `msg_tx` and `fake_msg_tx` are guaranteed to drop, leading to the senders
     // dropping too.
-    let mut res_peer_0 = vec![];
-    let mut res_peer_1 = vec![];
-    let mut p_msg_peer_0: Vec<SyncMessage> = vec![];
-    let mut p_msg_peer_1: Vec<FakeSyncMessage> = vec![];
+    let mut nc_peer_0 = vec![];
+    let mut nc_peer_1 = vec![];
+    let mut prot_peer_0: Vec<SyncMessage> = vec![];
+    let mut prot_peer_1: Vec<FakeSyncMessage> = vec![];
     while let Some(c) = combined_stream.next().await {
         match c {
             C::SyncMsg((peer, msg)) => match msg {
                 Msg::NetworkController(nc_msg) => match peer {
-                    Peer::First => res_peer_0.push(nc_msg),
-                    Peer::Second => res_peer_1.push(nc_msg),
+                    Peer::First => nc_peer_0.push(nc_msg),
+                    Peer::Second => nc_peer_1.push(nc_msg),
                 },
-                Msg::Protocol(p_msg) => p_msg_peer_0.push(p_msg),
+                Msg::Protocol(p_msg) => prot_peer_0.push(p_msg),
             },
             C::FakeMsg((peer, msg)) => match msg {
                 Msg::NetworkController(nc_msg) => match peer {
-                    Peer::First => res_peer_0.push(nc_msg),
-                    Peer::Second => res_peer_1.push(nc_msg),
+                    Peer::First => nc_peer_0.push(nc_msg),
+                    Peer::Second => nc_peer_1.push(nc_msg),
                 },
-                Msg::Protocol(p_msg) => p_msg_peer_1.push(p_msg),
+                Msg::Protocol(p_msg) => prot_peer_1.push(p_msg),
             },
         }
     }
 
-    dbg!(&res_peer_0);
-    dbg!(&res_peer_1);
-    dbg!(&p_msg_peer_0);
-    dbg!(&p_msg_peer_1);
+    dbg!(&nc_peer_0);
+    dbg!(&nc_peer_1);
+    dbg!(&prot_peer_0);
+    dbg!(&prot_peer_1);
 
-    assert_eq!(
+    let protocol_id = ProtocolId::from(0);
+    let protocol_ver = ProtocolVer::from(1);
+    let expected_nc_peer_0 = vec![
         NetworkControllerOut::ConnectedWithInboundPeer(local_peer_id_1),
-        res_peer_0[0]
-    );
-    assert_eq!(
+        NetworkControllerOut::ProtocolPendingApprove {
+            peer_id: local_peer_id_1,
+            protocol_id,
+        },
+        NetworkControllerOut::ProtocolEnabled {
+            peer_id: local_peer_id_1,
+            protocol_id,
+            protocol_ver,
+        },
         NetworkControllerOut::PeerPunished {
             peer_id: local_peer_id_1,
             reason: ReputationChange::MalformedMessage(MalformedMessage::UnknownFormat),
         },
-        res_peer_0[1]
-    );
-    assert_eq!(
-        Some(&NetworkControllerOut::Disconnected {
+        NetworkControllerOut::Disconnected {
             peer_id: local_peer_id_1,
             reason: ConnectionLossReason::Reset(ConnHandlerError::UnacceptablePeer),
-        }),
-        res_peer_0.last()
+        },
+    ];
+
+    assert_eq!(expected_nc_peer_0, nc_peer_0);
+
+    let expected_nc_peer_1 = vec![
+        NetworkControllerOut::ConnectedWithOutboundPeer(local_peer_id_0),
+        NetworkControllerOut::ProtocolPendingEnable {
+            peer_id: local_peer_id_0,
+            protocol_id,
+        },
+        NetworkControllerOut::ProtocolEnabled {
+            peer_id: local_peer_id_0,
+            protocol_id,
+            protocol_ver,
+        },
+    ];
+    assert_eq!(expected_nc_peer_1, nc_peer_1);
+
+    assert_eq!(
+        prot_peer_0,
+        vec![SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers),]
     );
     assert_eq!(
-        Some(&NetworkControllerOut::ConnectedWithOutboundPeer(local_peer_id_0)),
-        res_peer_1.first()
+        prot_peer_1,
+        vec![FakeSyncMessage::SyncMessageV1(FakeSyncMessageV1::FakeMsg),]
     );
 }
 
@@ -450,50 +500,73 @@ async fn integration_test_peer_punish_too_slow() {
 
     // Collect messages from the peers. Note that the while loop below will end since all tasks that
     // use clones of `msg_tx` are guaranteed to drop, leading to the senders dropping too.
-    let mut res_peer_0 = vec![];
-    let mut res_peer_1 = vec![];
-    let mut p_msg_peer_0 = vec![];
-    let mut p_msg_peer_1 = vec![];
+    let mut nc_peer_0 = vec![];
+    let mut nc_peer_1 = vec![];
+    let mut prot_peer_0 = vec![];
+    let mut prot_peer_1 = vec![];
     while let Some((peer, msg)) = msg_rx.next().await {
         match msg {
             Msg::NetworkController(nc_msg) => match peer {
-                Peer::First => res_peer_0.push(nc_msg),
-                Peer::Second => res_peer_1.push(nc_msg),
+                Peer::First => nc_peer_0.push(nc_msg),
+                Peer::Second => nc_peer_1.push(nc_msg),
             },
             Msg::Protocol(p_msg) => match peer {
-                Peer::First => p_msg_peer_0.push(p_msg),
-                Peer::Second => p_msg_peer_1.push(p_msg),
+                Peer::First => prot_peer_0.push(p_msg),
+                Peer::Second => prot_peer_1.push(p_msg),
             },
         }
     }
 
-    dbg!(&res_peer_0);
-    dbg!(&res_peer_1);
-    dbg!(&p_msg_peer_0);
-    dbg!(&p_msg_peer_1);
+    dbg!(&nc_peer_0);
+    dbg!(&nc_peer_1);
+    dbg!(&prot_peer_0);
+    dbg!(&prot_peer_1);
 
-    assert_eq!(
+    let protocol_id = ProtocolId::from(0);
+    let protocol_ver = ProtocolVer::from(1);
+    let expected_nc_peer_0 = vec![
         NetworkControllerOut::ConnectedWithInboundPeer(local_peer_id_1),
-        res_peer_0[0]
-    );
-    assert_eq!(
+        NetworkControllerOut::ProtocolPendingApprove {
+            peer_id: local_peer_id_1,
+            protocol_id,
+        },
+        NetworkControllerOut::ProtocolEnabled {
+            peer_id: local_peer_id_1,
+            protocol_id,
+            protocol_ver,
+        },
         NetworkControllerOut::PeerPunished {
             peer_id: local_peer_id_1,
             reason: ReputationChange::TooSlow,
         },
-        res_peer_0[1]
-    );
-    assert_eq!(
-        Some(&NetworkControllerOut::Disconnected {
+        NetworkControllerOut::Disconnected {
             peer_id: local_peer_id_1,
             reason: ConnectionLossReason::Reset(ConnHandlerError::SyncChannelExhausted),
-        }),
-        res_peer_0.last()
-    );
-    assert_eq!(
-        Some(&NetworkControllerOut::ConnectedWithOutboundPeer(local_peer_id_0)),
-        res_peer_1.first()
-    );
+        },
+    ];
+    assert_eq!(expected_nc_peer_0, nc_peer_0);
+
+    let expected_nc_peer_1 = vec![
+        NetworkControllerOut::ConnectedWithOutboundPeer(local_peer_id_0),
+        NetworkControllerOut::ProtocolPendingEnable {
+            peer_id: local_peer_id_0,
+            protocol_id,
+        },
+        NetworkControllerOut::ProtocolEnabled {
+            peer_id: local_peer_id_0,
+            protocol_id,
+            protocol_ver,
+        },
+        NetworkControllerOut::PeerPunished {
+            peer_id: local_peer_id_0,
+            reason: ReputationChange::TooSlow,
+        },
+        NetworkControllerOut::Disconnected {
+            peer_id: local_peer_id_0,
+            reason: ConnectionLossReason::Reset(ConnHandlerError::SyncChannelExhausted),
+        },
+    ];
+    assert_eq!(expected_nc_peer_1, nc_peer_1);
 }
 
 fn make_swarm_components<P, F>(

@@ -55,7 +55,7 @@ pub enum ConnectedPeer<THandler> {
 }
 
 /// Outbound network events.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum NetworkControllerOut {
     /// Connected with peer, initiated by external peer (inbound connection).
     ConnectedWithInboundPeer(PeerId),
@@ -65,12 +65,20 @@ pub enum NetworkControllerOut {
         peer_id: PeerId,
         reason: ConnectionLossReason,
     },
-    Enabled {
+    ProtocolPendingApprove {
+        peer_id: PeerId,
+        protocol_id: ProtocolId,
+    },
+    ProtocolPendingEnable {
+        peer_id: PeerId,
+        protocol_id: ProtocolId,
+    },
+    ProtocolEnabled {
         peer_id: PeerId,
         protocol_id: ProtocolId,
         protocol_ver: ProtocolVer,
     },
-    Disabled {
+    ProtocolDisabled {
         peer_id: PeerId,
         protocol_id: ProtocolId,
     },
@@ -136,6 +144,8 @@ pub trait NetworkEvents {
     fn outbound_peer_connected(&mut self, peer_id: PeerId);
     fn peer_disconnected(&mut self, peer_id: PeerId, reason: ConnectionLossReason);
     fn peer_punished(&mut self, peer_id: PeerId, reason: ReputationChange);
+    fn protocol_pending_approve(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
+    fn protocol_pending_enable(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
     fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer);
     fn protocol_disabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
 }
@@ -172,7 +182,7 @@ impl<TPeers, TPeerManager, THandler> NetworkEvents for NetworkController<TPeers,
     fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer) {
         self.pending_actions
             .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::Enabled {
+                NetworkControllerOut::ProtocolEnabled {
                     peer_id,
                     protocol_id,
                     protocol_ver,
@@ -180,10 +190,24 @@ impl<TPeers, TPeerManager, THandler> NetworkEvents for NetworkController<TPeers,
             ));
     }
 
+    fn protocol_pending_approve(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::ProtocolPendingApprove { peer_id, protocol_id },
+            ));
+    }
+
+    fn protocol_pending_enable(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::ProtocolPendingEnable { peer_id, protocol_id },
+            ));
+    }
+
     fn protocol_disabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
         self.pending_actions
             .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::Disabled { peer_id, protocol_id },
+                NetworkControllerOut::ProtocolDisabled { peer_id, protocol_id },
             ));
     }
 }
@@ -348,6 +372,7 @@ where
                                     sink: out_channel,
                                 };
                                 entry.insert((enabled_protocol, handler.clone()));
+                                self.protocol_enabled(peer_id, protocol_id, protocol_ver);
                             }
                         }
                         Entry::Vacant(entry) => {
@@ -370,6 +395,7 @@ where
                         Entry::Vacant(entry) => {
                             entry.insert((EnabledProtocol::PendingApprove, prot_handler.clone()));
                             prot_handler.protocol_requested(peer_id, protocol_tag.protocol_ver(), handshake);
+                            self.protocol_pending_approve(peer_id, protocol_id);
                         }
                         Entry::Occupied(_) => {
                             warn!(
@@ -547,6 +573,7 @@ where
                                                 prot_handler.clone(),
                                             ));
                                             prot_handler.protocol_requested_local(pid);
+                                            self.protocol_pending_enable(pid, protocol);
                                         }
                                     };
                                 }
@@ -636,6 +663,7 @@ where
                                                 handshake,
                                             },
                                         });
+                                    self.protocol_pending_enable(peer_id, protocol_id);
                                 }
                             }
                         }
