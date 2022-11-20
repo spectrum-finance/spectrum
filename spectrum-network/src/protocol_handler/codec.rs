@@ -11,10 +11,10 @@ impl<'de, T> BinCodec for T
 where
     T: Serialize + Deserialize<'de>,
 {
-    fn encode(self) -> RawMessage {
+    fn encode(self) -> Result<RawMessage, ciborium::ser::Error<std::io::Error>> {
         let mut encoded = Vec::new();
-        ciborium::ser::into_writer(&self, &mut encoded).unwrap();
-        RawMessage::from(encoded)
+        ciborium::ser::into_writer(&self, &mut encoded)?;
+        Ok(RawMessage::from(encoded))
     }
 
     fn decode(msg: RawMessage) -> Result<Self, Error<std::io::Error>> {

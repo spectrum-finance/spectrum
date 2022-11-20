@@ -56,16 +56,6 @@ impl Versioned for SyncMessage {
     }
 }
 
-impl BinCodec for SyncMessage {
-    fn encode(self) -> Result<RawMessage, ciborium::ser::Error<std::io::Error>> {
-        todo!()
-    }
-
-    fn decode(msg: RawMessage) -> Result<Self, Error<std::io::Error>> {
-        todo!()
-    }
-}
-
 pub struct SyncSpec;
 
 impl SyncSpec {
