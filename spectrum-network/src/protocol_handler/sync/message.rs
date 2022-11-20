@@ -24,6 +24,19 @@ impl Versioned for SyncHandshake {
     }
 }
 
+impl BinCodec for SyncHandshake {
+    fn encode(self) -> Result<RawMessage, ciborium::ser::Error<std::io::Error>> {
+        let mut encoded = Vec::new();
+        ciborium::ser::into_writer(&self, &mut encoded)?;
+        Ok(RawMessage::from(encoded))
+    }
+
+    fn decode(msg: RawMessage) -> Result<Self, Error<std::io::Error>> {
+        let bf: Vec<u8> = msg.into();
+        ciborium::de::from_reader(&bf[..])
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum SyncMessage {
     SyncMessageV1(SyncMessageV1),
@@ -40,6 +53,16 @@ impl Versioned for SyncMessage {
         match self {
             SyncMessage::SyncMessageV1(_) => SyncSpec::v1(),
         }
+    }
+}
+
+impl BinCodec for SyncMessage {
+    fn encode(self) -> Result<RawMessage, ciborium::ser::Error<std::io::Error>> {
+        todo!()
+    }
+
+    fn decode(msg: RawMessage) -> Result<Self, Error<std::io::Error>> {
+        todo!()
     }
 }
 

@@ -47,6 +47,8 @@ pub enum ProtocolBehaviourOut<THandshake, TMessage> {
 pub enum ProtocolHandlerError {
     #[error("Message deserialization failed.")]
     MalformedMessage(RawMessage),
+    #[error("Message serialization failed: {0:?}")]
+    Serialization(ciborium::ser::Error<std::io::Error>),
 }
 
 pub trait ProtocolSpec {
@@ -155,12 +157,24 @@ where
                         trace!("Sending message {:?} to peer {}", message, peer_id);
                         if let Some(sink) = self.peers.get(&peer_id) {
                             trace!("Sink is available");
-                            if let Err(_) = sink.send_message(codec::BinCodec::encode(message.clone())) {
-                                trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
+                            match codec::BinCodec::encode(message) {
+                                Ok(msg) => {
+                                    if sink.send_message(msg).is_err() {
+                                        trace!(
+                                            "Failed to submit a message to {:?}. Channel is closed.",
+                                            peer_id
+                                        )
+                                    }
+                                    trace!("Sent");
+                                    #[cfg(feature = "integration_tests")]
+                                    return Poll::Ready(Some(message));
+                                }
+                                Err(e) => {
+                                    trace!("Failed to encode message: {:?}", e);
+                                    #[cfg(feature = "integration_tests")]
+                                    return Poll::Ready(Some(Err(ProtocolHandlerError::Serialization(e))));
+                                }
                             }
-                            trace!("Sent");
-                            #[cfg(feature = "integration_tests")]
-                            return Poll::Ready(Some(message));
                         } else {
                             error!("Cannot find sink for peer {}", peer_id);
                         }
@@ -170,12 +184,27 @@ where
                             peer_id: peer,
                             handshakes,
                         } => {
-                            let poly_spec = PolyVerHandshakeSpec::from(
-                                handshakes
-                                    .into_iter()
-                                    .map(|(v, m)| (v, m.map(codec::BinCodec::encode)))
-                                    .collect::<BTreeMap<_, _>>(),
-                            );
+                            let mut h_mapped = BTreeMap::new();
+                            for (ver, msg) in handshakes {
+                                let raw_msg = if let Some(m) = msg {
+                                    match codec::BinCodec::encode(m) {
+                                        Ok(raw_msg) => Some(raw_msg),
+                                        Err(e) => {
+                                            trace!("Failed to encode message: {:?}", e);
+                                            #[cfg(feature = "integration_tests")]
+                                            return Poll::Ready(Some(Err(
+                                                ProtocolHandlerError::Serialization(e),
+                                            )));
+                                            None
+                                        }
+                                    }
+                                } else {
+                                    None
+                                };
+                                h_mapped.insert(ver, raw_msg);
+                            }
+
+                            let poly_spec = PolyVerHandshakeSpec::from(h_mapped);
                             self.network
                                 .enable_protocol(self.behaviour.get_protocol_id(), peer, poly_spec);
                         }
