@@ -1,33 +1,31 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
-use crate::peer_conn_handler::{
-    ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf, PeerRole,
-};
-use crate::peer_manager::{PeerEvents, PeerManagerOut};
+use crate::peer_conn_handler::{ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
+use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
 use crate::protocol::ProtocolConfig;
-use crate::protocol_handler::ProtocolHandlerEvents;
+use crate::protocol_api::ProtocolEvents;
 use crate::types::{ProtocolId, ProtocolVer};
 
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::{
-    CloseConnection, IntoConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
-    PollParameters,
+    CloseConnection, DialError, IntoConnectionHandler, NetworkBehaviour, NetworkBehaviourAction,
+    NotifyHandler, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
 
-use futures::channel::mpsc;
-use log::trace;
+use log::{trace, warn};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use crate::peer_manager::data::ConnectionLossReason;
-use crate::protocol::handshake::PolyVerHandshakeSpec;
+use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::Stream;
 
 /// States of an enabled protocol.
+#[derive(Debug)]
 pub enum EnabledProtocol {
     /// Bi-directional communication on this protocol is enabled.
     Enabled { ver: ProtocolVer, sink: MessageSink },
@@ -39,6 +37,7 @@ pub enum EnabledProtocol {
     PendingDisable,
 }
 
+/// States of a connected peer.
 pub enum ConnectedPeer<THandler> {
     /// We are connected to this peer.
     Connected {
@@ -53,6 +52,7 @@ pub enum ConnectedPeer<THandler> {
     PendingDisconnect(ConnectionId),
 }
 
+/// Outbound network events.
 #[derive(Debug)]
 pub enum NetworkControllerOut {}
 
@@ -66,15 +66,25 @@ pub enum NetworkControllerIn {
         /// A handshake to send to the peer upon negotiation of protocol substream.
         handshake: PolyVerHandshakeSpec,
     },
+    /// A directive to update the set of protocols supported by the specified peer.
+    UpdatePeerProtocols {
+        peer: PeerId,
+        protocols: Vec<ProtocolId>,
+    },
 }
 
+/// External API to network controller.
 pub trait NetworkAPI {
+    /// Enables the specified protocol with the specified peer.
     fn enable_protocol(&self, protocol: ProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec);
+
+    /// Updates the set of protocols supported by the specified peer.
+    fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>);
 }
 
 #[derive(Clone)]
 pub struct NetworkMailbox {
-    mailbox_snd: UnboundedSender<NetworkControllerIn>,
+    pub mailbox_snd: UnboundedSender<NetworkControllerIn>,
 }
 
 impl NetworkAPI for NetworkMailbox {
@@ -87,12 +97,20 @@ impl NetworkAPI for NetworkMailbox {
                 handshake,
             });
     }
+    fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>) {
+        let _ = self
+            .mailbox_snd
+            .unbounded_send(NetworkControllerIn::UpdatePeerProtocols { peer, protocols });
+    }
 }
 
 pub struct NetworkController<TPeers, TPeerManager, THandler> {
     conn_handler_conf: PeerConnHandlerConf,
+    /// All supported protocols and their handlers
     supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
+    /// PeerManager API
     peers: TPeers,
+    /// PeerManager stream itself
     peer_manager: TPeerManager,
     enabled_peers: HashMap<PeerId, ConnectedPeer<THandler>>,
     requests_recv: UnboundedReceiver<NetworkControllerIn>,
@@ -103,56 +121,48 @@ impl<TPeers, TPeerManager, THandler> NetworkController<TPeers, TPeerManager, THa
 where
     THandler: Clone,
 {
-    fn init_handler(&self, role: PeerRole) -> PartialPeerConnHandler {
+    pub fn new(
+        conn_handler_conf: PeerConnHandlerConf,
+        supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
+        peers: TPeers,
+        peer_manager: TPeerManager,
+        requests_recv: UnboundedReceiver<NetworkControllerIn>,
+    ) -> Self {
+        Self {
+            conn_handler_conf,
+            supported_protocols,
+            peers,
+            peer_manager,
+            enabled_peers: HashMap::new(),
+            requests_recv,
+            pending_actions: VecDeque::new(),
+        }
+    }
+
+    fn init_handler(&self) -> PartialPeerConnHandler {
         PartialPeerConnHandler::new(
-            role,
             self.conn_handler_conf.clone(),
             self.supported_protocols
-                .values()
-                .cloned()
-                .map(|(conf, _)| conf)
-                .collect(),
+                .iter()
+                .clone()
+                .map(|(prot_id, (conf, _))| (*prot_id, conf.clone()))
+                .collect::<Vec<_>>(),
         )
     }
 }
 
-pub fn make<TPeers, TPeerManager, THandler>(
-    conn_handler_conf: PeerConnHandlerConf,
-    supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
-    peers: TPeers,
-    peer_manager: TPeerManager,
-) -> (
-    NetworkController<TPeers, TPeerManager, THandler>,
-    NetworkMailbox,
-) {
-    let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
-    let network_controller = NetworkController {
-        conn_handler_conf,
-        supported_protocols,
-        peers,
-        peer_manager,
-        enabled_peers: HashMap::new(),
-        requests_recv,
-        pending_actions: VecDeque::new(),
-    };
-    let network_api = NetworkMailbox {
-        mailbox_snd: requests_snd,
-    };
-    (network_controller, network_api)
-}
-
-// todo: implement initial handshake
 impl<TPeers, TPeerManager, THandler> NetworkBehaviour for NetworkController<TPeers, TPeerManager, THandler>
 where
-    TPeers: PeerEvents + 'static,
+    TPeers: PeerEvents + Peers + 'static,
     TPeerManager: Stream<Item = PeerManagerOut> + Unpin + 'static,
-    THandler: ProtocolHandlerEvents + Clone + 'static,
+    THandler: ProtocolEvents + Clone + 'static,
 {
     type ConnectionHandler = PartialPeerConnHandler;
     type OutEvent = NetworkControllerOut;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
-        self.init_handler(PeerRole::Listener)
+        trace!("New handler is created");
+        self.init_handler()
     }
 
     fn inject_connection_established(
@@ -171,6 +181,10 @@ where
                         conn_id: *conn_id,
                         enabled_protocols: HashMap::new(),
                     });
+                    // notify all handlers about new connection.
+                    for (_, ph) in self.supported_protocols.values() {
+                        ph.connected(*peer_id);
+                    }
                 }
                 ConnectedPeer::Connected { .. }
                 | ConnectedPeer::PendingDisconnect(..)
@@ -183,6 +197,7 @@ where
                 }
             },
             Entry::Vacant(entry) => {
+                trace!("Observing new inbound connection {}", peer_id);
                 self.peers.incoming_connection(*peer_id, *conn_id);
                 entry.insert(ConnectedPeer::PendingApprove(*conn_id));
             }
@@ -194,14 +209,19 @@ where
         peer_id: &PeerId,
         _conn_id: &ConnectionId,
         _endpoint: &ConnectedPoint,
-        _handler: <Self::ConnectionHandler as IntoConnectionHandler>::Handler,
+        handler: <Self::ConnectionHandler as IntoConnectionHandler>::Handler,
         _remaining_established: usize,
     ) {
         match self.enabled_peers.entry(*peer_id) {
             Entry::Occupied(peer_entry) => match peer_entry.get() {
                 ConnectedPeer::Connected { .. } | ConnectedPeer::PendingDisconnect(..) => {
-                    self.peers
-                        .connection_lost(*peer_id, ConnectionLossReason::ResetByPeer);
+                    if let Some(err) = handler.get_fault() {
+                        self.peers
+                            .connection_lost(*peer_id, ConnectionLossReason::Reset(err));
+                    } else {
+                        self.peers
+                            .connection_lost(*peer_id, ConnectionLossReason::ResetByPeer);
+                    }
                     peer_entry.remove();
                 }
                 // todo: is it possible in case of simultaneous connection?
@@ -215,9 +235,10 @@ where
         match event {
             ConnHandlerOut::Opened {
                 protocol_tag,
-                handshake,
                 out_channel,
+                handshake,
             } => {
+                trace!("Protocol {} opened with peer {}", protocol_tag, peer_id);
                 if let Some(ConnectedPeer::Connected {
                     enabled_protocols, ..
                 }) = self.enabled_peers.get_mut(&peer_id)
@@ -226,12 +247,17 @@ where
                     let protocol_ver = protocol_tag.protocol_ver();
                     match enabled_protocols.entry(protocol_id) {
                         Entry::Occupied(mut entry) => {
+                            trace!(
+                                "Current state of protocol {:?} is {:?}",
+                                protocol_id,
+                                entry.get().0
+                            );
                             if let (EnabledProtocol::PendingEnable, handler) = entry.get() {
                                 handler.protocol_enabled(
                                     peer_id,
                                     protocol_ver,
-                                    handshake,
                                     out_channel.clone(),
+                                    handshake,
                                 );
                                 let enabled_protocol = EnabledProtocol::Enabled {
                                     ver: protocol_ver,
@@ -241,7 +267,7 @@ where
                             }
                         }
                         Entry::Vacant(entry) => {
-                            trace!("Unknown protocol was opened {:?}", entry.key())
+                            warn!("Unknown protocol was opened {:?}", entry.key())
                         }
                     }
                 }
@@ -262,10 +288,9 @@ where
                             prot_handler.protocol_requested(peer_id, protocol_tag.protocol_ver(), handshake);
                         }
                         Entry::Occupied(_) => {
-                            trace!(
+                            warn!(
                                 "Peer {:?} opened already enabled protocol {:?}",
-                                peer_id,
-                                protocol_id
+                                peer_id, protocol_id
                             );
                             self.pending_actions
                                 .push_back(NetworkBehaviourAction::NotifyHandler {
@@ -297,6 +322,9 @@ where
                     }
                 }
             }
+            ConnHandlerOut::ClosedAllProtocols => {
+                assert!(self.enabled_peers.remove(&peer_id).is_some());
+            }
             ConnHandlerOut::Message {
                 protocol_tag,
                 content,
@@ -317,21 +345,27 @@ where
         }
     }
 
+    fn inject_dial_failure(&mut self, peer_id: Option<PeerId>, _: Self::ConnectionHandler, _: &DialError) {
+        if let Some(peer_id) = peer_id {
+            self.peers.dial_failure(peer_id);
+        }
+    }
+
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
-        params: &mut impl PollParameters,
+        _: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
-        // 1. Try to return a pending action.
-        if let Some(action) = self.pending_actions.pop_front() {
-            return Poll::Ready(action);
-        };
         loop {
+            // 1. Try to return a pending action.
+            if let Some(action) = self.pending_actions.pop_front() {
+                return Poll::Ready(action);
+            };
             // 2. Poll for instructions from PM.
             match Stream::poll_next(Pin::new(&mut self.peer_manager), cx) {
                 Poll::Ready(Some(PeerManagerOut::Connect(pid))) => {
-                    let handler = self.init_handler(PeerRole::Dialer);
-                    match self.enabled_peers.entry(pid) {
+                    let handler = self.init_handler();
+                    match self.enabled_peers.entry(pid.peer_id()) {
                         Entry::Occupied(_) => {}
                         Entry::Vacant(peer_entry) => {
                             peer_entry.insert(ConnectedPeer::PendingConnect);
@@ -341,61 +375,54 @@ where
                             })
                         }
                     }
+                    continue;
                 }
                 Poll::Ready(Some(PeerManagerOut::Drop(peer_id))) => {
-                    if let Some(ConnectedPeer::Connected {
-                        conn_id,
-                        enabled_protocols,
-                    }) = self.enabled_peers.get_mut(&peer_id)
+                    if let Some(ConnectedPeer::Connected { conn_id, .. }) =
+                        self.enabled_peers.get_mut(&peer_id)
                     {
-                        let mut protocols = Vec::new();
-                        for prot_id in enabled_protocols.keys() {
-                            protocols.push(*prot_id);
-                        }
-                        for prot_id in protocols {
-                            match enabled_protocols.entry(prot_id) {
-                                Entry::Occupied(mut prot) => {
-                                    let (st, han) = prot.get();
-                                    match st {
-                                        EnabledProtocol::Enabled { .. }
-                                        | EnabledProtocol::PendingEnable
-                                        | EnabledProtocol::PendingApprove => {
-                                            prot.insert((EnabledProtocol::PendingDisable, han.clone()));
-                                            self.pending_actions.push_back(
-                                                NetworkBehaviourAction::NotifyHandler {
-                                                    peer_id,
-                                                    handler: NotifyHandler::One(*conn_id),
-                                                    event: ConnHandlerIn::Close(prot_id),
-                                                },
-                                            )
-                                        }
-                                        EnabledProtocol::PendingDisable => {}
-                                    }
-                                }
-                                Entry::Vacant(_) => {}
+                        self.pending_actions
+                            .push_back(NetworkBehaviourAction::NotifyHandler {
+                                peer_id,
+                                handler: NotifyHandler::One(*conn_id),
+                                event: ConnHandlerIn::CloseAllProtocols,
+                            });
+                    }
+                    continue;
+                }
+                Poll::Ready(Some(PeerManagerOut::Accept(pid, cid))) => {
+                    match self.enabled_peers.entry(pid) {
+                        Entry::Occupied(mut peer) => {
+                            if let ConnectedPeer::PendingApprove(_) = peer.get() {
+                                trace!("Inbound connection from peer {} accepted", pid);
+                                peer.insert(ConnectedPeer::Connected {
+                                    conn_id: cid,
+                                    enabled_protocols: HashMap::new(),
+                                });
                             }
                         }
+                        Entry::Vacant(_) => {}
                     }
+                    continue;
                 }
-                Poll::Ready(Some(PeerManagerOut::Accept(pid, cid))) => match self.enabled_peers.entry(pid) {
-                    Entry::Occupied(mut peer) => {
-                        if let ConnectedPeer::PendingApprove(_) = peer.get() {
-                            peer.insert(ConnectedPeer::Connected {
-                                conn_id: cid,
-                                enabled_protocols: HashMap::new(),
-                            });
+                Poll::Ready(Some(PeerManagerOut::Reject(pid, cid))) => {
+                    match self.enabled_peers.entry(pid) {
+                        Entry::Occupied(peer) => {
+                            if let ConnectedPeer::PendingApprove(_) = peer.get() {
+                                trace!("Inbound connection from peer {} rejected", pid);
+                                peer.remove();
+                                self.pending_actions
+                                    .push_back(NetworkBehaviourAction::NotifyHandler {
+                                        peer_id: pid,
+                                        handler: NotifyHandler::One(cid),
+                                        event: ConnHandlerIn::CloseAllProtocols,
+                                    })
+                            }
                         }
+                        Entry::Vacant(_) => {}
                     }
-                    Entry::Vacant(_) => {}
-                },
-                Poll::Ready(Some(PeerManagerOut::Reject(pid, _))) => match self.enabled_peers.entry(pid) {
-                    Entry::Occupied(peer) => {
-                        if let ConnectedPeer::PendingApprove(_) = peer.get() {
-                            peer.remove();
-                        }
-                    }
-                    Entry::Vacant(_) => {}
-                },
+                    continue;
+                }
                 Poll::Ready(Some(PeerManagerOut::StartProtocol(protocol, pid))) => {
                     match self.enabled_peers.entry(pid) {
                         Entry::Occupied(mut peer) => {
@@ -406,10 +433,9 @@ where
                                 } => {
                                     let (_, prot_handler) = self.supported_protocols.get(&protocol).unwrap();
                                     match enabled_protocols.entry(protocol) {
-                                        Entry::Occupied(_) => trace!(
+                                        Entry::Occupied(_) => warn!(
                                             "PM requested already enabled protocol {:?} with peer {:?}",
-                                            protocol,
-                                            pid
+                                            protocol, pid
                                         ),
                                         Entry::Vacant(protocol_entry) => {
                                             protocol_entry.insert((
@@ -427,64 +453,86 @@ where
                         }
                         Entry::Vacant(_) => {}
                     }
+                    continue;
                 }
-                Poll::Pending | Poll::Ready(None) => break,
+                Poll::Pending => {}
+                Poll::Ready(None) => unreachable!("PeerManager should never terminate"),
             }
-        }
-        // 3. Poll incoming requests.
-        if let Poll::Ready(Some(input)) = Stream::poll_next(Pin::new(&mut self.requests_recv), cx) {
-            match input {
-                NetworkControllerIn::EnableProtocol {
-                    peer: peer_id,
-                    protocol: protocol_id,
-                    handshake,
-                } => {
-                    if let Some(ConnectedPeer::Connected {
-                        conn_id,
-                        enabled_protocols,
-                    }) = self.enabled_peers.get_mut(&peer_id)
-                    {
-                        let (_, prot_handler) = self.supported_protocols.get(&protocol_id).unwrap();
-                        match enabled_protocols.entry(protocol_id) {
-                            Entry::Occupied(protocol_entry) => match protocol_entry.get() {
-                                // Protocol Handler approves either outbound or inbound protocol request.
-                                (EnabledProtocol::PendingEnable | EnabledProtocol::PendingApprove, _) => self
-                                    .pending_actions
-                                    .push_back(NetworkBehaviourAction::NotifyHandler {
-                                        peer_id,
-                                        handler: NotifyHandler::One(*conn_id),
-                                        event: ConnHandlerIn::Open {
-                                            protocol_id,
-                                            handshake,
-                                        },
-                                    }),
-                                (EnabledProtocol::Enabled { .. } | EnabledProtocol::PendingDisable, _) => {}
-                            },
-                            // Also, Protocol Handler can request a substream on its own.
-                            Entry::Vacant(protocol_entry) => {
-                                trace!(
-                                    "Handler requested to open protocol {:?} with peer {:?}",
-                                    protocol_id,
-                                    peer_id
-                                );
-                                protocol_entry.insert((EnabledProtocol::PendingEnable, prot_handler.clone()));
-                                self.peers.force_enabled(peer_id, protocol_id); // notify PM
-                                self.pending_actions
-                                    .push_back(NetworkBehaviourAction::NotifyHandler {
-                                        peer_id,
-                                        handler: NotifyHandler::One(*conn_id),
-                                        event: ConnHandlerIn::Open {
-                                            protocol_id,
-                                            handshake,
-                                        },
-                                    });
+
+            // 3. Poll commands from protocol handlers.
+            if let Poll::Ready(Some(input)) = Stream::poll_next(Pin::new(&mut self.requests_recv), cx) {
+                match input {
+                    NetworkControllerIn::UpdatePeerProtocols { peer, protocols } => {
+                        self.peers.set_peer_protocols(peer, protocols);
+                    }
+                    NetworkControllerIn::EnableProtocol {
+                        peer: peer_id,
+                        protocol: protocol_id,
+                        handshake,
+                    } => {
+                        if let Some(ConnectedPeer::Connected {
+                            conn_id,
+                            enabled_protocols,
+                        }) = self.enabled_peers.get_mut(&peer_id)
+                        {
+                            let (_, prot_handler) = self.supported_protocols.get(&protocol_id).unwrap();
+                            match enabled_protocols.entry(protocol_id) {
+                                Entry::Occupied(protocol_entry) => match protocol_entry.remove_entry().1 {
+                                    // Protocol handler approves either outbound or inbound protocol request.
+                                    (
+                                        EnabledProtocol::PendingEnable | EnabledProtocol::PendingApprove,
+                                        handler,
+                                    ) => {
+                                        enabled_protocols
+                                            .insert(protocol_id, (EnabledProtocol::PendingEnable, handler));
+                                        self.pending_actions.push_back(
+                                            NetworkBehaviourAction::NotifyHandler {
+                                                peer_id,
+                                                handler: NotifyHandler::One(*conn_id),
+                                                event: ConnHandlerIn::Open {
+                                                    protocol_id,
+                                                    handshake,
+                                                },
+                                            },
+                                        );
+                                    }
+                                    (
+                                        st @ (EnabledProtocol::Enabled { .. }
+                                        | EnabledProtocol::PendingDisable),
+                                        handler,
+                                    ) => {
+                                        warn!("Handler requested to open already enabled protocol {:?} with peer {:?}", protocol_id, peer_id);
+                                        enabled_protocols.insert(protocol_id, (st, handler));
+                                    }
+                                },
+                                // Also, Protocol Handler can request a substream on its own.
+                                Entry::Vacant(protocol_entry) => {
+                                    trace!(
+                                        "Handler requested to open protocol {:?} with peer {:?}",
+                                        protocol_id,
+                                        peer_id
+                                    );
+                                    protocol_entry
+                                        .insert((EnabledProtocol::PendingEnable, prot_handler.clone()));
+                                    self.peers.force_enabled(peer_id, protocol_id); // notify PM
+                                    self.pending_actions
+                                        .push_back(NetworkBehaviourAction::NotifyHandler {
+                                            peer_id,
+                                            handler: NotifyHandler::One(*conn_id),
+                                            event: ConnHandlerIn::Open {
+                                                protocol_id,
+                                                handshake,
+                                            },
+                                        });
+                                }
                             }
                         }
                     }
                 }
+                continue;
             }
-        }
 
-        Poll::Pending
+            return Poll::Pending;
+        }
     }
 }

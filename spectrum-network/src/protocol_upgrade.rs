@@ -1,49 +1,23 @@
-use crate::protocol::substream::{
-    ProtocolHandshakeState, ProtocolSubstreamIn, ProtocolSubstreamOut,
-};
+pub mod combinators;
+pub mod handshake;
+mod message;
+pub(crate) mod substream;
+
 use crate::protocol::ProtocolSpec;
-use crate::types::{ProtocolId, ProtocolVer, RawMessage};
+use crate::protocol_upgrade::message::{Approve, APPROVE_SIZE};
+use crate::protocol_upgrade::substream::{ProtocolApproveState, ProtocolSubstreamIn, ProtocolSubstreamOut};
+use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 use asynchronous_codec::Framed;
-use futures::{AsyncRead, AsyncWrite};
+use futures::{AsyncRead, AsyncReadExt, AsyncWrite};
 use libp2p::core::{upgrade, UpgradeInfo};
 use libp2p::{InboundUpgrade, OutboundUpgrade};
+use log::trace;
 use std::collections::BTreeMap;
+use std::fmt::{format, Debug};
 use std::future::Future;
 use std::pin::Pin;
 use std::{io, vec};
 use unsigned_varint::codec::UviBytes;
-
-/// Tag of a protocol. Consists of ProtocolId + ProtocolVer.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ProtocolTag([u8; 2]);
-
-impl ProtocolTag {
-    pub fn protocol_ver(&self) -> ProtocolVer {
-        ProtocolVer::from(self.0[1])
-    }
-
-    pub fn protocol_id(&self) -> ProtocolId {
-        ProtocolId::from(self.0[0])
-    }
-}
-
-impl ProtocolTag {
-    pub fn new(protocol_id: ProtocolId, protocol_ver: ProtocolVer) -> Self {
-        Self([protocol_id.into(), protocol_ver.into()])
-    }
-}
-
-impl Into<ProtocolVer> for ProtocolTag {
-    fn into(self) -> ProtocolVer {
-        ProtocolVer::from(self.0[1])
-    }
-}
-
-impl upgrade::ProtocolName for ProtocolTag {
-    fn protocol_name(&self) -> &[u8] {
-        &self.0
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolHandshakeErr {
@@ -51,6 +25,8 @@ pub enum ProtocolHandshakeErr {
     IoErr(#[from] io::Error),
     #[error(transparent)]
     PrefixReadErr(#[from] unsigned_varint::io::ReadError),
+    #[error("Invalid approve message")]
+    InvalidApprove(),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -71,7 +47,7 @@ impl From<ProtocolSpec> for InboundProtocolSpec {
     fn from(spec: ProtocolSpec) -> Self {
         Self {
             max_message_size: spec.max_message_size,
-            handshake_required: spec.handshake_required,
+            handshake_required: spec.approve_required,
         }
     }
 }
@@ -88,10 +64,7 @@ pub struct ProtocolUpgradeIn {
 }
 
 impl ProtocolUpgradeIn {
-    pub fn new(
-        protocol_id: ProtocolId,
-        supported_versions: Vec<(ProtocolVer, ProtocolSpec)>,
-    ) -> Self {
+    pub fn new(protocol_id: ProtocolId, supported_versions: Vec<(ProtocolVer, ProtocolSpec)>) -> Self {
         let supported_versions = BTreeMap::from_iter(
             supported_versions
                 .into_iter()
@@ -123,12 +96,14 @@ impl<Substream> InboundUpgrade<Substream> for ProtocolUpgradeIn
 where
     Substream: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    type Output = ProtocolUpgraded<ProtocolSubstreamIn<Substream>>;
+    type Output = InboundProtocolUpgraded<ProtocolSubstreamIn<Substream>>;
     type Error = ProtocolUpgradeErr;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_inbound(self, mut socket: Substream, negotiated_tag: Self::Info) -> Self::Future {
         Box::pin(async move {
+            let target = format!("Inbound({})", negotiated_tag);
+            trace!(target: &target, "upgrade_inbound()");
             let pspec = self
                 .supported_versions
                 .get(&negotiated_tag.protocol_ver())
@@ -136,20 +111,24 @@ where
             let mut codec = UviBytes::default();
             codec.set_max_len(pspec.max_message_size);
             let handshake = if pspec.handshake_required {
-                Some(read_handshake(&mut socket, pspec.max_message_size).await?)
+                trace!(target: &target, "Waiting for handshake");
+                let hs = Some(read_handshake(&mut socket, pspec.max_message_size).await?);
+                trace!(target: &target, "Received handshake");
+                hs
             } else {
                 None
             };
-            let handshake_state = if pspec.handshake_required {
-                Some(ProtocolHandshakeState::NotSent)
+            let approve_state = if pspec.handshake_required {
+                Some(ProtocolApproveState::NotSent)
             } else {
+                trace!(target: &target, "Approval not required");
                 None
             };
             let substream = ProtocolSubstreamIn {
                 socket: Framed::new(socket, codec),
-                handshake_state,
+                approve_state,
             };
-            Ok(ProtocolUpgraded {
+            Ok(InboundProtocolUpgraded {
                 negotiated_tag,
                 handshake,
                 substream,
@@ -195,10 +174,7 @@ impl ProtocolUpgradeOut {
             supported_versions
                 .into_iter()
                 .map(|(ver, spec, handshake)| {
-                    (
-                        ver,
-                        OutboundProtocolSpec::new(spec.max_message_size, handshake),
-                    )
+                    (ver, OutboundProtocolSpec::new(spec.max_message_size, handshake))
                 })
                 .into_iter(),
         );
@@ -227,12 +203,14 @@ impl<Substream> OutboundUpgrade<Substream> for ProtocolUpgradeOut
 where
     Substream: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    type Output = ProtocolUpgraded<ProtocolSubstreamOut<Substream>>;
+    type Output = OutboundProtocolUpgraded<ProtocolSubstreamOut<Substream>>;
     type Error = ProtocolUpgradeErr;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_outbound(self, mut socket: Substream, negotiated_tag: Self::Info) -> Self::Future {
         Box::pin(async move {
+            let target = format!("Outbound({})", negotiated_tag);
+            trace!(target: &target, "upgrade_outbound()");
             let pspec = self
                 .supported_versions
                 .get(&negotiated_tag.protocol_ver())
@@ -240,31 +218,38 @@ where
             let mut codec = UviBytes::default();
             codec.set_max_len(pspec.max_message_size);
             if let Some(handshake) = &pspec.handshake {
+                trace!(target: &target, "Sending handshake");
                 write_handshake(&mut socket, handshake).await?;
+                trace!(target: &target, "Handshake sent");
             }
-            // Wait for handshake in response if required.
-            let handshake = if pspec.handshake.is_some() {
-                Some(read_handshake(&mut socket, pspec.max_message_size).await?)
-            } else {
-                None
+            // Wait for approve in response if required.
+            if pspec.handshake.is_some() {
+                trace!(target: &target, "Waiting for approve");
+                read_approve(&mut socket).await?;
+                trace!(target: &target, "Approved");
             };
             let substream = ProtocolSubstreamOut {
                 socket: Framed::new(socket, codec),
             };
-            Ok(ProtocolUpgraded {
+            Ok(OutboundProtocolUpgraded {
                 negotiated_tag,
-                handshake,
                 substream,
             })
         })
     }
 }
 
-pub struct ProtocolUpgraded<Substream> {
+pub struct InboundProtocolUpgraded<Substream> {
     /// ProtocolTag negotiated with the peer.
     pub negotiated_tag: ProtocolTag,
     /// Handshake sent by the peer.
     pub handshake: Option<RawMessage>,
+    pub substream: Substream,
+}
+
+pub struct OutboundProtocolUpgraded<Substream> {
+    /// ProtocolTag negotiated with the peer.
+    pub negotiated_tag: ProtocolTag,
     pub substream: Substream,
 }
 
@@ -274,6 +259,18 @@ async fn read_handshake<Substream: AsyncRead + Unpin>(
 ) -> Result<RawMessage, ProtocolHandshakeErr> {
     let handshake = upgrade::read_length_prefixed(socket, max_size).await?;
     Ok(RawMessage::from(handshake))
+}
+
+async fn read_approve<Substream: AsyncRead + Unpin>(
+    socket: &mut Substream,
+) -> Result<(), ProtocolHandshakeErr> {
+    let mut buf = vec![0u8; APPROVE_SIZE];
+    socket.read_exact(&mut buf).await?;
+    if buf == Approve::bytes() {
+        Ok(())
+    } else {
+        Err(ProtocolHandshakeErr::InvalidApprove())
+    }
 }
 
 async fn write_handshake<Substream: AsyncWrite + Unpin>(

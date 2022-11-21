@@ -22,3 +22,15 @@ impl Into<Vec<(ProtocolVer, Option<RawMessage>)>> for PolyVerHandshakeSpec {
         self.0.into_iter().collect()
     }
 }
+
+impl From<Vec<(ProtocolVer, Option<RawMessage>)>> for PolyVerHandshakeSpec {
+    fn from(xs: Vec<(ProtocolVer, Option<RawMessage>)>) -> Self {
+        Self(BTreeMap::from_iter(xs))
+    }
+}
+
+impl From<BTreeMap<ProtocolVer, Option<RawMessage>>> for PolyVerHandshakeSpec {
+    fn from(xs: BTreeMap<ProtocolVer, Option<RawMessage>>) -> Self {
+        Self(xs)
+    }
+}
