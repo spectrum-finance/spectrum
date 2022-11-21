@@ -1,6 +1,9 @@
 use crate::peer_manager::data::ReputationChange;
 use libp2p::bytes::BytesMut;
+use libp2p::core::upgrade;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::fmt::{Debug, Display, Formatter};
 
 /// Opaque identifier for an incoming connection. Allocated by the network.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -22,7 +25,7 @@ impl Reputation {
         Self(0)
     }
     pub fn apply(&self, change: ReputationChange) -> Self {
-        Reputation(self.0 + change.value)
+        Reputation(self.0 + change as i32)
     }
 }
 
@@ -33,8 +36,14 @@ impl From<i32> for Reputation {
 }
 
 /// Identifier of a protocol.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProtocolId(u8);
+
+impl ProtocolId {
+    pub const fn from_u8(x: u8) -> Self {
+        Self(x)
+    }
+}
 
 impl Into<u8> for ProtocolId {
     fn into(self) -> u8 {
@@ -73,6 +82,48 @@ impl Into<u8> for ProtocolVer {
 impl From<u8> for ProtocolVer {
     fn from(v: u8) -> Self {
         ProtocolVer(v)
+    }
+}
+
+/// Tag of a protocol. Consists of ProtocolId + ProtocolVer.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProtocolTag([u8; 3]);
+
+impl Display for ProtocolTag {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!(
+            "ProtocolTag(/{}/{})",
+            Into::<u8>::into(self.protocol_id()),
+            Into::<u8>::into(self.protocol_ver())
+        ))
+    }
+}
+
+impl ProtocolTag {
+    pub fn protocol_ver(&self) -> ProtocolVer {
+        ProtocolVer::from(self.0[2])
+    }
+
+    pub fn protocol_id(&self) -> ProtocolId {
+        ProtocolId::from(self.0[1])
+    }
+}
+
+impl ProtocolTag {
+    pub fn new(protocol_id: ProtocolId, protocol_ver: ProtocolVer) -> Self {
+        Self([b"/"[0], protocol_id.into(), protocol_ver.into()])
+    }
+}
+
+impl Into<ProtocolVer> for ProtocolTag {
+    fn into(self) -> ProtocolVer {
+        ProtocolVer::from(self.0[1])
+    }
+}
+
+impl upgrade::ProtocolName for ProtocolTag {
+    fn protocol_name(&self) -> &[u8] {
+        &self.0
     }
 }
 

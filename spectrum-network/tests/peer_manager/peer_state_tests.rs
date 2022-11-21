@@ -1,6 +1,6 @@
 use libp2p::PeerId;
-use spectrum_network::peer_manager::peer_store::PeerSetsConfig;
-use spectrum_network::peer_manager::peers_state::{DefaultPeersState, PeersState};
+use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
+use spectrum_network::peer_manager::peers_state::{PeersState, PeerRepo};
 
 #[test]
 fn should_add_peer() {
@@ -19,7 +19,7 @@ fn should_forget_peer() {
     let peer = peer_state.try_add_peer(peer_id, false);
 
     assert_eq!(peer.is_some(), true);
-    peer.unwrap().forget_peer();
+    peer.unwrap().forget();
     assert_eq!(peer_state.peer(&peer_id).is_none(), true);
 }
 
@@ -29,7 +29,7 @@ fn should_connect_to_peer_when_vacant_connections_available() {
     let peer_id = PeerId::random();
 
     let peer = peer_state.try_add_peer(peer_id, false);
-    let connected_peer = peer.unwrap().try_connect();
+    let connected_peer = peer.unwrap().connect();
     assert_eq!(connected_peer.is_ok(), true);
 }
 
@@ -39,13 +39,13 @@ fn err_connect_to_peer_when_vacant_connections_not_available() {
     let peer_id = PeerId::random();
 
     let peer = peer_state.try_add_peer(peer_id, false).unwrap();
-    assert!(peer.try_connect().is_err());
+    assert!(peer.connect().is_err());
 }
 
 fn mk_peers_state(max_incoming: usize, max_outgoing: usize, capacity: usize) -> impl PeersState {
-    let pset_config = PeerSetsConfig {
+    let pset_config = PeerIndexConfig {
         max_incoming,
         max_outgoing,
     };
-    DefaultPeersState::new(pset_config)
+    PeerRepo::new(pset_config)
 }
