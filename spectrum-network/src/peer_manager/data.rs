@@ -34,7 +34,7 @@ impl PeerDestination {
 }
 
 impl Serialize for PeerDestination {
-    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -55,7 +55,7 @@ impl Serialize for PeerDestination {
 }
 
 impl<'de> Deserialize<'de> for PeerDestination {
-    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
