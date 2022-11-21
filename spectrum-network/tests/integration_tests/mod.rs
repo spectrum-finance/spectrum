@@ -543,13 +543,13 @@ async fn integration_test_peer_punish_too_slow() {
             protocol_id,
             protocol_ver,
         },
-        NetworkControllerOut::PeerPunished {
-            peer_id: local_peer_id_1,
-            reason: ReputationChange::TooSlow,
-        },
         NetworkControllerOut::Disconnected {
             peer_id: local_peer_id_1,
             reason: ConnectionLossReason::Reset(ConnHandlerError::SyncChannelExhausted),
+        },
+        NetworkControllerOut::PeerPunished {
+            peer_id: local_peer_id_1,
+            reason: ReputationChange::TooSlow,
         },
     ];
     assert_eq!(expected_nc_peer_0, nc_peer_0);
@@ -565,13 +565,13 @@ async fn integration_test_peer_punish_too_slow() {
             protocol_id,
             protocol_ver,
         },
-        NetworkControllerOut::PeerPunished {
-            peer_id: local_peer_id_0,
-            reason: ReputationChange::TooSlow,
-        },
         NetworkControllerOut::Disconnected {
             peer_id: local_peer_id_0,
             reason: ConnectionLossReason::Reset(ConnHandlerError::SyncChannelExhausted),
+        },
+        NetworkControllerOut::PeerPunished {
+            peer_id: local_peer_id_0,
+            reason: ReputationChange::TooSlow,
         },
     ];
     assert_eq!(expected_nc_peer_1, nc_peer_1);

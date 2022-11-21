@@ -320,22 +320,27 @@ where
         handler: <Self::ConnectionHandler as IntoConnectionHandler>::Handler,
         _remaining_established: usize,
     ) {
-        match self.enabled_peers.entry(*peer_id) {
+        let disconnect_reason = match self.enabled_peers.entry(*peer_id) {
             Entry::Occupied(peer_entry) => match peer_entry.get() {
                 ConnectedPeer::Connected { .. } | ConnectedPeer::PendingDisconnect(..) => {
-                    if let Some(err) = handler.get_fault() {
-                        self.peers
-                            .connection_lost(*peer_id, ConnectionLossReason::Reset(err));
-                    } else {
-                        self.peers
-                            .connection_lost(*peer_id, ConnectionLossReason::ResetByPeer);
-                    }
                     peer_entry.remove();
+                    if let Some(err) = handler.get_fault() {
+                        let reason = ConnectionLossReason::Reset(err);
+                        self.peers.connection_lost(*peer_id, reason);
+                        Some(reason)
+                    } else {
+                        let reason = ConnectionLossReason::ResetByPeer;
+                        self.peers.connection_lost(*peer_id, reason);
+                        Some(reason)
+                    }
                 }
                 // todo: is it possible in case of simultaneous connection?
-                ConnectedPeer::PendingConnect | ConnectedPeer::PendingApprove(..) => {}
+                ConnectedPeer::PendingConnect | ConnectedPeer::PendingApprove(..) => None,
             },
-            Entry::Vacant(_) => {}
+            Entry::Vacant(_) => None,
+        };
+        if let Some(reason) = disconnect_reason {
+            self.peer_disconnected(*peer_id, reason);
         }
     }
 
@@ -523,7 +528,7 @@ where
                     match self.enabled_peers.entry(pid) {
                         Entry::Occupied(mut peer) => {
                             if let ConnectedPeer::Connected { .. } = peer.get() {
-                                println!("Outbound connection to peer {} established", pid);
+                                trace!("Outbound connection to peer {} established", pid);
                                 peer.insert(ConnectedPeer::Connected {
                                     conn_id: cid,
                                     enabled_protocols: HashMap::new(),
@@ -588,10 +593,6 @@ where
                 }
                 Poll::Ready(Some(PeerManagerOut::NotifyPeerPunished { peer_id, reason })) => {
                     self.peer_punished(peer_id, reason);
-                    continue;
-                }
-                Poll::Ready(Some(PeerManagerOut::NotifyConnectionLost { peer_id, reason })) => {
-                    self.peer_disconnected(peer_id, reason);
                     continue;
                 }
                 Poll::Pending => {}
