@@ -1,7 +1,6 @@
 mod peer_manager;
 
 use futures::channel::mpsc;
-use futures::prelude::*;
 use libp2p::identity::Keypair;
 use libp2p::{
     core::{
@@ -18,9 +17,9 @@ use libp2p::{
 };
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
-use spectrum_network::peer_manager::peer_index::PeerIndexConfig;
+use spectrum_network::peer_manager::data::PeerDestination;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
-use spectrum_network::peer_manager::{PeerManager, PeerManagerConfig, PeersMailbox};
+use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerConfig, PeersMailbox};
 use spectrum_network::protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID};
 use spectrum_network::protocol_api::ProtocolMailbox;
 use spectrum_network::protocol_handler::sync::message::SyncSpec;
@@ -158,7 +157,7 @@ pub fn build_node(
     local_status: NodeStatus,
 ) -> (
     Swarm<CustomProtoWithAddr>,
-    ProtocolHandler<SyncBehaviour, NetworkMailbox>,
+    ProtocolHandler<SyncBehaviour<PeersMailbox>, NetworkMailbox>,
 ) {
     let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
         .into_authentic(&keypair)
@@ -177,17 +176,26 @@ pub fn build_node(
         open_timeout: Duration::from_secs(60),
         initial_keep_alive: Duration::from_secs(60),
     };
-    let peer_index_conf = PeerIndexConfig {
-        max_incoming: 25,
-        max_outgoing: 50,
-    };
     let peer_manager_conf = PeerManagerConfig {
+        min_acceptable_reputation: Reputation::from(0),
         min_reputation: Reputation::from(10),
         conn_reset_outbound_backoff: Duration::from_secs(120),
         conn_alloc_interval: Duration::from_secs(30),
         protocols_allocation: Vec::new(),
+        prot_alloc_interval: Duration::from_secs(30),
     };
-    let peer_state = PeerRepo::new(peer_index_conf);
+    let netw_conf = NetworkingConfig {
+        min_known_peers: 2,
+        min_outbound: 1,
+        max_inbound: 25,
+        max_outbound: 50,
+    };
+    let boot_peers = vec![
+        PeerDestination::PeerId(PeerId::random()),
+        PeerDestination::PeerId(PeerId::random()),
+        PeerDestination::PeerId(PeerId::random()),
+    ];
+    let peer_state = PeerRepo::new(netw_conf, boot_peers);
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
     let sync_conf = ProtocolConfig {
         supported_versions: vec![(
@@ -198,7 +206,7 @@ pub fn build_node(
             },
         )],
     };
-    let sync_behaviour = SyncBehaviour::new(local_status);
+    let sync_behaviour = SyncBehaviour::new(peers.clone(), local_status);
     let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
@@ -224,11 +232,12 @@ pub fn build_node(
 
 /// Builds two nodes that have each other as bootstrap nodes.
 /// This is to be used only for testing, and a panic will happen if something goes wrong.
+#[allow(clippy::type_complexity)]
 pub fn build_nodes(
     n: usize,
 ) -> Vec<(
     Swarm<CustomProtoWithAddr>,
-    ProtocolHandler<SyncBehaviour, NetworkMailbox>,
+    ProtocolHandler<SyncBehaviour<PeersMailbox>, NetworkMailbox>,
 )> {
     let mut out = Vec::with_capacity(n);
 

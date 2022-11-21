@@ -81,7 +81,7 @@ where
     fn send_peers(&mut self, peer_id: PeerId) {
         trace!("Sharing known peers with {}", peer_id);
         let get_peers_fut = self.peers.get_peers(MAX_SHARED_PEERS);
-        self.tasks.push(Box::pin({
+        self.tasks.push_back(Box::pin({
             async move {
                 trace!("Waiting for peers");
                 if let Ok(peers) = get_peers_fut.await {
@@ -131,7 +131,9 @@ where
         }
     }
 
-    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {}
+    fn inject_malformed_mesage(&mut self, _peer_id: PeerId, _details: MalformedMessage) {
+        todo!()
+    }
 
     fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<SyncHandshake>) {
         if let Some(SyncHandshake::HandshakeV1(hs)) = handshake {

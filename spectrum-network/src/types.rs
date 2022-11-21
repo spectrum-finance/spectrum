@@ -45,9 +45,9 @@ impl ProtocolId {
     }
 }
 
-impl Into<u8> for ProtocolId {
-    fn into(self) -> u8 {
-        self.0
+impl From<ProtocolId> for u8 {
+    fn from(p: ProtocolId) -> Self {
+        p.0
     }
 }
 
@@ -73,9 +73,9 @@ impl PartialOrd for ProtocolVer {
     }
 }
 
-impl Into<u8> for ProtocolVer {
-    fn into(self) -> u8 {
-        self.0
+impl From<ProtocolVer> for u8 {
+    fn from(p: ProtocolVer) -> Self {
+        p.0
     }
 }
 
@@ -115,9 +115,9 @@ impl ProtocolTag {
     }
 }
 
-impl Into<ProtocolVer> for ProtocolTag {
-    fn into(self) -> ProtocolVer {
-        ProtocolVer::from(self.0[1])
+impl From<ProtocolTag> for ProtocolVer {
+    fn from(p: ProtocolTag) -> Self {
+        ProtocolVer::from(p.0[1])
     }
 }
 
@@ -142,9 +142,9 @@ impl From<BytesMut> for RawMessage {
     }
 }
 
-impl Into<Vec<u8>> for RawMessage {
-    fn into(self) -> Vec<u8> {
-        self.0
+impl From<RawMessage> for Vec<u8> {
+    fn from(r: RawMessage) -> Self {
+        r.0
     }
 }
 

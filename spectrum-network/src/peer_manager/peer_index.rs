@@ -81,3 +81,9 @@ impl PeerIndex {
         }
     }
 }
+
+impl Default for PeerIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
