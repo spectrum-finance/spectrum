@@ -139,7 +139,10 @@ where
     TBehaviour: ProtocolBehaviour + Unpin,
     TNetwork: NetworkAPI + Unpin,
 {
+    #[cfg(feature = "integration_tests")]
     type Item = <TBehaviour::TProto as ProtocolSpec>::TMessage;
+    #[cfg(not(feature = "integration_tests"))]
+    type Item = ();
 
     /// Polls the behaviour and the network, forwarding events from the former to the latter and
     /// vice versa.
@@ -157,6 +160,7 @@ where
                                 trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
                             }
                             trace!("Sent");
+                            #[cfg(feature = "integration_tests")]
                             return Poll::Ready(Some(message));
                         } else {
                             error!("Cannot find sink for peer {}", peer_id);

@@ -441,10 +441,10 @@ async fn integration_test_peer_punish_too_slow() {
         height: 0,
     };
     let local_status_1 = local_status_0.clone();
-    let sync_behaviour_0 = |p| SyncBehaviour::new(p, local_status_0);
-    let sync_behaviour_1 = |p| SyncBehaviour::new(p, local_status_1);
+    let sync_behaviour_0 = |p| FakeSyncBehaviour::new(p, local_status_0);
+    let sync_behaviour_1 = |p| FakeSyncBehaviour::new(p, local_status_1);
 
-    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
+    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<FakeSyncMessage>)>(10);
 
     // It's crucial to have a buffer of size 1 for this test
     let msg_buffer_size = 1;
@@ -471,12 +471,22 @@ async fn integration_test_peer_punish_too_slow() {
         }
     });
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
-    );
-    let (abortable_peer_1, handle_1) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, msg_tx),
-    );
+    let (abortable_peer_0, handle_0) =
+        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
+            local_key_0,
+            nc_0,
+            addr_0,
+            Peer::First,
+            msg_tx.clone(),
+        ));
+    let (abortable_peer_1, handle_1) =
+        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
+            local_key_1,
+            nc_1,
+            addr_1,
+            Peer::Second,
+            msg_tx,
+        ));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 

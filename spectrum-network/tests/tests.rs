@@ -1,3 +1,4 @@
+#[cfg(feature = "integration_tests")]
 mod integration_tests;
 mod peer_manager;
 

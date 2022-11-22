@@ -104,7 +104,26 @@ where
         self.outbox.push_back(SyncBehaviourOut::Send {
             peer_id,
             message: FakeSyncMessage::SyncMessageV1(FakeSyncMessageV1::FakeMsg),
-        })
+        });
+        #[cfg(feature = "test_peer_punish_too_slow")]
+        {
+            self.outbox.push_back(SyncBehaviourOut::Send {
+                peer_id,
+                message: FakeSyncMessage::SyncMessageV1(FakeSyncMessageV1::FakeMsg),
+            });
+            self.outbox.push_back(SyncBehaviourOut::Send {
+                peer_id,
+                message: FakeSyncMessage::SyncMessageV1(FakeSyncMessageV1::FakeMsg),
+            });
+            self.outbox.push_back(SyncBehaviourOut::Send {
+                peer_id,
+                message: FakeSyncMessage::SyncMessageV1(FakeSyncMessageV1::FakeMsg),
+            });
+            self.outbox.push_back(SyncBehaviourOut::Send {
+                peer_id,
+                message: FakeSyncMessage::SyncMessageV1(FakeSyncMessageV1::FakeMsg),
+            });
+        }
     }
 }
 

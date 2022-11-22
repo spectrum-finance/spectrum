@@ -8,6 +8,7 @@ rust-version = "1.60.0"
 
 [features]
 test_peer_punish_too_slow = []
+integration_tests = []
 
 [dependencies]
 libp2p = { version = "0.49.0", features = ["noise", "yamux"] }
