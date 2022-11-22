@@ -293,6 +293,7 @@ where
                     for (_, ph) in self.supported_protocols.values() {
                         ph.connected(*peer_id);
                     }
+                    self.outbound_peer_connected(*peer_id);
                 }
                 ConnectedPeer::Connected { .. }
                 | ConnectedPeer::PendingDisconnect(..)
@@ -523,22 +524,6 @@ where
                         }
                         Entry::Vacant(_) => {}
                     }
-                }
-                Poll::Ready(Some(PeerManagerOut::EstablishOutgoingConnection(pid, cid))) => {
-                    match self.enabled_peers.entry(pid) {
-                        Entry::Occupied(mut peer) => {
-                            if let ConnectedPeer::Connected { .. } = peer.get() {
-                                trace!("Outbound connection to peer {} established", pid);
-                                peer.insert(ConnectedPeer::Connected {
-                                    conn_id: cid,
-                                    enabled_protocols: HashMap::new(),
-                                });
-                                self.outbound_peer_connected(pid);
-                            }
-                        }
-                        Entry::Vacant(_) => {}
-                    }
-                    continue;
                 }
                 Poll::Ready(Some(PeerManagerOut::Reject(pid, cid))) => {
                     match self.enabled_peers.entry(pid) {

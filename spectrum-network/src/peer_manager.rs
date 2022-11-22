@@ -33,8 +33,6 @@ pub enum PeerManagerOut {
     Drop(PeerId),
     /// Approves an incoming connection.
     AcceptIncomingConnection(PeerId, ConnectionId),
-    /// Establish an outgoing connection.
-    EstablishOutgoingConnection(PeerId, ConnectionId),
     /// Rejects an incoming connection.
     Reject(PeerId, ConnectionId),
     /// An instruction to start the specified protocol with the specified peer.
@@ -507,8 +505,6 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
     fn on_connection_established(&mut self, peer_id: PeerId, conn_id: ConnectionId) {
         if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&peer_id) {
             cp.confirm_connection();
-            self.out_queue
-                .push_back(PeerManagerOut::EstablishOutgoingConnection(peer_id, conn_id))
         } else {
             error!("Peer {} hasn't been acknowledged as connected", peer_id)
         }
