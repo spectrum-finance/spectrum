@@ -24,12 +24,12 @@ impl Versioned for SyncHandshake {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum SyncMessage {
     SyncMessageV1(SyncMessageV1),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum SyncMessageV1 {
     GetPeers,
     Peers(Vec<PeerDestination>),

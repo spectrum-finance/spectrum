@@ -1,5 +1,7 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
-use crate::peer_conn_handler::{ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf};
+use crate::peer_conn_handler::{
+    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf,
+};
 use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
 use crate::protocol::ProtocolConfig;
 use crate::protocol_api::ProtocolEvents;
@@ -19,7 +21,7 @@ use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use crate::peer_manager::data::ConnectionLossReason;
+use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::Stream;
@@ -53,8 +55,38 @@ pub enum ConnectedPeer<THandler> {
 }
 
 /// Outbound network events.
-#[derive(Debug)]
-pub enum NetworkControllerOut {}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum NetworkControllerOut {
+    /// Connected with peer, initiated by external peer (inbound connection).
+    ConnectedWithInboundPeer(PeerId),
+    /// Connected with peer, initiated by us (outbound connection).
+    ConnectedWithOutboundPeer(PeerId),
+    Disconnected {
+        peer_id: PeerId,
+        reason: ConnectionLossReason,
+    },
+    ProtocolPendingApprove {
+        peer_id: PeerId,
+        protocol_id: ProtocolId,
+    },
+    ProtocolPendingEnable {
+        peer_id: PeerId,
+        protocol_id: ProtocolId,
+    },
+    ProtocolEnabled {
+        peer_id: PeerId,
+        protocol_id: ProtocolId,
+        protocol_ver: ProtocolVer,
+    },
+    ProtocolDisabled {
+        peer_id: PeerId,
+        protocol_id: ProtocolId,
+    },
+    PeerPunished {
+        peer_id: PeerId,
+        reason: ReputationChange,
+    },
+}
 
 pub enum NetworkControllerIn {
     /// A directive to enable the specified protocol with the specified peer.
@@ -101,6 +133,82 @@ impl NetworkAPI for NetworkMailbox {
         let _ = self
             .mailbox_snd
             .unbounded_send(NetworkControllerIn::UpdatePeerProtocols { peer, protocols });
+    }
+}
+
+/// API to events emitted by the network (swarm in our case).
+pub trait NetworkEvents {
+    /// Connected with peer, initiated by external peer (inbound connection).
+    fn inbound_peer_connected(&mut self, peer_id: PeerId);
+    /// Connected with peer, initiated by us (outbound connection).
+    fn outbound_peer_connected(&mut self, peer_id: PeerId);
+    fn peer_disconnected(&mut self, peer_id: PeerId, reason: ConnectionLossReason);
+    fn peer_punished(&mut self, peer_id: PeerId, reason: ReputationChange);
+    fn protocol_pending_approve(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
+    fn protocol_pending_enable(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
+    fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer);
+    fn protocol_disabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId);
+}
+
+impl<TPeers, TPeerManager, THandler> NetworkEvents for NetworkController<TPeers, TPeerManager, THandler> {
+    fn inbound_peer_connected(&mut self, peer_id: PeerId) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::ConnectedWithInboundPeer(peer_id),
+            ));
+    }
+
+    fn outbound_peer_connected(&mut self, peer_id: PeerId) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::ConnectedWithOutboundPeer(peer_id),
+            ));
+    }
+
+    fn peer_disconnected(&mut self, peer_id: PeerId, reason: ConnectionLossReason) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::Disconnected { peer_id, reason },
+            ));
+    }
+
+    fn peer_punished(&mut self, peer_id: PeerId, reason: ReputationChange) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::PeerPunished { peer_id, reason },
+            ));
+    }
+
+    fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::ProtocolEnabled {
+                    peer_id,
+                    protocol_id,
+                    protocol_ver,
+                },
+            ));
+    }
+
+    fn protocol_pending_approve(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::ProtocolPendingApprove { peer_id, protocol_id },
+            ));
+    }
+
+    fn protocol_pending_enable(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::ProtocolPendingEnable { peer_id, protocol_id },
+            ));
+    }
+
+    fn protocol_disabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
+        self.pending_actions
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                NetworkControllerOut::ProtocolDisabled { peer_id, protocol_id },
+            ));
     }
 }
 
@@ -185,6 +293,7 @@ where
                     for (_, ph) in self.supported_protocols.values() {
                         ph.connected(*peer_id);
                     }
+                    self.outbound_peer_connected(*peer_id);
                 }
                 ConnectedPeer::Connected { .. }
                 | ConnectedPeer::PendingDisconnect(..)
@@ -212,22 +321,27 @@ where
         handler: <Self::ConnectionHandler as IntoConnectionHandler>::Handler,
         _remaining_established: usize,
     ) {
-        match self.enabled_peers.entry(*peer_id) {
+        let disconnect_reason = match self.enabled_peers.entry(*peer_id) {
             Entry::Occupied(peer_entry) => match peer_entry.get() {
                 ConnectedPeer::Connected { .. } | ConnectedPeer::PendingDisconnect(..) => {
-                    if let Some(err) = handler.get_fault() {
-                        self.peers
-                            .connection_lost(*peer_id, ConnectionLossReason::Reset(err));
-                    } else {
-                        self.peers
-                            .connection_lost(*peer_id, ConnectionLossReason::ResetByPeer);
-                    }
                     peer_entry.remove();
+                    if let Some(err) = handler.get_fault() {
+                        let reason = ConnectionLossReason::Reset(err);
+                        self.peers.connection_lost(*peer_id, reason);
+                        Some(reason)
+                    } else {
+                        let reason = ConnectionLossReason::ResetByPeer;
+                        self.peers.connection_lost(*peer_id, reason);
+                        Some(reason)
+                    }
                 }
                 // todo: is it possible in case of simultaneous connection?
-                ConnectedPeer::PendingConnect | ConnectedPeer::PendingApprove(..) => {}
+                ConnectedPeer::PendingConnect | ConnectedPeer::PendingApprove(..) => None,
             },
-            Entry::Vacant(_) => {}
+            Entry::Vacant(_) => None,
+        };
+        if let Some(reason) = disconnect_reason {
+            self.peer_disconnected(*peer_id, reason);
         }
     }
 
@@ -264,6 +378,7 @@ where
                                     sink: out_channel,
                                 };
                                 entry.insert((enabled_protocol, handler.clone()));
+                                self.protocol_enabled(peer_id, protocol_id, protocol_ver);
                             }
                         }
                         Entry::Vacant(entry) => {
@@ -286,6 +401,7 @@ where
                         Entry::Vacant(entry) => {
                             entry.insert((EnabledProtocol::PendingApprove, prot_handler.clone()));
                             prot_handler.protocol_requested(peer_id, protocol_tag.protocol_ver(), handshake);
+                            self.protocol_pending_approve(peer_id, protocol_id);
                         }
                         Entry::Occupied(_) => {
                             warn!(
@@ -387,10 +503,14 @@ where
                                 handler: NotifyHandler::One(*conn_id),
                                 event: ConnHandlerIn::CloseAllProtocols,
                             });
+                        self.peer_disconnected(
+                            peer_id,
+                            ConnectionLossReason::Reset(ConnHandlerError::UnacceptablePeer),
+                        );
                     }
                     continue;
                 }
-                Poll::Ready(Some(PeerManagerOut::Accept(pid, cid))) => {
+                Poll::Ready(Some(PeerManagerOut::AcceptIncomingConnection(pid, cid))) => {
                     match self.enabled_peers.entry(pid) {
                         Entry::Occupied(mut peer) => {
                             if let ConnectedPeer::PendingApprove(_) = peer.get() {
@@ -399,11 +519,11 @@ where
                                     conn_id: cid,
                                     enabled_protocols: HashMap::new(),
                                 });
+                                self.inbound_peer_connected(pid);
                             }
                         }
                         Entry::Vacant(_) => {}
                     }
-                    continue;
                 }
                 Poll::Ready(Some(PeerManagerOut::Reject(pid, cid))) => {
                     match self.enabled_peers.entry(pid) {
@@ -443,6 +563,7 @@ where
                                                 prot_handler.clone(),
                                             ));
                                             prot_handler.protocol_requested_local(pid);
+                                            self.protocol_pending_enable(pid, protocol);
                                         }
                                     };
                                 }
@@ -453,6 +574,10 @@ where
                         }
                         Entry::Vacant(_) => {}
                     }
+                    continue;
+                }
+                Poll::Ready(Some(PeerManagerOut::NotifyPeerPunished { peer_id, reason })) => {
+                    self.peer_punished(peer_id, reason);
                     continue;
                 }
                 Poll::Pending => {}
@@ -524,6 +649,7 @@ where
                                                 handshake,
                                             },
                                         });
+                                    self.protocol_pending_enable(peer_id, protocol_id);
                                 }
                             }
                         }

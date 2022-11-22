@@ -1,34 +1,62 @@
-use crate::peer_manager::data::ReputationChange;
-use crate::peer_manager::Peers;
-use crate::protocol::SYNC_PROTOCOL_ID;
-use crate::protocol_handler::sync::message::{
-    HandshakeV1, SyncHandshake, SyncMessage, SyncMessageV1, SyncSpec,
+//! This fake Sync protocol is adapted from the Sync protocol. Used to test for malformed-messages.
+
+use std::{
+    collections::{HashMap, VecDeque},
+    pin::Pin,
+    task::{Context, Poll},
 };
-use crate::protocol_handler::{
-    MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec,
-};
-use crate::types::{ProtocolId, ProtocolVer};
+
 use derive_more::Display;
-use futures::stream::FuturesOrdered;
-use futures::Stream;
+use futures::{stream::FuturesOrdered, Future, Stream};
 use libp2p::PeerId;
-use log::{error, info, trace};
-use std::collections::{HashMap, VecDeque};
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use serde::{Deserialize, Serialize};
+use spectrum_network::{
+    peer_manager::Peers,
+    protocol::SYNC_PROTOCOL_ID,
+    protocol_handler::{
+        sync::{
+            message::{HandshakeV1, SyncHandshake, SyncSpec},
+            NodeStatus,
+        },
+        versioning::Versioned,
+        MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut,
+    },
+    types::{ProtocolId, ProtocolVer},
+};
 
-pub mod message;
-
-const MAX_SHARED_PEERS: usize = 128;
-
-#[derive(Clone)]
-pub struct NodeStatus {
-    pub supported_protocols: Vec<ProtocolId>,
-    pub height: usize,
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum FakeSyncMessage {
+    SyncMessageV1(FakeSyncMessageV1),
 }
 
-type SyncBehaviourOut = ProtocolBehaviourOut<SyncHandshake, SyncMessage>;
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum FakeSyncMessageV1 {
+    /// This is the message which will be regarded as malformed by the receiving peer.
+    FakeMsg,
+}
+
+impl Versioned for FakeSyncMessage {
+    fn version(&self) -> ProtocolVer {
+        match self {
+            FakeSyncMessage::SyncMessageV1(_) => FakeSyncSpec::v1(),
+        }
+    }
+}
+
+pub struct FakeSyncSpec;
+
+impl FakeSyncSpec {
+    pub fn v1() -> ProtocolVer {
+        ProtocolVer::from(1)
+    }
+}
+
+impl spectrum_network::protocol_handler::ProtocolSpec for FakeSyncSpec {
+    type THandshake = SyncHandshake;
+    type TMessage = FakeSyncMessage;
+}
+
+type SyncBehaviourOut = ProtocolBehaviourOut<SyncHandshake, FakeSyncMessage>;
 
 #[derive(Debug, Display)]
 pub enum SyncBehaviorError {
@@ -38,16 +66,16 @@ pub enum SyncBehaviorError {
 
 type SyncTask = Pin<Box<dyn Future<Output = Result<SyncBehaviourOut, SyncBehaviorError>> + Send>>;
 
-pub struct SyncBehaviour<TPeers> {
+pub struct FakeSyncBehaviour<TPeers> {
     local_status: NodeStatus,
     outbox: VecDeque<SyncBehaviourOut>,
     tracked_peers: HashMap<PeerId, NodeStatus>,
     // ideally tasks should be ordered in the scope of one peer.
     tasks: FuturesOrdered<SyncTask>,
-    peers: TPeers,
+    _peers: TPeers,
 }
 
-impl<TPeers> SyncBehaviour<TPeers>
+impl<TPeers> FakeSyncBehaviour<TPeers>
 where
     TPeers: Peers,
 {
@@ -57,7 +85,7 @@ where
             outbox: VecDeque::new(),
             tracked_peers: HashMap::new(),
             tasks: FuturesOrdered::new(),
-            peers,
+            _peers: peers,
         }
     }
 
@@ -72,41 +100,38 @@ where
         )]
     }
 
-    fn send_get_peers(&mut self, peer_id: PeerId) {
-        trace!("Requesting peers from {}", peer_id);
+    fn send_fake_msg(&mut self, peer_id: PeerId) {
         self.outbox.push_back(SyncBehaviourOut::Send {
             peer_id,
-            message: SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers),
+            message: FakeSyncMessage::SyncMessageV1(FakeSyncMessageV1::FakeMsg),
         });
-    }
-
-    fn send_peers(&mut self, peer_id: PeerId) {
-        trace!("Sharing known peers with {}", peer_id);
-        let get_peers_fut = self.peers.get_peers(MAX_SHARED_PEERS);
-        self.tasks.push_back(Box::pin({
-            async move {
-                trace!("Waiting for peers");
-                if let Ok(peers) = get_peers_fut.await {
-                    trace!("My peers num {}", peers.len());
-                    Ok(ProtocolBehaviourOut::Send {
-                        peer_id,
-                        message: SyncMessage::SyncMessageV1(SyncMessageV1::Peers(
-                            peers.into_iter().filter(|p| p.peer_id() != peer_id).collect(),
-                        )),
-                    })
-                } else {
-                    Err(SyncBehaviorError::OperationCancelled)
-                }
-            }
-        }));
+        #[cfg(feature = "test_peer_punish_too_slow")]
+        {
+            self.outbox.push_back(SyncBehaviourOut::Send {
+                peer_id,
+                message: FakeSyncMessage::SyncMessageV1(FakeSyncMessageV1::FakeMsg),
+            });
+            self.outbox.push_back(SyncBehaviourOut::Send {
+                peer_id,
+                message: FakeSyncMessage::SyncMessageV1(FakeSyncMessageV1::FakeMsg),
+            });
+            self.outbox.push_back(SyncBehaviourOut::Send {
+                peer_id,
+                message: FakeSyncMessage::SyncMessageV1(FakeSyncMessageV1::FakeMsg),
+            });
+            self.outbox.push_back(SyncBehaviourOut::Send {
+                peer_id,
+                message: FakeSyncMessage::SyncMessageV1(FakeSyncMessageV1::FakeMsg),
+            });
+        }
     }
 }
 
-impl<TPeers> ProtocolBehaviour for SyncBehaviour<TPeers>
+impl<TPeers> ProtocolBehaviour for FakeSyncBehaviour<TPeers>
 where
     TPeers: Peers,
 {
-    type TProto = SyncSpec;
+    type TProto = FakeSyncSpec;
 
     fn get_protocol_id(&self) -> ProtocolId {
         SYNC_PROTOCOL_ID
@@ -121,22 +146,11 @@ where
             }))
     }
 
-    fn inject_message(&mut self, peer_id: PeerId, msg: SyncMessage) {
-        match msg {
-            SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers) => {
-                self.send_peers(peer_id);
-            }
-            SyncMessage::SyncMessageV1(SyncMessageV1::Peers(peers)) => {
-                info!("Peer {} sent {} peers", peer_id, peers.len());
-                self.peers.add_peers(peers);
-            }
-        }
+    fn inject_message(&mut self, peer_id: PeerId, msg: FakeSyncMessage) {
+        self.send_fake_msg(peer_id);
     }
 
-    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {
-        self.peers
-            .report_peer(peer_id, ReputationChange::MalformedMessage(details));
-    }
+    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {}
 
     fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<SyncHandshake>) {
         if let Some(SyncHandshake::HandshakeV1(hs)) = handshake {
@@ -167,25 +181,23 @@ where
     fn inject_protocol_enabled(
         &mut self,
         peer_id: PeerId,
-        _handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
+        _handshake: Option<<Self::TProto as spectrum_network::protocol_handler::ProtocolSpec>::THandshake>,
     ) {
-        info!("Sync protocol enabled with peer {}", peer_id);
-        self.send_get_peers(peer_id);
+        self.send_fake_msg(peer_id);
     }
 
     fn inject_protocol_disabled(&mut self, peer_id: PeerId) {
         self.tracked_peers.remove(&peer_id);
     }
 
-    fn poll(&mut self, cx: &mut Context) -> Poll<ProtocolBehaviourOut<SyncHandshake, SyncMessage>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<ProtocolBehaviourOut<SyncHandshake, FakeSyncMessage>> {
         loop {
             match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
                 Poll::Ready(Some(Ok(out))) => {
                     self.outbox.push_back(out);
                     continue;
                 }
-                Poll::Ready(Some(Err(err))) => {
-                    error!("An error occured: {}", err);
+                Poll::Ready(Some(Err(_))) => {
                     continue;
                 }
                 Poll::Pending | Poll::Ready(None) => break,

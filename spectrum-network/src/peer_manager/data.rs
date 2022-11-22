@@ -1,4 +1,5 @@
 use crate::peer_conn_handler::ConnHandlerError;
+use crate::protocol_handler::MalformedMessage;
 use crate::types::{ProtocolId, Reputation};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::{Multiaddr, PeerId};
@@ -188,15 +189,26 @@ impl From<PeerDestination> for DialOpts {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReputationChange {
-    MalformedMessage,
+    MalformedMessage(MalformedMessage),
     NoResponse,
     TooSlow,
+}
+
+impl ReputationChange {
+    /// Returns true if reputation is downgraded.
+    pub fn is_downgrade(&self) -> bool {
+        match self {
+            ReputationChange::MalformedMessage(_) => true,
+            ReputationChange::NoResponse => true,
+            ReputationChange::TooSlow => true,
+        }
+    }
 }
 
 impl From<ReputationChange> for i32 {
     fn from(c: ReputationChange) -> Self {
         match c {
-            ReputationChange::MalformedMessage => -10,
+            ReputationChange::MalformedMessage(_) => -10,
             ReputationChange::NoResponse => -10,
             ReputationChange::TooSlow => -10,
         }
