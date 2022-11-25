@@ -230,6 +230,12 @@ impl IntoConnectionHandler for PartialPeerConnHandler {
             })
             .collect::<Vec<_>>()
             .into();
+
+        #[cfg(not(feature = "test_peer_punish_too_slow"))]
+        let throttle_recv = ThrottleStage::Disable;
+        #[cfg(feature = "test_peer_punish_too_slow")]
+        let throttle_recv = ThrottleStage::Start;
+
         PeerConnHandler {
             conf: self.conf,
             protocols,

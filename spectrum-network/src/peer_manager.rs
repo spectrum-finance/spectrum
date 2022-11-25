@@ -8,6 +8,7 @@ use crate::peer_manager::data::{
     ReputationChange,
 };
 use crate::peer_manager::peers_state::{NetworkingState, PeerInState, PeerStateFilter, PeersState};
+use crate::protocol_upgrade::supported_protocol_vers::SupportedProtocolId;
 use crate::types::{ProtocolId, Reputation};
 use futures::channel::oneshot::{Receiver, Sender};
 use futures::channel::{mpsc, oneshot};
@@ -35,7 +36,7 @@ pub enum PeerManagerOut {
     /// Rejects an incoming connection.
     Reject(PeerId, ConnectionId),
     /// An instruction to start the specified protocol with the specified peer.
-    StartProtocol(ProtocolId, PeerId),
+    StartProtocol(SupportedProtocolId, PeerId),
     /// Notify that a peer was punished.
     NotifyPeerPunished {
         peer_id: PeerId,
@@ -232,7 +233,7 @@ pub struct PeerManagerConfig {
     pub conn_reset_outbound_backoff: Duration,
     pub conn_alloc_interval: Duration,
     pub prot_alloc_interval: Duration,
-    pub protocols_allocation: Vec<(ProtocolId, ProtocolAllocationPolicy)>,
+    pub protocols_allocation: Vec<(SupportedProtocolId, ProtocolAllocationPolicy)>,
     pub peer_manager_msg_buffer_size: usize,
 }
 
@@ -358,7 +359,7 @@ impl<S: PeersState> PeerManager<S> {
     /// Allocate protocol substreams according to configured policies.
     fn allocate_protocols(&mut self) {
         for (prot, policy) in self.conf.protocols_allocation.clone().iter() {
-            if let Some(enabled_peers) = self.state.get_enabled_peers(prot) {
+            if let Some(enabled_peers) = self.state.get_enabled_peers(&prot.get_inner()) {
                 let cond = match policy {
                     ProtocolAllocationPolicy::Bounded(max_conn_percent) => {
                         enabled_peers.len() / self.state.num_connected_peers() < *max_conn_percent / 100
@@ -368,10 +369,10 @@ impl<S: PeersState> PeerManager<S> {
                 };
                 if cond {
                     if let Some(candidate) = self.state.pick_best(Some(|pid: &PeerId, pi: &PeerInfo| {
-                        !enabled_peers.contains(pid) && pi.supports(prot).unwrap_or(false)
+                        !enabled_peers.contains(pid) && pi.supports(&prot.get_inner()).unwrap_or(false)
                     })) {
                         if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&candidate) {
-                            cp.enable_protocol(*prot);
+                            cp.enable_protocol(prot.get_inner());
                             self.out_queue
                                 .push_back(PeerManagerOut::StartProtocol(*prot, candidate));
                         }

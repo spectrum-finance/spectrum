@@ -141,7 +141,7 @@ where
     TNetwork: NetworkAPI + Unpin,
 {
     #[cfg(feature = "integration_tests")]
-    type Item = <TBehaviour::TProto as ProtocolSpec>::TMessage;
+    type Item = Result<<TBehaviour::TProto as ProtocolSpec>::TMessage, ProtocolHandlerError>;
     #[cfg(not(feature = "integration_tests"))]
     type Item = ();
 
@@ -157,7 +157,7 @@ where
                         trace!("Sending message {:?} to peer {}", message, peer_id);
                         if let Some(sink) = self.peers.get(&peer_id) {
                             trace!("Sink is available");
-                            match codec::BinCodec::encode(message) {
+                            match codec::BinCodec::encode(message.clone()) {
                                 Ok(msg) => {
                                     if sink.send_message(msg).is_err() {
                                         trace!(
@@ -167,7 +167,7 @@ where
                                     }
                                     trace!("Sent");
                                     #[cfg(feature = "integration_tests")]
-                                    return Poll::Ready(Some(message));
+                                    return Poll::Ready(Some(Ok(message)));
                                 }
                                 Err(e) => {
                                     trace!("Failed to encode message: {:?}", e);

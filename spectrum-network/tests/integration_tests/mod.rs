@@ -22,8 +22,9 @@ use spectrum_network::{
             message::{SyncMessage, SyncMessageV1, SyncSpec},
             NodeStatus, SyncBehaviour,
         },
-        MalformedMessage, ProtocolBehaviour, ProtocolHandler,
+        MalformedMessage, ProtocolBehaviour, ProtocolHandler, ProtocolHandlerError,
     },
+    protocol_upgrade::GetSupportedProtocolVer,
     types::{ProtocolId, ProtocolVer, Reputation},
 };
 
@@ -87,7 +88,7 @@ async fn integration_test_0() {
     let sync_behaviour_1 = |p| SyncBehaviour::new(p, local_status_1);
 
     // Though we spawn multiple tasks we use this single channel for messaging.
-    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
+    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<Result<SyncMessage, ProtocolHandlerError>>)>(10);
 
     let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
     let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, sync_behaviour_1, 10);
@@ -159,8 +160,8 @@ async fn integration_test_0() {
                 Peer::Third => (),
             },
             Msg::Protocol(p_msg) => match peer {
-                Peer::First => prot_peer_0.push(p_msg),
-                Peer::Second => prot_peer_1.push(p_msg),
+                Peer::First => prot_peer_0.push(p_msg.unwrap()),
+                Peer::Second => prot_peer_1.push(p_msg.unwrap()),
                 Peer::Third => (),
             },
         }
@@ -207,6 +208,7 @@ async fn integration_test_0() {
             protocol_ver,
         },
     ];
+
     assert_eq!(nc_peer_1, expected_nc_peer_1);
 
     let expected_prot_peer_0 = vec![
@@ -254,8 +256,9 @@ async fn integration_test_1() {
     let fake_sync_behaviour = |p| FakeSyncBehaviour::new(p, local_status_1);
 
     // Note that we use 2 channels here since `peer_0` sends `SyncMessage`s while `peer_1` sends `FakeSyncMessage`s.
-    let (msg_tx, msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
-    let (fake_msg_tx, fake_msg_rx) = mpsc::channel::<(Peer, Msg<FakeSyncMessage>)>(10);
+    let (msg_tx, msg_rx) = mpsc::channel::<(Peer, Msg<Result<SyncMessage, ProtocolHandlerError>>)>(10);
+    let (fake_msg_tx, fake_msg_rx) =
+        mpsc::channel::<(Peer, Msg<Result<FakeSyncMessage, ProtocolHandlerError>>)>(10);
 
     let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
     let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, fake_sync_behaviour, 10);
@@ -321,8 +324,8 @@ async fn integration_test_1() {
 
     // We use this enum to combine `msg_rx` and `fake_msg_rx` streams
     enum C {
-        SyncMsg((Peer, Msg<SyncMessage>)),
-        FakeMsg((Peer, Msg<FakeSyncMessage>)),
+        SyncMsg((Peer, Msg<Result<SyncMessage, ProtocolHandlerError>>)),
+        FakeMsg((Peer, Msg<Result<FakeSyncMessage, ProtocolHandlerError>>)),
     }
 
     type CombinedStream = std::pin::Pin<Box<dyn futures::stream::Stream<Item = C> + Send>>;
@@ -348,7 +351,7 @@ async fn integration_test_1() {
                     Peer::Second => nc_peer_1.push(nc_msg),
                     Peer::Third => (),
                 },
-                Msg::Protocol(p_msg) => prot_peer_0.push(p_msg),
+                Msg::Protocol(p_msg) => prot_peer_0.push(p_msg.unwrap()),
             },
             C::FakeMsg((peer, msg)) => match msg {
                 Msg::NetworkController(nc_msg) => match peer {
@@ -356,7 +359,7 @@ async fn integration_test_1() {
                     Peer::Second => nc_peer_1.push(nc_msg),
                     Peer::Third => (),
                 },
-                Msg::Protocol(p_msg) => prot_peer_1.push(p_msg),
+                Msg::Protocol(p_msg) => prot_peer_1.push(p_msg.unwrap()),
             },
         }
     }
@@ -444,7 +447,8 @@ async fn integration_test_peer_punish_too_slow() {
     let sync_behaviour_0 = |p| FakeSyncBehaviour::new(p, local_status_0);
     let sync_behaviour_1 = |p| FakeSyncBehaviour::new(p, local_status_1);
 
-    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<FakeSyncMessage>)>(10);
+    let (msg_tx, mut msg_rx) =
+        mpsc::channel::<(Peer, Msg<Result<FakeSyncMessage, ProtocolHandlerError>>)>(10);
 
     // It's crucial to have a buffer of size 1 for this test
     let msg_buffer_size = 1;
@@ -528,8 +532,8 @@ async fn integration_test_peer_punish_too_slow() {
                 Peer::Third => (),
             },
             Msg::Protocol(p_msg) => match peer {
-                Peer::First => prot_peer_0.push(p_msg),
-                Peer::Second => prot_peer_1.push(p_msg),
+                Peer::First => prot_peer_0.push(p_msg.unwrap()),
+                Peer::Second => prot_peer_1.push(p_msg.unwrap()),
                 Peer::Third => (),
             },
         }
@@ -624,7 +628,7 @@ async fn integration_test_2() {
     let sync_behaviour_2 = |p| SyncBehaviour::new(p, local_status_2);
 
     // Though we spawn multiple tasks we use this single channel for messaging.
-    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
+    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<Result<SyncMessage, ProtocolHandlerError>>)>(10);
 
     let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
     let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, sync_behaviour_1, 10);
@@ -737,9 +741,9 @@ async fn integration_test_2() {
                 Peer::Third => nc_peer_2.push(nc_msg),
             },
             Msg::Protocol(p_msg) => match peer {
-                Peer::First => prot_peer_0.push(p_msg),
-                Peer::Second => prot_peer_1.push(p_msg),
-                Peer::Third => prot_peer_2.push(p_msg),
+                Peer::First => prot_peer_0.push(p_msg.unwrap()),
+                Peer::Second => prot_peer_1.push(p_msg.unwrap()),
+                Peer::Third => prot_peer_2.push(p_msg.unwrap()),
             },
         }
     }
@@ -825,7 +829,7 @@ where
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
     let sync_conf = ProtocolConfig {
         supported_versions: vec![(
-            SyncSpec::v1(),
+            SyncSpec::get_supported_ver(),
             ProtocolSpec {
                 max_message_size: 100,
                 approve_required: true,
@@ -857,7 +861,10 @@ async fn create_swarm<P>(
     peer: Peer,
     mut tx: mpsc::Sender<(
         Peer,
-        Msg<<<P as ProtocolBehaviour>::TProto as spectrum_network::protocol_handler::ProtocolSpec>::TMessage>,
+        Msg<
+            Result<<<P as ProtocolBehaviour>::TProto as spectrum_network::protocol_handler::ProtocolSpec>::TMessage,
+            ProtocolHandlerError>
+        >,
     )>,
 ) where
     P: ProtocolBehaviour + Unpin + std::marker::Send + 'static,

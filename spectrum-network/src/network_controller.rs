@@ -268,7 +268,7 @@ where
     THandler: ProtocolEvents + Clone + 'static,
 {
     type ConnectionHandler = PartialPeerConnHandler;
-    type OutEvent = Result<NetworkControllerOut, NetworkControllerError>;
+    type OutEvent = NetworkControllerOut;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
         trace!("New handler is created");
@@ -380,7 +380,11 @@ where
                                     sink: out_channel,
                                 };
                                 entry.insert((enabled_protocol, handler.clone()));
-                                self.protocol_enabled(peer_id, protocol_id, protocol_ver);
+                                self.protocol_enabled(
+                                    peer_id,
+                                    protocol_id.get_inner(),
+                                    protocol_ver.get_inner(),
+                                );
                             }
                         }
                         Entry::Vacant(entry) => {
@@ -407,6 +411,7 @@ where
                                 protocol_tag.protocol_ver().get_inner(),
                                 handshake,
                             );
+                            self.protocol_pending_approve(peer_id, protocol_id.get_inner());
                         }
                         Entry::Occupied(_) => {
                             warn!(
@@ -573,24 +578,19 @@ where
                                 ConnectedPeer::Connected {
                                     enabled_protocols, ..
                                 } => {
-                                    if let Some((_, prot_handler)) = self.supported_protocols.get(protocol) {
-                                        match enabled_protocols.entry(protocol) {
-                                            Entry::Occupied(_) => warn!(
-                                                "PM requested already enabled protocol {:?} with peer {:?}",
-                                                protocol, pid
-                                            ),
-                                            Entry::Vacant(protocol_entry) => {
-                                                protocol_entry.insert((
-                                                    EnabledProtocol::PendingEnable,
-                                                    prot_handler.clone(),
-                                                ));
-                                                prot_handler.protocol_requested_local(pid);
-                                            }
+                                    let (_, prot_handler) = self.supported_protocols.get_supported(protocol);
+                                    match enabled_protocols.entry(protocol.get_inner()) {
+                                        Entry::Occupied(_) => warn!(
+                                            "PM requested already enabled protocol {:?} with peer {:?}",
+                                            protocol, pid
+                                        ),
+                                        Entry::Vacant(protocol_entry) => {
+                                            protocol_entry.insert((
+                                                EnabledProtocol::PendingEnable,
+                                                prot_handler.clone(),
+                                            ));
+                                            prot_handler.protocol_requested_local(pid);
                                         }
-                                    } else {
-                                        return Poll::Ready(NetworkBehaviourAction::GenerateEvent(Err(
-                                            NetworkControllerError::UnsupportedProtocol(protocol),
-                                        )));
                                     }
                                 }
                                 ConnectedPeer::PendingConnect
@@ -687,10 +687,4 @@ where
             return Poll::Pending;
         }
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum NetworkControllerError {
-    #[error("Unsupported protocol: {0:?}")]
-    UnsupportedProtocol(ProtocolId),
 }
