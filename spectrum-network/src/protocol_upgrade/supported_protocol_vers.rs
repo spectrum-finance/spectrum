@@ -1,3 +1,8 @@
+//! Wrapper types around `ProtocolId` and `ProtocolVer` and collections of them. Using them ensures
+//! at the type-level that the collections of supported `ProtocolId`s and `ProtocolVer`s are
+//! determined at peer-startup and that they cannot change. Furthermore the existence of a
+//! `SupportProtocol[Id|Ver]` instance is a guarantee that the peer supports that protocol [id|ver].
+
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Display,
@@ -10,6 +15,7 @@ use crate::{
     types::{ProtocolId, ProtocolTag, ProtocolVer},
 };
 
+/// Ensures that a supported protocol can return a supported protocol version.
 pub trait GetSupportedProtocolVer {
     fn get_supported_ver() -> SupportedProtocolVer;
 }
@@ -20,6 +26,8 @@ impl GetSupportedProtocolVer for SyncSpec {
     }
 }
 
+/// A B-tree mapping from `SupportedProtocolVer` to `T`. Keys are ordered from highest to lowest.
+/// Once created, the mapping itself cannot be altered, but the mapped values can be mutated.
 #[derive(Debug, Clone)]
 pub struct SupportedProtocolVerBTreeMap<T>(BTreeMap<ProtocolVer, T>);
 
@@ -40,6 +48,10 @@ impl<T> From<Vec<(SupportedProtocolVer, T)>> for SupportedProtocolVerBTreeMap<T>
     }
 }
 
+/// A wrapper over `ProtocolId`.
+///
+/// **INVARIANT:** any `SupportedProtocolId` instance points to a valid
+/// mapping in ANY instance of [`SupportedProtocolIdMap`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SupportedProtocolId(ProtocolId);
 
@@ -50,6 +62,10 @@ impl SupportedProtocolId {
     }
 }
 
+/// A wrapper over `ProtocolVer`.
+///
+/// **INVARIANT:** any `SupportedProtocolVer` instance points to a valid
+/// mapping in ANY instance of [`SupportedProtocolVerBTreeMap`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SupportedProtocolVer(ProtocolVer);
 
@@ -103,6 +119,8 @@ impl Display for SupportedProtocolTag {
     }
 }
 
+/// A mapping from `SupportedProtocolId` to `T`. Once created, the mapping itself cannot be altered,
+/// but the mapped values can be mutated.
 pub struct SupportedProtocolIdMap<T>(HashMap<ProtocolId, T>);
 
 impl<T> From<HashMap<ProtocolId, T>> for SupportedProtocolIdMap<T> {
@@ -127,10 +145,12 @@ impl<T> SupportedProtocolIdMap<T> {
     }
 
     pub fn get_supported(&self, id: SupportedProtocolId) -> &T {
+        #[allow(clippy::unwrap_used)]
         self.0.get(&id.0).unwrap()
     }
 
     pub fn get_supported_mut(&mut self, id: SupportedProtocolId) -> &mut T {
+        #[allow(clippy::unwrap_used)]
         self.0.get_mut(&id.0).unwrap()
     }
 
