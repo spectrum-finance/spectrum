@@ -1,0 +1,152 @@
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt::Display,
+};
+
+use libp2p::core::upgrade;
+
+use crate::{
+    protocol_handler::sync::message::SyncSpec,
+    types::{ProtocolId, ProtocolTag, ProtocolVer},
+};
+
+pub trait GetSupportedProtocolVer {
+    fn get_supported_ver() -> SupportedProtocolVer;
+}
+
+impl GetSupportedProtocolVer for SyncSpec {
+    fn get_supported_ver() -> SupportedProtocolVer {
+        SupportedProtocolVer(Self::v1())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SupportedProtocolVerBTreeMap<T>(BTreeMap<ProtocolVer, T>);
+
+impl<T> SupportedProtocolVerBTreeMap<T> {
+    pub fn get(&self, ver: SupportedProtocolVer) -> &T {
+        #[allow(clippy::unwrap_used)]
+        self.0.get(&ver.0).unwrap()
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = SupportedProtocolVer> + '_ {
+        self.0.keys().cloned().map(SupportedProtocolVer)
+    }
+}
+
+impl<T> From<Vec<(SupportedProtocolVer, T)>> for SupportedProtocolVerBTreeMap<T> {
+    fn from(v: Vec<(SupportedProtocolVer, T)>) -> Self {
+        Self(v.into_iter().map(|(ver, t)| (ver.get_inner(), t)).collect())
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct SupportedProtocolId(ProtocolId);
+
+impl SupportedProtocolId {
+    /// It's safe to expose the underlying [`ProtocolId`].
+    pub fn get_inner(&self) -> ProtocolId {
+        self.0
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct SupportedProtocolVer(ProtocolVer);
+
+impl SupportedProtocolVer {
+    /// It's safe to expose the underlying [`ProtocolVer`].
+    pub fn get_inner(&self) -> ProtocolVer {
+        self.0
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SupportedProtocolTag(ProtocolTag);
+
+impl SupportedProtocolTag {
+    pub fn protocol_ver(&self) -> SupportedProtocolVer {
+        SupportedProtocolVer::from(*self)
+    }
+
+    pub fn protocol_id(&self) -> SupportedProtocolId {
+        SupportedProtocolId::from(*self)
+    }
+}
+
+impl SupportedProtocolTag {
+    pub fn new(protocol_id: SupportedProtocolId, protocol_ver: SupportedProtocolVer) -> Self {
+        Self(ProtocolTag::new(protocol_id.0, protocol_ver.0))
+    }
+}
+
+impl From<SupportedProtocolTag> for SupportedProtocolVer {
+    fn from(p: SupportedProtocolTag) -> Self {
+        Self(ProtocolVer::from(p.0))
+    }
+}
+
+impl From<SupportedProtocolTag> for SupportedProtocolId {
+    fn from(p: SupportedProtocolTag) -> Self {
+        Self(ProtocolId::from(p.0))
+    }
+}
+
+impl upgrade::ProtocolName for SupportedProtocolTag {
+    fn protocol_name(&self) -> &[u8] {
+        self.0.protocol_name()
+    }
+}
+
+impl Display for SupportedProtocolTag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+pub struct SupportedProtocolIdMap<T>(HashMap<ProtocolId, T>);
+
+impl<T> From<HashMap<ProtocolId, T>> for SupportedProtocolIdMap<T> {
+    fn from(h: HashMap<ProtocolId, T>) -> Self {
+        Self(h)
+    }
+}
+
+impl<T> From<Vec<(SupportedProtocolId, T)>> for SupportedProtocolIdMap<T> {
+    fn from(v: Vec<(SupportedProtocolId, T)>) -> Self {
+        Self(v.into_iter().map(|(id, t)| (id.get_inner(), t)).collect())
+    }
+}
+
+impl<T> SupportedProtocolIdMap<T> {
+    pub fn get(&self, id: ProtocolId) -> Option<&T> {
+        self.0.get(&id)
+    }
+
+    pub fn get_mut(&mut self, id: ProtocolId) -> Option<(SupportedProtocolId, &mut T)> {
+        self.0.get_mut(&id).map(|t| (SupportedProtocolId(id), t))
+    }
+
+    pub fn get_supported(&self, id: SupportedProtocolId) -> &T {
+        self.0.get(&id.0).unwrap()
+    }
+
+    pub fn get_supported_mut(&mut self, id: SupportedProtocolId) -> &mut T {
+        self.0.get_mut(&id.0).unwrap()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (SupportedProtocolId, &T)> {
+        self.0.iter().map(|(id, v)| (SupportedProtocolId(*id), v))
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (SupportedProtocolId, &mut T)> {
+        self.0.iter_mut().map(|(id, v)| (SupportedProtocolId(*id), v))
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &T> {
+        self.0.values()
+    }
+
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.0.values_mut()
+    }
+}
