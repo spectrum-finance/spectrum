@@ -18,7 +18,7 @@ use std::task::{Context, Poll};
 
 pub mod codec;
 #[cfg(feature = "integration_tests")]
-pub mod fake_sync_behaviour;
+pub mod fake_sync;
 pub mod sync;
 pub mod versioning;
 

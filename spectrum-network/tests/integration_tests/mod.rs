@@ -16,7 +16,7 @@ use spectrum_network::{
     protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID},
     protocol_api::ProtocolMailbox,
     protocol_handler::{
-        fake_sync_behaviour::{FakeSyncBehaviour, FakeSyncMessage, FakeSyncMessageV1},
+        fake_sync::{FakeSyncBehaviour, FakeSyncMessage, FakeSyncMessageV1},
         sync::{
             message::{SyncMessage, SyncMessageV1, SyncSpec},
             NodeStatus, SyncBehaviour,
