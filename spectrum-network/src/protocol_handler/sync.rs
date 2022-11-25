@@ -1,12 +1,12 @@
 use crate::peer_manager::data::ReputationChange;
 use crate::peer_manager::Peers;
-use crate::protocol::SYNC_PROTOCOL_ID;
 use crate::protocol_handler::sync::message::{
     HandshakeV1, SyncHandshake, SyncMessage, SyncMessageV1, SyncSpec,
 };
 use crate::protocol_handler::{
     MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec,
 };
+use crate::protocol_upgrade::supported_protocol_vers::{GetSupportedProtocolId, SupportedProtocolId};
 use crate::types::{ProtocolId, ProtocolVer};
 use derive_more::Display;
 use futures::stream::FuturesOrdered;
@@ -108,8 +108,8 @@ where
 {
     type TProto = SyncSpec;
 
-    fn get_protocol_id(&self) -> ProtocolId {
-        SYNC_PROTOCOL_ID
+    fn get_protocol_id(&self) -> SupportedProtocolId {
+        SyncSpec::get_supported_id()
     }
 
     fn inject_peer_connected(&mut self, peer_id: PeerId) {
