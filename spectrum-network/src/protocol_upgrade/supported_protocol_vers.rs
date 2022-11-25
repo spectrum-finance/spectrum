@@ -11,7 +11,7 @@ use std::{
 use libp2p::core::upgrade;
 
 #[cfg(feature = "integration_tests")]
-use crate::protocol_handler::fake_sync_behaviour::FakeSyncSpec;
+use crate::protocol_handler::fake_sync::FakeSyncSpec;
 use crate::{
     protocol::SYNC_PROTOCOL_ID,
     protocol_handler::sync::message::SyncSpec,
