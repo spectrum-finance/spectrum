@@ -6,11 +6,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use derive_more::Display;
-use futures::{stream::FuturesOrdered, Future, Stream};
-use libp2p::PeerId;
-use serde::{Deserialize, Serialize};
-use spectrum_network::{
+use crate::{
     peer_manager::Peers,
     protocol::SYNC_PROTOCOL_ID,
     protocol_handler::{
@@ -21,8 +17,13 @@ use spectrum_network::{
         versioning::Versioned,
         MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut,
     },
+    protocol_upgrade::supported_protocol_vers::{GetSupportedProtocolId, SupportedProtocolId},
     types::{ProtocolId, ProtocolVer},
 };
+use derive_more::Display;
+use futures::{stream::FuturesOrdered, Future, Stream};
+use libp2p::PeerId;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum FakeSyncMessage {
@@ -51,7 +52,7 @@ impl FakeSyncSpec {
     }
 }
 
-impl spectrum_network::protocol_handler::ProtocolSpec for FakeSyncSpec {
+impl crate::protocol_handler::ProtocolSpec for FakeSyncSpec {
     type THandshake = SyncHandshake;
     type TMessage = FakeSyncMessage;
 }
@@ -133,8 +134,8 @@ where
 {
     type TProto = FakeSyncSpec;
 
-    fn get_protocol_id(&self) -> ProtocolId {
-        SYNC_PROTOCOL_ID
+    fn get_protocol_id(&self) -> SupportedProtocolId {
+        SyncSpec::get_supported_id()
     }
 
     fn inject_peer_connected(&mut self, peer_id: PeerId) {
@@ -181,7 +182,7 @@ where
     fn inject_protocol_enabled(
         &mut self,
         peer_id: PeerId,
-        _handshake: Option<<Self::TProto as spectrum_network::protocol_handler::ProtocolSpec>::THandshake>,
+        _handshake: Option<<Self::TProto as crate::protocol_handler::ProtocolSpec>::THandshake>,
     ) {
         self.send_fake_msg(peer_id);
     }

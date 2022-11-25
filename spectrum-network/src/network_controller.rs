@@ -5,7 +5,7 @@ use crate::peer_conn_handler::{
 use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
 use crate::protocol::ProtocolConfig;
 use crate::protocol_api::ProtocolEvents;
-use crate::protocol_upgrade::supported_protocol_vers::SupportedProtocolIdMap;
+use crate::protocol_upgrade::supported_protocol_vers::{SupportedProtocolId, SupportedProtocolIdMap};
 use crate::types::{ProtocolId, ProtocolVer};
 
 use libp2p::core::connection::ConnectionId;
@@ -25,7 +25,7 @@ use std::task::{Context, Poll};
 use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use futures::channel::mpsc::{Receiver, Sender};
-use futures::{SinkExt, Stream};
+use futures::{FutureExt, SinkExt, Stream};
 
 /// States of an enabled protocol.
 #[derive(Debug)]
@@ -93,7 +93,7 @@ pub enum NetworkControllerIn {
     /// A directive to enable the specified protocol with the specified peer.
     EnableProtocol {
         /// The desired protocol.
-        protocol: ProtocolId,
+        protocol: SupportedProtocolId,
         /// A specific peer we should start the protocol with.
         peer: PeerId,
         /// A handshake to send to the peer upon negotiation of protocol substream.
@@ -109,7 +109,7 @@ pub enum NetworkControllerIn {
 /// External API to network controller.
 pub trait NetworkAPI {
     /// Enables the specified protocol with the specified peer.
-    fn enable_protocol(&self, protocol: ProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec);
+    fn enable_protocol(&self, protocol: SupportedProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec);
 
     /// Updates the set of protocols supported by the specified peer.
     fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>);
@@ -121,7 +121,7 @@ pub struct NetworkMailbox {
 }
 
 impl NetworkAPI for NetworkMailbox {
-    fn enable_protocol(&self, protocol: ProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec) {
+    fn enable_protocol(&self, protocol: SupportedProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec) {
         let _ = futures::executor::block_on(self.mailbox_snd.clone().send(
             NetworkControllerIn::EnableProtocol {
                 protocol,
@@ -626,7 +626,8 @@ where
                             enabled_protocols,
                         }) = self.enabled_peers.get_mut(&peer_id)
                         {
-                            let (_, prot_handler) = self.supported_protocols.get(protocol_id).unwrap();
+                            let (_, prot_handler) = self.supported_protocols.get_supported(protocol_id);
+                            let protocol_id = protocol_id.get_inner();
                             match enabled_protocols.entry(protocol_id) {
                                 Entry::Occupied(protocol_entry) => match protocol_entry.remove_entry().1 {
                                     // Protocol handler approves either outbound or inbound protocol request.

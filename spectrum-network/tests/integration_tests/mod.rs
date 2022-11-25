@@ -1,5 +1,3 @@
-mod fake_sync_behaviour;
-
 use std::{collections::HashMap, time::Duration};
 
 use futures::{
@@ -18,6 +16,7 @@ use spectrum_network::{
     protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID},
     protocol_api::ProtocolMailbox,
     protocol_handler::{
+        fake_sync_behaviour::{FakeSyncBehaviour, FakeSyncMessage, FakeSyncMessageV1},
         sync::{
             message::{SyncMessage, SyncMessageV1, SyncSpec},
             NodeStatus, SyncBehaviour,
@@ -27,8 +26,6 @@ use spectrum_network::{
     protocol_upgrade::GetSupportedProtocolVer,
     types::{ProtocolId, ProtocolVer, Reputation},
 };
-
-use crate::integration_tests::fake_sync_behaviour::{FakeSyncBehaviour, FakeSyncMessage, FakeSyncMessageV1};
 
 /// Identifies particular peers
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
