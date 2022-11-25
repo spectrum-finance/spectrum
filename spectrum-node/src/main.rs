@@ -15,10 +15,10 @@ use spectrum_network::peer_manager::data::PeerDestination;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
 use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerConfig};
 use spectrum_network::protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID};
-use spectrum_network::protocol_handler::sync::message::{SyncMessage, SyncMessageV1, SyncSpec};
+use spectrum_network::protocol_handler::sync::message::SyncSpec;
 use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
 use spectrum_network::protocol_handler::ProtocolHandler;
-use spectrum_network::protocol_upgrade::GetSupportedProtocolVer;
+use spectrum_network::protocol_upgrade::supported_protocol_vers::GetSupportedProtocolVer;
 use spectrum_network::types::Reputation;
 use std::time::Duration;
 

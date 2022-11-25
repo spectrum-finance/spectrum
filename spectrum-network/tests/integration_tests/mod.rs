@@ -1,5 +1,6 @@
 use std::{collections::HashMap, time::Duration};
-
+mod fake_sync;
+use crate::integration_tests::fake_sync::{FakeSyncBehaviour, FakeSyncMessage, FakeSyncMessageV1};
 use futures::{
     channel::{mpsc, oneshot},
     StreamExt,
@@ -16,14 +17,13 @@ use spectrum_network::{
     protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID},
     protocol_api::ProtocolMailbox,
     protocol_handler::{
-        fake_sync::{FakeSyncBehaviour, FakeSyncMessage, FakeSyncMessageV1},
         sync::{
             message::{SyncMessage, SyncMessageV1, SyncSpec},
             NodeStatus, SyncBehaviour,
         },
         MalformedMessage, ProtocolBehaviour, ProtocolHandler, ProtocolHandlerError,
     },
-    protocol_upgrade::GetSupportedProtocolVer,
+    protocol_upgrade::supported_protocol_vers::GetSupportedProtocolVer,
     types::{ProtocolId, ProtocolVer, Reputation},
 };
 
