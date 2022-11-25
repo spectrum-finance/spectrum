@@ -95,10 +95,10 @@ impl<'a> ConnectedPeer<'a> {
         self.peer_info.get().reputation
     }
 
-    pub fn get_conn_direction(&self) -> Option<ConnectionDirection> {
+    pub fn get_conn_direction(&self) -> ConnectionDirection {
         match self.peer_info.get().state {
-            ConnectionState::Connected(dir) => Some(dir),
-            ConnectionState::NotConnected => None,
+            ConnectionState::Connected(dir) => dir,
+            _ => panic!("impossible"),
         }
     }
 
