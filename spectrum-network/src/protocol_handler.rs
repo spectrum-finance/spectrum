@@ -4,6 +4,7 @@ use crate::peer_conn_handler::stream::FusedStream;
 use crate::protocol_api::{ProtocolEvent, ProtocolMailbox};
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
+use crate::protocol_upgrade::supported_protocol_vers::SupportedProtocolId;
 use crate::types::{ProtocolId, ProtocolVer, RawMessage};
 use futures::channel::mpsc;
 use futures::channel::mpsc::UnboundedReceiver;
@@ -17,6 +18,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pub mod codec;
+#[cfg(feature = "integration_tests")]
+pub mod fake_sync_behaviour;
 pub mod sync;
 pub mod versioning;
 
@@ -71,7 +74,7 @@ pub trait ProtocolBehaviour {
     type TProto: ProtocolSpec;
 
     /// Returns ID of the protocol this behaviour implements.
-    fn get_protocol_id(&self) -> ProtocolId;
+    fn get_protocol_id(&self) -> SupportedProtocolId;
 
     /// Inject an event that we have established a conn with a peer.
     fn inject_peer_connected(&mut self, peer_id: PeerId);

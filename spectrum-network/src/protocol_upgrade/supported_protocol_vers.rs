@@ -10,10 +10,18 @@ use std::{
 
 use libp2p::core::upgrade;
 
+#[cfg(feature = "integration_tests")]
+use crate::protocol_handler::fake_sync_behaviour::FakeSyncSpec;
 use crate::{
+    protocol::SYNC_PROTOCOL_ID,
     protocol_handler::sync::message::SyncSpec,
     types::{ProtocolId, ProtocolTag, ProtocolVer},
 };
+
+/// Ensures that a supported protocol can return `SupportedProtocolId`.
+pub trait GetSupportedProtocolId {
+    fn get_supported_id() -> SupportedProtocolId;
+}
 
 /// Ensures that a supported protocol can return a supported protocol version.
 pub trait GetSupportedProtocolVer {
@@ -23,6 +31,19 @@ pub trait GetSupportedProtocolVer {
 impl GetSupportedProtocolVer for SyncSpec {
     fn get_supported_ver() -> SupportedProtocolVer {
         SupportedProtocolVer(Self::v1())
+    }
+}
+
+impl GetSupportedProtocolId for SyncSpec {
+    fn get_supported_id() -> SupportedProtocolId {
+        SupportedProtocolId(SYNC_PROTOCOL_ID)
+    }
+}
+
+#[cfg(feature = "integration_tests")]
+impl GetSupportedProtocolId for FakeSyncSpec {
+    fn get_supported_id() -> SupportedProtocolId {
+        SupportedProtocolId(SYNC_PROTOCOL_ID)
     }
 }
 
