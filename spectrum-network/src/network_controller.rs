@@ -5,6 +5,7 @@ use crate::peer_conn_handler::{
 use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
 use crate::protocol::ProtocolConfig;
 use crate::protocol_api::ProtocolEvents;
+use crate::protocol_upgrade::supported_protocol_vers::SupportedProtocolIdMap;
 use crate::types::{ProtocolId, ProtocolVer};
 
 use libp2p::core::connection::ConnectionId;
@@ -217,7 +218,7 @@ impl<TPeers, TPeerManager, THandler> NetworkEvents for NetworkController<TPeers,
 pub struct NetworkController<TPeers, TPeerManager, THandler> {
     conn_handler_conf: PeerConnHandlerConf,
     /// All supported protocols and their handlers
-    supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
+    supported_protocols: SupportedProtocolIdMap<(ProtocolConfig, THandler)>,
     /// PeerManager API
     peers: TPeers,
     /// PeerManager stream itself
@@ -240,7 +241,7 @@ where
     ) -> Self {
         Self {
             conn_handler_conf,
-            supported_protocols,
+            supported_protocols: supported_protocols.into(),
             peers,
             peer_manager,
             enabled_peers: HashMap::new(),
@@ -254,8 +255,7 @@ where
             self.conn_handler_conf.clone(),
             self.supported_protocols
                 .iter()
-                .clone()
-                .map(|(prot_id, (conf, _))| (*prot_id, conf.clone()))
+                .map(|(prot_id, (conf, _))| (prot_id, conf.clone()))
                 .collect::<Vec<_>>(),
         )
     }
@@ -361,7 +361,7 @@ where
                 {
                     let protocol_id = protocol_tag.protocol_id();
                     let protocol_ver = protocol_tag.protocol_ver();
-                    match enabled_protocols.entry(protocol_id) {
+                    match enabled_protocols.entry(protocol_id.get_inner()) {
                         Entry::Occupied(mut entry) => {
                             trace!(
                                 "Current state of protocol {:?} is {:?}",
@@ -371,12 +371,12 @@ where
                             if let (EnabledProtocol::PendingEnable, handler) = entry.get() {
                                 handler.protocol_enabled(
                                     peer_id,
-                                    protocol_ver,
+                                    protocol_ver.get_inner(),
                                     out_channel.clone(),
                                     handshake,
                                 );
                                 let enabled_protocol = EnabledProtocol::Enabled {
-                                    ver: protocol_ver,
+                                    ver: protocol_ver.get_inner(),
                                     sink: out_channel,
                                 };
                                 entry.insert((enabled_protocol, handler.clone()));
@@ -398,42 +398,51 @@ where
                 }) = self.enabled_peers.get_mut(&peer_id)
                 {
                     let protocol_id = protocol_tag.protocol_id();
-                    if let Some((_, prot_handler)) = self.supported_protocols.get(&protocol_id) {
-                        match enabled_protocols.entry(protocol_id) {
-                            Entry::Vacant(entry) => {
-                                entry.insert((EnabledProtocol::PendingApprove, prot_handler.clone()));
-                                prot_handler.protocol_requested(
-                                    peer_id,
-                                    protocol_tag.protocol_ver(),
-                                    handshake,
-                                );
-                            }
-                            Entry::Occupied(_) => {
-                                warn!(
-                                    "Peer {:?} opened already enabled protocol {:?}",
-                                    peer_id, protocol_id
-                                );
-                                self.pending_actions
-                                    .push_back(NetworkBehaviourAction::NotifyHandler {
-                                        peer_id,
-                                        handler: NotifyHandler::One(connection),
-                                        event: ConnHandlerIn::Close(protocol_id),
-                                    })
-                            }
-                        }
-                    } else {
-                        self.pending_actions
-                            .push_back(NetworkBehaviourAction::NotifyHandler {
+                    let (_, prot_handler) = self.supported_protocols.get_supported(protocol_id);
+                    match enabled_protocols.entry(protocol_id.get_inner()) {
+                        Entry::Vacant(entry) => {
+                            entry.insert((EnabledProtocol::PendingApprove, prot_handler.clone()));
+                            prot_handler.protocol_requested(
                                 peer_id,
-                                handler: NotifyHandler::One(connection),
-                                event: ConnHandlerIn::Close(protocol_id),
-                            })
+                                protocol_tag.protocol_ver().get_inner(),
+                                handshake,
+                            );
+                        }
+                        Entry::Occupied(_) => {
+                            warn!(
+                                "Peer {:?} opened already enabled protocol {:?}",
+                                peer_id, protocol_id
+                            );
+                            self.pending_actions
+                                .push_back(NetworkBehaviourAction::NotifyHandler {
+                                    peer_id,
+                                    handler: NotifyHandler::One(connection),
+                                    event: ConnHandlerIn::Close(protocol_id),
+                                })
+                        }
                     }
                 }
             }
-            ConnHandlerOut::ClosedByPeer(protocol_id)
-            | ConnHandlerOut::RefusedToOpen(protocol_id)
-            | ConnHandlerOut::Closed(protocol_id) => {
+            ConnHandlerOut::ClosedByPeer(protocol_id) | ConnHandlerOut::RefusedToOpen(protocol_id) => {
+                if let Some(ConnectedPeer::Connected {
+                    enabled_protocols, ..
+                }) = self.enabled_peers.get_mut(&peer_id)
+                {
+                    match enabled_protocols.entry(protocol_id.get_inner()) {
+                        Entry::Occupied(entry) => {
+                            trace!(
+                                "Peer {:?} closed the substream for protocol {:?}",
+                                peer_id,
+                                protocol_id
+                            );
+                            entry.remove();
+                        }
+                        Entry::Vacant(_) => {}
+                    }
+                }
+            }
+
+            ConnHandlerOut::Closed(protocol_id) => {
                 if let Some(ConnectedPeer::Connected {
                     enabled_protocols, ..
                 }) = self.enabled_peers.get_mut(&peer_id)
@@ -564,7 +573,7 @@ where
                                 ConnectedPeer::Connected {
                                     enabled_protocols, ..
                                 } => {
-                                    if let Some((_, prot_handler)) = self.supported_protocols.get(&protocol) {
+                                    if let Some((_, prot_handler)) = self.supported_protocols.get(protocol) {
                                         match enabled_protocols.entry(protocol) {
                                             Entry::Occupied(_) => warn!(
                                                 "PM requested already enabled protocol {:?} with peer {:?}",
@@ -617,7 +626,7 @@ where
                             enabled_protocols,
                         }) = self.enabled_peers.get_mut(&peer_id)
                         {
-                            let (_, prot_handler) = self.supported_protocols.get(&protocol_id).unwrap();
+                            let (_, prot_handler) = self.supported_protocols.get(protocol_id).unwrap();
                             match enabled_protocols.entry(protocol_id) {
                                 Entry::Occupied(protocol_entry) => match protocol_entry.remove_entry().1 {
                                     // Protocol handler approves either outbound or inbound protocol request.

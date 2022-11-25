@@ -18,6 +18,7 @@ use spectrum_network::protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID}
 use spectrum_network::protocol_handler::sync::message::{SyncMessage, SyncMessageV1, SyncSpec};
 use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
 use spectrum_network::protocol_handler::ProtocolHandler;
+use spectrum_network::protocol_upgrade::GetSupportedProtocolVer;
 use spectrum_network::types::Reputation;
 use std::time::Duration;
 
@@ -77,7 +78,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
     let sync_conf = ProtocolConfig {
         supported_versions: vec![(
-            SyncSpec::v1(),
+            SyncSpec::get_supported_ver(),
             ProtocolSpec {
                 max_message_size: 100,
                 approve_required: true,

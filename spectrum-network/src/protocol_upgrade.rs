@@ -2,22 +2,27 @@ pub mod combinators;
 pub mod handshake;
 mod message;
 pub(crate) mod substream;
+pub(crate) mod supported_protocol_vers;
+pub use supported_protocol_vers::GetSupportedProtocolVer;
 
 use crate::protocol::ProtocolSpec;
 use crate::protocol_upgrade::message::{Approve, APPROVE_SIZE};
 use crate::protocol_upgrade::substream::{ProtocolApproveState, ProtocolSubstreamIn, ProtocolSubstreamOut};
-use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
+use crate::types::RawMessage;
 use asynchronous_codec::Framed;
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite};
 use libp2p::core::{upgrade, UpgradeInfo};
 use libp2p::{InboundUpgrade, OutboundUpgrade};
 use log::trace;
-use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::{io, vec};
 use unsigned_varint::codec::UviBytes;
+
+use self::supported_protocol_vers::{
+    SupportedProtocolId, SupportedProtocolTag, SupportedProtocolVer, SupportedProtocolVerBTreeMap,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolHandshakeErr {
@@ -33,11 +38,9 @@ pub enum ProtocolHandshakeErr {
 pub enum ProtocolUpgradeErr {
     #[error(transparent)]
     HandshakeErr(#[from] ProtocolHandshakeErr),
-    #[error("Unsupported {0:?}")]
-    UnsupportedProtocolVer(ProtocolVer),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct InboundProtocolSpec {
     /// Maximum allowed size for a single message.
     max_message_size: usize,
@@ -59,19 +62,22 @@ impl From<ProtocolSpec> for InboundProtocolSpec {
 #[derive(Debug, Clone)]
 pub struct ProtocolUpgradeIn {
     /// Protocol to negotiate.
-    protocol_id: ProtocolId,
+    protocol_id: SupportedProtocolId,
     /// Protocol versions to negotiate.
     /// The first one is the main name, while the other ones are fall backs.
-    supported_versions: BTreeMap<ProtocolVer, InboundProtocolSpec>,
+    supported_versions: SupportedProtocolVerBTreeMap<InboundProtocolSpec>,
 }
 
 impl ProtocolUpgradeIn {
-    pub fn new(protocol_id: ProtocolId, supported_versions: Vec<(ProtocolVer, ProtocolSpec)>) -> Self {
-        let supported_versions = BTreeMap::from_iter(
-            supported_versions
-                .into_iter()
-                .map(|(ver, spec)| (ver, InboundProtocolSpec::from(spec))),
-        );
+    pub fn new(
+        protocol_id: SupportedProtocolId,
+        supported_versions: Vec<(SupportedProtocolVer, ProtocolSpec)>,
+    ) -> Self {
+        let supported_versions = supported_versions
+            .into_iter()
+            .map(|(ver, spec)| (ver, InboundProtocolSpec::from(spec)))
+            .collect::<Vec<_>>()
+            .into();
         Self {
             protocol_id,
             supported_versions,
@@ -80,14 +86,13 @@ impl ProtocolUpgradeIn {
 }
 
 impl UpgradeInfo for ProtocolUpgradeIn {
-    type Info = ProtocolTag;
+    type Info = SupportedProtocolTag;
     type InfoIter = vec::IntoIter<Self::Info>;
 
     fn protocol_info(&self) -> Self::InfoIter {
         self.supported_versions
             .keys()
-            .cloned()
-            .map(|v| ProtocolTag::new(self.protocol_id, v))
+            .map(|v| SupportedProtocolTag::new(self.protocol_id, v))
             .collect::<Vec<_>>()
             .into_iter()
     }
@@ -106,10 +111,7 @@ where
             let target = format!("Inbound({})", negotiated_tag);
             trace!(target: &target, "upgrade_inbound()");
             let protocol_ver = negotiated_tag.protocol_ver();
-            let pspec = self
-                .supported_versions
-                .get(&protocol_ver)
-                .ok_or(ProtocolUpgradeErr::UnsupportedProtocolVer(protocol_ver))?;
+            let pspec = self.supported_versions.get(protocol_ver);
             let mut codec = UviBytes::default();
             codec.set_max_len(pspec.max_message_size);
             let handshake = if pspec.handshake_required {
@@ -161,21 +163,22 @@ impl OutboundProtocolSpec {
 #[derive(Debug, Clone)]
 pub struct ProtocolUpgradeOut {
     /// Protocol to negotiate.
-    protocol_id: ProtocolId,
+    protocol_id: SupportedProtocolId,
     /// Protocol versions to negotiate.
     /// The first one is the main name, while the other ones are fall backs.
-    supported_versions: BTreeMap<ProtocolVer, OutboundProtocolSpec>,
+    supported_versions: SupportedProtocolVerBTreeMap<OutboundProtocolSpec>,
 }
 
 impl ProtocolUpgradeOut {
     pub fn new(
-        protocol_id: ProtocolId,
-        supported_versions: Vec<(ProtocolVer, ProtocolSpec, Option<RawMessage>)>,
+        protocol_id: SupportedProtocolId,
+        supported_versions: Vec<(SupportedProtocolVer, ProtocolSpec, Option<RawMessage>)>,
     ) -> Self {
-        let supported_versions =
-            BTreeMap::from_iter(supported_versions.into_iter().map(|(ver, spec, handshake)| {
-                (ver, OutboundProtocolSpec::new(spec.max_message_size, handshake))
-            }));
+        let supported_versions = supported_versions
+            .into_iter()
+            .map(|(ver, spec, handshake)| (ver, OutboundProtocolSpec::new(spec.max_message_size, handshake)))
+            .collect::<Vec<_>>()
+            .into();
         Self {
             protocol_id,
             supported_versions,
@@ -184,14 +187,13 @@ impl ProtocolUpgradeOut {
 }
 
 impl UpgradeInfo for ProtocolUpgradeOut {
-    type Info = ProtocolTag;
+    type Info = SupportedProtocolTag;
     type InfoIter = vec::IntoIter<Self::Info>;
 
     fn protocol_info(&self) -> Self::InfoIter {
         self.supported_versions
             .keys()
-            .cloned()
-            .map(|v| ProtocolTag::new(self.protocol_id, v))
+            .map(|v| SupportedProtocolTag::new(self.protocol_id, v))
             .collect::<Vec<_>>()
             .into_iter()
     }
@@ -210,10 +212,7 @@ where
             let target = format!("Outbound({})", negotiated_tag);
             trace!(target: &target, "upgrade_outbound()");
             let protocol_ver = negotiated_tag.protocol_ver();
-            let pspec = self
-                .supported_versions
-                .get(&protocol_ver)
-                .ok_or(ProtocolUpgradeErr::UnsupportedProtocolVer(protocol_ver))?;
+            let pspec = self.supported_versions.get(protocol_ver);
             let mut codec = UviBytes::default();
             codec.set_max_len(pspec.max_message_size);
             if let Some(handshake) = &pspec.handshake {
@@ -240,7 +239,7 @@ where
 
 pub struct InboundProtocolUpgraded<Substream> {
     /// ProtocolTag negotiated with the peer.
-    pub negotiated_tag: ProtocolTag,
+    pub negotiated_tag: SupportedProtocolTag,
     /// Handshake sent by the peer.
     pub handshake: Option<RawMessage>,
     pub substream: Substream,
@@ -248,7 +247,7 @@ pub struct InboundProtocolUpgraded<Substream> {
 
 pub struct OutboundProtocolUpgraded<Substream> {
     /// ProtocolTag negotiated with the peer.
-    pub negotiated_tag: ProtocolTag,
+    pub negotiated_tag: SupportedProtocolTag,
     pub substream: Substream,
 }
 

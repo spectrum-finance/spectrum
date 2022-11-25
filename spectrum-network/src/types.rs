@@ -117,7 +117,13 @@ impl ProtocolTag {
 
 impl From<ProtocolTag> for ProtocolVer {
     fn from(p: ProtocolTag) -> Self {
-        ProtocolVer::from(p.0[1])
+        ProtocolVer::from(p.0[2])
+    }
+}
+
+impl From<ProtocolTag> for ProtocolId {
+    fn from(p: ProtocolTag) -> Self {
+        ProtocolId::from(p.0[1])
     }
 }
 
