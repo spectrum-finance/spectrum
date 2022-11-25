@@ -27,7 +27,7 @@ use spectrum_network::protocol_api::ProtocolMailbox;
 use spectrum_network::protocol_handler::sync::message::SyncSpec;
 use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
 use spectrum_network::protocol_handler::ProtocolHandler;
-use spectrum_network::protocol_upgrade::GetSupportedProtocolVer;
+use spectrum_network::protocol_upgrade::supported_protocol_vers::GetSupportedProtocolVer;
 use spectrum_network::types::Reputation;
 use std::collections::HashMap;
 use std::{

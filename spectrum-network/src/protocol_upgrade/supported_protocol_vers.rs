@@ -10,8 +10,6 @@ use std::{
 
 use libp2p::core::upgrade;
 
-#[cfg(feature = "integration_tests")]
-use crate::protocol_handler::fake_sync::FakeSyncSpec;
 use crate::{
     protocol::SYNC_PROTOCOL_ID,
     protocol_handler::sync::message::SyncSpec,
@@ -35,13 +33,6 @@ impl GetSupportedProtocolVer for SyncSpec {
 }
 
 impl GetSupportedProtocolId for SyncSpec {
-    fn get_supported_id() -> SupportedProtocolId {
-        SupportedProtocolId(SYNC_PROTOCOL_ID)
-    }
-}
-
-#[cfg(feature = "integration_tests")]
-impl GetSupportedProtocolId for FakeSyncSpec {
     fn get_supported_id() -> SupportedProtocolId {
         SupportedProtocolId(SYNC_PROTOCOL_ID)
     }

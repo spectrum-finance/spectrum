@@ -2,8 +2,7 @@ pub mod combinators;
 pub mod handshake;
 mod message;
 pub(crate) mod substream;
-pub(crate) mod supported_protocol_vers;
-pub use supported_protocol_vers::GetSupportedProtocolVer;
+pub mod supported_protocol_vers;
 
 use crate::protocol::ProtocolSpec;
 use crate::protocol_upgrade::message::{Approve, APPROVE_SIZE};
