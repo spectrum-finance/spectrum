@@ -185,6 +185,7 @@ pub fn build_node(
         conn_alloc_interval: Duration::from_secs(30),
         protocols_allocation: Vec::new(),
         prot_alloc_interval: Duration::from_secs(30),
+        peer_manager_msg_buffer_size: 10,
     };
     let netw_conf = NetworkingConfig {
         min_known_peers: 2,

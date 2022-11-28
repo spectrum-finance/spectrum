@@ -71,6 +71,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         conn_alloc_interval: Duration::from_secs(30),
         prot_alloc_interval: Duration::from_secs(30),
         protocols_allocation: Vec::new(),
+        peer_manager_msg_buffer_size: 10,
     };
     let peer_state = PeerRepo::new(netw_config, boot_peers);
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
