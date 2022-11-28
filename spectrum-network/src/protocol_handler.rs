@@ -5,8 +5,7 @@ use crate::protocol_api::{ProtocolEvent, ProtocolMailbox};
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use crate::types::{ProtocolId, ProtocolVer, RawMessage};
-use futures::channel::mpsc;
-use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::mpsc::{self, Receiver};
 use futures::Stream;
 pub use libp2p::swarm::NetworkBehaviour;
 use libp2p::PeerId;
@@ -115,14 +114,14 @@ pub trait ProtocolBehaviour {
 /// A layer that facilitate massage transmission from protocol handlers to peers.
 pub struct ProtocolHandler<TBehaviour, TNetwork> {
     peers: HashMap<PeerId, MessageSink>,
-    inbox: UnboundedReceiver<ProtocolEvent>,
+    inbox: Receiver<ProtocolEvent>,
     behaviour: TBehaviour,
     network: TNetwork,
 }
 
 impl<TBehaviour, TNetwork> ProtocolHandler<TBehaviour, TNetwork> {
-    pub fn new(behaviour: TBehaviour, network: TNetwork) -> (Self, ProtocolMailbox) {
-        let (snd, recv) = mpsc::unbounded::<ProtocolEvent>();
+    pub fn new(behaviour: TBehaviour, network: TNetwork, msg_buffer_size: usize) -> (Self, ProtocolMailbox) {
+        let (snd, recv) = mpsc::channel::<ProtocolEvent>(msg_buffer_size);
         let prot_mailbox = ProtocolMailbox::new(snd);
         let prot_handler = Self {
             peers: HashMap::new(),

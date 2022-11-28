@@ -1,6 +1,7 @@
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::types::{ProtocolVer, RawMessage};
-use futures::channel::mpsc::UnboundedSender;
+use futures::channel::mpsc::Sender;
+use futures::SinkExt;
 use libp2p::PeerId;
 
 #[derive(Clone)]
@@ -55,40 +56,42 @@ pub trait ProtocolEvents {
 
 #[derive(Clone)]
 pub struct ProtocolMailbox {
-    events_snd: UnboundedSender<ProtocolEvent>,
+    events_snd: Sender<ProtocolEvent>,
 }
 
 impl ProtocolMailbox {
-    pub fn new(events_snd: UnboundedSender<ProtocolEvent>) -> Self {
+    pub fn new(events_snd: Sender<ProtocolEvent>) -> Self {
         Self { events_snd }
     }
 }
 
 impl ProtocolEvents for ProtocolMailbox {
     fn connected(&self, peer_id: PeerId) {
-        let _ = self.events_snd.unbounded_send(ProtocolEvent::Connected(peer_id));
+        let _ = futures::executor::block_on(self.events_snd.clone().send(ProtocolEvent::Connected(peer_id)));
     }
 
     fn incoming_msg(&self, peer_id: PeerId, protocol_ver: ProtocolVer, content: RawMessage) {
-        let _ = self.events_snd.unbounded_send(ProtocolEvent::Message {
+        let _ = futures::executor::block_on(self.events_snd.clone().send(ProtocolEvent::Message {
             peer_id,
             protocol_ver,
             content,
-        });
+        }));
     }
 
     fn protocol_requested(&self, peer_id: PeerId, protocol_ver: ProtocolVer, handshake: Option<RawMessage>) {
-        let _ = self.events_snd.unbounded_send(ProtocolEvent::Requested {
+        let _ = futures::executor::block_on(self.events_snd.clone().send(ProtocolEvent::Requested {
             peer_id,
             protocol_ver,
             handshake,
-        });
+        }));
     }
 
     fn protocol_requested_local(&self, peer_id: PeerId) {
-        let _ = self
-            .events_snd
-            .unbounded_send(ProtocolEvent::RequestedLocal(peer_id));
+        let _ = futures::executor::block_on(
+            self.events_snd
+                .clone()
+                .send(ProtocolEvent::RequestedLocal(peer_id)),
+        );
     }
 
     fn protocol_enabled(
@@ -98,15 +101,15 @@ impl ProtocolEvents for ProtocolMailbox {
         sink: MessageSink,
         handshake: Option<RawMessage>,
     ) {
-        let _ = self.events_snd.unbounded_send(ProtocolEvent::Enabled {
+        let _ = futures::executor::block_on(self.events_snd.clone().send(ProtocolEvent::Enabled {
             peer_id,
             protocol_ver,
             sink,
             handshake,
-        });
+        }));
     }
 
     fn protocol_disabled(&self, peer_id: PeerId) {
-        let _ = self.events_snd.unbounded_send(ProtocolEvent::Disabled(peer_id));
+        let _ = futures::executor::block_on(self.events_snd.clone().send(ProtocolEvent::Disabled(peer_id)));
     }
 }

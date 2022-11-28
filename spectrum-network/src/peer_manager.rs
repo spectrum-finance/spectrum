@@ -9,10 +9,9 @@ use crate::peer_manager::data::{
 };
 use crate::peer_manager::peers_state::{NetworkingState, PeerInState, PeerStateFilter, PeersState};
 use crate::types::{ProtocolId, Reputation};
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot::{Receiver, Sender};
 use futures::channel::{mpsc, oneshot};
-use futures::Stream;
+use futures::{SinkExt, Stream};
 use libp2p::core::connection::ConnectionId;
 use libp2p::PeerId;
 use log::{error, info, trace};
@@ -123,108 +122,90 @@ pub trait PeerManagerNotificationsBehavior {
 
 #[derive(Clone)]
 pub struct PeersMailbox {
-    mailbox_snd: UnboundedSender<PeerManagerIn>,
+    mailbox_snd: mpsc::Sender<PeerManagerIn>,
 }
 
 impl Peers for PeersMailbox {
     fn add_peers(&mut self, peers: Vec<PeerDestination>) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(PeerManagerIn::Request(PeerManagerRequest::AddPeers(peers)));
+        let _ = futures::executor::block_on(
+            self.mailbox_snd
+                .clone()
+                .send(PeerManagerIn::Request(PeerManagerRequest::AddPeers(peers))),
+        );
     }
 
     fn get_peers(&mut self, limit: usize) -> Receiver<Vec<PeerDestination>> {
         let (sender, receiver) = oneshot::channel::<Vec<PeerDestination>>();
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(PeerManagerIn::Request(PeerManagerRequest::GetPeers {
-                limit,
-                snd: sender,
-            }));
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(PeerManagerIn::Request(
+            PeerManagerRequest::GetPeers { limit, snd: sender },
+        )));
         receiver
     }
 
     fn add_reserved_peer(&mut self, peer_id: PeerDestination) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(PeerManagerIn::Request(PeerManagerRequest::AddReservedPeer(
-                peer_id,
-            )));
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(PeerManagerIn::Request(
+            PeerManagerRequest::AddReservedPeer(peer_id),
+        )));
     }
 
     fn set_reserved_peers(&mut self, peers: HashSet<PeerId>) {
-        let _ =
-            self.mailbox_snd
-                .unbounded_send(PeerManagerIn::Request(PeerManagerRequest::SetReservedPeers(
-                    peers,
-                )));
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(PeerManagerIn::Request(
+            PeerManagerRequest::SetReservedPeers(peers),
+        )));
     }
 
     fn report_peer(&mut self, peer_id: PeerId, change: ReputationChange) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(PeerManagerIn::Request(PeerManagerRequest::ReportPeer(
-                peer_id, change,
-            )));
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(PeerManagerIn::Request(
+            PeerManagerRequest::ReportPeer(peer_id, change),
+        )));
     }
 
     fn get_peer_reputation(&mut self, peer_id: PeerId) -> Receiver<Reputation> {
         let (sender, receiver) = oneshot::channel::<Reputation>();
-        let _ =
-            self.mailbox_snd
-                .unbounded_send(PeerManagerIn::Request(PeerManagerRequest::GetPeerReputation(
-                    peer_id, sender,
-                )));
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(PeerManagerIn::Request(
+            PeerManagerRequest::GetPeerReputation(peer_id, sender),
+        )));
         receiver
     }
 
     fn set_peer_protocols(&mut self, peer_id: PeerId, protocols: Vec<ProtocolId>) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(PeerManagerIn::Request(PeerManagerRequest::SetProtocols(
-                peer_id, protocols,
-            )));
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(PeerManagerIn::Request(
+            PeerManagerRequest::SetProtocols(peer_id, protocols),
+        )));
     }
 }
 
 impl PeerEvents for PeersMailbox {
     fn incoming_connection(&mut self, peer_id: PeerId, conn_id: ConnectionId) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(PeerManagerIn::Notification(PeerEvent::IncomingConnection(
-                peer_id, conn_id,
-            )));
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(PeerManagerIn::Notification(
+            PeerEvent::IncomingConnection(peer_id, conn_id),
+        )));
     }
 
     fn connection_established(&mut self, peer_id: PeerId, conn_id: ConnectionId) {
-        let _ =
-            self.mailbox_snd
-                .unbounded_send(PeerManagerIn::Notification(PeerEvent::ConnectionEstablished(
-                    peer_id, conn_id,
-                )));
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(PeerManagerIn::Notification(
+            PeerEvent::ConnectionEstablished(peer_id, conn_id),
+        )));
     }
 
     fn connection_lost(&mut self, peer_id: PeerId, reason: ConnectionLossReason) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(PeerManagerIn::Notification(PeerEvent::ConnectionLost(
-                peer_id, reason,
-            )));
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(PeerManagerIn::Notification(
+            PeerEvent::ConnectionLost(peer_id, reason),
+        )));
     }
 
     fn dial_failure(&mut self, peer_id: PeerId) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(PeerManagerIn::Notification(PeerEvent::DialFailure(peer_id)));
+        let _ = futures::executor::block_on(
+            self.mailbox_snd
+                .clone()
+                .send(PeerManagerIn::Notification(PeerEvent::DialFailure(peer_id))),
+        );
     }
 
     fn force_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(PeerManagerIn::Notification(PeerEvent::ForceEnabled(
-                peer_id,
-                protocol_id,
-            )));
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(PeerManagerIn::Notification(
+            PeerEvent::ForceEnabled(peer_id, protocol_id),
+        )));
     }
 }
 
@@ -252,6 +233,7 @@ pub struct PeerManagerConfig {
     pub conn_alloc_interval: Duration,
     pub prot_alloc_interval: Duration,
     pub protocols_allocation: Vec<(ProtocolId, ProtocolAllocationPolicy)>,
+    pub peer_manager_msg_buffer_size: usize,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -266,7 +248,7 @@ const ACTIVE_CONN_ALLOC_INTERVAL: Duration = Duration::from_secs(1);
 pub struct PeerManager<TState> {
     state: TState,
     conf: PeerManagerConfig,
-    mailbox: UnboundedReceiver<PeerManagerIn>,
+    mailbox: mpsc::Receiver<PeerManagerIn>,
     out_queue: VecDeque<PeerManagerOut>,
     next_conn_alloc: Delay,
     next_prot_alloc: Delay,
@@ -275,7 +257,7 @@ pub struct PeerManager<TState> {
 
 impl<S: PeersState> PeerManager<S> {
     pub fn new(state: S, conf: PeerManagerConfig) -> (Self, PeersMailbox) {
-        let (snd, recv) = mpsc::unbounded::<PeerManagerIn>();
+        let (snd, recv) = mpsc::channel::<PeerManagerIn>(conf.peer_manager_msg_buffer_size);
         let pm = Self {
             state,
             conf,
