@@ -832,7 +832,7 @@ where
         )],
     };
 
-    let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
+    let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(10);
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };

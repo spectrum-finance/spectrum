@@ -89,7 +89,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         height: 0,
     };
     let sync_behaviour = SyncBehaviour::new(peers.clone(), local_status);
-    let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
+    const NC_MSG_BUFFER_SIZE: usize = 10;
+    let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(NC_MSG_BUFFER_SIZE);
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };
