@@ -95,7 +95,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };
-    let (mut sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api);
+    const PH_MSG_BUFFER_SIZE: usize = 10;
+    let (mut sync_handler, sync_mailbox) =
+        ProtocolHandler::new(sync_behaviour, network_api, PH_MSG_BUFFER_SIZE);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(SYNC_PROTOCOL_ID, (sync_conf, sync_mailbox))]),

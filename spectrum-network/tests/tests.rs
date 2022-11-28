@@ -214,7 +214,7 @@ pub fn build_node(
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };
-    let (sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api);
+    let (sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api, 10);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(SYNC_PROTOCOL_ID, (sync_conf, sync_mailbox))]),

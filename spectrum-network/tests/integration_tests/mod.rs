@@ -838,7 +838,7 @@ where
         mailbox_snd: requests_snd,
     };
     let (sync_handler, sync_mailbox) =
-        ProtocolHandler::new(gen_protocol_behaviour(peers.clone()), network_api);
+        ProtocolHandler::new(gen_protocol_behaviour(peers.clone()), network_api, 10);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(SYNC_PROTOCOL_ID, (sync_conf, sync_mailbox))]),
