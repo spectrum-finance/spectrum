@@ -1,0 +1,81 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{mathtools}
+
+\title{Spectrum: A decentralized programmable cross-chain network}
+\author{Spectrum Labs}
+\date{January 2023}
+
+\begin{document}
+
+    \maketitle
+
+    \section{Introduction}\label{sec:introduction}
+
+    Following the success of Bitcoin, many blockchain-based cryptocurrencies have been developed and deployed.
+    To meet different requirements in various scenarios, a great number of heterogeneous blockchains have emerged.
+    However, most present blockchain platforms are isolated systems.
+    Therefore, interoperability between blockchains become one of the key issues
+    that prevent the blockchain technology from wide adoption.
+
+
+    \section{Model}\label{sec:model}
+
+    todo
+
+    \section{System Overview}\label{sec:system-overview}
+
+    Spectrum is a standalone protocol that allows a large set of nodes to agree on:
+    \begin{enumerate}
+        \item A set of events coming from supported L1 chains
+        \item A set of actions with on-chain assets managed by the Network
+    \end{enumerate}
+
+    Assets managed by the Network are stored on-chain in \emph{vaults}.
+    Each vault stores epoch number $n$, an aggregated public key $aPK_n$ of the current validator set $V_n$ and
+    is guarded with a script capable of performing verification of
+    an aggregated signature $verify: (\sigma_n, m_n, aPK_n) \rightarrow 0 | 1$.
+
+    \subsection{Spectrum's State Transition Function}\label{subsec:spectrum's-state-transition-function}
+
+    Usually State Transition Function (STF) of a ledger looks like $apply: (S, T) \rightarrow S'$,
+    where $S$ - current state of the ledger, $T$ - a set of transactions, $S'$ - resulting state of the ledger.
+    Spectrum's STF as long as it operates partially on top of other ledgers, can be viewed
+    as $apply: (S, S_O, T_I) \rightarrow (S', T_O)$, where $S$ -- current Spectrum's state,
+    $S_O$ -- observed outbound state of connected ledgers, $T_I$ -- a set of inbound transactions,
+    $S'$ -- resulting state of spectum's ledger, $T_O$ -- resulting set of outbound transactions
+    that must be settled on connected L1s.
+
+    \subsection{Bootstrapping}\label{subsec:bootstrapping}
+
+    The system is bootstrapped in a trusted way.
+    A manually picked set of validators $V_0$ is assigned to the first epoch $E_0$.
+    On-chain vaults are initialized with an aggregated public key $aPK_0$ of the inititial comettee.
+
+    \subsection{Protocol Flow}\label{subsec:protocol-flow}
+
+    \begin{enumerate}
+        \item Registration.
+        Before an epoch starts, all Spectrum stakeholders can register for becoming an committee member.
+        To get a chance of becoming a member of $V_n$ in the next epoch $E_n$ they register in a lottery
+        by publishing their public keys $PK_c$ and locking collateral.
+        \item Lottery.
+        Once registration is done, nodes in $V_{n-1}$ compute $selectComettee: (C_n, R_n) \rightarrow V_n$,
+        where  $C_n$ is a candidates pool, $R_n$ is a public random number.
+        \item Comettee key aggregation.
+        Once new comettee is selected, nodes in $V_n$ aggregate their individual public keys $\{PK_i\}$ into
+        a joint one $aPK_n$.
+        \item Comettee transition.
+        Nodes in $V_{n-1}$ publish cross-chain message $M_n : (aPK_n, \sigma_{n-1})$ , where $aPK_n$ is
+        an aggregated public key of the new comettee $V_n$ , $\sigma_{n-1}$ is an aggregated signature of
+        $M_n$ such that $Verify(\sigma_{n-1}, aPK_{n-1}, Mn) = 1$.
+        Vaults are updated such that $Vault\{(E_{n-1}, aPK_{n-1})\} \coloneqq (E_n, aPK_n)$.
+        \item Decentaralized Asset Management (Custodial).
+        Nodes in $V_n$ observe events on supported L1 chains, agree on the set of updates
+        and compute state outbound state transitions accordingly.
+        \item Notarisation (Non-custodial).
+        Nodes in $V_n$ observe events on supported L1 chains, batch updates, collectively sign them and
+        publish on-chain.
+    \end{enumerate}
+
+\end{document}

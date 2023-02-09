@@ -8,7 +8,7 @@ that prevent the blockchain technology from wide adoption.
 # Protocol overview
 Spectrum is a standalone protocol that allows a large set of nodes to agree on:
 1. A set of events coming from supported L1 chains
-2. A set of actions with on-chain assets managed by the network
+2. A set of actions with on-chain assets managed by the Network
 
 ```mermaid
 flowchart TD
@@ -26,12 +26,13 @@ The system is bootstrapped in a trusted way. A manually picked set of validators
 2. Lottery. Once registration is done, nodes in $V_{n-1}$ compute $selectComettee: (C_n, R_n) → V_n$, where  $C_n$ is a candidates pool, $R_n$ is a public random number. 
 3. Public key aggregation. Once new comettee is selected, nodes in $V_n$ aggregate their individual public keys $\{PK_i\}$ into a joint one $aPK_n$.
 4. Comettee transition. Nodes in $V_{n-1}$ publish cross-chain message $M_n : (aPK_n, σ_{n-1})$ , where $aPK_n$ is an aggregated public key of the new comettee $V_n$ , $σ_{n-1}$ is an aggregated signature of $M_n$ such that $Verify(σ_{n-1}, aPK_{n-1}, Mn) = 1$. Vaults are updated such that $Vault\{(E_{n-1}, aPK_{n-1})\} := (E_n, aPK_n)$.
+5. Notarisation. Nodes in $V_n$ observe events on supported L1 chains 
 
 ## Spectrum's State Transition Function
 Usually State Transition Function (STF) of a ledger looks like $apply: (S, T) → S'$, where $S$ - current state of the ledger, $T$ - a set of transactions, $S'$ - resulting state of the ledger. 
 Spectrum's STF as long as it operates partially on top of other ledgers, can be viewed as $apply: (S, S_O, T_I) → (S', T_O)$, where $S$ - current Spectrum's state, $S_O$ - observed outbound state of connected ledgers, $T_I$ - a set of inbound transactions, $S'$ - resulting state of spectum's ledger, $T_O$ - resulting set of outbound transactions that must be settled on connected L1s.
 
-### Achieving finality of outbound transactions
+### Tracking finality of outbound transactions
 Most ledgers do not guarantee instant finality of transaction, that means that any (or all) transactions of $T_0$ may not be applied to corresponding ledgers in the end.
 
 ## Handling L1 Fees

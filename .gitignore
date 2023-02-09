@@ -2,8 +2,12 @@
 /Cargo.lock
 .DS_Store
 .idea/
+.bsp/
 log/
 *.bin
 *.iml
 .local
 .vscode
+**/auxil/
+**/out/
+*.log
