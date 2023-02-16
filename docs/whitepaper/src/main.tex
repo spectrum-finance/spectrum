@@ -4,6 +4,7 @@
 \usepackage[dvipsnames]{xcolor}
 \usepackage{color}
 \definecolor{SpectrumLavander}{HTML}{dadeed}
+\sloppy
 
 \title{Spectrum: Cross-chain interoperability at scale}
 \author{Spectrum Labs}
@@ -114,6 +115,73 @@
         \item Notarisation (Non-custodial).
         Nodes in $V_n$ observe events on supported L1 chains, batch updates, collectively sign them and
         publish on-chain.
+    \end{enumerate}
+
+
+    \subsection{Spectrum's State Transition Function}
+    Usually State Transition Function (STF) of a ledger looks like:
+
+    \begin{equation}
+        f(S, T) \rightarrow S',\label{eq:equation1}
+    \end{equation}
+    where $S$ - current state of the ledger, $T$ - a set of transactions, $S'$ - resulting state of the ledger.
+    Spectrum's STF as long as it operates partially on top of other ledgers, can be viewed as
+
+    \begin{equation}
+        \chi(S, S_O, T_I) \rightarrow (S', T_O),\label{eq:equation2}
+    \end{equation}
+    where $S$ - current Spectrum's state, $S_O$ - observed outbound state of connected ledgers, $T_I$ - a set of inbound transactions, $S'$ - resulting state of spectum's ledger, $T_O$ - resulting set of outbound transactions that must be settled on connected L1s.
+
+    \subsubsection{Achieving finality of outbound transactions}
+    Most ledgers do not guarantee instant finality of transaction, that means that any (or all) transactions of $T_O$ may not be applied to corresponding ledgers in the end. Also the number of confirmations in different networks have different reliability.
+
+
+    Using the number of epochs $\Delta E$ that have passed in the Spectrum network, developers should be able to receive information about the number of blocks that have passed in all connected L1 blockchains during this period of time. The duration of the block in each L1 blockchain is different, but the average values are preserved for a certain period of time $\Delta T >> d_s$, where $d_s$ is the duration of Sepctrum's epoch. Thus, after each $\Delta T$ time interval, Spectrum network will update the set of constants:
+    \begin{equation}
+        \{d_{i}\}_{i=1}^{M};\
+        \{c_{i}\}_{i=1}^{M}\label{eq:equation3}
+    \end{equation}
+    where $d_i$ - block duration of $i$-th connected L1 blockchain, $c_i$ - default reliable number of confirmations in $i$-th connected L1 blockchain, $M$ - total number of connected L1 blockchains. Using the data above, each $\Delta E$ of the Spectrum's epochs can be associated with the delta of blocks that have passed on in any connected blockchain:
+    \begin{equation}
+        \left\{ \left\lfloor\Delta E \cdot \frac{d_s}{d_i}\right\rfloor \right\}_{i=1}^{N}\label{eq:equation4}
+    \end{equation}
+
+
+    Each pair of inbound and outbound transactions must contain the following information in the context:
+    \begin{enumerate}
+        \item Parent L1 blockchain ID $p_{id}$ which UTXO of the corresponding inbound transaction belongs to;
+        \item Spectrum epoch number $E_{settled}$ at which the corresponding inbound transaction settled at the Spectrum network.
+    \end{enumerate}
+    When forming outbound transaction, developers can specify a reliability factor $C$. This factor will be compared with the ratio of the number of blocks passed on the parent L1 blockchain of the inbound transaction to the default reliable number of confirmations $c_i$ of this network:
+    \begin{equation}
+        \theta(i-p_{id})\cdot \left\{\frac{1}{c_i} \cdot \left\lfloor (E-E_{settled}) \cdot \frac{d_s}{d_i}\right\rfloor\right\}_{i=1}^{M} >= C\label{eq:equation6}
+    \end{equation}
+    where $E$ - current Spectrum epoch number; $\theta(x)$ - indicator function which is 1 at $x = 0$, otherwise 0.
+
+
+    Thus, only those UTXO will be included in outbound transactions for which the number of confirmations $N_c>=C\cdot c_i$.
+
+    \subsubsection{Formal STF definition}
+    The Spectrum's State Transition Function function can be defined as follows:
+
+    \begin{enumerate}
+
+        \item For each input in $T_I$ referenced UTXO must exist in associated L1 and signature must match it's owner;
+
+        \item For each input in $T_O$ referenced UTXO must exist in $S$ and aggregated signature of Spectrum's validators must be provided;
+
+        \item Outbound transactions $T_O$ must include only those UTXO from the $S$ for which the number of confirmations in the parent network are reliable, i.e. $N_c>=C\cdot c_i$;
+
+        \item Sum of all assets that are transferred into the Spectrum vault in $T_I$ must be not less than the difference between all stored assets in $S_O$ and $S$;
+
+        \item Sum of all assets that are settled on all connected L1s in $T_O$ must not exceed the difference between all stored assets in $S_O$ and $S'$;
+
+        \item If the number of connected blockchains has increased by $m$, then the corresponding constants $\{d_{i}^{'}\}_{i=1}^{m},\ \{c_{i}^{'}\}_{i=1}^{m}$ must be added to constants sets.
+
+        \item If the period of time $\Delta T$ has passed, new constants sets $\{d_{i}^{'}\}_{i=1}^{M},\ \{c_{i}^{'}\}_{i=1}^{M}$ should be provided, and $\forall i \in M: {c^{'}_i >= c^{'}_i \vee d^{'}_i >= d^{'}_i}$;
+
+        \item Returns $S'$ with all $T_I$ output UTXO added and $T_O$ input UTXO removed from vault.
+
     \end{enumerate}
 
 
