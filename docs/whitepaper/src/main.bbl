@@ -1,0 +1,93 @@
+% $ biblatex auxiliary file $
+% $ biblatex bbl format version 3.2 $
+% Do not modify the above lines!
+%
+% This is an auxiliary file used by the 'biblatex' package.
+% This file may safely be deleted. It will be recreated by
+% biber as required.
+%
+\begingroup
+\makeatletter
+\@ifundefined{ver@biblatex.sty}
+  {\@latex@error
+     {Missing 'biblatex' package}
+     {The bibliography requires the 'biblatex' package.}
+      \aftergroup\endinput}
+  {}
+\endgroup
+
+
+\refsection{0}
+  \datalist[entry]{nyt/global//global/global}
+    \entry{cryptoeprint:2019/1128}{article}{}
+      \name{author}{7}{}{%
+        {{un=0,uniquepart=base,hash=fcbb7564137508ef61b8b4fa04e881e7}{%
+           family={Zamyatin},
+           familyi={Z\bibinitperiod},
+           given={Alexei},
+           giveni={A\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=c8b1c56b4c05f81402ba20a42230cec1}{%
+           family={Al-Bassam},
+           familyi={A\bibinithyphendelim B\bibinitperiod},
+           given={Mustafa},
+           giveni={M\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=d0d514d164d1317cacd643d0b54c32bb}{%
+           family={Zindros},
+           familyi={Z\bibinitperiod},
+           given={Dionysis},
+           giveni={D\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=bd2c107f01728b55e5e2814b6d325d42}{%
+           family={Kokoris-Kogias},
+           familyi={K\bibinithyphendelim K\bibinitperiod},
+           given={Eleftherios},
+           giveni={E\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=fa8d5d90cdd88aa71285ac0ee650fc75}{%
+           family={Moreno-Sanchez},
+           familyi={M\bibinithyphendelim S\bibinitperiod},
+           given={Pedro},
+           giveni={P\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=a788bdbaf3b805cdc29e079c1e4ae908}{%
+           family={Kiayias},
+           familyi={K\bibinitperiod},
+           given={Aggelos},
+           giveni={A\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=aee93e06575179411e2ad6aed53a986b}{%
+           family={Knottenbelt},
+           familyi={K\bibinitperiod},
+           given={William\bibnamedelima J.},
+           giveni={W\bibinitperiod\bibinitdelim J\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{b27d4752b33374fde5a029672d48e46f}
+      \strng{fullhash}{03c2757a32838950b177f10f2a4cae71}
+      \strng{bibnamehash}{b27d4752b33374fde5a029672d48e46f}
+      \strng{authorbibnamehash}{b27d4752b33374fde5a029672d48e46f}
+      \strng{authornamehash}{b27d4752b33374fde5a029672d48e46f}
+      \strng{authorfullhash}{03c2757a32838950b177f10f2a4cae71}
+      \field{sortinit}{Z}
+      \field{sortinithash}{96892c0b0a36bb8557c40c49813d48b3}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{year}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{Cryptology ePrint Archive, Paper 2019/1128}
+      \field{note}{\url{https://eprint.iacr.org/2019/1128}}
+      \field{title}{SoK: Communication Across Distributed Ledgers}
+      \field{year}{2019}
+      \verb{urlraw}
+      \verb https://eprint.iacr.org/2019/1128
+      \endverb
+      \verb{url}
+      \verb https://eprint.iacr.org/2019/1128
+      \endverb
+    \endentry
+  \enddatalist
+\endrefsection
+\endinput
+

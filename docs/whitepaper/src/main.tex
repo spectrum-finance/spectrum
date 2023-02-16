@@ -1,9 +1,18 @@
 \documentclass{article}
 \usepackage[utf8]{inputenc}
 \usepackage{mathtools}
+\usepackage[
+    backend=biber,
+    style=authoryear,
+    sorting=nyt,
+    natbib
+]{biblatex}
 \usepackage[dvipsnames]{xcolor}
 \usepackage{color}
+\usepackage{csquotes}
+
 \definecolor{SpectrumLavander}{HTML}{dadeed}
+\addbibresource{references.bib}
 
 \title{Spectrum: Cross-chain interoperability at scale}
 \author{Spectrum Labs}
@@ -64,6 +73,12 @@
     The remaining honest nodes follow the protocol.
     We assume that the total balance of all faulty nodes is less than 1/3 of the total balance $B$ of all nodes.
 
+    We also assume multiple independent distributed systems $S_1, \dots, S_k$ with underlying ledgers $L_1, \dots, L_k$ as defined in~\cite{cryptoeprint:2019/1128}.
+    For each ledger there is a process $P_k$ that can influence the state evolution of the underlying ledger $L_k$ by commiting a transaction $TX_k$ into it.
+    We extend the model defined in~\cite{cryptoeprint:2019/1128} by assuming that all ledgers allow for execution of simple predicates upon validation of transactions:
+    $verify: C \rightarrow 0 | 1$, where $C$ is a \enquote{context} that contains description of state the transaction interacts with.
+    There is also a function $desc: TX_k \rightarrow DESC^{TX_k}$ that maps transaction $TX_k$ to some \enquote{description}, e.g.\ specifying the trnsaction value, recipient address, etc.
+
 
     \section{Goals}\label{sec:goals}
 
@@ -82,7 +97,15 @@
 
     This section presents Spectrum protocol design starting from a naive approach based on PBFT and gradually addressing the challanges.
 
-    \subsection{Strawman Design: PBFTNetwork}\label{subsec:strawman-cross-chain-protocol}
+    \subsection{Strawman Design: PBFTNetwork}\label{subsec:strawman-design}
+
+    For simplicity we bigin with a notarization protocol based on PBFT and cryptographic signatures, then iteratively refine it into Spectrum.
+
+    PBFTNetwork assumes that a group of $n = 3f + 1$ trusted nodes has been pre-selected upfront and fixed and at most $f$ of these nodes are byzantine.
+    At any given time one of these nodes is the \emph{leader}, who observes events on connected blockchains,
+    batch them and initiate round of notarization within the consensus group.
+    Remaining members of the consensus group verify the proposed batches by checking the presense of updates on corresponding blockchains.
+    Upon successful verification each node signs the batch with its secret key and sends the signature to the leader.
 
     \subsection{Bootstrapping}\label{subsec:bootstrapping}
 
@@ -119,8 +142,9 @@
 
     \section{Applications}\label{sec:applications}
 
-    \subsection{Cross-Chain Oracle}\label{subsec:cross-chain-oracle}
+    \subsection{Decentralized Cross-Chain Oracle}\label{subsec:cross-chain-oracle}
     In oracle mode of operation the system is capable of providing a notarized set of events observed on supported blockchains.
+    Cross-Chain Oracle is a simple yet solving the cross-chain interoperability solution.
 
     \subsection{Custodial Asset Management}\label{subsec:custodial-asset-management}
     In custodial mode of operation the system is capable of managing user assets which are stored on corresponding blockchains in \emph{vaults}.
@@ -132,5 +156,9 @@
     Decentralized custodial management in conjunction with a computational layer can be highly beneficial for expanding the capabilities of the system.
     Moving beyond simple bridges to what we call \emph{Natively Cross-Chain Applications} (NCCAs).
     NCCAs are applications that are deployed in cross-chain network and are capable of interacting with other blockchains without the need of external oracles or bridges.
+
+    \newpage
+
+    \printbibliography
 
 \end{document}
