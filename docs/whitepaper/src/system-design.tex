@@ -1,0 +1,72 @@
+This section presents Spectrum protocol design starting from a naive approach based on PBFT and gradually addressing the challanges.
+
+\subsection{Strawman Design: PBFTNetwork}\label{subsec:strawman-design}
+
+For simplicity we bigin with a notarization protocol based on PBFT, then iteratively refine it into Spectrum.
+
+PBFTNetwork assumes that a group of $n = 3f + 1$ trusted nodes has been pre-selected upfront and fixed and at most $f$ of these nodes are byzantine.
+At any given time one of these nodes is the \emph{leader}, who observes events on connected blockchains,
+batch them and initiate round of notarization within the consensus group.
+Remaining members of the consensus group verify the proposed batches by checking the presense of updates on corresponding blockchains.
+Upon successful verification each node signs the batch with its secret key and sends the signature to the leader.
+
+Under simplifying assumptions that at most $f$ nodes are byzantine the PBFTNetwork guarantees livness and safety.
+However, the assumption of a fixed trusted committee is not realistic for open decentralized systems.
+Moreover, as PBFT consensus members authenticate each other via non-transferable symmetric-key MACs, each consensus
+member has to communicate with others directly, what results in $O(n^2)$ communication complexity.
+Quadratic communication complexity imposes a hard limit on scalability of the system.
+
+In the subsequent sections we address these limitations in three steps:
+\begin{enumerate}
+    \item \textbf{Opening consensus group.} We introduce a lottery-based mechanism for selecting consensus group dynamically.
+    \item \textbf{Replacing MACs by Digital Signatures.} We replace MACs by digital signatures to make authentication transferable
+    and thus opening the door for sparser communication patterns that can help to reduce the communication complexity.
+    \item \textbf{Scalable Collective Signaure Aggregation.} We utilize Byzantine-tolerant aggregation protocol that allows for
+    quick aggregation of cryptographic signatures to reduce communication complexity to $O(\log n)$.
+\end{enumerate}
+
+\subsection{Opening Consensus Group}\label{subsec:opening-consensus-group}
+
+todo
+
+\subsection{Replacing MACs by Digital Signatures}\label{subsec:replacing-macs-by-digital-signatures}
+
+todo
+
+\subsubsection{Scalable Collective Signature Aggregation}\label{subsubsec:scalable-collective-signature-aggregation}
+
+todo
+
+\subsection{Protocol Flow}\label{subsec:protocol-flow}
+
+\subsubsection{Bootstrapping}\label{subsubsec:bootstrapping}
+
+The system is bootstrapped in a trusted way.
+A manually picked set of validators $V_0$ is assigned to the first epoch $E_0$.
+On-chain vaults are initialized with an aggregated public key $aPK_0$ of the inititial committee.
+
+\subsubsection{Normal Flow}\label{subsubsec:normal-flow}
+
+\begin{enumerate}
+    \item Registration.
+    Before an epoch starts, all Spectrum stakeholders can register for becoming an committee member.
+    To get a chance of becoming a member of $V_n$ in the next epoch $E_n$ they register in a lottery
+    by publishing their public keys $PK_c$ and locking collateral.
+    \item Lottery.
+    Once registration is done, nodes in $V_{n-1}$ compute $selectComettee: (C_n, R_n) \rightarrow V_n$,
+    where  $C_n$ is a candidates pool, $R_n$ is a public random number.
+    \item Committee key aggregation.
+    Once new committee is selected, nodes in $V_n$ aggregate their individual public keys $\{PK_i\}$ into
+    a joint one $aPK_n$.
+    \item Committee transition.
+    Nodes in $V_{n-1}$ publish cross-chain message $M_n : (aPK_n, \sigma_{n-1})$ , where $aPK_n$ is
+    an aggregated public key of the new comettee $V_n$ , $\sigma_{n-1}$ is an aggregated signature of
+    $M_n$ such that $Verify(\sigma_{n-1}, aPK_{n-1}, Mn) = 1$.
+    Vaults are updated such that $Vault\{(E_{n-1}, aPK_{n-1})\} \coloneqq (E_n, aPK_n)$.
+    \item Decentaralized Asset Management (Custodial).
+    Nodes in $V_n$ observe events on supported L1 chains, agree on the set of updates
+    and compute state outbound state transitions accordingly.
+    \item Notarisation (Non-custodial).
+    Nodes in $V_n$ observe events on supported L1 chains, batch updates, collectively sign them and
+    publish on-chain.
+\end{enumerate}
