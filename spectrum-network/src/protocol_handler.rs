@@ -16,6 +16,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pub mod codec;
+pub mod handel;
 pub mod sync;
 pub mod versioning;
 
