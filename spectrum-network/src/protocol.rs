@@ -1,6 +1,7 @@
 use crate::types::{ProtocolId, ProtocolVer};
 
 pub const SYNC_PROTOCOL_ID: ProtocolId = ProtocolId::from_u8(0);
+pub const HANDEL_PROTOCOL_ID: ProtocolId = ProtocolId::from_u8(1);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ProtocolSpec {
