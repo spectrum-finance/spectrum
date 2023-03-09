@@ -8,7 +8,7 @@ Roll-DPoS Consensus requires a resilient way of randomly choosing a set of valid
 
 ## Solution
 
-A decentralized lottery allowing to choose a set of validators to participate in decentralized consesnsus for a certain
+A decentralized lottery allowing to choose a set of validators to participate in decentralized consensus for a certain
 period of time via on-chain lottery.
 
 ## Protocol description
@@ -48,7 +48,7 @@ Fig. 1. Lottery states
 
 1. A new lottery box is created with a unique NFT as an identifier, ticket tokens, an initial set of validators
    (their PKs) and lottery settings (see "Lottery parameters")
-2. ID of the LotteryNFT is fixed as a consesnsus protocol parameter
+2. ID of the LotteryNFT is fixed as a consensus protocol parameter
 
 ### Main protocol flow
 
