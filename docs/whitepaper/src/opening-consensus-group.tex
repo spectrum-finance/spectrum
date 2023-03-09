@@ -1,0 +1,57 @@
+Although system configuration so far offers a scalable way to ensure strong consistency, which means that clients only need to wait for the next block to verify a committed transaction, the time between blocks can still be significant.
+Inspired by the concept of ByzCoin, we propose a system composed of two parallel chains that store information about leaders and transactions.
+Epoch blocks store information about consensus group members and leaders, while blocks store information about transactions.
+The current leader generates a new block every few seconds, this block is then signed with a collective signature.
+
+As long as Spectrum is an open-membership protocol, assumption on a closed consensus group is nod valid.
+Sybil attacks cat break any protocol with security thresholds such as PBFT's assumption that at most $f$ out of ${3 f + 1}$ members are honest, thus, an appropriate dynamic selection of opening consensus group is crucial for network livness and safety.
+Consensus group members selection should be performed in a random and trusted way to ensure that a sufficient fraction of the selected members are honest, procedure itself should be independent of any internal or external advisers.
+Results of the selection procedure should satisfy the following conditions:
+\begin{enumerate}
+    \item Results should be verifiable for all network participants.
+    \item Fraction of honest members in the selected consensus group should be sufficient to guarantee Byzantine fault tolerance.
+    \item Information about selected members of the consensus group shouldn't be accessible to any network participants until the start of the next epoch to avoid targeted attacks.
+\end{enumerate}
+
+To meet the above requirements, we introduce a trusted lottery-based mechanism.
+Let's pretend that protocol participants can have 4 possible roles:
+\begin{itemize}
+    \item \textbf{Network participant}: participates in a lottery to become \textquote{Consensus group member} or(and) \textquote{Leadership contender}.
+    \item \textbf{Consensus group member}.
+    \item \textbf{Leadership contender}: can randomly become a leader once during the current epoch.
+    \item \textbf{Leader}.
+\end{itemize}
+
+All users willing to serve the network register in protocol as a \textquote{Network participant}.
+Each \textquote{Network participant} has a set of specified parameters ${(PK_i, V_i, M_i)}$, there $PK_i$ is public key, $V_i$ is a balance, $M_i$ is a number of issued blocks as a \textquote{Leader} during passed $K$ epochs.
+Once previous epoch comes to an end current \textquote{Leader} sends a lottery message.
+When \textquote{Network participant} signs this message, the lottery function determines his role in the next epoch:
+\begin{equation}
+{lotteryRole:(seed, V_{\max}, M_{\max}, T_c^M, T_l^C; H, V_i, M_i) \rightarrow role}
+    ,\label{eq:equation3}
+\end{equation}
+where ${V_{\max}, M_{\max}}$ are predefined maximum values to which the corresponding user parameters ${V_i, M_i}$ are normalized in order to prevent whales and previous leaders domination.
+Presence of new members is achieved by the fact that the above normalized parameters are multiplied by numbers ${A, B}$, randomly generated in a given ranges.
+Thus, the \textquote{Consensus group members} become those \textquote{Network participant} for which ${A \cdot (V_i\mathbin{/}V_{\max}) + B \cdot (M_i\mathbin{/}M_{\max}) > T_c^M}$.
+Similarly, to become \textquote{Leadership contender}: ${C \cdot (V_i\mathbin{/}V_{\max}) + D \cdot (M_i\mathbin{/}M_{\max}) > T_l^C}$.
+Finally, two sets of participants are obtained: ${\{PK_j\}_j=0^J}$ \textquote{Consensus group members} and ${\{PK_k\}_k=0^K}$ \textquote{Leadership contenders}.
+Role is assigned to each specific participant and determines concrete actions allowed for him within the protocol.
+Thus, the lottery procedure is random, the distribution of roles correlates with the contribution of participants to the protocol, and information about roles is available only to the participants themselves.
+
+\subsubsection{Lottery function details}\label{subsubsec:lottery-function-details}
+todo
+
+\subsubsection{Leadership transition}\label{subsubsec:leadership-transition}
+The role of the \textquote{Leader} plays crucial in the network's reliability, so the following requirements are imposed on the leadership transition procedure:
+\begin{enumerate}
+    \item \textquote{Leader} position should be verifiable for all network participants.
+    \item Leadership transition procedure should be cheap and fast.
+    \item Information about next \textquote{Leader} shouldn't be accessible to any network members before the start of the next block to avoid targeted attacks.
+\end{enumerate}
+During the lottery, a set of the most trusted participants who can claim leadership during the next epoch was defined.
+Ideally, each new block should be initiated by a new \textquote{Leader}, so this role can only be used once.
+Each \textquote{Leader} includes a random number $P$ in his transaction, $P$ selection range is ${K - E}$, where $E$ is the number of blocks passed since current epoch started.
+\textquote{Consensus group members} signing the \textquote{Leader's} transaction and those who also are \textquote{Leadership contenders} check their order (inside their group).
+And the first one, for whom the order number will be greater or equal to $P$, takes on the role of the new \textquote{Leader}.
+
+Thus, the leadership transition procedure is cheap and fast, since it is built into the main protocol flow and, in the limit, can be performed before each new block.
