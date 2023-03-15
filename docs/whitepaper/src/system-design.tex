@@ -15,14 +15,17 @@ However, the assumption of a fixed trusted committee is not realistic for open d
 Moreover, as PBFT consensus members authenticate each other via non-transferable symmetric-key MACs, each consensus
 member has to communicate with others directly, what results in $O(n^2)$ communication complexity.
 Quadratic communication complexity imposes a hard limit on scalability of the system.
+Such a design also scales poorly in terms of adding support for more chains.
+The workload of each validator grows lineary with each added chain.
 
-In the subsequent sections we address these limitations in three steps:
+In the subsequent sections we address these limitations in four steps:
 \begin{enumerate}
     \item \textbf{Opening consensus group.} We introduce a lottery-based mechanism for selecting consensus group dynamically.
     \item \textbf{Replacing MACs by Digital Signatures.} We replace MACs by digital signatures to make authentication transferable
     and thus opening the door for sparser communication patterns that can help to reduce the communication complexity.
     \item \textbf{Scalable Collective Signature Aggregation.} We utilize Byzantine-tolerant aggregation protocol that allows for
     quick aggregation of cryptographic signatures to reduce communication complexity to $O(\log n)$.
+    \item \textbf{Eliminating validator bottleneck.} We shard consensus groups into units by the type of chain each node is able to listen.
 \end{enumerate}
 
 \subsection{Opening Consensus Group}\label{subsec:opening-consensus-group}
