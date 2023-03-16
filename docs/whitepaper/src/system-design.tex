@@ -25,7 +25,7 @@ In the subsequent sections we address these limitations in four steps:
     and thus opening the door for sparser communication patterns that can help to reduce the communication complexity.
     \item \textbf{Scalable Collective Signature Aggregation.} We utilize Byzantine-tolerant aggregation protocol that allows for
     quick aggregation of cryptographic signatures to reduce communication complexity to $O(\log n)$.
-    \item \textbf{Eliminating validator bottleneck.} We shard consensus groups into units by the type of chain each node is able to listen.
+    \item \textbf{Eliminating Validator Bottleneck.} We shard consensus groups into units by the type of chain each node is able to listen.
 \end{enumerate}
 
 \subsection{Opening Consensus Group}\label{subsec:opening-consensus-group}
@@ -39,6 +39,28 @@ todo
 \subsection{Scalable Collective Signature Aggregation}\label{subsec:scalable-collective-signature-aggregation}
 
 todo
+
+\subsection{Eliminating Validator Bottleneck}\label{subsec:eliminating-validator-bottleneck}
+
+So far each member of consensus group had to track changes on all connected chains in order to participate in consensus properly.
+
+\textbf{Observation 1:} Events coming from independent systems $S_k$ are not serilized.
+Thus, the process of events notarisation can be parallelized.
+
+\textbf{Observation 2:} Outbound transactions on independent systems $S_k$ can be independently signed.
+
+Utilizing those properties we now introduce commettee sharding.
+We modify protocol in a way such that at each epoch $e$ $M$ disinct commettees consisting of nodes equipped with functionality unit $F_{S_k}$ relevant to a specific connected chain $S_k$ are selected.
+We denote one such commettee shard as $V^{e}_{S_k}$, which uniqiely maps to $S_k$.
+Then, complete mapping of commettees to chains at epoch $e$ can be represented as a set of tuples commettee-chain $\{(V^{e}_{S_k}, S_k)\}$.
+Throughout epoch $e$ all events and on-chain trasactions on $S_k$ are handled exclusively by $V^{e}_{S_k}$.
+
+\subsubsection{Syncing Shards}
+
+Once events from independent chains are notarized by dedicated commettees they have to be synced in a global log in order for the system to be able to compute cross-chain state transition.
+To facilitate this process batches of notarized events are broadcast to other commettees.
+Any commettee member is able to add notarized batch of events to the global log.
+At each slot randomly selected shard leader from one of commettees has a greater chance of doing this, then comes other shard leaders, then regular validators.
 
 \subsection{Protocol Flow}\label{subsec:protocol-flow}
 

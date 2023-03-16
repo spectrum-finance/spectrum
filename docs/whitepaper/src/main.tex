@@ -80,7 +80,8 @@
         We extend the model defined in~\cite{cryptoeprint:2019/1128} by assuming that all ledgers allow for execution of simple predicates upon validation of transactions:
         ${verify: C \rightarrow 0 | 1}$, where $C$ is a \enquote{context} that contains description of state the transaction interacts with.
         There is also a function ${desc: TX_k \rightarrow DESC^{TX_k}}$ that maps transaction $TX_k$ to some \enquote{description}, e.g.\ specifying the transaction value, recipient address, etc.
-
+        For each  $S_k$ there is a corresponding functionality unit $F_{S_k}$ that allows any $n$ equipped with the unit to interact with $S_k$.
+        Each node $n \in N$ is equipped with at least one such functionality unit and at most $k$ functionality units.
 
         \section{Goals}\label{sec:goals}
 
