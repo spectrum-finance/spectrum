@@ -59,17 +59,17 @@ Nodes in $V^{e}_{S_k}$ maintain a robust local ledger $L^{local}_k$ of notarized
 
 \subsubsection{Syncing Shards}
 
-Notarized batches of events from local ledgers then must be synced in a global ledger $L_G$ in order for the system to be able to compute cross-chain state transition.
+Notarized batches of events from local ledgers then must be synced in a super ledger $L^+$ in order for the system to be able to compute cross-chain state transition.
 To facilitate this process batches of notarized events are broadcast to other commettees.
-Any commettee member is able to add notarized batch of events to $L_M$.
-At each slot randomly selected shard leader from one of commettees has a greater chance of doing this, then comes other shard leaders, then regular validators.
+Any commettee member is able to add notarized batch of events to $L^+$ with inequal probability.
+Probabilities of addiding a batch of events to $L^+$ are randomly assigned to each shard leader $U^{sl_r}_{S_k}$ at each slot $sl_r$ resulting in a mapping $\{(U^{sl_r}_{S_1}, P_1), (U^{sl_r}_{S_2}, P_1), .., (U^{sl_r}_{S_k}, P_i)\}$.
 
 \subsection{Protocol Flow}\label{subsec:protocol-flow}
 
 \subsubsection{Bootstrapping}\label{subsubsec:bootstrapping}
 
 The system is bootstrapped in a trusted way.
-A manually picked set of validators $V_0$ is assigned to the first epoch $E_0$.
+A manually picked set of validators $V_0$ is assigned to the first epoch $e_0$.
 On-chain vaults are initialized with an aggregated public key $aPK_0$ of the initial committee.
 
 \subsubsection{Normal Flow}\label{subsubsec:normal-flow}
@@ -77,7 +77,7 @@ On-chain vaults are initialized with an aggregated public key $aPK_0$ of the ini
 \begin{enumerate}
     \item Registration.
     Before an epoch starts, all Spectrum stakeholders can register for becoming a committee member.
-    To get a chance of becoming a member of $V_n$ in the next epoch $E_n$ they register in a lottery
+    To get a chance of becoming a member of $V_n$ in the next epoch $e_n$ they register in a lottery
     by publishing their public keys $PK_c$ and locking collateral.
     \item Lottery.
     Once registration is done, nodes in $V_{n-1}$ compute ${selectComettee: (C_n, R_n) \rightarrow V_n}$,
@@ -89,7 +89,7 @@ On-chain vaults are initialized with an aggregated public key $aPK_0$ of the ini
     Nodes in $V_{n-1}$ publish cross-chain message ${M_n : (aPK_n, \sigma_{n-1})}$ , where $aPK_n$ is
     an aggregated public key of the new committee $V_n$ , $\sigma_{n-1}$ is an aggregated signature of
     $M_n$ such that ${Verify(\sigma_{n-1}, aPK_{n-1}, Mn) = 1}$.
-    Vaults are updated such that ${Vault\{(E_{n-1}, aPK_{n-1})\} \coloneqq (E_n, aPK_n)}$.
+    Vaults are updated such that ${Vault\{(E_{n-1}, aPK_{n-1})\} \coloneqq (e_n, aPK_n)}$.
     \item Decentralized Asset Management (Custodial).
     Nodes in $V_n$ observe events on supported L1 chains, agree on the set of updates
     and compute state outbound state transitions accordingly.
