@@ -19,7 +19,57 @@
 
 \refsection{0}
   \datalist[entry]{nyt/global//global/global}
-    \entry{cryptoeprint:2019/1128}{article}{}
+    \entry{cryptoeprint:2016/889}{misc}{}
+      \name{author}{4}{}{%
+        {{un=0,uniquepart=base,hash=a788bdbaf3b805cdc29e079c1e4ae908}{%
+           family={Kiayias},
+           familyi={K\bibinitperiod},
+           given={Aggelos},
+           giveni={A\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=ddc77d8d5bf45f3970bd288d4e710e54}{%
+           family={Russell},
+           familyi={R\bibinitperiod},
+           given={Alexander},
+           giveni={A\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=46a9d91302d8e21a332e4332503626fc}{%
+           family={David},
+           familyi={D\bibinitperiod},
+           given={Bernardo},
+           giveni={B\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=ab59300f7d169328ea946a45dd926e4f}{%
+           family={Oliynykov},
+           familyi={O\bibinitperiod},
+           given={Roman},
+           giveni={R\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{b133b45fc91fa791ad081cc170396549}
+      \strng{fullhash}{49c6c3ecedeeecd579155f124de951c1}
+      \strng{bibnamehash}{b133b45fc91fa791ad081cc170396549}
+      \strng{authorbibnamehash}{b133b45fc91fa791ad081cc170396549}
+      \strng{authornamehash}{b133b45fc91fa791ad081cc170396549}
+      \strng{authorfullhash}{49c6c3ecedeeecd579155f124de951c1}
+      \field{sortinit}{K}
+      \field{sortinithash}{c02bf6bff1c488450c352b40f5d853ab}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{year}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{Cryptology ePrint Archive, Paper 2016/889}
+      \field{note}{\url{https://eprint.iacr.org/2016/889}}
+      \field{title}{Ouroboros: A Provably Secure Proof-of-Stake Blockchain Protocol}
+      \field{year}{2016}
+      \verb{urlraw}
+      \verb https://eprint.iacr.org/2016/889
+      \endverb
+      \verb{url}
+      \verb https://eprint.iacr.org/2016/889
+      \endverb
+    \endentry
+    \entry{cryptoeprint:2019/1128}{misc}{}
       \name{author}{7}{}{%
         {{un=0,uniquepart=base,hash=fcbb7564137508ef61b8b4fa04e881e7}{%
            family={Zamyatin},

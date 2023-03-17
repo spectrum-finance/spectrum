@@ -26,7 +26,7 @@ time window that corresponds to each slot has the following two properties:
 
 \subsection{Synchrony.}\label{subsec:synchrony.}
 We consider an untrustworthy network environment that allows for adversarially-controlled message delays and immediate adaptive corruption.
-Namely, we allow the adversary $\Alpha$ to selectively delay any messages sent by honest parties for up to $\Delta \subseteq \natural$ slots and corrupt parties without delay.
+Namely, we allow the adversary $A$ to selectively delay any messages sent by honest parties for up to $\Delta \subseteq \natural$ slots and corrupt parties without delay.
 
 \subsection{Security Model.}\label{subsec:security-model.}
 The system is composed of a set of nodes $N$.
@@ -39,11 +39,9 @@ Byzantine nodes can divert from the protocol and collude to attack the system.
 The remaining honest nodes follow the protocol.
 We assume that the total balance of all faulty nodes is less than 1/3 of the total balance $B$ of all nodes.
 
-
 \subsection{Random Oracle.}\label{subsec:random-oracle.}
 We also assume the availability of a random oracle.
 This is a function $H: \{0,1\}^* \rightarrow \{0,1\}^\omega$ available to all parties that answers every fresh query with an independent, uniformly random string from f0; 1gw, while any repeated queries are answered consistently.
-
 
 \subsection{External Systems.}\label{subsec:external-systems.}
 We also assume multiple independent distributed systems ${S_1, \dots, S_k}$ with underlying ledgers ${L_1, \dots, L_k}$ as defined in~\cite{cryptoeprint:2019/1128}.
