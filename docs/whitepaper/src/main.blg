@@ -1,17 +1,19 @@
 [0] Config.pm:306> INFO - This is Biber 2.18
 [0] Config.pm:309> INFO - Logfile is 'main.blg'
-[53] biber-darwin:340> INFO - === Fri Mar 17, 2023, 17:32:43
-[63] Biber.pm:418> INFO - Reading 'main.bcf'
-[126] Biber.pm:978> INFO - Found 2 citekeys in bib section 0
-[139] Biber.pm:4401> INFO - Processing section 0
-[147] Biber.pm:4592> INFO - Looking for bibtex file 'references.bib' for section 0
-[148] bibtex.pm:1713> INFO - LaTeX decoding ...
-[151] bibtex.pm:1518> INFO - Found BibTeX data source 'references.bib'
-[188] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'variable = shifted' with 'variable = non-ignorable'
-[188] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'normalization = NFD' with 'normalization = prenormalized'
-[188] Biber.pm:4221> INFO - Sorting list 'nyt/global//global/global' of type 'entry' with template 'nyt' and locale 'en-US'
-[188] Biber.pm:4227> INFO - No sort tailoring available for locale 'en-US'
-[194] bbl.pm:654> INFO - Writing 'main.bbl' with encoding 'UTF-8'
-[196] bbl.pm:757> INFO - Output to main.bbl
-[197] Biber.pm:130> WARN - BibTeX subsystem: /var/folders/35/0db_bt0n6tdb3m3tlkb5tc9c0000gn/T/biber_tmp_Ofok/33e59b5ca9ec342068223d604c3f8d55_12390.utf8, line 9, warning: 1 characters of junk seen at toplevel
-[197] Biber.pm:132> INFO - WARNINGS: 1
+[50] biber-darwin:340> INFO - === Mon Mar 20, 2023, 12:06:44
+[61] Biber.pm:418> INFO - Reading 'main.bcf'
+[123] Biber.pm:978> INFO - Found 3 citekeys in bib section 0
+[135] Biber.pm:4401> INFO - Processing section 0
+[144] Biber.pm:4592> INFO - Looking for bibtex file 'references.bib' for section 0
+[145] bibtex.pm:1713> INFO - LaTeX decoding ...
+[149] bibtex.pm:1518> INFO - Found BibTeX data source 'references.bib'
+[189] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'variable = shifted' with 'variable = non-ignorable'
+[189] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'normalization = NFD' with 'normalization = prenormalized'
+[189] Biber.pm:4221> INFO - Sorting list 'nyt/global//global/global' of type 'entry' with template 'nyt' and locale 'en-US'
+[189] Biber.pm:4227> INFO - No sort tailoring available for locale 'en-US'
+[196] bbl.pm:654> INFO - Writing 'main.bbl' with encoding 'UTF-8'
+[198] bbl.pm:757> INFO - Output to main.bbl
+[198] Biber.pm:130> WARN - legacy month field 'may' in entry 'nakamoto2009bitcoin' is not an integer - this will probably not sort properly.
+[198] Biber.pm:130> WARN - BibTeX subsystem: /var/folders/35/0db_bt0n6tdb3m3tlkb5tc9c0000gn/T/biber_tmp_QHLN/33e59b5ca9ec342068223d604c3f8d55_20518.utf8, line 10, warning: 1 characters of junk seen at toplevel
+[198] Biber.pm:130> WARN - BibTeX subsystem: /var/folders/35/0db_bt0n6tdb3m3tlkb5tc9c0000gn/T/biber_tmp_QHLN/33e59b5ca9ec342068223d604c3f8d55_20518.utf8, line 19, warning: 1 characters of junk seen at toplevel
+[198] Biber.pm:132> INFO - WARNINGS: 3

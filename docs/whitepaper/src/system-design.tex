@@ -29,8 +29,15 @@ In the subsequent sections we address these limitations in four steps:
 \end{enumerate}
 
 \subsection{Opening Consensus Group}\label{subsec:opening-consensus-group}
-\input{opening-consensus-group}
 
+First, we address PBFTNetwork's assumption of a closed consensus group.
+The main challenge at this step is to guarantee security against Sybil attacks in an open-mempership protocol that still assumes security thresholds.
+Bitcoin~\cite{nakamoto2009bitcoin} and many of its successors are using proof-of-work (PoW) to achieve security.
+In essence, PoW in Bitcoin is a robust machanism that facilitates randomized selection of a \enquote{leader} that is eligible to produce a new block.
+A primary consideration regarding PoW is the amount of energy required for the systems that operate on it.
+A natural alternative to PoW is a mechanism that relies on the notion of proof-of-stake (PoS).
+Rather than investing computational resources in order to participate in the leader election process, participants of a PoS system instead run a process that
+randomly selects one of them proportionally to the stake each possesses according to the current state of blockchain.
 
 \subsection{Replacing MACs by Digital Signatures}\label{subsec:replacing-macs-by-digital-signatures}
 
