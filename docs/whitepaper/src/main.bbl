@@ -1,0 +1,161 @@
+% $ biblatex auxiliary file $
+% $ biblatex bbl format version 3.2 $
+% Do not modify the above lines!
+%
+% This is an auxiliary file used by the 'biblatex' package.
+% This file may safely be deleted. It will be recreated by
+% biber as required.
+%
+\begingroup
+\makeatletter
+\@ifundefined{ver@biblatex.sty}
+  {\@latex@error
+     {Missing 'biblatex' package}
+     {The bibliography requires the 'biblatex' package.}
+      \aftergroup\endinput}
+  {}
+\endgroup
+
+
+\refsection{0}
+  \datalist[entry]{nyt/global//global/global}
+    \entry{cryptoeprint:2016/889}{misc}{}
+      \name{author}{4}{}{%
+        {{hash=a788bdbaf3b805cdc29e079c1e4ae908}{%
+           family={Kiayias},
+           familyi={K\bibinitperiod},
+           given={Aggelos},
+           giveni={A\bibinitperiod}}}%
+        {{hash=ddc77d8d5bf45f3970bd288d4e710e54}{%
+           family={Russell},
+           familyi={R\bibinitperiod},
+           given={Alexander},
+           giveni={A\bibinitperiod}}}%
+        {{hash=46a9d91302d8e21a332e4332503626fc}{%
+           family={David},
+           familyi={D\bibinitperiod},
+           given={Bernardo},
+           giveni={B\bibinitperiod}}}%
+        {{hash=ab59300f7d169328ea946a45dd926e4f}{%
+           family={Oliynykov},
+           familyi={O\bibinitperiod},
+           given={Roman},
+           giveni={R\bibinitperiod}}}%
+      }
+      \strng{namehash}{b133b45fc91fa791ad081cc170396549}
+      \strng{fullhash}{49c6c3ecedeeecd579155f124de951c1}
+      \strng{bibnamehash}{b133b45fc91fa791ad081cc170396549}
+      \strng{authorbibnamehash}{b133b45fc91fa791ad081cc170396549}
+      \strng{authornamehash}{b133b45fc91fa791ad081cc170396549}
+      \strng{authorfullhash}{49c6c3ecedeeecd579155f124de951c1}
+      \field{labelalpha}{Kia+16}
+      \field{sortinit}{K}
+      \field{sortinithash}{c02bf6bff1c488450c352b40f5d853ab}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{Cryptology ePrint Archive, Paper 2016/889}
+      \field{note}{\url{https://eprint.iacr.org/2016/889}}
+      \field{title}{Ouroboros: A Provably Secure Proof-of-Stake Blockchain Protocol}
+      \field{year}{2016}
+      \verb{urlraw}
+      \verb https://eprint.iacr.org/2016/889
+      \endverb
+      \verb{url}
+      \verb https://eprint.iacr.org/2016/889
+      \endverb
+    \endentry
+    \entry{nakamoto2009bitcoin}{article}{}
+      \name{author}{1}{}{%
+        {{hash=1977190f018b398e43ede3de043de8ea}{%
+           family={Nakamoto},
+           familyi={N\bibinitperiod},
+           given={Satoshi},
+           giveni={S\bibinitperiod}}}%
+      }
+      \strng{namehash}{1977190f018b398e43ede3de043de8ea}
+      \strng{fullhash}{1977190f018b398e43ede3de043de8ea}
+      \strng{bibnamehash}{1977190f018b398e43ede3de043de8ea}
+      \strng{authorbibnamehash}{1977190f018b398e43ede3de043de8ea}
+      \strng{authornamehash}{1977190f018b398e43ede3de043de8ea}
+      \strng{authorfullhash}{1977190f018b398e43ede3de043de8ea}
+      \field{labelalpha}{Nak09}
+      \field{sortinit}{N}
+      \field{sortinithash}{22369a73d5f88983a108b63f07f37084}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{abstract}{A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution. Digital signatures provide part of the solution, but the main benefits are lost if a trusted third party is still required to prevent double-spending. We propose a solution to the double-spending problem using a peer-to-peer network. The network timestamps transactions by hashing them into an ongoing chain of hash-based proof-of-work, forming a record that cannot be changed without redoing the proof-of-work. The longest chain not only serves as proof of the sequence of events witnessed, but proof that it came from the largest pool of CPU power. As long as a majority of CPU power is controlled by nodes that are not cooperating to attack the network, they'll generate the longest chain and outpace attackers. The network itself requires minimal structure. Messages are broadcast on a best effort basis, and nodes can leave and rejoin the network at will, accepting the longest proof-of-work chain as proof of what happened while they were gone.}
+      \field{month}{5}
+      \field{title}{Bitcoin: A Peer-to-Peer Electronic Cash System}
+      \field{year}{2009}
+      \verb{urlraw}
+      \verb http://www.bitcoin.org/bitcoin.pdf
+      \endverb
+      \verb{url}
+      \verb http://www.bitcoin.org/bitcoin.pdf
+      \endverb
+      \keyw{itsecseminar}
+    \endentry
+    \entry{cryptoeprint:2019/1128}{misc}{}
+      \name{author}{7}{}{%
+        {{hash=fcbb7564137508ef61b8b4fa04e881e7}{%
+           family={Zamyatin},
+           familyi={Z\bibinitperiod},
+           given={Alexei},
+           giveni={A\bibinitperiod}}}%
+        {{hash=c8b1c56b4c05f81402ba20a42230cec1}{%
+           family={Al-Bassam},
+           familyi={A\bibinithyphendelim B\bibinitperiod},
+           given={Mustafa},
+           giveni={M\bibinitperiod}}}%
+        {{hash=d0d514d164d1317cacd643d0b54c32bb}{%
+           family={Zindros},
+           familyi={Z\bibinitperiod},
+           given={Dionysis},
+           giveni={D\bibinitperiod}}}%
+        {{hash=bd2c107f01728b55e5e2814b6d325d42}{%
+           family={Kokoris-Kogias},
+           familyi={K\bibinithyphendelim K\bibinitperiod},
+           given={Eleftherios},
+           giveni={E\bibinitperiod}}}%
+        {{hash=fa8d5d90cdd88aa71285ac0ee650fc75}{%
+           family={Moreno-Sanchez},
+           familyi={M\bibinithyphendelim S\bibinitperiod},
+           given={Pedro},
+           giveni={P\bibinitperiod}}}%
+        {{hash=a788bdbaf3b805cdc29e079c1e4ae908}{%
+           family={Kiayias},
+           familyi={K\bibinitperiod},
+           given={Aggelos},
+           giveni={A\bibinitperiod}}}%
+        {{hash=aee93e06575179411e2ad6aed53a986b}{%
+           family={Knottenbelt},
+           familyi={K\bibinitperiod},
+           given={William\bibnamedelima J.},
+           giveni={W\bibinitperiod\bibinitdelim J\bibinitperiod}}}%
+      }
+      \strng{namehash}{b27d4752b33374fde5a029672d48e46f}
+      \strng{fullhash}{03c2757a32838950b177f10f2a4cae71}
+      \strng{bibnamehash}{b27d4752b33374fde5a029672d48e46f}
+      \strng{authorbibnamehash}{b27d4752b33374fde5a029672d48e46f}
+      \strng{authornamehash}{b27d4752b33374fde5a029672d48e46f}
+      \strng{authorfullhash}{03c2757a32838950b177f10f2a4cae71}
+      \field{labelalpha}{Zam+19}
+      \field{sortinit}{Z}
+      \field{sortinithash}{96892c0b0a36bb8557c40c49813d48b3}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{Cryptology ePrint Archive, Paper 2019/1128}
+      \field{note}{\url{https://eprint.iacr.org/2019/1128}}
+      \field{title}{SoK: Communication Across Distributed Ledgers}
+      \field{year}{2019}
+      \verb{urlraw}
+      \verb https://eprint.iacr.org/2019/1128
+      \endverb
+      \verb{url}
+      \verb https://eprint.iacr.org/2019/1128
+      \endverb
+    \endentry
+  \enddatalist
+\endrefsection
+\endinput
+
