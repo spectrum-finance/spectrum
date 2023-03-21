@@ -14,6 +14,8 @@ case class Account(value: String)
 case class Transaction(id: Long, account: Account, change: Long)
 case class Block(txs: Vector[Transaction], seqNum: Int)
 
+/** L1 robust ledger system.
+ */
 trait Blockchain[F[_]]:
   def pullNextUpdate: F[Block]
   def submitTx(tx: Transaction): F[Unit]
