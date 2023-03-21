@@ -1,0 +1,53 @@
+As long as Spectrum is an open-membership protocol, PBFTNetwork's assumption on a closed consensus group is nod valid.
+Sybil attacks cat break any protocol with security thresholds such as PBFT's assumption that at most $f$ out of ${3 f + 1}$ members are honest, thus, an appropriate dynamic selection of opening consensus group is crucial for network livness and safety.
+Consensus group members selection should be performed in a random and trusted way to ensure that a sufficient fraction of the selected members are honest, procedure itself should be independent of any internal or external advisers.
+Bitcoin~\cite{nakamoto2009bitcoin} and many of its successors are using proof-of-work (PoW) to achieve this goal.
+The consensus group selection problem is relevant to an equally important issue of the leader election.
+In essence, PoW in Bitcoin is a robust mechanism that facilitates randomized selection of a \enquote{leader} that is eligible to produce a new block.
+A primary consideration regarding PoW is the amount of energy required for the systems that operate on it.
+A natural alternative to PoW is a mechanism that relies on the notion of proof-of-stake (PoS).
+Rather than investing computational resources in order to participate in the leader election process, participants of a PoS system instead run a process that randomly selects one of them proportionally to the stake each possesses according to the current state of blockchain.
+
+\subsubsection{VRF-based random oracle}
+
+The key aspect of system security is a random seed generation mechanism.
+Randomness generation is a well studied issue in blockchain protocols design, inspired by~\cite{cryptoeprint:2017/573} we will use UC-VRFs to achieve our goals.
+UC-VRF differs from common VRF implementations in one main feature - it's results stays unpredictable even with malicious key generation.
+Therefore, even though the generated values are not uniformly distributed, due to their true unpredictability, they guaranty fairness of the election procedures they parametrized with.
+The UC-VRF (hereinafter simply VRF) functionality operates as follows.
+Given $U_i$ user's query a VRF scheme outputs a newly generated verification key $v_i$ that is used to label a table $T$.
+When $U_i$ wants to generate a random number using VRF, he uses his private key $SK_i$ and stake $S_i$ as an input and gets a pseudo-random number from ${\{0, 1\}^{l_{VRF}}}$ and a proof $\Pi_i$ in returns from thee VRF\@.
+Anyone with user's public key $PK_i$ and the proof $\Pi_i$ can verify that the particular random number was produced with the given input, but this number can't produce the number before that time.
+Verification is always consistent and will validate outputs that have already being inserted in a table $T$.
+Unpredictability against malicious key generation is captured by imposing the same random selection of outputs even for the function tables that correspond to keys of corrupted stakeholders.
+
+\subsubsection{Consensus group and leader election}
+
+VRF serves to fairly perform consensus group members and leader election procedures.
+The flow of this part of the protocol is as follows:
+\begin{enumerate}
+    \item Blockchain starts with the genesis block $G_0$ with manually selected opening consensus group $\{U_j\}_{j=0}^M$ and random seed $\eta_0$.
+    \item First epoch, consistent of $K$ slots starts.
+    At every slot all the consensus group members separately evaluates $VRF$ with their own parameters, including some random number $r_j$, selected by their own to produce a random number $\rho_j$.
+    VRF is parametrized by $\eta_0$ and snapshot of the $G_0$ state.
+    \item If ${\rho_j} < T_1$, where $T_j$ is a leader election threshold for the first slot, that is proportional to $U_j$ stake at the start of the epoch, than $U_j$ can propose a new block.
+    \item  When $U_j$ publish a proposed block, he includes his $\rho_j$ and $\pi_j$ in the block header so others can verify he is eligible to produce a block at this slot.
+    Since these $\rho_j$  are produced independently per participant there can be multiple leaders $\{U_n\}_{n=1}^N$ for a slot or none at all, the exact leader $U^*_n$ is
+    determined by the race condition.
+    \item When generating a block, $U_n^{*}$ runs the $VRF$ again on the same input except with $r^{*}_{n^{*}}$ instead of $r_{n^{*}}$ to produce $\rho^*_k$ which is putted into the block header as well with its associated proof.
+    \item At the end of an epoch, each participant looks at the blocks and concatenate all the $\rho^{*}_k$ values together along with the $\eta_0$, hashing the result produces the $\eta_1$ for the upcoming epoch.
+    Each participant also updates their $T_j$ value to reflect the stake distribution at the start of the just completed epoch.
+    \item Having updated $T_j$ each participant evaluates $VRF^c$ responsible for the consensus group election, compare the results with an associated and also updated threshold $T^c_j$ and if he is eligible to become a consensus group member, includes produced results into the block.
+    \item Next epoch begins with an updated $\{U_j\}_{j=0}^M$ and agreed upon all participants $\eta_1$ random seed.
+\end{enumerate}
+
+Using the scheme above we force opening consensus group members and slot leaders aren't publicly known ahead of time.
+An attacker can't see who was a slot leader until after they have published a block, thus an attacker can't know who specifically to attack in order to control a certain slot ahead of time.
+Grinding attacks are also limited because an adversary can't arbitrarily control $\eta_i$ values.
+All he can try to do is to make as many forks as possible to estimate the most advantageous, but according to the analysis this advantage doesn't change the security properties of the entire protocol.
+Thus, using this type of VRF is cheap, fast and secure enough for consensus group and leader election procedures.
+
+\subsubsection{VRF design}
+An appropriate VRF can be designed using two hash functions
+TODO
+

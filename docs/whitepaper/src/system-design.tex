@@ -20,7 +20,7 @@ The workload of each validator grows lineary with each added chain.
 
 In the subsequent sections we address these limitations in four steps:
 \begin{enumerate}
-    \item \textbf{Opening consensus group.} We introduce a lottery-based mechanism for selecting consensus group dynamically.
+    \item \textbf{Opening consensus group and leaders.} We introduce a lottery-based mechanism for selecting consensus group and leaders dynamically.
     \item \textbf{Replacing MACs by Digital Signatures.} We replace MACs by digital signatures to make authentication transferable
     and thus opening the door for sparser communication patterns that can help to reduce the communication complexity.
     \item \textbf{Scalable Collective Signature Aggregation.} We utilize Byzantine-tolerant aggregation protocol that allows for
@@ -28,8 +28,8 @@ In the subsequent sections we address these limitations in four steps:
     \item \textbf{Eliminating Validator Bottleneck.} We shard consensus groups into units by the type of chain each node is able to handle.
 \end{enumerate}
 
-\subsection{Opening Consensus Group}\label{subsec:opening-consensus-group}
-\input{opening-consensus-group}
+\subsection{Opening Consensus Group}\label{subsec:opening-consensus-group-and-leaders}
+\input{opening-consensus-group-and-leaders}
 
 \subsection{Replacing MACs by Digital Signatures}\label{subsec:replacing-macs-by-digital-signatures}
 

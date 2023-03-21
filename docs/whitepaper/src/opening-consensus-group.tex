@@ -1,8 +1,0 @@
-As long as Spectrum is an open-membership protocol, PBFTNetwork's assumption on a closed consensus group is nod valid.
-Sybil attacks cat break any protocol with security thresholds such as PBFT's assumption that at most $f$ out of ${3 f + 1}$ members are honest, thus, an appropriate dynamic selection of opening consensus group is crucial for network livness and safety.
-Consensus group members selection should be performed in a random and trusted way to ensure that a sufficient fraction of the selected members are honest, procedure itself should be independent of any internal or external advisers.
-Bitcoin~\cite{nakamoto2009bitcoin} and many of its successors are using proof-of-work (PoW) to achieve this goal.
-In essence, PoW in Bitcoin is a robust mechanism that facilitates randomized selection of a \enquote{leader} that is eligible to produce a new block.
-A primary consideration regarding PoW is the amount of energy required for the systems that operate on it.
-A natural alternative to PoW is a mechanism that relies on the notion of proof-of-stake (PoS).
-Rather than investing computational resources in order to participate in the leader election process, participants of a PoS system instead run a process that randomly selects one of them proportionally to the stake each possesses according to the current state of blockchain.
