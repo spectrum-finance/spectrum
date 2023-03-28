@@ -74,7 +74,24 @@ Grinding attacks are also limited because an adversary can't arbitrarily control
 All he can try to do is to make as many forks as possible to estimate the most advantageous, but according to the analysis this advantage doesn't change the security properties of the entire protocol.
 Thus, using this type of VRF is cheap, fast and secure enough for consensus group and leader election procedures.
 
-\subsubsection{VRF design}
-An appropriate VRF can be designed using two hash functions
-TODO
+\subsubsection{VRF implementation}
+
+By definition the function $\mathcal{F}$ can be attributed to the VRF family if the following methods are defined for the $\mathcal{F}$:
+\begin{enumerate}
+    \item \textbf{Gen}: ${Gen(1^k) \rightarrow (pk, sk)}$, where $pk$ is the public key and $sk$ is the secret key;
+    \item \textbf{Prove}: ${Prove(x; sk) \rightarrow (\mathcal{F}(x; sk), \pi)}$, where $x$ is a random input, $\mathcal{F}(x; sk)$ is a random value, sampled from $\{0,1\}^{l_{VRF}}$ and $\pi \vcentcolon= \pi(x; sk)$ is the associated proof;
+    \item \textbf{Verify}: ${Verify(x, y, \pi; pk) \rightarrow 0 | 1}$, where the output is $1$ if and only if ${y=\mathcal{F}(x; sk)}$.
+\end{enumerate}
+
+Where are several ways to design a VRF appropriate for our purposes.
+At the first stage of the Spectrum protocol development we'll use a proposed in ~\cite{cryptoeprint:2017/573} implementation, which is based on the 2-Hash-DH verifiable oblivious PRF ~\cite{asiacrypt:2014/233}.
+Let's consider two hash functions $H$ and $H'$ with ranges $\{0,1\}^{l_{VRF}}$ and ${\langle g \rangle}$ respectively where ${\langle g \rangle = q}$.
+Thereby the public key and the private key received from the \textbf{Gen} output is ${pk = g \cdot k}$ and ${sk = H'(x) \cdot k}$ respectively.
+\textbf{Prove} method returns the VRF generated random value ${y = H(x, sk)}$ and the proof ${\pi = (sk, EQDL(k : \log_{H'(x)}(sk) = \log_{g}(pk); x, pk))}$.
+The \textbf{Verify} of ${(x, y, \pi, pk)}$ at first parses $\pi$ as ${(pk, \pi')}$ where $\pi'$ is a proof of equality of discrete logarithms and then verifies ${y = H(x, sk)}$ with the proof $\pi'$.
+Finally, it returns $1$ if and only if both tests pass.
+The proof notation ${EQDL(k : \log_{H'(x)}(sk) = \log_{g}(pk); x, pk)}$ stands for the string ${(c, s)}$ where $c = H(x, pk, g \cdot r, H'(x) \cdot r)$, ${s = r + k \cdot c}$ mod $q$, while the verification of ${(c, s)}$ on context ${x, pk}$ is performed by checking the equality
+${c = H(x, pk, g^s \cdot pk^{-c}, H'(x)^s \cdot sk^{-c})}$.
+The exact VRF simulator properties and functionality description based on this approach can be found in the original Ouroboros Praos paper.
+
 
