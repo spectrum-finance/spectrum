@@ -8,74 +8,9 @@ A primary consideration regarding PoW is the amount of energy required for the s
 A natural alternative to PoW is a mechanism that relies on the notion of proof-of-stake (PoS).
 Rather than investing computational resources in order to participate in the leader election process, participants of a PoS system instead run a process that randomly selects one of them proportionally to the stake each possesses according to the current state of blockchain.
 
-\subsubsection{VRF-based random oracle}
+\subsubsection{Verifiable Random Function}
 
-The key aspect of system security is a random seed generation mechanism.
-Randomness generation is a well studied issue in blockchain protocols design, inspired by~\cite{cryptoeprint:2017/573} and their UC-VRFs, we will use the similar logic to achieve our goals.
-The most notable feature in UC-VRF implementation is that it's output results stays unpredictable even with malicious key generation.
-Therefore, even though generated values are not uniformly distributed, due to their true unpredictability, they guaranty fairness of the election procedures they parametrized with.
-The UC-VRF (hereinafter simply VRF) functionality operates as follows.
-Given $PK_i$ user's query a VRF scheme outputs a newly generated verification key $v_i$ that is used to label a table $T$.
-When $PK_i$ wants to generate a random number using VRF, he uses his private key $SK_i$ and stake $s_i$ as an input and gets a pseudo-random number from ${\{0, 1\}^{l_{VRF}}}$ and a proof $\pi_i$ in returns from the VRF\@.
-Anyone with user's public key $PK_i$ and the proof $\pi_i$ can verify that the particular random number was produced with the given input, but this number can't produce the number before that time.
-Verification is always consistent and will validate outputs that have already being inserted in a table $T$.
-Unpredictability against malicious key generation is captured by imposing the same random selection of outputs even for the function tables that correspond to keys of corrupted stakeholders.
-an ideal VRF function.
-All this is achieved by introducing some ideal functionals ${\mathcal_{F}}_{VRF}$, ${\mathcal_{F}}_{KES}$, ${\mathcal_{F}}_{DSIG}$ which is described in detail in ~\cite{cryptoeprint:2017/573} and improved by ~\cite{cryptoeprint:2022/1045} in the form of ECVRFs.
-Functionality, details and aspects of technical implementation are described in detail in the articles referenced above in this section.
-
-\subsubsection{Leader election and consensus group lottery}
-VRFs serves to fairly perform consensus group members and leader election procedures.
-At first, let's take a look at the leader election process.
-The flow of this part of the protocol is as follows:
-\begin{enumerate}
-    \item \textbf{Initialization}.
-    Blockchain starts with manually selected opening consensus group $\{PK_i\}_{i=0}^M$ of the predefined size $M$.
-    \begin{enumerate}
-        \item All consensus group members i.e. $\forall PK_i, i \in M$ should generate the tuple of verification keys ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$, using the ideal functionalities ${\mathcal_{F}}_{VRF}$, ${\mathcal_{F}}_{KES}$, ${\mathcal_{F}}_{DSIG}$ instances, running on their machines.
-        \item Then, to claim an initial stakes $\{s_i\}_{i=0}^M$ every protocol participant sends a request ${(\textbf{ver\_keys}, sid, PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$ to ${\mathcal_{F}}_{VRF}^{Init}$, which saves the key tuple ${(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$.
-        \item Set of the verification keys tuples ${\{(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})\}_{i=0}^M}$ \textbf{should be stored in the blockchain and acknowledged by all members of the consensus group}.
-        \item Finally ${\mathcal_{F}}_{VRF}^{Init}$ is evaluated to sample a random value $\eta \leftarrow \{0, 1\}^\lambda$ and constructs a genesis block ${B_0=\left(\{(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig}, s_i)\}_{i=0}^M, \eta\right)}$ \textbf{which should also be agreed upon all stakeholders}.
-    \end{enumerate}
-    \item \textbf{Epoch}.
-    Each epoch supposed to consistent of $K \in \mathbb{N}$ slots.
-    For every slot ${sl_k\in e_j}$:
-    \begin{enumerate}
-        \item Every online consensus group member collects en existed chains and verifying that for every chain every block, produced up to $Z$ blocks before contains correct data about slot $sl'$ leader $PK'$.
-        To verify a valid slot leader, response from the ${\mathcal_{F}}_{VRF}$ to query ${(\textbf{Verify}, sid, \eta' || sl', y', \pi', v^{vrf'})}$ should be ${(\textbf{Verified}, sid, \eta' || sl', y', \pi', 1)}$ and $y'<T'$ as well.
-        \item Then every lottery participant separately evaluates ${\mathcal_{F}}_{VRF}$ with his own inputs ${(\textbf{EvalProve}, sid, \eta || sl_k)}$.
-        Received output ${(\textbf{Evaluated}, sid, y_i, \pi_i)}$ includes generated random number $y_i$ and the associated proof $\pi_i$.
-        \item If ${y_i < T_i}$, where $T_i$ is a leader election threshold for this stakeholder, then $PK_i$ is a slot leader.
-        The ${\mathcal_{F}}_{VRF}$ is designed in such a way that not every slot has a leader, moreover, most of the slots remain empty to serve protocol synchronization.
-        \item If there are $P$ several elected leaders for this slot, they all propose a new blocks $\{B_p\}_{p=0}^P$ with included proofs of their leadership ${(v^{vrf^*} y^*, \pi^*)}$.
-        All forks will be further resolved according to the longest chain rule.
-        \item At the end of an epoch, each participant looks at the first $2/3\cdotK$ blocks of the epoch and concatenate all the $y'_k$ values together along with the $\eta$, hashing the result produces the $\eta^*$ for the upcoming epoch.
-        Each participant also updates their $T_j$ values to reflect the stake distribution at the start of the just completed epoch.
-    \end{enumerate}
-\end{enumerate}
-
-Opening consensus group lottery is similar and bases on the main principles described above.
-In order to become a contender to participate in the consensus group each protocol user $PK_i$ should:
-\begin{enumerate}
-    \item Generate verification key  $v_i^{vrfc}$, using the ideal functionality ${\mathcal_{F}}_{VRFC}$.
-    ${\mathcal_{F}}_{VRFC}$ differs from ${\mathcal_{F}}_{VRF}$ in the probability of being selected.
-    The consensus group is supposed to contain ~1000 members.
-    \item Evaluate ${\mathcal_{F}}_{VRFC}$ with ${(\textbf{EvalProve}, sid, \eta || e_j)}$ and include the output ${(\textbf{Evaluated}, sid, y^c_i, \pi^c_i)}$
-    \item Compare $y_i$ with a consensus threshold $T_j^c$ and if succeeded, include the accosted values into the table $T^c(v_i^{cvrf}, ep_j) = (y^c_i, {\pi^c_i})$, stored in the blockchain.
-    Initially $T^c()$ is empty and serves to control an accordance of the $v_i^{vrf}$ and a generated random values.
-    \item Generate verification keys tuple ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$, using the ideal functionalities ${\mathcal_{F}}_{VRF}$, ${\mathcal_{F}}_{KES}$, ${\mathcal_{F}}_{DSIG}$.
-    Include the accosted values into the table $T(v_i^{vrf}, ep_j) = (y_i, {\pi_i})$ also stored in the blockchain.
-    \item To prevent manipulations, lottery winners will become an active consensus members only when $j + 2$ epoch begins.
-\end{enumerate}
-
-Using the scheme above we force opening consensus group members and slot leaders aren't publicly known ahead of time.
-An attacker can't see who was a slot leader until after they have published a block, thus an attacker can't know who specifically to attack in order to control a certain slot ahead of time.
-Grinding attacks are also limited because an adversary can't arbitrarily control $\eta^*$ values.
-All he can try to do is to make as many forks as possible to estimate the most advantageous, but according to the analysis this advantage doesn't change the security properties of the entire protocol.
-Thus, using this type of VRF is cheap, fast and secure enough for consensus group and leader election procedures.
-
-\subsubsection{VRF implementation}
-
+Verifiable Random Function (VRF) is a reliable way to introduce randomness in the protocol.
 By definition the function $\mathcal{F}$ can be attributed to the VRF family if the following methods are defined for the $\mathcal{F}$:
 \begin{enumerate}
     \item \textbf{Gen}: ${Gen(1^k) \rightarrow (pk, sk)}$, where $pk$ is the public key and $sk$ is the secret key;
@@ -83,15 +18,75 @@ By definition the function $\mathcal{F}$ can be attributed to the VRF family if 
     \item \textbf{Verify}: ${Verify(x, y, \pi; pk) \rightarrow 0 | 1}$, where the output is $1$ if and only if ${y=\mathcal{F}(x; sk)}$.
 \end{enumerate}
 
-Where are several ways to design a VRF appropriate for our purposes.
-At the first stage of the Spectrum protocol development we'll use a proposed in ~\cite{cryptoeprint:2017/573} implementation, which is based on the 2-Hash-DH verifiable oblivious PRF ~\cite{asiacrypt:2014/233}.
-Let's consider two hash functions $H$ and $H'$ with ranges $\{0,1\}^{l_{VRF}}$ and ${\langle g \rangle}$ respectively where ${\langle g \rangle = q}$.
-Thereby the public key and the private key received from the \textbf{Gen} output is ${pk = g \cdot k}$ and ${sk = H'(x) \cdot k}$ respectively.
+There are several ways to design a VRF appropriate for our purposes.
+At the first stage of the Spectrum protocol development we'll use an implementation, inspired by~\cite{cryptoeprint:2017/573}, which is based on the 2-Hash-DH verifiable oblivious PRF~\cite{asiacrypt:2014/233}.
+
+Let's consider the hash functions $H$ and $H'$  with ranges $\{0,1\}^{l_{VRF}}$ and ${\langle g \rangle}$ respectively, where ${\langle g \rangle = q}$.
+Thereby, public key and the private key received from the \textbf{Gen} output is ${pk = g \cdot k}$ and ${sk = H'(x) \cdot k}$ respectively.
 \textbf{Prove} method returns the VRF generated random value ${y = H(x, sk)}$ and the proof ${\pi = (sk, EQDL(k : \log_{H'(x)}(sk) = \log_{g}(pk); x, pk))}$.
 The \textbf{Verify} of ${(x, y, \pi, pk)}$ at first parses $\pi$ as ${(pk, \pi')}$ where $\pi'$ is a proof of equality of discrete logarithms and then verifies ${y = H(x, sk)}$ with the proof $\pi'$.
 Finally, it returns $1$ if and only if both tests pass.
 The proof notation ${EQDL(k : \log_{H'(x)}(sk) = \log_{g}(pk); x, pk)}$ stands for the string ${(c, s)}$ where $c = H(x, pk, g \cdot r, H'(x) \cdot r)$, ${s = r + k \cdot c}$ mod $q$, while the verification of ${(c, s)}$ on context ${x, pk}$ is performed by checking the equality
 ${c = H(x, pk, g^s \cdot pk^{-c}, H'(x)^s \cdot sk^{-c})}$.
-The exact VRF simulator properties and functionality description based on this approach can be found in the original Ouroboros Praos paper.
+The exact VRF simulator properties and functionality description can be found in the original Ouroboros Praos paper.
+
+\subsubsection{Lottery protocol}
+We will consider lottery protocol integrated in the dynamic PoS protocol flow.
+There are some pre-defined primitives, detailed description of which can be also found in the original Ouroboros Praos paper.
+\begin{enumerate}
+    \item \textbf{Ideal Resettable Leaky Beacon} ${\mathcal_{F}}_{RLB}$: is used to operate verification keys and sample epoch randomness from the blockchain.
+    \item \textbf{Ideal Verifiable Random Function} ${\mathcal_{F}}_{VRF}$: generates random numbers and operates the copy of verified table ${T(v_i^{vrf}, x) = (\pi, {y})}$, stored in the blockchain.
+    \item \textbf{Ideal Forward Secure Signature} ${\mathcal_{F}}_{KES}$: is a key evolving signature scheme.
+    \item \textbf{Ideal Signature Scheme} ${\mathcal_{F}}_{DSIG}$: is a digital signature functionality.
+\end{enumerate}
+Protocol initially is running by manually selected opening consensus group $\{PK_i\}_{i=0}^M$ of the predefined size $M$.
+Stakeholders interacting among themselves and with ideal functionalities ${\mathcal_{F}}_{RLB}$, ${\mathcal_{F}}_{VRF}$, ${\mathcal_{F}}_{DSIG}$, ${\mathcal_{F}}_{KES}$ over a sequence of $L = E \cdot R$ slots  ${S=\{sl_1,...,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
+\begin{enumerate}
+    \item \textbf{Initialization}.
+    \begin{enumerate}
+        \item All consensus group members i.e. $\forall PK_i, i \in M$ should generate the tuple of verification keys ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$, using the ideal functionalities ${\mathcal_{F}}_{VRF}$, ${\mathcal_{F}}_{KES}$, ${\mathcal_{F}}_{DSIG}$ instances, running on their machines.
+        \item Then, to claim an initial stakes $\{s_i\}_{i=0}^M$ every protocol participant sends a request ${(\textbf{ver\_keys}, sid, PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$ to ${\mathcal_{F}}_{RLB}$, which saves the key tuple ${(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$.
+        \item Set of the verification keys tuples ${\{(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})\}_{i=0}^M}$ should be stored in the blockchain and acknowledged by all members of the consensus group.
+        \item ${\mathcal_{F}}_{RLB}$ is evaluated to sample a random value $\eta \leftarrow \{0, 1\}^\lambda$ and constructs a genesis block ${B_0=\left(\{(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig}, s_i)\}_{i=0}^M, \eta\right)}$ which should also be agreed upon all stakeholders.
+    \end{enumerate}
+    \item \textbf{Chain Extension}.
+    After initialization, for every slot $sl \in S$, every online stakeholder $PK_i$ performs the following steps:
+    \begin{enumerate}
+        \item If a new epoch $e_j$, with $j \geqslant 2$, has started, $PK_i$ sends ${(\textbf{epochrnd\_req}, sid, PK_i, e_j)}$ to ${\mathcal_{F}}_{RLB}$ and receives $({\textbf{epochrnd}, sid, \eta_j)}$.
+        \item Every online consensus group member collects en existed chains and verifying that for every chain every block, produced up to $Z$ blocks before contains correct data about slot $sl'$ leader $PK'$.
+        To verify a valid slot leader, response from the ${\mathcal_{F}}_{VRF}$ to query ${(\textbf{Verify}, sid, \eta' || sl' || \textbf{test}, y', \pi', v^{vrf'})}$ should be ${(\textbf{Verified}, sid, \eta' || sl' || \textfb{test}, y', \pi', 1)}$ and $y'<T_j'$ as well.
+        String \textbf{test} is an arbitrary and value $T_j'$ is the threshold of stakeholder $PK'$ for the epoch $e_j$ to which $sl'$ belongs.
+
+        \textbf{Note:} at every slot $PK_i$ can be chosen as the slot leader with the probability ${p_i = \phi(\alpha_i, f) = 1-(1-f)^{\alpha_i}}$, where ${\alpha_i=s_i/\\\sum_{l=0}^{l=M} s_l}$ is a relative stake of the participant, fixed at the moment of the epoch $e_j$ start.
+        Parameter $f$ is an active slots coefficient, responsible for percentage of slots in the epoch which should have at least one leader.
+        In other words, it determines how many slots will pass before a new block is produced.
+        Before the start of the epoch $e_j$ all consensus group participants updates their threshold values according to the blockchain snapshot ${T_i^j = 2^{l_{VRF}}\cdot f(\alpha_i^j)}$
+        \item Then every lottery participant separately evaluates ${\mathcal_{F}}_{VRF}$ with his own inputs ${(\textbf{EvalProve}, sid, \eta_j || sl || \textbf{nonce})}$ and ${(\textbf{EvalProve}, sid, \eta_j || sl || \textbf{test})}$, where \textbf{nonce} is an arbitrary string.
+        Received outputs ${(\textbf{Evaluated}, sid, y, \pi)}$ and ${(\textbf{Evaluated}, sid, \rho_y, \rho_\pi)}$ respectively includes generated random numbers ${y, \rho_y}$ and the associated proofs ${\pi, \rho_\pi}$.
+        If ${y < T_i^j}$ then $PK_i$ is a slot leader.
+
+        \item The ${\mathcal_{F}}_{VRF}$ is designed in such a way that not every slot has a leader, moreover, most of the slots remain empty to serve protocol synchronization.
+        If there are $P$ several elected leaders for this slot, they all propose a new blocks $\{B_p\}_{p=0}^P$ with included proofs of the leadership ${(v_i^{vrf}, y, \pi)}$, ${(v_i^{vrf}, \rho_\pi, \pi)}$ and new signature generated by ${\mathcal_{F}}_{KES}$.
+        They sign blocks with ${\mathcal_{F}}_{DSIG}$ and commit them into the blockchain.
+        All forks will be further resolved according to the longest chain rule.
+    \end{enumerate}
+
+    \item \textbf{Consensus group reinitialization}.
+    At the end of each epoch $e_j$, with $j \geqslant 1$ all consensus group lottery participants should commit their generated verification keys tuples as in the step (a) into the blockchain.
+    If $PK_i$ keys are already stored in the blockchain, when he evaluates ${\mathcal_{F}}_{VRF}$ with a query ${(\textbf{EvalProve}, sid, \eta_j || e_j || \textbf{test*})}$ and compares the received random $y$ with a threshold ${T_i^j}^*$, which he sets according to $e_j$ snapshot with modified $\phi$ function (to select $M$ consensus group members out of $K$ total stakeholders).
+    Afterwards he includes the associated proofs into the blockchain.
+    If $PK_i$ is a new stakeholder, when he will be able to participate in the lottery only in the $j+1$ epoch.
+    All previous participants, who has not provided new proofs of their consensus group membership are removed from the verified list.
+\end{enumerate}
 
 
+Using the scheme above we force opening consensus group members and slot leaders aren't publicly known ahead of time.
+An attacker can't see who was a slot leader until after they have published a block, thus an attacker can't know
+who specifically to attack in order to control a certain slot ahead of time.
+Grinding attacks are also limited because an adversary can't arbitrarily control $\eta_j$ values.
+All he can try to do is to make as many forks as possible to estimate the most advantageous, but according to the analysis this advantage doesn't change the security properties of the entire protocol.
+
+Using VRF is also cheap and fast, only initialization requires communication between all participants to agree on a genesis block.
+For large committee size this $O(n)$ communication complexity can be simplified to $O(n \cdot \log(n))$ with Merkle trees.
+Single VRF evaluation is approximately 100 microseconds on x86-64 for a specific curves used in hash functions.
+There is also great UC-extension for batch verification proposed by ~\cite{cryptoeprint:2022/1045} which make it even faster.
