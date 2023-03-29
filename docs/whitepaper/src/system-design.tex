@@ -43,25 +43,26 @@ todo
 
 So far each member of consensus group had to track changes on all connected chains in order to participate in consensus properly.
 
-\textbf{Observation 1:} Events coming from independent systems $S_k$ are not serilized.
+\textbf{Observation 1:} Events coming from independent systems $S_k$ are not serialized.
 Thus, the process of events notarisation can be parallelized.
 
 \textbf{Observation 2:} Outbound transactions on independent systems $S_k$ can be independently signed.
 
-Utilizing those properties we now introduce commettee sharding.
-We modify protocol in a way such that at each epoch $e$ $M$ disinct commettees consisting of nodes equipped with functionality unit $F_{S_k}$ relevant to a specific connected chain $S_k$ are selected.
-We denote one such commettee shard as $V^{e}_{S_k}$, which uniqiely maps to $S_k$.
-Then, complete mapping of commettees to chains at epoch $e$ can be represented as a set of tuples commettee-chain $\{(V^{e}_{S_k}, S_k)\}$.
-Throughout epoch $e$ all events and on-chain trasactions on $S_k$ are handled exclusively by $V^{e}_{S_k}$.
+Utilizing those properties we now introduce committee sharding.
+We modify protocol in a way such that at each epoch $e$ $M$ distinct committees consisting of nodes equipped with functionality unit $F_{S_k}$ relevant to a specific connected chain $S_k$ are selected in a way described in (5.2.2).
+All primitives and source of randomness are equal to different committees, the only difference is in the $f$ parameter of $\phi(\alpha_i, f)$ function, which is unique for every connected blockchain in order to guaranty expected number of members in every committee.
+We denote one such committee shard as $V^{e}_{S_k}$, which uniquely maps to $S_k$.
+Then, complete mapping of committees to chains at epoch $e$ can be represented as a set of tuples commettee-chain $\{(V^{e}_{S_k}, S_k)\}$.
+Throughout epoch $e$ all events and on-chain transactions on $S_k$ are handled exclusively by $V^{e}_{S_k}$.
 
 Nodes in $V^{e}_{S_k}$ maintain a robust local ledger $L^{local}_k$ of notarized batches of events observed in $S_k$.
 
 \subsubsection{Syncing Shards}
 
 Notarized batches of events from local ledgers then must be synced in a super ledger $L^+$ in order for the system to be able to compute cross-chain state transition.
-To facilitate this process batches of notarized events are broadcast to other commettees.
-Any commettee member is able to add notarized batch of events to $L^+$ with inequal probability.
-Probabilities of addiding a batch of events to $L^+$ are randomly assigned to each shard leader $U^{sl_r}_{S_k}$ at each slot $sl_r$ resulting in a mapping $\{(U^{sl_r}_{S_1}, P_1), (U^{sl_r}_{S_2}, P_1), .., (U^{sl_r}_{S_k}, P_i)\}$.
+To facilitate this process batches of notarized events are broadcast to other committees.
+Any committee member is able to add notarized batch of events to $L^+$ with unequal probability, proportional to his stake.
+As a result of the single committee lottery flow, all notarized batches have their own leaders and all these leaders publish their blocks to $L^+$.
 
 \subsection{Protocol Flow}\label{subsec:protocol-flow}
 
@@ -70,17 +71,21 @@ Probabilities of addiding a batch of events to $L^+$ are randomly assigned to ea
 The system is bootstrapped in a trusted way.
 A manually picked set of validators $V_0$ is assigned to the first epoch $e_0$.
 On-chain vaults are initialized with an aggregated public key $aPK_0$ of the initial committee.
+All initial committee members generate verification tuples ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$
+and agree on the genesis block.
 
 \subsubsection{Normal Flow}\label{subsubsec:normal-flow}
 
 \begin{enumerate}
     \item Registration.
-    Before an epoch starts, all Spectrum stakeholders can register for becoming a committee member.
-    To get a chance of becoming a member of $V_n$ in the next epoch $e_n$ they register in a lottery
-    by publishing their public keys $PK_c$ and locking collateral.
+    All Spectrum stakeholders can register for becoming a committee member.
+    To get a chance of becoming a member of $V_n$ in the epoch $e_n$ they register in a lottery during the $e_{n-2}$
+    epoch by publishing their verification tuples ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$.
     \item Lottery.
-    Once registration is done, nodes in $V_{n-1}$ compute ${selectComettee: (C_n, R_n) \rightarrow V_n}$,
-    where  $C_n$ is a candidates pool, $R_n$ is a public random number.
+    Once registration is done and epoch $e_{n-1}$ comes to the end, all registered participants evaluates
+    ${\mathcal_{F}}_{VRF}$ locally and compare the generated random $y$ with their corresponding consensus threshold
+    ${T_i^j}^*$ for this epoch.
+    If successful, then publish $y$ and the associated proofs to form an approved consensus members table.
     \item Committee key aggregation.
     Once new committee is selected, nodes in $V_n$ aggregate their individual public keys $\{PK_i\}$ into
     a joint one $aPK_n$.
