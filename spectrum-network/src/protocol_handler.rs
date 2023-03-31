@@ -70,7 +70,7 @@ pub enum MalformedMessage {
 
 /// Defines behaviour of particular stages of a protocol that terminates with `TOut`,
 /// e.g. a single cycle of a protocol consisting of repeating rounds.
-pub trait TemporalProtocolBehaviour<THandshake, TMessage, TOut> {
+pub trait TemporalProtocolStage<THandshake, TMessage, TOut> {
     /// Inject an event that we have established a conn with a peer.
     fn inject_peer_connected(&mut self, peer_id: PeerId) {}
 
@@ -142,9 +142,11 @@ pub trait ProtocolBehaviour {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<
-        ProtocolBehaviourOut<
-            <Self::TProto as ProtocolSpec>::THandshake,
-            <Self::TProto as ProtocolSpec>::TMessage,
+        Option<
+            ProtocolBehaviourOut<
+                <Self::TProto as ProtocolSpec>::THandshake,
+                <Self::TProto as ProtocolSpec>::TMessage,
+            >,
         >,
     >;
 }
@@ -187,42 +189,46 @@ where
         loop {
             // 1. Poll behaviour for commands
             // (1) is polled before (2) to prioritize local work over incoming requests/events.
-            if let Poll::Ready(out) = self.behaviour.poll(cx) {
-                match out {
-                    ProtocolBehaviourOut::Send { peer_id, message } => {
-                        trace!("Sending message {:?} to peer {}", message, peer_id);
-                        if let Some(sink) = self.peers.get(&peer_id) {
-                            trace!("Sink is available");
-                            if let Err(_) = sink.send_message(codec::BinCodec::encode(message.clone())) {
-                                trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
+            match self.behaviour.poll(cx) {
+                Poll::Ready(Some(out)) => {
+                    match out {
+                        ProtocolBehaviourOut::Send { peer_id, message } => {
+                            trace!("Sending message {:?} to peer {}", message, peer_id);
+                            if let Some(sink) = self.peers.get(&peer_id) {
+                                trace!("Sink is available");
+                                if let Err(_) = sink.send_message(codec::BinCodec::encode(message.clone())) {
+                                    trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
+                                }
+                                trace!("Sent");
+                                #[cfg(feature = "integration_tests")]
+                                return Poll::Ready(Some(message));
+                            } else {
+                                error!("Cannot find sink for peer {}", peer_id);
                             }
-                            trace!("Sent");
-                            #[cfg(feature = "integration_tests")]
-                            return Poll::Ready(Some(message));
-                        } else {
-                            error!("Cannot find sink for peer {}", peer_id);
                         }
+                        ProtocolBehaviourOut::NetworkAction(action) => match action {
+                            NetworkAction::EnablePeer {
+                                peer_id: peer,
+                                handshakes,
+                            } => {
+                                let poly_spec = PolyVerHandshakeSpec::from(
+                                    handshakes
+                                        .into_iter()
+                                        .map(|(v, m)| (v, m.map(codec::BinCodec::encode)))
+                                        .collect::<BTreeMap<_, _>>(),
+                                );
+                                self.network
+                                    .enable_protocol(self.behaviour.get_protocol_id(), peer, poly_spec);
+                            }
+                            NetworkAction::UpdatePeerProtocols { peer, protocols } => {
+                                self.network.update_peer_protocols(peer, protocols);
+                            }
+                        },
                     }
-                    ProtocolBehaviourOut::NetworkAction(action) => match action {
-                        NetworkAction::EnablePeer {
-                            peer_id: peer,
-                            handshakes,
-                        } => {
-                            let poly_spec = PolyVerHandshakeSpec::from(
-                                handshakes
-                                    .into_iter()
-                                    .map(|(v, m)| (v, m.map(codec::BinCodec::encode)))
-                                    .collect::<BTreeMap<_, _>>(),
-                            );
-                            self.network
-                                .enable_protocol(self.behaviour.get_protocol_id(), peer, poly_spec);
-                        }
-                        NetworkAction::UpdatePeerProtocols { peer, protocols } => {
-                            self.network.update_peer_protocols(peer, protocols);
-                        }
-                    },
+                    continue;
                 }
-                continue;
+                Poll::Ready(None) => return Poll::Ready(None), // terminate, behaviour is exhausted
+                Poll::Pending => {}
             }
 
             // 2. Poll incoming events.

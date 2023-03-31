@@ -1,3 +1,14 @@
+use std::collections::{HashMap, VecDeque};
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use derive_more::Display;
+use futures::stream::FuturesOrdered;
+use futures::Stream;
+use libp2p::PeerId;
+use log::{error, info, trace};
+
 use crate::peer_manager::data::ReputationChange;
 use crate::peer_manager::Peers;
 use crate::protocol::SYNC_PROTOCOL_ID;
@@ -8,15 +19,6 @@ use crate::protocol_handler::{
     MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec,
 };
 use crate::types::{ProtocolId, ProtocolVer};
-use derive_more::Display;
-use futures::stream::FuturesOrdered;
-use futures::Stream;
-use libp2p::PeerId;
-use log::{error, info, trace};
-use std::collections::{HashMap, VecDeque};
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 pub mod message;
 
@@ -177,7 +179,7 @@ where
         self.tracked_peers.remove(&peer_id);
     }
 
-    fn poll(&mut self, cx: &mut Context) -> Poll<ProtocolBehaviourOut<SyncHandshake, SyncMessage>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<Option<ProtocolBehaviourOut<SyncHandshake, SyncMessage>>> {
         loop {
             match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
                 Poll::Ready(Some(Ok(out))) => {
@@ -192,7 +194,7 @@ where
             }
         }
         if let Some(out) = self.outbox.pop_front() {
-            return Poll::Ready(out);
+            return Poll::Ready(Some(out));
         }
         Poll::Pending
     }

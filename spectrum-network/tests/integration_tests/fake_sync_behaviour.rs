@@ -190,7 +190,7 @@ where
         self.tracked_peers.remove(&peer_id);
     }
 
-    fn poll(&mut self, cx: &mut Context) -> Poll<ProtocolBehaviourOut<SyncHandshake, FakeSyncMessage>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<Option<ProtocolBehaviourOut<SyncHandshake, FakeSyncMessage>>> {
         loop {
             match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
                 Poll::Ready(Some(Ok(out))) => {
@@ -204,7 +204,7 @@ where
             }
         }
         if let Some(out) = self.outbox.pop_front() {
-            return Poll::Ready(out);
+            return Poll::Ready(Some(out));
         }
         Poll::Pending
     }

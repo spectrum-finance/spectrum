@@ -10,7 +10,7 @@ use algebra_core::CommutativeSemigroup;
 
 use crate::protocol_handler::cosi::message::{CoSiHandshake, CoSiMessage, CoSiMessageV1};
 use crate::protocol_handler::ProtocolBehaviourOut;
-use crate::protocol_handler::TemporalProtocolBehaviour;
+use crate::protocol_handler::TemporalProtocolStage;
 
 pub mod message;
 
@@ -33,7 +33,7 @@ pub struct AnnouncementState<S> {
 }
 
 /// It basically waits for an announcement and then forwards it to it's subtrees.
-impl<'d, S, R> TemporalProtocolBehaviour<CoSiHandshake, CoSiMessage<S, R>, S> for CoSiAnnouncementStage<S, R>
+impl<'d, S, R> TemporalProtocolStage<CoSiHandshake, CoSiMessage<S, R>, S> for CoSiAnnouncementStage<S, R>
 where
     S: Eq + Clone + Send + Serialize + Deserialize<'d> + Debug,
 {
@@ -93,7 +93,7 @@ pub struct ResponseState<R> {
     aggregate: Option<R>,
 }
 
-impl<'d, S, R> TemporalProtocolBehaviour<CoSiHandshake, CoSiMessage<S, R>, R> for CoSiResponseStage<S, R>
+impl<'d, S, R> TemporalProtocolStage<CoSiHandshake, CoSiMessage<S, R>, R> for CoSiResponseStage<S, R>
 where
     S: Eq + Clone + Send + Serialize + Deserialize<'d> + Debug,
     R: CommutativeSemigroup + Eq + Clone + Send + Serialize + Deserialize<'d> + Debug,
