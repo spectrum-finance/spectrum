@@ -23,8 +23,8 @@ use std::task::{Context, Poll};
 
 use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use futures::Stream;
+use futures::channel::mpsc::{Receiver, Sender};
+use futures::{SinkExt, Stream};
 
 /// States of an enabled protocol.
 #[derive(Debug)]
@@ -116,23 +116,25 @@ pub trait NetworkAPI {
 
 #[derive(Clone)]
 pub struct NetworkMailbox {
-    pub mailbox_snd: UnboundedSender<NetworkControllerIn>,
+    pub mailbox_snd: Sender<NetworkControllerIn>,
 }
 
 impl NetworkAPI for NetworkMailbox {
     fn enable_protocol(&self, protocol: ProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(NetworkControllerIn::EnableProtocol {
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(
+            NetworkControllerIn::EnableProtocol {
                 protocol,
                 peer,
                 handshake,
-            });
+            },
+        ));
     }
     fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(NetworkControllerIn::UpdatePeerProtocols { peer, protocols });
+        let _ = futures::executor::block_on(
+            self.mailbox_snd
+                .clone()
+                .send(NetworkControllerIn::UpdatePeerProtocols { peer, protocols }),
+        );
     }
 }
 
@@ -221,7 +223,7 @@ pub struct NetworkController<TPeers, TPeerManager, THandler> {
     /// PeerManager stream itself
     peer_manager: TPeerManager,
     enabled_peers: HashMap<PeerId, ConnectedPeer<THandler>>,
-    requests_recv: UnboundedReceiver<NetworkControllerIn>,
+    requests_recv: Receiver<NetworkControllerIn>,
     pending_actions: VecDeque<NetworkBehaviourAction<NetworkControllerOut, PartialPeerConnHandler>>,
 }
 
@@ -234,7 +236,7 @@ where
         supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
         peers: TPeers,
         peer_manager: TPeerManager,
-        requests_recv: UnboundedReceiver<NetworkControllerIn>,
+        requests_recv: Receiver<NetworkControllerIn>,
     ) -> Self {
         Self {
             conn_handler_conf,
