@@ -1,3 +1,16 @@
+use std::collections::{BTreeMap, HashMap};
+use std::fmt::Debug;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use either::Either;
+use futures::channel::mpsc;
+use futures::channel::mpsc::UnboundedReceiver;
+use futures::Stream;
+pub use libp2p::swarm::NetworkBehaviour;
+use libp2p::PeerId;
+use log::{error, trace};
+
 use crate::network_controller::NetworkAPI;
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::stream::FusedStream;
@@ -5,18 +18,9 @@ use crate::protocol_api::{ProtocolEvent, ProtocolMailbox};
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use crate::types::{ProtocolId, ProtocolVer, RawMessage};
-use futures::channel::mpsc;
-use futures::channel::mpsc::UnboundedReceiver;
-use futures::Stream;
-pub use libp2p::swarm::NetworkBehaviour;
-use libp2p::PeerId;
-use log::{error, trace};
-use std::collections::{BTreeMap, HashMap};
-use std::fmt::Debug;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 pub mod codec;
+pub mod cosi;
 pub mod sync;
 pub mod versioning;
 
@@ -64,6 +68,39 @@ pub enum MalformedMessage {
     UnknownFormat,
 }
 
+/// Defines behaviour of particular stages of a protocol that terminates with `TOut`,
+/// e.g. a single cycle of a protocol consisting of repeating rounds.
+pub trait TemporalProtocolBehaviour<THandshake, TMessage, TOut> {
+    /// Inject an event that we have established a conn with a peer.
+    fn inject_peer_connected(&mut self, peer_id: PeerId) {}
+
+    /// Inject a new message coming from a peer.
+    fn inject_message(&mut self, peer_id: PeerId, content: TMessage) {}
+
+    /// Inject an event when the peer sent a malformed message.
+    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {}
+
+    /// Inject protocol request coming from a peer.
+    fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<THandshake>) {}
+
+    /// Inject local protocol request coming from a peer.
+    fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {}
+
+    /// Inject an event of protocol being enabled with a peer.
+    fn inject_protocol_enabled(&mut self, peer_id: PeerId, handshake: Option<THandshake>) {}
+
+    /// Inject an event of protocol being disabled with a peer.
+    fn inject_protocol_disabled(&mut self, peer_id: PeerId) {}
+
+    /// Poll for output actions.
+    /// `Either::Right(TOut)` when behaviour has terminated.
+    fn poll(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Either<ProtocolBehaviourOut<THandshake, TMessage>, TOut>>;
+}
+
+/// Drives beha
 pub trait ProtocolBehaviour {
     /// Protocol specification.
     type TProto: ProtocolSpec;

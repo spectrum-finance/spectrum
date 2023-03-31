@@ -59,7 +59,7 @@ impl From<u8> for ProtocolId {
 
 /// Version of a protocol.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct ProtocolVer(u8);
+pub struct ProtocolVer(pub u8);
 
 impl Ord for ProtocolVer {
     fn cmp(&self, other: &Self) -> Ordering {

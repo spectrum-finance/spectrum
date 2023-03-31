@@ -83,7 +83,7 @@ where
     fn send_peers(&mut self, peer_id: PeerId) {
         trace!("Sharing known peers with {}", peer_id);
         let get_peers_fut = self.peers.get_peers(MAX_SHARED_PEERS);
-        self.tasks.push_back(Box::pin({
+        self.tasks.push(Box::pin({
             async move {
                 trace!("Waiting for peers");
                 if let Ok(peers) = get_peers_fut.await {
