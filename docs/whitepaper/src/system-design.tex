@@ -59,10 +59,42 @@ Nodes in $V^{e}_{S_k}$ maintain a robust local ledger $L^{local}_k$ of notarized
 
 \subsubsection{Syncing Shards}
 
-Notarized batches of events from local ledgers then must be synced in a super ledger $L^+$ in order for the system to be able to compute cross-chain state transition.
+Notarized batches of events from local ledgers $\{L_i\}_{i=1}^{i=N}$ then should be synced in a super ledger $L^+$ in order for the system to be able to compute cross-chain state transition.
 To facilitate this process batches of notarized events are broadcast to other committees.
-Any committee member is able to add notarized batch of events to $L^+$ with unequal probability, proportional to his stake.
-As a result of the single committee lottery flow, all notarized batches have their own leaders and all these leaders publish their blocks to $L^+$.
+The main actors at this stage are:
+\begin{itemize}
+    \item \textbf{Local leaders}: committees leaders, holding local notarized batches.
+    \item \textbf{Relayers}: any protocol participant, who broadcasts notarized batches from \emph{Local leaders} to other committees' members.
+    Every \emph{Local leader} can be a \emph{Relayer} at the same time.
+    \item \textbf{General leader}: one of the \emph{Local leaders} who added a block consisted of all collected notarized batches to the $L^+$.
+\end{itemize}
+
+Since any \emph{Local leader} is able to publish his block to $L^+$ he can choose from two main strategies:
+\begin{itemize}
+    \item \textbf{Wait}: malicious strategy where \emph{Local leader} waits for broadcasts from other committees members and don't broadcast his own batch to eliminate competitors for adding a block.
+    \item \textbf{Broadcast and wait}: fair strategy where \emph{Local leader} immediately broadcasts his batch, waits for broadcasts from committees members and honestly competes for adding a block.
+\end{itemize}
+Thus, there should be a motivation for individual \emph{Local leader} to choose the fair strategy instead of keeping his batch for too long.
+This is achieved through the design of the incentive system.
+
+There are three types of incentive: ${\{R_b, R_d, R_m\}}$, where $R_b$ is a guaranteed reward for adding a notarized batch to the block, $R_d$ is given for a broadcasting batch to the general leader and $R_m$ is given personally to the \emph{General leader} who mined the block.
+Delivery reward $R_d$ is given to the \emph{Relayer} if and only if a delivery was made within a predetermined period of time $\Delta t_d$.
+From the game-theoretic analysis, the following relationships between rewards were derived: ${R_b = 2 \cdot R_d, R_m = 3 \cdot R_d}$.
+Thus, if ${R_d=0}$ there is no prior strategy for the \emph{Local leaders}, they will or wait for other batches either broadcast their batches with equal probability.
+In case when ${R_d>0}$ it is distributed between the \emph{Local leader} and the \emph{Relayer}, i.e. ${R^l_d = \xi \cdot R_d}$ and  ${R^r_d = (1 - \xi) \cdot R_d}$, where ${\xi \in (0, 1)}$.
+While ${\xi \rightarrow 1}$ probability that all \emph{Local leaders} will choose the \emph{Broadcast and wait} strategy approaches $1$.
+
+As a result, the syncing Shards flow looks as follows:
+\begin{itemize}
+    \item Every \emph{Local leader} broadcasts (himself or through an intermediary as a \emph{Relayer}) his batch $b_i$, which contains the local notarization time $t^N_i$ and waits for batches from other \emph{Local leaders}.
+    \item When waiting time approaches $\Delta t_d$, \emph{Local leader} forms a block from all collected batches ${\{b_i^j\}_{j=1}^{j=K}, K \le N}$ and add it to $L^+$.
+    Block contains the set of the notarization times $\{t^{N^j}_i\}_{j=1}^{j=K}$ and block creation time $t^B_s$.
+    \item After block is settled, all associated actors receive their rewards according to their roles: \emph{General leader} receives $R_m$, \emph{Local leaders}, whose batches are in the block receives $R_b$.
+    In addition, if ${t^B_s - t^N_i^* < \Delta t_d}$, where $t^N_i^*$ is $t^N_i$ time, normalized to $L^+$ time, $i$-th committee \emph{Local leader} receives $R_d$ reward shared with the \emph{Relayer}.
+\end{itemize}
+
+\subsection{Resolving forks}\label{subsec:resolving-forks}
+TODO
 
 \subsection{Protocol Flow}\label{subsec:protocol-flow}
 
