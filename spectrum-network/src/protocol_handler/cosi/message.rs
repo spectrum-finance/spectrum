@@ -1,10 +1,8 @@
 use std::fmt::Debug;
-use std::marker::PhantomData;
 
 use serde::{Deserialize, Serialize};
 
 use crate::protocol_handler::versioning::Versioned;
-use crate::protocol_handler::ProtocolSpec;
 use crate::types::ProtocolVer;
 
 const COSI_V1: ProtocolVer = ProtocolVer(1);

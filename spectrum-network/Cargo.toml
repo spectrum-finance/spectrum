@@ -10,6 +10,7 @@ integration_tests = []
 
 [dependencies]
 algebra-core = { version = "0.1.0", path = "../algebra-core" }
+spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
 libp2p = { version = "0.49.0", features = ["noise", "yamux"] }
 futures = "0.3.21"
 async-std = { version = "1.10.0", features = ["attributes"] }

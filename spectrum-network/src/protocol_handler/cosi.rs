@@ -15,12 +15,14 @@ use crate::protocol_handler::TemporalProtocolStage;
 pub mod message;
 
 /// A behaviour that drives a single round of announcement.
+/// Statement `S` is multicasted down the B-ary tree of nodes.
+/// todo: make multicating more resilient by forwarding announcements via alternative nodes?
 pub struct CoSiAnnouncementStage<S, R> {
     state: AnnouncementState<S>,
     outbox: VecDeque<ProtocolBehaviourOut<CoSiHandshake, CoSiMessage<S, R>>>,
 }
 
-enum IsNotified {
+pub enum IsNotified {
     Notified,
     NotNotified,
 }
@@ -107,12 +109,7 @@ where
                     self.state.right_subtree = (peer_id, Some(response));
                 };
                 if let (Some(left), Some(right)) = (&self.state.left_subtree.1, &self.state.right_subtree.1) {
-                    self.state.aggregate = Some(
-                        self.state
-                            .own_share
-                            .clone()
-                            .combine(left.clone().combine(right.clone())),
-                    );
+                    self.state.aggregate = Some(self.state.own_share.clone().combine(&left.combine(&right)));
                 }
             }
             CoSiMessage::CoSiMessageV1(CoSiMessageV1::Announcement { .. }) => {}

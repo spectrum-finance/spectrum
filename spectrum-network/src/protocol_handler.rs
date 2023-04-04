@@ -23,6 +23,7 @@ pub mod codec;
 pub mod cosi;
 pub mod sync;
 pub mod versioning;
+pub mod handel;
 
 #[derive(Debug)]
 pub enum NetworkAction<THandshake> {
