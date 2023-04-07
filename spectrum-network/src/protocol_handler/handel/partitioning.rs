@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
 
 use libp2p::PeerId;
 use rand::prelude::SliceRandom;
@@ -20,17 +21,19 @@ pub trait PeerPartitions {
     fn num_levels(&self) -> usize;
 }
 
-pub struct BinomialPeerPartitions {
+pub struct BinomialPeerPartitions<R> {
     // All peers ordered according to their VP at each level `l`.
     peers: Vec<Vec<PeerIx>>,
+    rng_pd: PhantomData<R>,
 }
 
-impl BinomialPeerPartitions {
-    pub fn new(own_peer_id: PeerId, peers: Vec<PeerId>, seed: [u8; 32]) -> Self {
+impl<R> BinomialPeerPartitions<R>
+where
+    R: Rng,
+{
+    pub fn new(own_peer_id: PeerId, peers: Vec<PeerId>, mut rng: R) -> Self {
         let num_real_peers = <u32>::try_from(peers.len()).unwrap();
-        println!("0");
         let normalized_num_peers = normalize(num_real_peers);
-        println!("1");
         let num_fake_peers = normalized_num_peers - num_real_peers;
         let fake_peers = (0..num_fake_peers)
             .into_iter()
@@ -42,16 +45,12 @@ impl BinomialPeerPartitions {
             .chain(fake_peers.clone())
             .collect::<Vec<_>>();
         all_peers.sort();
-        let seed = <ChaCha20Rng as SeedableRng>::Seed::from(seed);
-        let mut rng = ChaCha20Rng::from_seed(seed);
         all_peers.shuffle(&mut rng);
-        println!("2");
         let own_index = all_peers
             .iter()
             .position(|pid| *pid == own_peer_id)
             .expect("Initial peer set must olways contain `own_peer_id`.");
         let partitions = bin_partition(own_index, all_peers.len());
-        println!("3");
         let cleared_partitions = partitions
             .into_iter()
             .map(|pt| {
@@ -62,33 +61,35 @@ impl BinomialPeerPartitions {
             .collect::<Vec<_>>();
         Self {
             peers: cleared_partitions,
+            rng_pd: PhantomData::default(),
         }
     }
 }
 
+/// Partition peers binomially relative to `own_index`.
+/// `num_peers` must be a power of 2.
 fn bin_partition(own_index: usize, num_peers: usize) -> Vec<Vec<PeerIx>> {
     let mut partitions: Vec<Vec<PeerIx>> = vec![];
     let mut min = 0;
-    let mut max = num_peers;
-    let mut i = 0u32;
+    let mut max = num_peers - 1;
     loop {
-        if i > 20 { break }
-        i += 1;
-        let mid = max / 2;
-        let this_level = if own_index > mid {
+        let mid = min + (max - min) / 2;
+        if own_index > mid {
+            partitions.push((min..mid + 1).collect::<Vec<_>>());
             min = mid + 1;
-            (min..mid).collect::<Vec<_>>()
-        } else if own_index < mid {
+        } else if own_index <= mid {
+            partitions.push((mid + 1..max + 1).collect::<Vec<_>>());
             max = mid;
-            (mid + 1..max).collect::<Vec<_>>()
-        } else {
-            break;
         };
-        partitions.push(this_level);
+        if min == max {
+            break;
+        }
     }
+    partitions.reverse();
     partitions
 }
 
+/// Finds closes power of 2 to the given `n`.
 fn normalize(n: u32) -> u32 {
     let mut power = 0u32;
     loop {
@@ -101,7 +102,7 @@ fn normalize(n: u32) -> u32 {
     }
 }
 
-impl PeerPartitions for BinomialPeerPartitions {
+impl<R> PeerPartitions for BinomialPeerPartitions<R> {
     fn peers_at_level(&self, level: usize) -> Vec<PeerIx> {
         todo!()
     }
@@ -122,8 +123,10 @@ impl PeerPartitions for BinomialPeerPartitions {
 #[cfg(test)]
 mod tests {
     use libp2p::PeerId;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha20Rng;
 
-    use crate::protocol_handler::handel::partitioning::{normalize, BinomialPeerPartitions, bin_partition};
+    use crate::protocol_handler::handel::partitioning::{bin_partition, normalize, BinomialPeerPartitions};
 
     #[test]
     fn test_normalization() {
@@ -135,19 +138,38 @@ mod tests {
 
     #[test]
     fn test_bin_partitioning() {
-        let own_index = 9;
-        let total_peers = 10;
-        let part = bin_partition(own_index, total_peers);
-        println!("Partitioned peers: {:?}", part);
+        let augmented_peers = 16;
+        let own_index_0 = 10;
+        let part_0 = bin_partition(own_index_0, augmented_peers);
+        assert_eq!(
+            part_0,
+            vec![
+                vec![11],
+                vec![8, 9],
+                vec![12, 13, 14, 15],
+                vec![0, 1, 2, 3, 4, 5, 6, 7],
+            ]
+        );
+        let own_index_1 = 4;
+        let part_1 = bin_partition(own_index_1, augmented_peers);
+        assert_eq!(
+            part_1,
+            vec![
+                vec![5],
+                vec![6, 7],
+                vec![0, 1, 2, 3],
+                vec![8, 9, 10, 11, 12, 13, 14, 15],
+            ]
+        );
     }
 
     #[test]
     fn test_instantiate_partitions() {
         let init_peers = (0..10).map(|_| PeerId::random()).collect::<Vec<_>>();
         let own_peer_id = init_peers[9];
-        let seed = [0u8; 32];
-        let part = BinomialPeerPartitions::new(own_peer_id, init_peers.clone(), seed);
-        println!("Init peers: {:?}", init_peers);
-        println!("Partitioned peers: {:?}", part.peers);
+        let seed = <ChaCha20Rng as SeedableRng>::Seed::from([0u8; 32]);
+        let rng = ChaCha20Rng::from_seed(seed);
+        let part = BinomialPeerPartitions::new(own_peer_id, init_peers.clone(), rng);
+        assert_eq!(part.peers.len(), 4);
     }
 }

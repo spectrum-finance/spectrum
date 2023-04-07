@@ -102,7 +102,6 @@ pub trait TemporalProtocolStage<THandshake, TMessage, TOut> {
     ) -> Poll<Either<ProtocolBehaviourOut<THandshake, TMessage>, TOut>>;
 }
 
-/// Drives beha
 pub trait ProtocolBehaviour {
     /// Protocol specification.
     type TProto: ProtocolSpec;
