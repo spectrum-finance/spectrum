@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::task::{Context, Poll};
 
 use either::Either;
@@ -9,13 +9,12 @@ use void::Void;
 use algebra_core::CommutativePartialSemigroup;
 use spectrum_crypto::VerifiableAgainst;
 
-use crate::protocol_handler::{ProtocolBehaviourOut, TemporalProtocolStage};
 use crate::protocol_handler::handel::message::HandelMessage;
+use crate::protocol_handler::handel::partitioning::{PeerIx, PeerPartitions};
+use crate::protocol_handler::{NetworkAction, ProtocolBehaviourOut, TemporalProtocolStage};
 
 mod message;
-mod pertitioning;
-
-type PeerIx = usize;
+mod partitioning;
 
 pub trait Weighted {
     fn weight(&self) -> usize;
@@ -68,28 +67,23 @@ pub struct HandelConfig {
 }
 
 /// A round of Handel protocol that drives aggregation of contribution `C`.
-pub struct Handel<C, P> {
+pub struct Handel<C, P, PP> {
     conf: HandelConfig,
     public_data: P,
     scoring_window: usize,
-    unverified_contributions: Vec<HashMap<PeerId, PendingContribution<C>>>,
-    /// Peers partitioned by levels and ordered by Verification Priority within a level `l`.
-    peer_partitions: Vec<Vec<PeerId>>,
+    unverified_contributions: Vec<HashMap<PeerIx, PendingContribution<C>>>,
+    peer_partitions: PP,
     levels: Vec<Option<ActiveLevel<C>>>,
-    byzantine_nodes: HashSet<PeerId>,
+    byzantine_nodes: HashSet<PeerIx>,
 }
 
-impl<C, P> Handel<C, P>
+impl<C, P, PP> Handel<C, P, PP>
 where
     C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Eq + Clone,
+    PP: PeerPartitions,
 {
-    pub fn new(
-        conf: HandelConfig,
-        peer_partitions: Vec<Vec<PeerId>>,
-        public_data: P,
-        own_contribution: C,
-    ) -> Self {
-        let num_levels = peer_partitions.len();
+    pub fn new(conf: HandelConfig, own_contribution: C, public_data: P, peer_partitions: PP) -> Self {
+        let num_levels = peer_partitions.num_levels();
         let mut levels = vec![None; num_levels];
         levels[0] = Some(ActiveLevel::unit(own_contribution));
         Handel {
@@ -108,7 +102,7 @@ where
         if let Some(lvl) = &mut self.levels[level] {
             // Prioritize contributions
             if !self.unverified_contributions[level].is_empty() {
-                for pid in &self.peer_partitions[level] {
+                for pid in &self.peer_partitions.peers_at_level(level) {
                     if let Some(uc) = self.unverified_contributions[level].remove(pid) {
                         lvl.prioritized_contributions.push(uc);
                     }
@@ -179,6 +173,27 @@ where
         }
     }
 
+    pub fn inject_contribution(
+        &mut self,
+        peer_id: PeerId,
+        level: u32,
+        aggregate_contribution: C,
+        individual_contribution: C,
+    ) -> Result<(), ()> {
+        if let Some(peer_ix) = self.peer_partitions.try_index_peer(peer_id) {
+            if !self.byzantine_nodes.contains(&peer_ix) {
+                let contrib = PendingContribution {
+                    sender_id: peer_ix,
+                    aggregate_contribution,
+                    individual_contribution,
+                };
+                self.unverified_contributions[level as usize].insert(peer_ix, contrib);
+                return Ok(());
+            }
+        }
+        Err(())
+    }
+
     fn is_complete(&self, contribution: &C, level: usize) -> bool {
         let weight = contribution.weight();
         let num_nodes_at_level = (2 as usize).pow(level as u32);
@@ -189,7 +204,7 @@ where
 
 #[derive(Clone, Debug)]
 struct PendingContribution<C> {
-    sender_id: PeerId,
+    sender_id: PeerIx,
     aggregate_contribution: C,
     individual_contribution: C,
 }
@@ -197,7 +212,7 @@ struct PendingContribution<C> {
 #[derive(Eq, PartialEq, Clone)]
 struct ScoredContributionTraced<C> {
     score: usize,
-    sender_id: PeerId,
+    sender_id: PeerIx,
     contribution: C,
 }
 
@@ -231,21 +246,28 @@ impl<C: Eq> Ord for ScoredContributionTraced<C> {
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone)]
 struct Verified<C>(C);
 
-impl<C, P> TemporalProtocolStage<Void, HandelMessage<C>, C> for Handel<C, P>
+pub struct HandelProtocol<C, P, PP> {
+    handel: Handel<C, P, PP>,
+    outbox: VecDeque<ProtocolBehaviourOut<Void, HandelMessage<C>>>,
+}
+
+impl<C, P, PP> TemporalProtocolStage<Void, HandelMessage<C>, C> for HandelProtocol<C, P, PP>
 where
-    C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone,
+    C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone + Eq,
+    PP: PeerPartitions,
 {
     fn inject_message(&mut self, peer_id: PeerId, HandelMessage::HandelMessageV1(msg): HandelMessage<C>) {
-        // todo: handle messages from unknown peers;
-        if !self.byzantine_nodes.contains(&peer_id) {
-            self.unverified_contributions[msg.level as usize].insert(
-                peer_id,
-                PendingContribution {
-                    sender_id: peer_id,
-                    aggregate_contribution: msg.aggregate_contribution,
-                    individual_contribution: msg.individual_contribution,
-                },
-            );
+        let contrib_injected = self.handel.inject_contribution(
+            peer_id,
+            msg.level,
+            msg.aggregate_contribution,
+            msg.individual_contribution,
+        );
+        if contrib_injected.is_err() {
+            self.outbox
+                .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::BanPeer(
+                    peer_id,
+                )));
         }
     }
 

@@ -21,9 +21,9 @@ use crate::types::{ProtocolId, ProtocolVer, RawMessage};
 
 pub mod codec;
 pub mod cosi;
+pub mod handel;
 pub mod sync;
 pub mod versioning;
-pub mod handel;
 
 #[derive(Debug)]
 pub enum NetworkAction<THandshake> {
@@ -40,7 +40,8 @@ pub enum NetworkAction<THandshake> {
         peer: PeerId,
         protocols: Vec<ProtocolId>,
     },
-    // todo: Add banning API
+    /// Ban peer.
+    BanPeer(PeerId),
 }
 
 #[derive(Debug)]
@@ -218,12 +219,16 @@ where
                                         .map(|(v, m)| (v, m.map(codec::BinCodec::encode)))
                                         .collect::<BTreeMap<_, _>>(),
                                 );
-                                self.network
-                                    .enable_protocol(self.behaviour.get_protocol_id(), peer, poly_spec);
+                                self.network.enable_protocol(
+                                    self.behaviour.get_protocol_id(),
+                                    peer,
+                                    poly_spec,
+                                );
                             }
                             NetworkAction::UpdatePeerProtocols { peer, protocols } => {
                                 self.network.update_peer_protocols(peer, protocols);
                             }
+                            NetworkAction::BanPeer(pid) => self.network.ban_peer(pid),
                         },
                     }
                     continue;

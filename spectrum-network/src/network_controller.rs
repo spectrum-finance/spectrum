@@ -1,12 +1,10 @@
-use crate::peer_conn_handler::message_sink::MessageSink;
-use crate::peer_conn_handler::{
-    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf,
-};
-use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
-use crate::protocol::ProtocolConfig;
-use crate::protocol_api::ProtocolEvents;
-use crate::types::{ProtocolId, ProtocolVer};
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use futures::Stream;
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::{
@@ -14,17 +12,18 @@ use libp2p::swarm::{
     NotifyHandler, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
-
 use log::{trace, warn};
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
+use crate::peer_conn_handler::message_sink::MessageSink;
+use crate::peer_conn_handler::{
+    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandlerConf,
+};
 use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
+use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
+use crate::protocol::ProtocolConfig;
+use crate::protocol_api::ProtocolEvents;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use futures::Stream;
+use crate::types::{ProtocolId, ProtocolVer};
 
 /// States of an enabled protocol.
 #[derive(Debug)]
@@ -103,6 +102,8 @@ pub enum NetworkControllerIn {
         peer: PeerId,
         protocols: Vec<ProtocolId>,
     },
+    /// Ban peer permanently.
+    BanPeer(PeerId),
 }
 
 /// External API to network controller.
@@ -112,6 +113,8 @@ pub trait NetworkAPI {
 
     /// Updates the set of protocols supported by the specified peer.
     fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>);
+    /// Ban peer permanently.
+    fn ban_peer(&self, peer: PeerId);
 }
 
 #[derive(Clone)]
@@ -133,6 +136,11 @@ impl NetworkAPI for NetworkMailbox {
         let _ = self
             .mailbox_snd
             .unbounded_send(NetworkControllerIn::UpdatePeerProtocols { peer, protocols });
+    }
+    fn ban_peer(&self, peer: PeerId) {
+        let _ = self
+            .mailbox_snd
+            .unbounded_send(NetworkControllerIn::BanPeer(peer));
     }
 }
 
@@ -653,6 +661,9 @@ where
                                 }
                             }
                         }
+                    }
+                    NetworkControllerIn::BanPeer(pid) => {
+                        //todo: Ban peer; DEV-941
                     }
                 }
                 continue;
