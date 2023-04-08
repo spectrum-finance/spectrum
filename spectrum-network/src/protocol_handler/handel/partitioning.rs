@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 
 use libp2p::PeerId;
 use rand::prelude::SliceRandom;
-use rand::{thread_rng, Rng, SeedableRng};
-use rand_chacha::ChaCha20Rng;
+use rand::{Rng, SeedableRng};
+use sha2::{Digest, Sha256};
 
 /// Index of a peer withing Handel's range of peers.
 pub type PeerIx = usize;
@@ -27,11 +27,13 @@ pub struct BinomialPeerPartitions<R> {
     rng_pd: PhantomData<R>,
 }
 
+type TSeed = [u8; 32];
+
 impl<R> BinomialPeerPartitions<R>
 where
-    R: Rng,
+    R: Rng + SeedableRng<Seed = TSeed>,
 {
-    pub fn new(own_peer_id: PeerId, peers: Vec<PeerId>, mut rng: R) -> Self {
+    pub fn new(own_peer_id: PeerId, peers: Vec<PeerId>, seed: TSeed) -> Self {
         let num_real_peers = <u32>::try_from(peers.len()).unwrap();
         let normalized_num_peers = normalize(num_real_peers);
         let num_fake_peers = normalized_num_peers - num_real_peers;
@@ -44,12 +46,13 @@ where
             .into_iter()
             .chain(fake_peers.clone())
             .collect::<Vec<_>>();
+        let mut rng = R::from_seed(seed);
         all_peers.sort();
         all_peers.shuffle(&mut rng);
         let own_index = all_peers
             .iter()
             .position(|pid| *pid == own_peer_id)
-            .expect("Initial peer set must olways contain `own_peer_id`.");
+            .expect("Initial peer set must always contain `own_peer_id`.");
         let partitions = bin_partition(own_index, all_peers.len());
         let cleared_partitions = partitions
             .into_iter()
@@ -60,9 +63,32 @@ where
             })
             .collect::<Vec<_>>();
         Self {
-            peers: cleared_partitions,
+            peers: Self::ordered_by_vp(cleared_partitions, seed, own_peer_id),
             rng_pd: PhantomData::default(),
         }
+    }
+
+    /// Arrange peers withing partitions according to their VP.
+    fn ordered_by_vp(partitions: Vec<Vec<PeerIx>>, seed: TSeed, own_peer_id: PeerId) -> Vec<Vec<PeerIx>> {
+        let mut vp_rng = Self::vp_rng(seed, own_peer_id);
+        let mut ordered_partitions = vec![];
+        for mut pt in partitions {
+            pt.shuffle(&mut vp_rng);
+            ordered_partitions.push(pt);
+        }
+        ordered_partitions
+    }
+
+    fn vp_rng(seed: TSeed, own_peer_id: PeerId) -> R {
+        let mut hasher = Sha256::new();
+        let xs = seed
+            .to_vec()
+            .into_iter()
+            .chain(own_peer_id.to_bytes())
+            .collect::<Vec<u8>>();
+        hasher.update(xs);
+        let result = hasher.finalize();
+        R::from_seed(<TSeed>::try_from(result).unwrap())
     }
 }
 
@@ -123,7 +149,6 @@ impl<R> PeerPartitions for BinomialPeerPartitions<R> {
 #[cfg(test)]
 mod tests {
     use libp2p::PeerId;
-    use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
 
     use crate::protocol_handler::handel::partitioning::{bin_partition, normalize, BinomialPeerPartitions};
@@ -167,9 +192,9 @@ mod tests {
     fn test_instantiate_partitions() {
         let init_peers = (0..10).map(|_| PeerId::random()).collect::<Vec<_>>();
         let own_peer_id = init_peers[9];
-        let seed = <ChaCha20Rng as SeedableRng>::Seed::from([0u8; 32]);
-        let rng = ChaCha20Rng::from_seed(seed);
-        let part = BinomialPeerPartitions::new(own_peer_id, init_peers.clone(), rng);
+        let seed = [0u8; 32];
+        let part = BinomialPeerPartitions::<ChaCha20Rng>::new(own_peer_id, init_peers.clone(), seed);
         assert_eq!(part.peers.len(), 4);
+        println!("{:?}", part.peers);
     }
 }
