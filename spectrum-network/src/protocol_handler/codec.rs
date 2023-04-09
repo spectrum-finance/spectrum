@@ -3,18 +3,18 @@ use ciborium::de::Error;
 use serde::{Deserialize, Serialize};
 
 pub trait BinCodec: Sized {
-    fn encode(self) -> RawMessage;
-    fn decode(msg: RawMessage) -> Result<Self, Error<std::io::Error>>;
+    fn encode(self) -> Result<RawMessage, ciborium::ser::Error<std::io::Error>>;
+    fn decode(msg: RawMessage) -> Result<Self, ciborium::de::Error<std::io::Error>>;
 }
 
 impl<'de, T> BinCodec for T
 where
     T: Serialize + Deserialize<'de>,
 {
-    fn encode(self) -> RawMessage {
+    fn encode(self) -> Result<RawMessage, ciborium::ser::Error<std::io::Error>> {
         let mut encoded = Vec::new();
-        ciborium::ser::into_writer(&self, &mut encoded).unwrap();
-        RawMessage::from(encoded)
+        ciborium::ser::into_writer(&self, &mut encoded)?;
+        Ok(RawMessage::from(encoded))
     }
 
     fn decode(msg: RawMessage) -> Result<Self, Error<std::io::Error>> {

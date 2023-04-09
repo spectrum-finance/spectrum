@@ -4,6 +4,7 @@ use crate::peer_conn_handler::stream::FusedStream;
 use crate::protocol_api::{ProtocolEvent, ProtocolMailbox};
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
+use crate::protocol_upgrade::supported_protocol_vers::SupportedProtocolId;
 use crate::types::{ProtocolId, ProtocolVer, RawMessage};
 use futures::channel::mpsc::{self, Receiver};
 use futures::Stream;
@@ -47,6 +48,8 @@ pub enum ProtocolBehaviourOut<THandshake, TMessage> {
 pub enum ProtocolHandlerError {
     #[error("Message deserialization failed.")]
     MalformedMessage(RawMessage),
+    #[error("Message serialization failed: {0:?}")]
+    Serialization(ciborium::ser::Error<std::io::Error>),
 }
 
 pub trait ProtocolSpec {
@@ -68,7 +71,7 @@ pub trait ProtocolBehaviour {
     type TProto: ProtocolSpec;
 
     /// Returns ID of the protocol this behaviour implements.
-    fn get_protocol_id(&self) -> ProtocolId;
+    fn get_protocol_id(&self) -> SupportedProtocolId;
 
     /// Inject an event that we have established a conn with a peer.
     fn inject_peer_connected(&mut self, peer_id: PeerId);
@@ -139,7 +142,7 @@ where
     TNetwork: NetworkAPI + Unpin,
 {
     #[cfg(feature = "integration_tests")]
-    type Item = <TBehaviour::TProto as ProtocolSpec>::TMessage;
+    type Item = Result<<TBehaviour::TProto as ProtocolSpec>::TMessage, ProtocolHandlerError>;
     #[cfg(not(feature = "integration_tests"))]
     type Item = ();
 
@@ -155,12 +158,24 @@ where
                         trace!("Sending message {:?} to peer {}", message, peer_id);
                         if let Some(sink) = self.peers.get(&peer_id) {
                             trace!("Sink is available");
-                            if let Err(_) = sink.send_message(codec::BinCodec::encode(message.clone())) {
-                                trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
+                            match codec::BinCodec::encode(message.clone()) {
+                                Ok(msg) => {
+                                    if sink.send_message(msg).is_err() {
+                                        trace!(
+                                            "Failed to submit a message to {:?}. Channel is closed.",
+                                            peer_id
+                                        )
+                                    }
+                                    trace!("Sent");
+                                    #[cfg(feature = "integration_tests")]
+                                    return Poll::Ready(Some(Ok(message)));
+                                }
+                                Err(e) => {
+                                    trace!("Failed to encode message: {:?}", e);
+                                    #[cfg(feature = "integration_tests")]
+                                    return Poll::Ready(Some(Err(ProtocolHandlerError::Serialization(e))));
+                                }
                             }
-                            trace!("Sent");
-                            #[cfg(feature = "integration_tests")]
-                            return Poll::Ready(Some(message));
                         } else {
                             error!("Cannot find sink for peer {}", peer_id);
                         }
@@ -170,12 +185,27 @@ where
                             peer_id: peer,
                             handshakes,
                         } => {
-                            let poly_spec = PolyVerHandshakeSpec::from(
-                                handshakes
-                                    .into_iter()
-                                    .map(|(v, m)| (v, m.map(codec::BinCodec::encode)))
-                                    .collect::<BTreeMap<_, _>>(),
-                            );
+                            let mut h_mapped = BTreeMap::new();
+                            for (ver, msg) in handshakes {
+                                let raw_msg = if let Some(m) = msg {
+                                    match codec::BinCodec::encode(m) {
+                                        Ok(raw_msg) => Some(raw_msg),
+                                        Err(e) => {
+                                            trace!("Failed to encode message: {:?}", e);
+                                            #[cfg(feature = "integration_tests")]
+                                            return Poll::Ready(Some(Err(
+                                                ProtocolHandlerError::Serialization(e),
+                                            )));
+                                            None
+                                        }
+                                    }
+                                } else {
+                                    None
+                                };
+                                h_mapped.insert(ver, raw_msg);
+                            }
+
+                            let poly_spec = PolyVerHandshakeSpec::from(h_mapped);
                             self.network
                                 .enable_protocol(self.behaviour.get_protocol_id(), peer, poly_spec);
                         }

@@ -27,6 +27,7 @@ use spectrum_network::protocol_api::ProtocolMailbox;
 use spectrum_network::protocol_handler::sync::message::SyncSpec;
 use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
 use spectrum_network::protocol_handler::ProtocolHandler;
+use spectrum_network::protocol_upgrade::supported_protocol_vers::GetSupportedProtocolVer;
 use spectrum_network::types::Reputation;
 use std::collections::HashMap;
 use std::{
@@ -202,7 +203,7 @@ pub fn build_node(
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
     let sync_conf = ProtocolConfig {
         supported_versions: vec![(
-            SyncSpec::v1(),
+            SyncSpec::get_supported_ver(),
             ProtocolSpec {
                 max_message_size: 100,
                 approve_required: true,

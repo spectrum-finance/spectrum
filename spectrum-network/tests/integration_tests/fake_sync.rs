@@ -21,6 +21,7 @@ use spectrum_network::{
         versioning::Versioned,
         MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut,
     },
+    protocol_upgrade::supported_protocol_vers::{GetSupportedProtocolId, SupportedProtocolId},
     types::{ProtocolId, ProtocolVer},
 };
 
@@ -48,6 +49,12 @@ pub struct FakeSyncSpec;
 impl FakeSyncSpec {
     pub fn v1() -> ProtocolVer {
         ProtocolVer::from(1)
+    }
+}
+
+impl GetSupportedProtocolId for FakeSyncSpec {
+    fn get_supported_id() -> SupportedProtocolId {
+        SyncSpec::get_supported_id()
     }
 }
 
@@ -133,8 +140,8 @@ where
 {
     type TProto = FakeSyncSpec;
 
-    fn get_protocol_id(&self) -> ProtocolId {
-        SYNC_PROTOCOL_ID
+    fn get_protocol_id(&self) -> SupportedProtocolId {
+        SyncSpec::get_supported_id()
     }
 
     fn inject_peer_connected(&mut self, peer_id: PeerId) {

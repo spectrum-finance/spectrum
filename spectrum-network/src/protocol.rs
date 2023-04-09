@@ -1,4 +1,4 @@
-use crate::types::{ProtocolId, ProtocolVer};
+use crate::{protocol_upgrade::supported_protocol_vers::SupportedProtocolVer, types::ProtocolId};
 
 pub const SYNC_PROTOCOL_ID: ProtocolId = ProtocolId::from_u8(0);
 
@@ -12,5 +12,5 @@ pub struct ProtocolSpec {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProtocolConfig {
-    pub supported_versions: Vec<(ProtocolVer, ProtocolSpec)>,
+    pub supported_versions: Vec<(SupportedProtocolVer, ProtocolSpec)>,
 }
