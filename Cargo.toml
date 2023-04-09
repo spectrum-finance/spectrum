@@ -65,7 +65,8 @@ exclude = [
     "external/move/tools/move-unit-test",
     "external/move/tools/read-write-set",
     "external/move/tools/read-write-set/dynamic",
-    "external/move/tools/read-write-set/types"
+    "external/move/tools/read-write-set/types",
+    "spectrum-data-bridge"
 ]
 
 [profile.release]
