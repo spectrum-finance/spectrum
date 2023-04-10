@@ -168,7 +168,7 @@ impl<'de> Deserialize<'de> for PeerDestination {
             }
         }
 
-        const VARIANTS: &'static [&'static str] = &["PeerId", "PeerIdWithAddr"];
+        const VARIANTS: &[&str] = &["PeerId", "PeerIdWithAddr"];
         deserializer.deserialize_enum("PeerDestination", VARIANTS, PeerDestinationVisitor)
     }
 }

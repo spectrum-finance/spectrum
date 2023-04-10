@@ -1,6 +1,6 @@
 use crate::types::RawMessage;
 use futures::{
-    channel::mpsc,
+    channel::mpsc::{self, SendError},
     lock::{Mutex as AsyncMutex, MutexGuard},
     prelude::*,
 };
@@ -46,6 +46,11 @@ struct MessageSinkIn {
     sync_channel: Mutex<Option<mpsc::Sender<StreamNotification>>>,
 }
 
+pub enum MessageSinkError {
+    BufferFull,
+    SenderDestroyed,
+}
+
 impl MessageSink {
     /// Returns the [`PeerId`] the sink is connected to.
     pub fn peer_id(&self) -> &PeerId {
@@ -56,7 +61,7 @@ impl MessageSink {
     ///
     /// If the buffer is exhausted, the channel will be closed
     /// via `SyncNotification::ForceClose` directive.
-    pub fn send_message(&self, msg: RawMessage) -> Result<(), ()> {
+    pub fn send_message(&self, msg: RawMessage) -> Result<(), MessageSinkError> {
         let lock = self.inner.sync_channel.lock();
         if let Ok(mut permit) = lock {
             if let Some(snd) = permit.as_mut() {
@@ -71,13 +76,13 @@ impl MessageSink {
 
                     // Destroy the sender in order to not send more `ForceClose` messages.
                     *permit = None;
-                    return Err(());
+                    return Err(MessageSinkError::BufferFull);
                 }
             } else {
-                return Err(());
+                return Err(MessageSinkError::SenderDestroyed);
             }
         }
-        return Ok(());
+        Ok(())
     }
 
     /// Wait until the remote is ready to accept a message.
@@ -106,9 +111,7 @@ impl<'a> Ready<'a> {
     /// Consumes this slots reservation and actually queues the notification.
     ///
     /// Returns an error if the substream has been closed.
-    pub fn send(mut self, msg: RawMessage) -> Result<(), ()> {
-        self.lock
-            .start_send(StreamNotification::Message(msg))
-            .map_err(|_| ())
+    pub fn send(mut self, msg: RawMessage) -> Result<(), SendError> {
+        self.lock.start_send(StreamNotification::Message(msg))
     }
 }

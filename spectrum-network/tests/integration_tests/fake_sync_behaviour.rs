@@ -58,6 +58,7 @@ impl spectrum_network::protocol_handler::ProtocolSpec for FakeSyncSpec {
 
 type SyncBehaviourOut = ProtocolBehaviourOut<SyncHandshake, FakeSyncMessage>;
 
+#[allow(dead_code)]
 #[derive(Debug, Display)]
 pub enum SyncBehaviorError {
     EmptyPeers,
@@ -146,11 +147,11 @@ where
             }))
     }
 
-    fn inject_message(&mut self, peer_id: PeerId, msg: FakeSyncMessage) {
+    fn inject_message(&mut self, peer_id: PeerId, _msg: FakeSyncMessage) {
         self.send_fake_msg(peer_id);
     }
 
-    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {}
+    fn inject_malformed_mesage(&mut self, _peer_id: PeerId, _detailss: MalformedMessage) {}
 
     fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<SyncHandshake>) {
         if let Some(SyncHandshake::HandshakeV1(hs)) = handshake {
