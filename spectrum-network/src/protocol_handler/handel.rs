@@ -291,6 +291,10 @@ where
             .map(|l| l.best_contribution.0.contribution.clone())
             .unwrap()
     }
+
+    fn num_levels(&self) -> usize {
+        self.levels.len()
+    }
 }
 
 fn is_complete<C: Weighted>(contribution: &C, level: usize, threshold: Threshold) -> bool {
@@ -348,6 +352,7 @@ pub struct HandelProtocol<C, P, PP> {
     handel: Handel<C, P, PP>,
     outbox: VecDeque<ProtocolBehaviourOut<Void, HandelMessage<C>>>,
     next_dissemination_at: Instant,
+    level_activation_schedule: Vec<Option<Instant>>,
 }
 
 impl<C, P, PP> HandelProtocol<C, P, PP>
@@ -365,6 +370,20 @@ where
                 })
             }
             self.next_dissemination_at = now.add(self.handel.conf.dissemination_interval);
+        }
+    }
+
+    fn activate_levels(&mut self) {
+        let now = Instant::now();
+        for (lvl, schedule) in self.level_activation_schedule.clone().into_iter().enumerate() {
+            if let Some(ts) = schedule {
+                if ts <= now {
+                    self.handel.activate_level(lvl);
+                    self.level_activation_schedule[lvl] = None;
+                } else {
+                    break;
+                }
+            }
         }
     }
 }
@@ -399,6 +418,7 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Either<ProtocolBehaviourOut<Void, HandelMessage<C>>, C>> {
         self.run_dissemination();
+        self.activate_levels();
         if let Some(out) = self.outbox.pop_front() {
             return Poll::Ready(Left(out));
         }
