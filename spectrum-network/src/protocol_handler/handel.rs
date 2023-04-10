@@ -1,8 +1,10 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::ops::Add;
 use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
 
-use either::Either;
+use either::{Either, Left, Right};
 use libp2p::PeerId;
 use void::Void;
 
@@ -36,13 +38,13 @@ impl Threshold {
 struct ActiveLevel<C> {
     prioritized_contributions: Vec<PendingContribution<C>>,
     individual_contributions: Vec<Verified<C>>,
-    best_contribution: Option<Verified<ScoredContribution<C>>>,
+    best_contribution: Verified<ScoredContribution<C>>,
     /// Index of the peer we contacted last at the level.
     last_contacted_peer: Option<usize>,
 }
 
 impl<C> ActiveLevel<C> {
-    fn new(best_contribution: Option<Verified<ScoredContribution<C>>>) -> Self {
+    fn new(best_contribution: Verified<ScoredContribution<C>>) -> Self {
         Self {
             prioritized_contributions: vec![],
             individual_contributions: vec![],
@@ -55,10 +57,10 @@ impl<C> ActiveLevel<C> {
             prioritized_contributions: vec![],
             individual_contributions: vec![],
             last_contacted_peer: None,
-            best_contribution: Some(Verified(ScoredContribution {
+            best_contribution: Verified(ScoredContribution {
                 score: 1,
                 contribution,
-            })),
+            }),
         }
     }
 }
@@ -68,6 +70,7 @@ pub struct HandelConfig {
     pub threshold: Threshold,
     pub window_shrinking_factor: usize,
     pub initial_scoring_window: usize,
+    pub dissemination_interval: Duration,
 }
 
 /// A round of Handel protocol that drives aggregation of contribution `C`.
@@ -105,8 +108,19 @@ where
         }
     }
 
+    fn process_level(&mut self, level: usize) {
+        if let Some(best_contrib) = self.run_aggregation(level) {
+            if !self.is_active(level + 1)
+                && is_complete(&best_contrib.contribution, level, self.conf.threshold)
+            {
+                // Next level is not yet activated, current one is complete. It's time to activate next one.
+                self.levels[level + 1] = Some(ActiveLevel::new(Verified(best_contrib.clone())));
+            }
+        }
+    }
+
     /// Run aggregation on the specified level.
-    pub fn run_aggregation(&mut self, level: usize) {
+    fn run_aggregation(&mut self, level: usize) -> Option<ScoredContribution<C>> {
         if let Some(lvl) = &mut self.levels[level] {
             // Prioritize contributions
             if !self.unverified_contributions[level].is_empty() {
@@ -118,8 +132,10 @@ where
                         break;
                     }
                 }
+            } else {
+                return None;
             }
-            let best_contribution = lvl.best_contribution.clone().map(|Verified(vc)| vc.contribution);
+            let Verified(best_contribution) = lvl.best_contribution.clone();
             let mut scored_contributions: BTreeSet<ScoredContributionTraced<C>> = BTreeSet::new();
             while let Some(c) = lvl.prioritized_contributions.pop() {
                 // Verify individual contribution first
@@ -136,10 +152,10 @@ where
                 }
                 // Score aggregate contribution
                 match best_contribution
-                    .as_ref()
-                    .map(|bc| bc.try_combine(&c.aggregate_contribution))
+                    .contribution
+                    .try_combine(&c.aggregate_contribution)
                 {
-                    Some(Some(aggr)) => {
+                    Some(aggr) => {
                         let score = aggr.weight();
                         scored_contributions.insert(ScoredContributionTraced {
                             score,
@@ -147,7 +163,7 @@ where
                             contribution: aggr,
                         });
                     }
-                    Some(_) | None => {
+                    None => {
                         let mut acc_aggr = c.aggregate_contribution.clone();
                         for Verified(ic) in &lvl.individual_contributions {
                             if let Some(aggr) = acc_aggr.try_combine(&ic) {
@@ -166,18 +182,27 @@ where
             // Verify aggregate contributions
             for sc in scored_contributions.into_iter() {
                 if sc.contribution.verify(&self.public_data) {
-                    if let Some(Verified(best_contrib)) = &lvl.best_contribution {
-                        if sc.score > best_contrib.score {
-                            lvl.best_contribution = Some(Verified(sc.into()))
-                        }
-                    } else {
-                        lvl.best_contribution = Some(Verified(sc.into()))
+                    let Verified(best_contrib) = &lvl.best_contribution;
+                    if sc.score > best_contrib.score {
+                        lvl.best_contribution = Verified(sc.into());
                     }
                 } else {
                     // Ban peer, shrink scoring window.
                     self.byzantine_nodes.insert(sc.sender_id);
                     self.scoring_window /= self.conf.window_shrinking_factor
                 }
+            }
+            let Verified(best_contrib) = &lvl.best_contribution;
+            Some(best_contrib.clone())
+        } else {
+            None
+        }
+    }
+
+    fn activate_level(&mut self, level: usize) {
+        if !self.is_active(level) {
+            if let Some(prev_level) = self.levels[level - 1].as_ref() {
+                self.levels[level] = Some(ActiveLevel::new(prev_level.best_contribution.clone()))
             }
         }
     }
@@ -203,10 +228,11 @@ where
         Err(())
     }
 
-    pub fn next_dissimination(&mut self) -> Vec<(PeerId, HandelMessage<C>)> {
+    /// Prepares messages for one node from each active level.
+    pub fn next_dissemination(&mut self) -> Vec<(PeerId, HandelMessage<C>)> {
         let own_contrib = self.levels[0]
             .as_ref()
-            .and_then(|l| l.best_contribution.as_ref().map(|c| c.0.contribution.clone()));
+            .map(|l| l.best_contribution.0.contribution.clone());
         let mut messages = vec![];
         for (lix, lvl) in &mut self.levels.iter_mut().enumerate() {
             if let Some(active_lvl) = lvl {
@@ -227,28 +253,51 @@ where
                 } else {
                     None
                 };
-                if let Some(Verified(best_contrib)) = active_lvl.best_contribution.clone() {
-                    messages.push((
-                        next_peer,
-                        HandelMessage::HandelMessageV1(HandelMessageV1 {
-                            level: lix as u32,
-                            individual_contribution: maybe_own_contrib,
-                            aggregate_contribution: best_contrib.contribution,
-                            contact_sender: false,
-                        }),
-                    ));
-                }
+                let Verified(best_contrib) = active_lvl.best_contribution.clone();
+                messages.push((
+                    next_peer,
+                    HandelMessage::HandelMessageV1(HandelMessageV1 {
+                        level: lix as u32,
+                        individual_contribution: maybe_own_contrib,
+                        aggregate_contribution: best_contrib.contribution,
+                        contact_sender: false,
+                    }),
+                ));
             }
         }
         messages
     }
 
-    fn is_complete(&self, contribution: &C, level: usize) -> bool {
-        let weight = contribution.weight();
-        let num_nodes_at_level = (2 as usize).pow(level as u32);
-        let threshold = self.conf.threshold.min(num_nodes_at_level);
-        weight >= threshold
+    fn best_contribution(&self) -> C {
+        let mut levels = self.levels.iter();
+        let mut best_contrib = self.get_own_contribution();
+        while let Some(Some(ActiveLevel {
+            best_contribution: Verified(best_contrib_at_level),
+            ..
+        })) = levels.next()
+        {
+            best_contrib = best_contrib_at_level.clone().contribution;
+        }
+        best_contrib
     }
+
+    fn is_active(&self, level: usize) -> bool {
+        self.levels.get(level).map(|_| true).unwrap_or(false)
+    }
+
+    fn get_own_contribution(&self) -> C {
+        self.levels[0]
+            .as_ref()
+            .map(|l| l.best_contribution.0.contribution.clone())
+            .unwrap()
+    }
+}
+
+fn is_complete<C: Weighted>(contribution: &C, level: usize, threshold: Threshold) -> bool {
+    let weight = contribution.weight();
+    let num_nodes_at_level = (2 as usize).pow(level as u32);
+    let threshold = threshold.min(num_nodes_at_level);
+    weight >= threshold
 }
 
 #[derive(Clone, Debug)]
@@ -298,6 +347,26 @@ struct Verified<C>(C);
 pub struct HandelProtocol<C, P, PP> {
     handel: Handel<C, P, PP>,
     outbox: VecDeque<ProtocolBehaviourOut<Void, HandelMessage<C>>>,
+    next_dissemination_at: Instant,
+}
+
+impl<C, P, PP> HandelProtocol<C, P, PP>
+where
+    C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone + Eq,
+    PP: PeerPartitions,
+{
+    fn run_dissemination(&mut self) {
+        let now = Instant::now();
+        if now >= self.next_dissemination_at {
+            for (pid, msg) in self.handel.next_dissemination() {
+                self.outbox.push_back(ProtocolBehaviourOut::Send {
+                    peer_id: pid,
+                    message: msg,
+                })
+            }
+            self.next_dissemination_at = now.add(self.handel.conf.dissemination_interval);
+        }
+    }
 }
 
 impl<C, P, PP> TemporalProtocolStage<Void, HandelMessage<C>, C> for HandelProtocol<C, P, PP>
@@ -314,8 +383,10 @@ where
                 msg.aggregate_contribution,
                 msg.individual_contribution,
             )
-            .is_err()
+            .is_ok()
         {
+            self.handel.process_level(msg.level as usize);
+        } else {
             self.outbox
                 .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::BanPeer(
                     peer_id,
@@ -327,7 +398,11 @@ where
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<Either<ProtocolBehaviourOut<Void, HandelMessage<C>>, C>> {
-        todo!()
+        self.run_dissemination();
+        if let Some(out) = self.outbox.pop_front() {
+            return Poll::Ready(Left(out));
+        }
+        Poll::Pending
     }
 }
 
