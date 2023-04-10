@@ -683,7 +683,7 @@ async fn integration_test_2() {
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
     let (cancel_tx_2, cancel_rx_2) = oneshot::channel::<()>();
 
-    let secs = 60;
+    let secs = 10;
 
     // Spawn tasks for peer_0
     async_std::task::spawn(async move {
@@ -867,6 +867,8 @@ async fn create_swarm<P>(
     let mut swarm = Swarm::new(transport, nc, local_peer_id);
 
     swarm.listen_on(addr).unwrap();
+
+    wasm_timer::Delay::new(Duration::from_secs(1)).await.unwrap();
 
     loop {
         match swarm.select_next_some().await {
