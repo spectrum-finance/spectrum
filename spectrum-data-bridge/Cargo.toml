@@ -7,8 +7,8 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.68"
-ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "ergo_chain_sync_multithreaded" }
-spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "ergo_chain_sync_multithreaded" }
+ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "dev-919-fix-dropped-compound-order" }
+spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "dev-919-fix-dropped-compound-order" }
 isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.28"
 tokio = { version = "1.27.0", features = ["full"] }
