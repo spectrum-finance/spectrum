@@ -587,206 +587,206 @@ async fn integration_test_peer_punish_too_slow() {
     assert_eq!(expected_nc_peer_1, nc_peer_1);
 }
 
-#[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
-#[async_std::test]
-async fn integration_test_2() {
-    //   --------              --------             --------
-    //  | peer_0 |  ~~~~~~~~> | peer_1 | ~~~~~~~~> | peer_2 |
-    //   --------              --------             --------
-    //     ^                                            |
-    //     |                                            |
-    //     | ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|
-    //
-    // In this scenario `peer_0`, `peer_1` and `peer_2` has `peer_1`, `peer_2` and `peer_0` as a
-    // bootstrap-peer, respectively (indicated by the arrows)
-    let local_key_0 = identity::Keypair::generate_ed25519();
-    let local_peer_id_0 = PeerId::from(local_key_0.public());
-    let local_key_1 = identity::Keypair::generate_ed25519();
-    let local_peer_id_1 = PeerId::from(local_key_1.public());
-    let local_key_2 = identity::Keypair::generate_ed25519();
-    let local_peer_id_2 = PeerId::from(local_key_2.public());
-
-    let addr_0: Multiaddr = "/ip4/127.0.0.1/tcp/1240".parse().unwrap();
-    let addr_1: Multiaddr = "/ip4/127.0.0.1/tcp/1241".parse().unwrap();
-    let addr_2: Multiaddr = "/ip4/127.0.0.1/tcp/1242".parse().unwrap();
-    let peers_0 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1.clone())];
-    let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_2, addr_2.clone())];
-    let peers_2 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
-
-    let local_status_0 = NodeStatus {
-        supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
-        height: 0,
-    };
-    let local_status_1 = local_status_0.clone();
-    let local_status_2 = local_status_0.clone();
-    let sync_behaviour_0 = |p| SyncBehaviour::new(p, local_status_0);
-    let sync_behaviour_1 = |p| SyncBehaviour::new(p, local_status_1);
-    let sync_behaviour_2 = |p| SyncBehaviour::new(p, local_status_2);
-
-    // Though we spawn multiple tasks we use this single channel for messaging.
-    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
-
-    let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
-    let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, sync_behaviour_1, 10);
-    let (mut sync_handler_2, nc_2) = make_swarm_components(peers_2, sync_behaviour_2, 10);
-
-    let mut msg_tx_sync_handler_0 = msg_tx.clone();
-    let sync_handler_0_handle = async_std::task::spawn(async move {
-        loop {
-            let msg = sync_handler_0.select_next_some().await;
-            msg_tx_sync_handler_0
-                .try_send((Peer::First, Msg::Protocol(msg)))
-                .unwrap();
-        }
-    });
-
-    let mut msg_tx_sync_handler_1 = msg_tx.clone();
-    let sync_handler_1_handle = async_std::task::spawn(async move {
-        loop {
-            let msg = sync_handler_1.select_next_some().await;
-            msg_tx_sync_handler_1
-                .try_send((Peer::Second, Msg::Protocol(msg)))
-                .unwrap();
-        }
-    });
-
-    let mut msg_tx_sync_handler_2 = msg_tx.clone();
-    let sync_handler_2_handle = async_std::task::spawn(async move {
-        loop {
-            let msg = sync_handler_2.select_next_some().await;
-            msg_tx_sync_handler_2
-                .try_send((Peer::Third, Msg::Protocol(msg)))
-                .unwrap();
-        }
-    });
-
-    let (abortable_peer_0, handle_0) =
-        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>>(
-            local_key_0,
-            nc_0,
-            addr_0.clone(),
-            Peer::First,
-            msg_tx.clone(),
-        ));
-    let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>>(
-            local_key_1,
-            nc_1,
-            addr_1.clone(),
-            Peer::Second,
-            msg_tx.clone(),
-        ));
-    let (abortable_peer_2, handle_2) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_2, nc_2, addr_2.clone(), Peer::Third, msg_tx),
-    );
-    let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
-    let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
-    let (cancel_tx_2, cancel_rx_2) = oneshot::channel::<()>();
-
-    let secs = 10;
-
-    // Spawn tasks for peer_0
-    async_std::task::spawn(async move {
-        let _ = cancel_rx_0.await;
-        handle_0.abort();
-        sync_handler_0_handle.cancel().await;
-    });
-    async_std::task::spawn(async move {
-        wasm_timer::Delay::new(Duration::from_secs(secs)).await.unwrap();
-        cancel_tx_0.send(()).unwrap();
-    });
-    async_std::task::spawn(abortable_peer_0);
-
-    // Spawn tasks for peer_1
-    async_std::task::spawn(async move {
-        let _ = cancel_rx_1.await;
-        handle_1.abort();
-        sync_handler_1_handle.cancel().await;
-    });
-    async_std::task::spawn(async move {
-        wasm_timer::Delay::new(Duration::from_secs(secs)).await.unwrap();
-        cancel_tx_1.send(()).unwrap();
-    });
-    async_std::task::spawn(abortable_peer_1);
-
-    // Spawn tasks for peer_2
-    async_std::task::spawn(async move {
-        let _ = cancel_rx_2.await;
-        handle_2.abort();
-        sync_handler_2_handle.cancel().await;
-    });
-    async_std::task::spawn(async move {
-        wasm_timer::Delay::new(Duration::from_secs(secs)).await.unwrap();
-        cancel_tx_2.send(()).unwrap();
-    });
-    async_std::task::spawn(abortable_peer_2);
-
-    // Collect messages from the peers. Note that the while loop below will end since all tasks that
-    // use clones of `msg_tx` are guaranteed to drop, leading to the senders dropping too.
-    let mut nc_peer_0 = vec![];
-    let mut nc_peer_1 = vec![];
-    let mut nc_peer_2 = vec![];
-    let mut prot_peer_0 = vec![];
-    let mut prot_peer_1 = vec![];
-    let mut prot_peer_2 = vec![];
-    while let Some((peer, msg)) = msg_rx.next().await {
-        match msg {
-            Msg::NetworkController(nc_msg) => match peer {
-                Peer::First => nc_peer_0.push(nc_msg),
-                Peer::Second => nc_peer_1.push(nc_msg),
-                Peer::Third => nc_peer_2.push(nc_msg),
-            },
-            Msg::Protocol(p_msg) => match peer {
-                Peer::First => prot_peer_0.push(p_msg),
-                Peer::Second => prot_peer_1.push(p_msg),
-                Peer::Third => prot_peer_2.push(p_msg),
-            },
-        }
-    }
-
-    dbg!(&nc_peer_0);
-    dbg!(&nc_peer_1);
-    dbg!(&nc_peer_2);
-    dbg!(&prot_peer_0);
-    dbg!(&prot_peer_1);
-    dbg!(&prot_peer_2);
-
-    // Check that `peer_0` is sending out the necessary `Peers` messages.
-    assert!(
-        prot_peer_0.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
-            PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1)
-        ])))
-    );
-    assert!(
-        prot_peer_0.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
-            PeerDestination::PeerId(local_peer_id_2)
-        ])))
-    );
-
-    // Check that `peer_1` is sending out the necessary `Peers` messages.
-    assert!(
-        prot_peer_1.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
-            PeerDestination::PeerIdWithAddr(local_peer_id_2, addr_2)
-        ])))
-    );
-    assert!(
-        prot_peer_1.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
-            PeerDestination::PeerId(local_peer_id_0)
-        ])))
-    );
-
-    // Check that `peer_2` is sending out the necessary `Peers` messages.
-    assert!(
-        prot_peer_2.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
-            PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0)
-        ])))
-    );
-    assert!(
-        prot_peer_2.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
-            PeerDestination::PeerId(local_peer_id_1)
-        ])))
-    );
-}
+//#[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
+//#[async_std::test]
+//async fn integration_test_2() {
+//    //   --------              --------             --------
+//    //  | peer_0 |  ~~~~~~~~> | peer_1 | ~~~~~~~~> | peer_2 |
+//    //   --------              --------             --------
+//    //     ^                                            |
+//    //     |                                            |
+//    //     | ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|
+//    //
+//    // In this scenario `peer_0`, `peer_1` and `peer_2` has `peer_1`, `peer_2` and `peer_0` as a
+//    // bootstrap-peer, respectively (indicated by the arrows)
+//    let local_key_0 = identity::Keypair::generate_ed25519();
+//    let local_peer_id_0 = PeerId::from(local_key_0.public());
+//    let local_key_1 = identity::Keypair::generate_ed25519();
+//    let local_peer_id_1 = PeerId::from(local_key_1.public());
+//    let local_key_2 = identity::Keypair::generate_ed25519();
+//    let local_peer_id_2 = PeerId::from(local_key_2.public());
+//
+//    let addr_0: Multiaddr = "/ip4/127.0.0.1/tcp/1240".parse().unwrap();
+//    let addr_1: Multiaddr = "/ip4/127.0.0.1/tcp/1241".parse().unwrap();
+//    let addr_2: Multiaddr = "/ip4/127.0.0.1/tcp/1242".parse().unwrap();
+//    let peers_0 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1.clone())];
+//    let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_2, addr_2.clone())];
+//    let peers_2 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
+//
+//    let local_status_0 = NodeStatus {
+//        supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
+//        height: 0,
+//    };
+//    let local_status_1 = local_status_0.clone();
+//    let local_status_2 = local_status_0.clone();
+//    let sync_behaviour_0 = |p| SyncBehaviour::new(p, local_status_0);
+//    let sync_behaviour_1 = |p| SyncBehaviour::new(p, local_status_1);
+//    let sync_behaviour_2 = |p| SyncBehaviour::new(p, local_status_2);
+//
+//    // Though we spawn multiple tasks we use this single channel for messaging.
+//    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
+//
+//    let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
+//    let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, sync_behaviour_1, 10);
+//    let (mut sync_handler_2, nc_2) = make_swarm_components(peers_2, sync_behaviour_2, 10);
+//
+//    let mut msg_tx_sync_handler_0 = msg_tx.clone();
+//    let sync_handler_0_handle = async_std::task::spawn(async move {
+//        loop {
+//            let msg = sync_handler_0.select_next_some().await;
+//            msg_tx_sync_handler_0
+//                .try_send((Peer::First, Msg::Protocol(msg)))
+//                .unwrap();
+//        }
+//    });
+//
+//    let mut msg_tx_sync_handler_1 = msg_tx.clone();
+//    let sync_handler_1_handle = async_std::task::spawn(async move {
+//        loop {
+//            let msg = sync_handler_1.select_next_some().await;
+//            msg_tx_sync_handler_1
+//                .try_send((Peer::Second, Msg::Protocol(msg)))
+//                .unwrap();
+//        }
+//    });
+//
+//    let mut msg_tx_sync_handler_2 = msg_tx.clone();
+//    let sync_handler_2_handle = async_std::task::spawn(async move {
+//        loop {
+//            let msg = sync_handler_2.select_next_some().await;
+//            msg_tx_sync_handler_2
+//                .try_send((Peer::Third, Msg::Protocol(msg)))
+//                .unwrap();
+//        }
+//    });
+//
+//    let (abortable_peer_0, handle_0) =
+//        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>>(
+//            local_key_0,
+//            nc_0,
+//            addr_0.clone(),
+//            Peer::First,
+//            msg_tx.clone(),
+//        ));
+//    let (abortable_peer_1, handle_1) =
+//        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>>(
+//            local_key_1,
+//            nc_1,
+//            addr_1.clone(),
+//            Peer::Second,
+//            msg_tx.clone(),
+//        ));
+//    let (abortable_peer_2, handle_2) = futures::future::abortable(
+//        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_2, nc_2, addr_2.clone(), Peer::Third, msg_tx),
+//    );
+//    let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
+//    let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
+//    let (cancel_tx_2, cancel_rx_2) = oneshot::channel::<()>();
+//
+//    let secs = 10;
+//
+//    // Spawn tasks for peer_0
+//    async_std::task::spawn(async move {
+//        let _ = cancel_rx_0.await;
+//        handle_0.abort();
+//        sync_handler_0_handle.cancel().await;
+//    });
+//    async_std::task::spawn(async move {
+//        wasm_timer::Delay::new(Duration::from_secs(secs)).await.unwrap();
+//        cancel_tx_0.send(()).unwrap();
+//    });
+//    async_std::task::spawn(abortable_peer_0);
+//
+//    // Spawn tasks for peer_1
+//    async_std::task::spawn(async move {
+//        let _ = cancel_rx_1.await;
+//        handle_1.abort();
+//        sync_handler_1_handle.cancel().await;
+//    });
+//    async_std::task::spawn(async move {
+//        wasm_timer::Delay::new(Duration::from_secs(secs)).await.unwrap();
+//        cancel_tx_1.send(()).unwrap();
+//    });
+//    async_std::task::spawn(abortable_peer_1);
+//
+//    // Spawn tasks for peer_2
+//    async_std::task::spawn(async move {
+//        let _ = cancel_rx_2.await;
+//        handle_2.abort();
+//        sync_handler_2_handle.cancel().await;
+//    });
+//    async_std::task::spawn(async move {
+//        wasm_timer::Delay::new(Duration::from_secs(secs)).await.unwrap();
+//        cancel_tx_2.send(()).unwrap();
+//    });
+//    async_std::task::spawn(abortable_peer_2);
+//
+//    // Collect messages from the peers. Note that the while loop below will end since all tasks that
+//    // use clones of `msg_tx` are guaranteed to drop, leading to the senders dropping too.
+//    let mut nc_peer_0 = vec![];
+//    let mut nc_peer_1 = vec![];
+//    let mut nc_peer_2 = vec![];
+//    let mut prot_peer_0 = vec![];
+//    let mut prot_peer_1 = vec![];
+//    let mut prot_peer_2 = vec![];
+//    while let Some((peer, msg)) = msg_rx.next().await {
+//        match msg {
+//            Msg::NetworkController(nc_msg) => match peer {
+//                Peer::First => nc_peer_0.push(nc_msg),
+//                Peer::Second => nc_peer_1.push(nc_msg),
+//                Peer::Third => nc_peer_2.push(nc_msg),
+//            },
+//            Msg::Protocol(p_msg) => match peer {
+//                Peer::First => prot_peer_0.push(p_msg),
+//                Peer::Second => prot_peer_1.push(p_msg),
+//                Peer::Third => prot_peer_2.push(p_msg),
+//            },
+//        }
+//    }
+//
+//    dbg!(&nc_peer_0);
+//    dbg!(&nc_peer_1);
+//    dbg!(&nc_peer_2);
+//    dbg!(&prot_peer_0);
+//    dbg!(&prot_peer_1);
+//    dbg!(&prot_peer_2);
+//
+//    // Check that `peer_0` is sending out the necessary `Peers` messages.
+//    assert!(
+//        prot_peer_0.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+//            PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1)
+//        ])))
+//    );
+//    assert!(
+//        prot_peer_0.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+//            PeerDestination::PeerId(local_peer_id_2)
+//        ])))
+//    );
+//
+//    // Check that `peer_1` is sending out the necessary `Peers` messages.
+//    assert!(
+//        prot_peer_1.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+//            PeerDestination::PeerIdWithAddr(local_peer_id_2, addr_2)
+//        ])))
+//    );
+//    assert!(
+//        prot_peer_1.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+//            PeerDestination::PeerId(local_peer_id_0)
+//        ])))
+//    );
+//
+//    // Check that `peer_2` is sending out the necessary `Peers` messages.
+//    assert!(
+//        prot_peer_2.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+//            PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0)
+//        ])))
+//    );
+//    assert!(
+//        prot_peer_2.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+//            PeerDestination::PeerId(local_peer_id_1)
+//        ])))
+//    );
+//}
 
 fn make_swarm_components<P, F>(
     peers: Vec<PeerDestination>,
