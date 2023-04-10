@@ -1,13 +1,22 @@
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 
+use derive_more::From;
 use libp2p::PeerId;
 use rand::prelude::SliceRandom;
 use rand::{Rng, SeedableRng};
 use sha2::{Digest, Sha256};
 
-/// Index of a peer withing Handel's range of peers.
-pub type PeerIx = usize;
+/// Index of a peer within Handel's range of peers.
+/// Always maps to some `PeerId` within Handel overlay.
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, From, Debug)]
+pub struct PeerIx(usize);
+
+impl PeerIx {
+    pub fn index(&self) -> usize {
+        self.0
+    }
+}
 
 /// Does all the things related to partitioning of peer set withing Handel.
 pub trait PeerPartitions {
@@ -22,8 +31,12 @@ pub trait PeerPartitions {
 }
 
 pub struct BinomialPeerPartitions<R> {
-    // All peers ordered according to their VP at each level `l`.
-    peers: Vec<Vec<PeerIx>>,
+    /// Peers ordered within Handel overlay.
+    peers: Vec<PeerId>,
+    /// Index for quick identification of peers within the overlay.
+    peer_index: HashMap<PeerId, PeerIx>,
+    /// All peers ordered according to their VP at each level `l`.
+    partititons: Vec<Vec<PeerIx>>,
     rng_pd: PhantomData<R>,
 }
 
@@ -49,6 +62,11 @@ where
         let mut rng = R::from_seed(seed);
         all_peers.sort();
         all_peers.shuffle(&mut rng);
+        let total_index = all_peers
+            .iter()
+            .enumerate()
+            .map(|(ix, pid)| (*pid, PeerIx(ix)))
+            .collect::<HashMap<_, _>>();
         let own_index = all_peers
             .iter()
             .position(|pid| *pid == own_peer_id)
@@ -58,12 +76,14 @@ where
             .into_iter()
             .map(|pt| {
                 pt.into_iter()
-                    .filter(|pix| !fake_peers.contains(&all_peers[*pix]))
+                    .filter(|pix| !fake_peers.contains(&all_peers[pix.index()]))
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
         Self {
-            peers: Self::ordered_by_vp(cleared_partitions, seed, own_peer_id),
+            peers: all_peers,
+            peer_index: total_index,
+            partititons: Self::ordered_by_vp(cleared_partitions, seed, own_peer_id),
             rng_pd: PhantomData::default(),
         }
     }
@@ -101,10 +121,10 @@ fn bin_partition(own_index: usize, num_peers: usize) -> Vec<Vec<PeerIx>> {
     loop {
         let mid = min + (max - min) / 2;
         if own_index > mid {
-            partitions.push((min..mid + 1).collect::<Vec<_>>());
+            partitions.push((min..mid + 1).map(PeerIx).collect());
             min = mid + 1;
         } else if own_index <= mid {
-            partitions.push((mid + 1..max + 1).collect::<Vec<_>>());
+            partitions.push((mid + 1..max + 1).map(PeerIx).collect());
             max = mid;
         };
         if min == max {
@@ -115,7 +135,7 @@ fn bin_partition(own_index: usize, num_peers: usize) -> Vec<Vec<PeerIx>> {
     partitions
 }
 
-/// Finds closes power of 2 to the given `n`.
+/// Finds closest power of 2 following the given `n`.
 fn normalize(n: u32) -> u32 {
     let mut power = 0u32;
     loop {
@@ -130,19 +150,19 @@ fn normalize(n: u32) -> u32 {
 
 impl<R> PeerPartitions for BinomialPeerPartitions<R> {
     fn peers_at_level(&self, level: usize) -> Vec<PeerIx> {
-        todo!()
+        self.partititons[level].clone()
     }
 
     fn identify_peer(&self, peer_ix: PeerIx) -> PeerId {
-        todo!()
+        self.peers[peer_ix.index()]
     }
 
     fn try_index_peer(&self, peer_id: PeerId) -> Option<PeerIx> {
-        todo!()
+        self.peer_index.get(&peer_id).copied()
     }
 
     fn num_levels(&self) -> usize {
-        todo!()
+        self.partititons.len()
     }
 }
 
@@ -151,7 +171,9 @@ mod tests {
     use libp2p::PeerId;
     use rand_chacha::ChaCha20Rng;
 
-    use crate::protocol_handler::handel::partitioning::{bin_partition, normalize, BinomialPeerPartitions};
+    use crate::protocol_handler::handel::partitioning::{
+        bin_partition, normalize, BinomialPeerPartitions, PeerIx,
+    };
 
     #[test]
     fn test_normalization() {
@@ -168,23 +190,23 @@ mod tests {
         let part_0 = bin_partition(own_index_0, augmented_peers);
         assert_eq!(
             part_0,
-            vec![
+            as_peer_indexes(vec![
                 vec![11],
                 vec![8, 9],
                 vec![12, 13, 14, 15],
                 vec![0, 1, 2, 3, 4, 5, 6, 7],
-            ]
+            ])
         );
         let own_index_1 = 4;
         let part_1 = bin_partition(own_index_1, augmented_peers);
         assert_eq!(
             part_1,
-            vec![
+            as_peer_indexes(vec![
                 vec![5],
                 vec![6, 7],
                 vec![0, 1, 2, 3],
                 vec![8, 9, 10, 11, 12, 13, 14, 15],
-            ]
+            ])
         );
     }
 
@@ -194,7 +216,13 @@ mod tests {
         let own_peer_id = init_peers[9];
         let seed = [0u8; 32];
         let part = BinomialPeerPartitions::<ChaCha20Rng>::new(own_peer_id, init_peers.clone(), seed);
-        assert_eq!(part.peers.len(), 4);
-        println!("{:?}", part.peers);
+        assert_eq!(part.partititons.len(), 4);
+        println!("{:?}", part.partititons);
+    }
+
+    fn as_peer_indexes(xs: Vec<Vec<usize>>) -> Vec<Vec<PeerIx>> {
+        xs.into_iter()
+            .map(|ls| ls.into_iter().map(PeerIx).collect())
+            .collect()
     }
 }

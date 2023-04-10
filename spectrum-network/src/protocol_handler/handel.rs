@@ -102,8 +102,8 @@ where
         if let Some(lvl) = &mut self.levels[level] {
             // Prioritize contributions
             if !self.unverified_contributions[level].is_empty() {
-                for pid in &self.peer_partitions.peers_at_level(level) {
-                    if let Some(uc) = self.unverified_contributions[level].remove(pid) {
+                for pix in &self.peer_partitions.peers_at_level(level) {
+                    if let Some(uc) = self.unverified_contributions[level].remove(pix) {
                         lvl.prioritized_contributions.push(uc);
                     }
                     if lvl.prioritized_contributions.len() >= self.scoring_window {
