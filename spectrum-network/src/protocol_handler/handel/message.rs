@@ -13,7 +13,7 @@ pub enum HandelMessage<C> {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct HandelMessageV1<C> {
     pub level: u32,
-    pub individual_contribution: C,
+    pub individual_contribution: Option<C>,
     pub aggregate_contribution: C,
     /// If true, then receiver needs to contact sender
     pub contact_sender: bool,
