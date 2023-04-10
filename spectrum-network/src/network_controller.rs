@@ -452,11 +452,10 @@ where
                 }) = self.enabled_peers.get_mut(&peer_id)
                 {
                     let protocol_id = protocol_tag.protocol_id();
-                    match enabled_protocols.get(&protocol_id) {
-                        Some((_, prot_handler)) => {
-                            prot_handler.incoming_msg(peer_id, protocol_tag.protocol_ver(), content);
-                        }
-                        None => {} // todo: probably possible?
+                    if let Some((_, prot_handler)) = enabled_protocols.get(&protocol_id) {
+                        prot_handler.incoming_msg(peer_id, protocol_tag.protocol_ver(), content);
+                    } else {
+                        // todo: probably possible?
                     };
                 }
             }

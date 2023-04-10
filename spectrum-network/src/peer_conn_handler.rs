@@ -60,30 +60,23 @@ pub enum ProtocolState {
     Opened {
         substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
         substream_out: ProtocolSubstreamOut<NegotiatedSubstream>,
-        pending_messages_recv: stream::Peekable<
-            stream::Select<
-                stream::Fuse<mpsc::Receiver<StreamNotification>>,
-                stream::Fuse<mpsc::Receiver<StreamNotification>>,
-            >,
-        >,
+        pending_messages_recv: stream::Peekable<stream::Select<AsyncReceiver, SyncReceiver>>,
     },
     /// Inbound substream is closed by peer.
     InboundClosedByPeer {
         /// None in the case when the peer closed inbound substream while outbound one
         /// hasn't been negotiated yet.
         substream_out: ProtocolSubstreamOut<NegotiatedSubstream>,
-        pending_messages_recv: stream::Peekable<
-            stream::Select<
-                stream::Fuse<mpsc::Receiver<StreamNotification>>,
-                stream::Fuse<mpsc::Receiver<StreamNotification>>,
-            >,
-        >,
+        pending_messages_recv: stream::Peekable<stream::Select<AsyncReceiver, SyncReceiver>>,
     },
     /// Outbound substream is closed by peer.
     OutboundClosedByPeer {
         substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
     },
 }
+
+type AsyncReceiver = stream::Fuse<mpsc::Receiver<StreamNotification>>;
+type SyncReceiver = stream::Fuse<mpsc::Receiver<StreamNotification>>;
 
 impl Debug for ProtocolState {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
@@ -246,6 +239,7 @@ impl IntoConnectionHandler for PartialPeerConnHandler {
     }
 }
 
+#[allow(dead_code)]
 pub struct PeerConnHandler {
     conf: PeerConnHandlerConf,
     protocols: HashMap<ProtocolId, Protocol>,
@@ -719,5 +713,6 @@ enum ThrottleStage {
     Start,
     InProgress,
     Finish,
+    #[cfg(not(feature = "test_peer_punish_too_slow"))]
     Disable,
 }

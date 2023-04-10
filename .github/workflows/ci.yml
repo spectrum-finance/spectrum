@@ -1,0 +1,43 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+jobs:
+  test:
+    name: Tests on ubuntu-latest
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: build and run tests
+        run: cargo test --features integration_tests -- --test-threads=1
+      - name: Run `peer-punish-too-slow` integration test
+        run: cargo test integration_test_peer_punish_too_slow --features test_peer_punish_too_slow,integration_tests 
+  clippy:
+    name: Clippy (linter)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          components: clippy
+          override: true
+      - name: Check with Clippy
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features -- -D warnings

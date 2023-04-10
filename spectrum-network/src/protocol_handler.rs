@@ -99,6 +99,7 @@ pub trait ProtocolBehaviour {
     /// Inject an event of protocol being disabled with a peer.
     fn inject_protocol_disabled(&mut self, peer_id: PeerId);
 
+    #[allow(clippy::type_complexity)]
     /// Poll for output actions.
     fn poll(
         &mut self,
@@ -155,7 +156,10 @@ where
                         trace!("Sending message {:?} to peer {}", message, peer_id);
                         if let Some(sink) = self.peers.get(&peer_id) {
                             trace!("Sink is available");
-                            if let Err(_) = sink.send_message(codec::BinCodec::encode(message.clone())) {
+                            if sink
+                                .send_message(codec::BinCodec::encode(message.clone()))
+                                .is_err()
+                            {
                                 trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
                             }
                             trace!("Sent");

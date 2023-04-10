@@ -45,7 +45,7 @@ fn err_connect_to_peer_when_vacant_connections_not_available() {
     //assert!(peer.connect().is_err());
 }
 
-fn mk_peers_state(max_inbound: usize, max_outbound: usize, capacity: usize) -> impl PeersState {
+fn mk_peers_state(max_inbound: usize, max_outbound: usize, _capacity: usize) -> impl PeersState {
     let netw_conf = NetworkingConfig {
         min_known_peers: 2,
         min_outbound: 1,

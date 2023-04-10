@@ -484,7 +484,7 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
         }
     }
 
-    fn on_connection_established(&mut self, peer_id: PeerId, conn_id: ConnectionId) {
+    fn on_connection_established(&mut self, peer_id: PeerId, _conn_id: ConnectionId) {
         if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&peer_id) {
             cp.confirm_connection();
         } else {

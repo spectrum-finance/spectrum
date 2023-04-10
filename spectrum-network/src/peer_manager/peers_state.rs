@@ -286,6 +286,7 @@ pub enum PeerStateFilter {
 
 const MAX_BOOT_PEERS: usize = 8;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetworkingState {
     /// The node has few known peers.
