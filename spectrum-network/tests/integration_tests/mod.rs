@@ -683,7 +683,7 @@ async fn integration_test_2() {
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
     let (cancel_tx_2, cancel_rx_2) = oneshot::channel::<()>();
 
-    let secs = 5;
+    let secs = 10;
 
     // Spawn tasks for peer_0
     async_std::task::spawn(async move {
