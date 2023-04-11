@@ -88,7 +88,7 @@ where
         }
     }
 
-    /// Arrange peers withing partitions according to their VP.
+    /// Arrange peers within partitions according to their VP.
     fn ordered_by_vp(partitions: Vec<Vec<PeerIx>>, seed: TSeed, own_peer_id: PeerId) -> Vec<Vec<PeerIx>> {
         let mut vp_rng = Self::vp_rng(seed, own_peer_id);
         let mut ordered_partitions = vec![];
@@ -131,6 +131,10 @@ fn bin_partition(own_index: usize, num_peers: usize) -> Vec<Vec<PeerIx>> {
             break;
         }
     }
+    // 0'th partition is empty bacause it contains only the node itself.
+    // Nevertheless it must be present in the partitioning table
+    // in order for it to be coherent with level indexing.
+    partitions.push(vec![]);
     partitions.reverse();
     partitions
 }
@@ -167,13 +171,61 @@ impl<R> PeerPartitions for BinomialPeerPartitions<R> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    use std::collections::HashMap;
+
     use libp2p::PeerId;
     use rand_chacha::ChaCha20Rng;
 
     use crate::protocol_handler::handel::partitioning::{
-        bin_partition, normalize, BinomialPeerPartitions, PeerIx,
+        bin_partition, normalize, BinomialPeerPartitions, PeerIx, PeerPartitions,
     };
+
+    pub struct FakePartitions {
+        peers: Vec<PeerId>,
+        peer_index: HashMap<PeerId, PeerIx>,
+        partitions: Vec<Vec<PeerIx>>,
+    }
+
+    impl FakePartitions {
+        pub fn new(partitions: Vec<Vec<PeerId>>) -> Self {
+            let mut flat_peers = partitions.iter().flatten().collect::<Vec<_>>();
+            flat_peers.sort();
+            let mut peers = flat_peers
+                .iter()
+                .enumerate()
+                .map(|(ix, pid)| (PeerIx(ix), **pid))
+                .collect::<Vec<_>>();
+            peers.sort_by_key(|(pix, _)| *pix);
+            let index = HashMap::from_iter(peers.iter().map(|(pix, pid)| (*pid, *pix)));
+            Self {
+                peers: peers.into_iter().map(|(_, pid)| pid).collect(),
+                peer_index: index.clone(),
+                partitions: partitions
+                    .into_iter()
+                    .map(|pt| pt.into_iter().map(|pid| *index.get(&pid).unwrap()).collect())
+                    .collect(),
+            }
+        }
+    }
+
+    impl PeerPartitions for FakePartitions {
+        fn peers_at_level(&self, level: usize) -> Vec<PeerIx> {
+            self.partitions[level].clone()
+        }
+
+        fn identify_peer(&self, peer_ix: PeerIx) -> PeerId {
+            self.peers[peer_ix.index()]
+        }
+
+        fn try_index_peer(&self, peer_id: PeerId) -> Option<PeerIx> {
+            self.peer_index.get(&peer_id).copied()
+        }
+
+        fn num_levels(&self) -> usize {
+            self.partitions.len()
+        }
+    }
 
     #[test]
     fn test_normalization() {
@@ -191,6 +243,7 @@ mod tests {
         assert_eq!(
             part_0,
             as_peer_indexes(vec![
+                vec![],
                 vec![11],
                 vec![8, 9],
                 vec![12, 13, 14, 15],
@@ -202,6 +255,7 @@ mod tests {
         assert_eq!(
             part_1,
             as_peer_indexes(vec![
+                vec![],
                 vec![5],
                 vec![6, 7],
                 vec![0, 1, 2, 3],
@@ -216,7 +270,7 @@ mod tests {
         let own_peer_id = init_peers[9];
         let seed = [0u8; 32];
         let part = BinomialPeerPartitions::<ChaCha20Rng>::new(own_peer_id, init_peers.clone(), seed);
-        assert_eq!(part.partititons.len(), 4);
+        assert_eq!(part.partititons.len(), 5);
         println!("{:?}", part.partititons);
     }
 

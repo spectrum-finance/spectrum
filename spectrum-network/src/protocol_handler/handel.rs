@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::ops::Add;
+use std::fmt::Debug;
+use std::ops::{Add, Mul};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -40,7 +41,8 @@ struct ActiveLevel<C> {
     individual_contributions: Vec<Verified<C>>,
     best_contribution: Verified<ScoredContribution<C>>,
     /// Index of the peer we contacted last at the level.
-    last_contacted_peer: Option<usize>,
+    last_contacted_peer_ix: Option<usize>,
+    completed: bool,
 }
 
 impl<C> ActiveLevel<C> {
@@ -48,20 +50,23 @@ impl<C> ActiveLevel<C> {
         Self {
             prioritized_contributions: vec![],
             individual_contributions: vec![],
-            last_contacted_peer: None,
+            last_contacted_peer_ix: None,
             best_contribution,
+            completed: false,
         }
     }
-    fn unit(contribution: C) -> Self {
+    fn unit(contribution: Verified<ScoredContribution<C>>) -> Self {
         Self {
             prioritized_contributions: vec![],
             individual_contributions: vec![],
-            last_contacted_peer: None,
-            best_contribution: Verified(ScoredContribution {
-                score: 1,
-                contribution,
-            }),
+            last_contacted_peer_ix: None,
+            best_contribution: contribution,
+            completed: true,
         }
+    }
+
+    fn completed(&mut self) {
+        self.completed = true;
     }
 }
 
@@ -70,7 +75,9 @@ pub struct HandelConfig {
     pub threshold: Threshold,
     pub window_shrinking_factor: usize,
     pub initial_scoring_window: usize,
+    pub fast_path_window: usize,
     pub dissemination_interval: Duration,
+    pub level_activation_delay: Duration,
 }
 
 /// A round of Handel protocol that drives aggregation of contribution `C`.
@@ -85,17 +92,26 @@ pub struct Handel<C, P, PP> {
     byzantine_nodes: HashSet<PeerIx>,
     /// Keeps track of the peers to whom we've sent our own contribution already.
     own_contribution_recvs: HashSet<PeerIx>,
+    outbox: VecDeque<ProtocolBehaviourOut<Void, HandelMessage<C>>>,
+    next_dissemination_at: Instant,
+    level_activation_schedule: Vec<Option<Instant>>,
 }
 
 impl<C, P, PP> Handel<C, P, PP>
 where
-    C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Eq + Clone,
+    C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Eq + Clone + Debug,
     PP: PeerPartitions,
 {
     pub fn new(conf: HandelConfig, own_contribution: C, public_data: P, peer_partitions: PP) -> Self {
         let num_levels = peer_partitions.num_levels();
         let mut levels = vec![None; num_levels];
-        levels[0] = Some(ActiveLevel::unit(own_contribution));
+        let own_contribution_scored = Verified(ScoredContribution {
+            score: 1,
+            contribution: own_contribution,
+        });
+        levels[0] = Some(ActiveLevel::unit(own_contribution_scored.clone()));
+        levels[1] = Some(ActiveLevel::new(own_contribution_scored));
+        let now = Instant::now();
         Handel {
             conf,
             public_data,
@@ -105,22 +121,47 @@ where
             levels,
             byzantine_nodes: HashSet::new(),
             own_contribution_recvs: HashSet::new(),
+            outbox: VecDeque::new(),
+            next_dissemination_at: now,
+            level_activation_schedule: vec![(); num_levels]
+                .into_iter()
+                .enumerate()
+                .map(|(i, _)| {
+                    if i > 1 {
+                        Some(now.add(conf.level_activation_delay.mul(i as u32)))
+                    } else {
+                        // 0'th and 1'st levels are already activated.
+                        None
+                    }
+                })
+                .collect(),
         }
     }
 
-    fn process_level(&mut self, level: usize) {
-        if let Some(best_contrib) = self.run_aggregation(level) {
-            if !self.is_active(level + 1)
-                && is_complete(&best_contrib.contribution, level, self.conf.threshold)
-            {
-                // Next level is not yet activated, current one is complete. It's time to activate next one.
-                self.levels[level + 1] = Some(ActiveLevel::new(Verified(best_contrib.clone())));
+    fn try_disseminatate(&mut self) {
+        let now = Instant::now();
+        if now >= self.next_dissemination_at {
+            self.run_dissemination();
+            self.next_dissemination_at = now.add(self.conf.dissemination_interval);
+        }
+    }
+
+    fn try_activate_levels(&mut self) {
+        let now = Instant::now();
+        for (lvl, schedule) in self.level_activation_schedule.clone().into_iter().enumerate() {
+            if let Some(ts) = schedule {
+                if ts <= now {
+                    self.activate_level(lvl);
+                    self.level_activation_schedule[lvl] = None;
+                } else {
+                    break;
+                }
             }
         }
     }
 
     /// Run aggregation on the specified level.
-    fn run_aggregation(&mut self, level: usize) -> Option<ScoredContribution<C>> {
+    fn run_aggregation(&mut self, level: usize) {
         if let Some(lvl) = &mut self.levels[level] {
             // Prioritize contributions
             if !self.unverified_contributions[level].is_empty() {
@@ -133,7 +174,7 @@ where
                     }
                 }
             } else {
-                return None;
+                return;
             }
             let Verified(best_contribution) = lvl.best_contribution.clone();
             let mut scored_contributions: BTreeSet<ScoredContributionTraced<C>> = BTreeSet::new();
@@ -193,21 +234,29 @@ where
                 }
             }
             let Verified(best_contrib) = &lvl.best_contribution;
-            Some(best_contrib.clone())
-        } else {
-            None
+            if is_complete(&best_contrib.contribution, level, self.conf.threshold) {
+                lvl.completed();
+                self.run_fast_path(level);
+                self.activate_level(level + 1);
+            }
         }
     }
 
     fn activate_level(&mut self, level: usize) {
         if !self.is_active(level) {
             if let Some(prev_level) = self.levels[level - 1].as_ref() {
-                self.levels[level] = Some(ActiveLevel::new(prev_level.best_contribution.clone()))
+                if self.peer_partitions.peers_at_level(level).is_empty() {
+                    // This level is empty, skip it
+                    self.levels[level] = Some(ActiveLevel::unit(prev_level.best_contribution.clone()));
+                    self.activate_level(level + 1);
+                } else {
+                    self.levels[level] = Some(ActiveLevel::new(prev_level.best_contribution.clone()))
+                }
             }
         }
     }
 
-    pub fn inject_contribution(
+    fn handle_contribution(
         &mut self,
         peer_id: PeerId,
         level: u32,
@@ -215,7 +264,12 @@ where
         individual_contribution: Option<C>,
     ) -> Result<(), ()> {
         if let Some(peer_ix) = self.peer_partitions.try_index_peer(peer_id) {
-            if !self.byzantine_nodes.contains(&peer_ix) {
+            if !self.byzantine_nodes.contains(&peer_ix)
+                && !self.levels[level as usize]
+                    .as_ref()
+                    .map(|lvl| lvl.completed)
+                    .unwrap_or(false)
+            {
                 let contrib = PendingContribution {
                     sender_id: peer_ix,
                     aggregate_contribution,
@@ -228,23 +282,57 @@ where
         Err(())
     }
 
-    /// Prepares messages for one node from each active level.
-    pub fn next_dissemination(&mut self) -> Vec<(PeerId, HandelMessage<C>)> {
+    fn run_fast_path(&mut self, level: usize) {
         let own_contrib = self.levels[0]
             .as_ref()
             .map(|l| l.best_contribution.0.contribution.clone());
-        let mut messages = vec![];
+        if let Some(lvl) = &mut self.levels[level] {
+            let offset = lvl.last_contacted_peer_ix.map(|x| x + 1).unwrap_or(0);
+            let nodes_at_level = self.peer_partitions.peers_at_level(level);
+            let indexes = (0..self.conf.fast_path_window)
+                .map(|ix| (ix + offset) % nodes_at_level.len())
+                .collect::<Vec<_>>();
+            let nodes = indexes
+                .into_iter()
+                .map(|ix| nodes_at_level[ix])
+                .collect::<Vec<_>>();
+            for pix in nodes {
+                let maybe_own_contrib = if !self.own_contribution_recvs.contains(&pix) {
+                    own_contrib.clone()
+                } else {
+                    None
+                };
+                let Verified(best_contrib) = lvl.best_contribution.clone();
+                self.outbox.push_back(ProtocolBehaviourOut::Send {
+                    peer_id: self.peer_partitions.identify_peer(pix),
+                    message: HandelMessage::HandelMessageV1(HandelMessageV1 {
+                        level: level as u32,
+                        individual_contribution: maybe_own_contrib,
+                        aggregate_contribution: best_contrib.contribution,
+                        contact_sender: false,
+                    }),
+                });
+            }
+        }
+    }
+
+    /// Sends messages for one node from each active level.
+    /// todo: CVP
+    fn run_dissemination(&mut self) {
+        let own_contrib = self.levels[0]
+            .as_ref()
+            .map(|l| l.best_contribution.0.contribution.clone());
         for (lix, lvl) in &mut self.levels.iter_mut().enumerate() {
             if let Some(active_lvl) = lvl {
                 let peers_at_level = self.peer_partitions.peers_at_level(lix);
                 let maybe_next_peer = active_lvl
-                    .last_contacted_peer
+                    .last_contacted_peer_ix
                     .and_then(|i| peers_at_level.get(i + 1));
                 let next_peer_ix = if let Some(next_peer) = maybe_next_peer {
-                    active_lvl.last_contacted_peer = active_lvl.last_contacted_peer.map(|i| i + 1);
+                    active_lvl.last_contacted_peer_ix = active_lvl.last_contacted_peer_ix.map(|i| i + 1);
                     *next_peer
                 } else {
-                    active_lvl.last_contacted_peer = Some(0);
+                    active_lvl.last_contacted_peer_ix = Some(0);
                     self.peer_partitions.peers_at_level(lix)[0]
                 };
                 let next_peer = self.peer_partitions.identify_peer(next_peer_ix);
@@ -254,18 +342,17 @@ where
                     None
                 };
                 let Verified(best_contrib) = active_lvl.best_contribution.clone();
-                messages.push((
-                    next_peer,
-                    HandelMessage::HandelMessageV1(HandelMessageV1 {
+                self.outbox.push_back(ProtocolBehaviourOut::Send {
+                    peer_id: next_peer,
+                    message: HandelMessage::HandelMessageV1(HandelMessageV1 {
                         level: lix as u32,
                         individual_contribution: maybe_own_contrib,
                         aggregate_contribution: best_contrib.contribution,
                         contact_sender: false,
                     }),
-                ));
+                });
             }
         }
-        messages
     }
 
     fn best_contribution(&self) -> C {
@@ -282,7 +369,7 @@ where
     }
 
     fn is_active(&self, level: usize) -> bool {
-        self.levels.get(level).map(|_| true).unwrap_or(false)
+        self.levels.get(level).map(|l| l.is_some()).unwrap_or(false)
     }
 
     fn get_own_contribution(&self) -> C {
@@ -311,14 +398,14 @@ struct PendingContribution<C> {
     individual_contribution: Option<C>,
 }
 
-#[derive(Eq, PartialEq, Clone)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 struct ScoredContributionTraced<C> {
     score: usize,
     sender_id: PeerIx,
     contribution: C,
 }
 
-#[derive(Eq, PartialEq, Clone)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 struct ScoredContribution<C> {
     score: usize,
     contribution: C,
@@ -348,55 +435,14 @@ impl<C: Eq> Ord for ScoredContributionTraced<C> {
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone)]
 struct Verified<C>(C);
 
-pub struct HandelProtocol<C, P, PP> {
-    handel: Handel<C, P, PP>,
-    outbox: VecDeque<ProtocolBehaviourOut<Void, HandelMessage<C>>>,
-    next_dissemination_at: Instant,
-    level_activation_schedule: Vec<Option<Instant>>,
-}
-
-impl<C, P, PP> HandelProtocol<C, P, PP>
+impl<C, P, PP> TemporalProtocolStage<Void, HandelMessage<C>, C> for Handel<C, P, PP>
 where
-    C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone + Eq,
-    PP: PeerPartitions,
-{
-    fn run_dissemination(&mut self) {
-        let now = Instant::now();
-        if now >= self.next_dissemination_at {
-            for (pid, msg) in self.handel.next_dissemination() {
-                self.outbox.push_back(ProtocolBehaviourOut::Send {
-                    peer_id: pid,
-                    message: msg,
-                })
-            }
-            self.next_dissemination_at = now.add(self.handel.conf.dissemination_interval);
-        }
-    }
-
-    fn activate_levels(&mut self) {
-        let now = Instant::now();
-        for (lvl, schedule) in self.level_activation_schedule.clone().into_iter().enumerate() {
-            if let Some(ts) = schedule {
-                if ts <= now {
-                    self.handel.activate_level(lvl);
-                    self.level_activation_schedule[lvl] = None;
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-}
-
-impl<C, P, PP> TemporalProtocolStage<Void, HandelMessage<C>, C> for HandelProtocol<C, P, PP>
-where
-    C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone + Eq,
+    C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone + Eq + Debug,
     PP: PeerPartitions,
 {
     fn inject_message(&mut self, peer_id: PeerId, HandelMessage::HandelMessageV1(msg): HandelMessage<C>) {
         if self
-            .handel
-            .inject_contribution(
+            .handle_contribution(
                 peer_id,
                 msg.level,
                 msg.aggregate_contribution,
@@ -404,7 +450,7 @@ where
             )
             .is_ok()
         {
-            self.handel.process_level(msg.level as usize);
+            self.run_aggregation(msg.level as usize);
         } else {
             self.outbox
                 .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::BanPeer(
@@ -413,12 +459,9 @@ where
         }
     }
 
-    fn poll(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<Either<ProtocolBehaviourOut<Void, HandelMessage<C>>, C>> {
-        self.run_dissemination();
-        self.activate_levels();
+    fn poll(&mut self, _: &mut Context<'_>) -> Poll<Either<ProtocolBehaviourOut<Void, HandelMessage<C>>, C>> {
+        self.try_disseminatate();
+        self.try_activate_levels();
         if let Some(out) = self.outbox.pop_front() {
             return Poll::Ready(Left(out));
         }
@@ -428,15 +471,155 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
+    use std::time::Duration;
 
-    use crate::protocol_handler::handel::Weighted;
+    use libp2p::PeerId;
+    use rand_chacha::ChaCha20Rng;
 
+    use algebra_core::CommutativePartialSemigroup;
+    use spectrum_crypto::VerifiableAgainst;
+
+    use crate::protocol_handler::handel::partitioning::tests::FakePartitions;
+    use crate::protocol_handler::handel::partitioning::{BinomialPeerPartitions, PeerIx, PeerPartitions};
+    use crate::protocol_handler::handel::{Handel, HandelConfig, Threshold, Weighted};
+
+    #[derive(Clone, Eq, PartialEq, Debug)]
     struct Contrib(HashSet<u32>);
 
     impl Weighted for Contrib {
         fn weight(&self) -> usize {
             self.0.len()
         }
+    }
+
+    impl CommutativePartialSemigroup for Contrib {
+        fn try_combine(&self, that: &Self) -> Option<Self> {
+            Some(Self(self.0.union(&that.0).copied().collect()))
+        }
+    }
+
+    impl VerifiableAgainst<()> for Contrib {
+        fn verify(&self, proposition: &()) -> bool {
+            true
+        }
+    }
+
+    const CONF: HandelConfig = HandelConfig {
+        threshold: Threshold { num: 2, denom: 3 },
+        window_shrinking_factor: 2,
+        initial_scoring_window: 4,
+        fast_path_window: 4,
+        dissemination_interval: Duration::from_millis(2000),
+        level_activation_delay: Duration::from_millis(400),
+    };
+
+    fn make_handel(
+        own_peer: PeerId,
+        peers: Vec<PeerId>,
+        contrib: Contrib,
+    ) -> Handel<Contrib, (), BinomialPeerPartitions<ChaCha20Rng>> {
+        let pp = BinomialPeerPartitions::new(own_peer, peers, [0u8; 32]);
+        Handel::new(CONF, contrib, (), pp)
+    }
+
+    #[test]
+    fn best_contrib_is_own_contrib_when_no_interactions() {
+        let my_contrib = Contrib(HashSet::from([0]));
+        let peers = (0..10).map(|_| PeerId::random()).collect::<Vec<_>>();
+        let own_peer = peers[0];
+        let handel = make_handel(own_peer, peers, my_contrib.clone());
+        assert_eq!(handel.best_contribution(), my_contrib);
+    }
+
+    #[test]
+    fn zeroth_and_first_levels_are_active_on_start() {
+        let my_contrib = Contrib(HashSet::from([0]));
+        let peers = (0..10).map(|_| PeerId::random()).collect::<Vec<_>>();
+        let own_peer = peers[0];
+        let handel = make_handel(own_peer, peers, my_contrib.clone());
+        assert!(handel.is_active(0));
+        assert!(handel.is_active(1));
+        assert!(!handel.is_active(2));
+    }
+
+    #[test]
+    fn aggregate_contribution() {
+        let my_contrib = Contrib(HashSet::from([0]));
+        let their_contrib = Contrib(HashSet::from([1]));
+        let their_aggregate_contrib = Contrib(HashSet::from([1, 4, 9]));
+        let peers = (0..16).map(|_| PeerId::random()).collect::<Vec<_>>();
+        let own_peer = peers[0];
+        let mut handel = make_handel(own_peer, peers.clone(), my_contrib.clone());
+        let peer = handel.peer_partitions.peers_at_level(1)[0];
+        let res = handel.handle_contribution(
+            handel.peer_partitions.identify_peer(peer),
+            1,
+            their_aggregate_contrib,
+            Some(their_contrib),
+        );
+        assert!(res.is_ok());
+        handel.run_aggregation(1);
+        assert_eq!(handel.best_contribution(), Contrib(HashSet::from([0, 1, 4, 9])));
+    }
+
+    #[test]
+    fn ingnore_contributions_from_unknown_peers() {
+        let my_contrib = Contrib(HashSet::from([0]));
+        let their_contrib = Contrib(HashSet::from([1]));
+        let their_aggregate_contrib = Contrib(HashSet::from([1, 4, 9]));
+        let peers = (0..10).map(|_| PeerId::random()).collect::<Vec<_>>();
+        let own_peer = peers[0];
+        let mut handel = make_handel(own_peer, peers.clone(), my_contrib.clone());
+        let res =
+            handel.handle_contribution(PeerId::random(), 1, their_aggregate_contrib, Some(their_contrib));
+        if handel.peer_partitions.peers_at_level(1).is_empty() {
+            return;
+        }
+        assert!(res.is_err());
+        handel.run_aggregation(1);
+        assert_eq!(handel.best_contribution(), my_contrib);
+    }
+
+    #[test]
+    fn empty_levels_are_skipped() {
+        let my_contrib = Contrib(HashSet::from([0]));
+        let level_1_peer_contrib = Contrib(HashSet::from([1]));
+        let level_1_peer_aggregate_contrib = Contrib(HashSet::from([1, 4, 9]));
+        let peers = vec![
+            vec![],
+            vec![PeerId::random()],
+            vec![],
+            vec![
+                PeerId::random(),
+                PeerId::random(),
+                PeerId::random(),
+                PeerId::random(),
+            ],
+            vec![
+                PeerId::random(),
+                PeerId::random(),
+                PeerId::random(),
+                PeerId::random(),
+                PeerId::random(),
+                PeerId::random(),
+                PeerId::random(),
+                PeerId::random(),
+            ],
+        ];
+        let own_peer = PeerId::random();
+        let pp = FakePartitions::new(peers.clone());
+        let mut handel = Handel::new(CONF, my_contrib, (), pp);
+        let res = handel.handle_contribution(
+            peers[1][0],
+            1,
+            level_1_peer_aggregate_contrib,
+            Some(level_1_peer_contrib),
+        );
+        assert!(res.is_ok());
+        handel.run_aggregation(1);
+        assert!(handel.levels[2].is_some());
+        assert!(handel.levels[2].as_ref().unwrap().completed);
+        assert!(handel.levels[3].is_some());
     }
 }
