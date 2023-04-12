@@ -13,7 +13,7 @@ use algebra_core::CommutativePartialSemigroup;
 use spectrum_crypto::VerifiableAgainst;
 
 use crate::protocol_handler::handel::message::{HandelMessage, HandelMessageV1};
-use crate::protocol_handler::handel::partitioning::{PeerIx, PeerPartitions};
+use crate::protocol_handler::handel::partitioning::{PeerIx, PeerOrd, PeerPartitions};
 use crate::protocol_handler::{NetworkAction, ProtocolBehaviourOut, TemporalProtocolStage};
 
 mod message;
@@ -165,7 +165,7 @@ where
         if let Some(lvl) = &mut self.levels[level] {
             // Prioritize contributions
             if !self.unverified_contributions[level].is_empty() {
-                for pix in &self.peer_partitions.peers_at_level(level) {
+                for pix in &self.peer_partitions.peers_at_level(level, PeerOrd::VP) {
                     if let Some(uc) = self.unverified_contributions[level].remove(pix) {
                         lvl.prioritized_contributions.push(uc);
                     }
@@ -245,7 +245,7 @@ where
     fn activate_level(&mut self, level: usize) {
         if !self.is_active(level) {
             if let Some(prev_level) = self.levels[level - 1].as_ref() {
-                if self.peer_partitions.peers_at_level(level).is_empty() {
+                if self.peer_partitions.peers_at_level(level, PeerOrd::VP).is_empty() {
                     // This level is empty, skip it
                     self.levels[level] = Some(ActiveLevel::unit(prev_level.best_contribution.clone()));
                     self.activate_level(level + 1);
@@ -288,7 +288,7 @@ where
             .map(|l| l.best_contribution.0.contribution.clone());
         if let Some(lvl) = &mut self.levels[level] {
             let offset = lvl.last_contacted_peer_ix.map(|x| x + 1).unwrap_or(0);
-            let nodes_at_level = self.peer_partitions.peers_at_level(level);
+            let nodes_at_level = self.peer_partitions.peers_at_level(level, PeerOrd::CVP);
             let indexes = (0..self.conf.fast_path_window)
                 .map(|ix| (ix + offset) % nodes_at_level.len())
                 .collect::<Vec<_>>();
@@ -317,14 +317,11 @@ where
     }
 
     /// Sends messages for one node from each active level.
-    /// todo: CVP
     fn run_dissemination(&mut self) {
-        let own_contrib = self.levels[0]
-            .as_ref()
-            .map(|l| l.best_contribution.0.contribution.clone());
+        let own_contrib = self.get_own_contribution();
         for (lix, lvl) in &mut self.levels.iter_mut().enumerate() {
             if let Some(active_lvl) = lvl {
-                let peers_at_level = self.peer_partitions.peers_at_level(lix);
+                let peers_at_level = self.peer_partitions.peers_at_level(lix, PeerOrd::CVP);
                 let maybe_next_peer = active_lvl
                     .last_contacted_peer_ix
                     .and_then(|i| peers_at_level.get(i + 1));
@@ -333,11 +330,11 @@ where
                     *next_peer
                 } else {
                     active_lvl.last_contacted_peer_ix = Some(0);
-                    self.peer_partitions.peers_at_level(lix)[0]
+                    peers_at_level[0]
                 };
                 let next_peer = self.peer_partitions.identify_peer(next_peer_ix);
                 let maybe_own_contrib = if !self.own_contribution_recvs.contains(&next_peer_ix) {
-                    own_contrib.clone()
+                    Some(own_contrib.clone())
                 } else {
                     None
                 };
@@ -481,7 +478,9 @@ mod tests {
     use spectrum_crypto::VerifiableAgainst;
 
     use crate::protocol_handler::handel::partitioning::tests::FakePartitions;
-    use crate::protocol_handler::handel::partitioning::{BinomialPeerPartitions, PeerIx, PeerPartitions};
+    use crate::protocol_handler::handel::partitioning::{
+        BinomialPeerPartitions, PeerIx, PeerOrd, PeerPartitions, PseudoRandomGenPerm,
+    };
     use crate::protocol_handler::handel::{Handel, HandelConfig, Threshold, Weighted};
 
     #[derive(Clone, Eq, PartialEq, Debug)]
@@ -518,8 +517,9 @@ mod tests {
         own_peer: PeerId,
         peers: Vec<PeerId>,
         contrib: Contrib,
-    ) -> Handel<Contrib, (), BinomialPeerPartitions<ChaCha20Rng>> {
-        let pp = BinomialPeerPartitions::new(own_peer, peers, [0u8; 32]);
+    ) -> Handel<Contrib, (), BinomialPeerPartitions<PseudoRandomGenPerm>> {
+        let rng = PseudoRandomGenPerm::new([0u8; 32]);
+        let pp = BinomialPeerPartitions::new(own_peer, peers, rng);
         Handel::new(CONF, contrib, (), pp)
     }
 
@@ -551,7 +551,7 @@ mod tests {
         let peers = (0..16).map(|_| PeerId::random()).collect::<Vec<_>>();
         let own_peer = peers[0];
         let mut handel = make_handel(own_peer, peers.clone(), my_contrib.clone());
-        let peer = handel.peer_partitions.peers_at_level(1)[0];
+        let peer = handel.peer_partitions.peers_at_level(1, PeerOrd::VP)[0];
         let res = handel.handle_contribution(
             handel.peer_partitions.identify_peer(peer),
             1,
@@ -573,7 +573,7 @@ mod tests {
         let mut handel = make_handel(own_peer, peers.clone(), my_contrib.clone());
         let res =
             handel.handle_contribution(PeerId::random(), 1, their_aggregate_contrib, Some(their_contrib));
-        if handel.peer_partitions.peers_at_level(1).is_empty() {
+        if handel.peer_partitions.peers_at_level(1, PeerOrd::VP).is_empty() {
             return;
         }
         assert!(res.is_err());
@@ -607,7 +607,6 @@ mod tests {
                 PeerId::random(),
             ],
         ];
-        let own_peer = PeerId::random();
         let pp = FakePartitions::new(peers.clone());
         let mut handel = Handel::new(CONF, my_contrib, (), pp);
         let res = handel.handle_contribution(
