@@ -1,9 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::marker::PhantomData;
 
 use derive_more::From;
 use libp2p::PeerId;
-use rand::prelude::SliceRandom;
 use rand::{Rng, SeedableRng};
 use sha2::{Digest, Sha256};
 

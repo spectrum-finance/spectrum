@@ -5,7 +5,7 @@ use std::ops::{Add, Mul};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use either::{Either, Left, Right};
+use either::{Either, Left};
 use libp2p::PeerId;
 use void::Void;
 
@@ -472,14 +472,13 @@ mod tests {
     use std::time::Duration;
 
     use libp2p::PeerId;
-    use rand_chacha::ChaCha20Rng;
 
     use algebra_core::CommutativePartialSemigroup;
     use spectrum_crypto::VerifiableAgainst;
 
     use crate::protocol_handler::handel::partitioning::tests::FakePartitions;
     use crate::protocol_handler::handel::partitioning::{
-        BinomialPeerPartitions, PeerIx, PeerOrd, PeerPartitions, PseudoRandomGenPerm,
+        BinomialPeerPartitions, PeerOrd, PeerPartitions, PseudoRandomGenPerm,
     };
     use crate::protocol_handler::handel::{Handel, HandelConfig, Threshold, Weighted};
 
