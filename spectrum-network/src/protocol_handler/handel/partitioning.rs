@@ -3,11 +3,12 @@ use std::collections::{HashMap, HashSet};
 use derive_more::From;
 use libp2p::PeerId;
 use rand::{Rng, SeedableRng};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 /// Index of a peer within Handel's range of peers.
 /// Always maps to some `PeerId` within Handel overlay.
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, From, Debug)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, From, Debug, Serialize, Deserialize)]
 pub struct PeerIx(usize);
 
 impl PeerIx {

@@ -22,6 +22,7 @@ use crate::types::{ProtocolId, ProtocolVer, RawMessage};
 pub mod codec;
 pub mod cosi;
 pub mod handel;
+pub mod sigma_aggregation;
 pub mod sync;
 pub mod versioning;
 

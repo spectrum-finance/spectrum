@@ -5,13 +5,13 @@ use std::task::{Context, Poll};
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::Stream;
-use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::{
-    CloseConnection, DialError, IntoConnectionHandler, NetworkBehaviour, NetworkBehaviourAction,
-    NotifyHandler, PollParameters,
+    CloseConnection, DialError, IntoConnectionHandler, NetworkBehaviour,
+    NetworkBehaviourAction, NotifyHandler, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
+use libp2p::core::connection::ConnectionId;
 use log::{trace, warn};
 
 use crate::peer_conn_handler::message_sink::MessageSink;

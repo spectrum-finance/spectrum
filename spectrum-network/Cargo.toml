@@ -2,7 +2,7 @@
 name = "spectrum-network"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.60.0"
+rust-version = "1.65.0"
 
 [features]
 test_peer_punish_too_slow = []
@@ -30,3 +30,6 @@ smallvec = "1.10.0"
 derive_more = "0.99.17"
 either = "1.8.1"
 sha2 = "0.10.6"
+elliptic-curve = { version = "0.11.*", features = ["serde"] }
+k256 = { version = "0.11.*", features = ["serde"] }
+group = "0.11.*"
