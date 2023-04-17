@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
+use elliptic_curve::ScalarCore;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::schnorr::signature::*;
 use k256::schnorr::{Signature, VerifyingKey};
-use k256::{ProjectivePoint, PublicKey, Scalar};
+use k256::{ProjectivePoint, PublicKey, Scalar, Secp256k1};
 use serde::{Deserialize, Serialize};
 
 use algebra_core::CommutativePartialSemigroup;
@@ -93,15 +94,30 @@ pub type Responses = Contributions<Scalar>;
 pub struct Committee(HashMap<PeerIx, PublicKey>);
 
 pub struct ResponsesVerifInput {
-    dlog_proofs: DlogProofs,
-    committee: Committee,
-    challenge: Blake2b256Digest,
-    a: Blake2b256Digest,
+    individual_inputs: HashMap<PeerIx, ResponseVerifInput>,
+    challenge: ScalarCore<Secp256k1>,
+}
+
+struct ResponseVerifInput {
+    dlog_proof: (PublicKey, Signature),
+    pk: PublicKey,
+    ai: ScalarCore<Secp256k1>,
 }
 
 impl VerifiableAgainst<ResponsesVerifInput> for Responses {
     fn verify(&self, public_data: &ResponsesVerifInput) -> bool {
-        //ProjectivePoint::GENERATOR;
-        todo!()
+        self.0.iter().all(|(k, zi)| {
+            public_data
+                .individual_inputs
+                .get(&k)
+                .map(|input| {
+                    let xi = input.pk.to_projective();
+                    let yi = input.dlog_proof.0.to_projective();
+                    let ai = &input.ai.into();
+                    let c = &public_data.challenge.into();
+                    ProjectivePoint::GENERATOR * zi == yi + xi * ai * c
+                })
+                .unwrap_or(false)
+        })
     }
 }
