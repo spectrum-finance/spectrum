@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use derive_more::Into;
 use elliptic_curve::ScalarCore;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::schnorr::signature::*;
@@ -55,7 +56,7 @@ pub struct CommitmentsVerifInput {
     message: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Into)]
 #[serde(try_from = "Vec<u8>", into = "Vec<u8>")]
 pub struct DlogProof(Signature);
 
@@ -72,7 +73,7 @@ impl From<DlogProof> for Vec<u8> {
     }
 }
 
-pub type DlogProofs = Contributions<(PublicKey, Signature)>;
+pub type DlogProofs = Contributions<(PublicKey, DlogProof)>;
 
 impl VerifiableAgainst<CommitmentsVerifInput> for DlogProofs {
     fn verify(&self, public_data: &CommitmentsVerifInput) -> bool {
@@ -80,7 +81,7 @@ impl VerifiableAgainst<CommitmentsVerifInput> for DlogProofs {
             if let Some(commitment) = public_data.commitments.0.get(&i) {
                 *commitment == blake2b256_hash(&point.to_encoded_point(false).to_bytes())
                     && VerifyingKey::try_from(point)
-                        .map(|vk| vk.verify(&public_data.message, sig).is_ok())
+                        .map(|vk| vk.verify(&public_data.message, &sig.0).is_ok())
                         .unwrap_or(false)
             } else {
                 false
@@ -99,7 +100,7 @@ pub struct ResponsesVerifInput {
 }
 
 struct ResponseVerifInput {
-    dlog_proof: (PublicKey, Signature),
+    dlog_proof: (PublicKey, DlogProof),
     pk: PublicKey,
     ai: ScalarCore<Secp256k1>,
 }
