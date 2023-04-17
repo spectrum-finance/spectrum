@@ -6,7 +6,7 @@ use std::time::Duration;
 use futures::channel::mpsc;
 use futures::prelude::*;
 use libp2p::identity;
-use libp2p::swarm::{Swarm, SwarmBuilder, SwarmEvent};
+use libp2p::swarm::{SwarmBuilder, SwarmEvent};
 use libp2p::Multiaddr;
 use libp2p::PeerId;
 

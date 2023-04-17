@@ -1,12 +1,12 @@
-mod fake_sync_behaviour;
-
 use std::{collections::HashMap, time::Duration};
 
 use futures::{
     channel::{mpsc, oneshot},
     StreamExt,
 };
+use libp2p::swarm::SwarmBuilder;
 use libp2p::{identity, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
+
 use spectrum_network::{
     network_controller::{NetworkController, NetworkControllerIn, NetworkControllerOut, NetworkMailbox},
     peer_conn_handler::{ConnHandlerError, PeerConnHandlerConf},
@@ -28,6 +28,8 @@ use spectrum_network::{
 };
 
 use crate::integration_tests::fake_sync_behaviour::{FakeSyncBehaviour, FakeSyncMessage, FakeSyncMessageV1};
+
+mod fake_sync_behaviour;
 
 /// Identifies particular peers
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -863,7 +865,7 @@ async fn create_swarm<P>(
 {
     let transport = libp2p::development_transport(local_key.clone()).await.unwrap();
     let local_peer_id = PeerId::from(local_key.public());
-    let mut swarm = Swarm::new(transport, nc, local_peer_id);
+    let mut swarm = SwarmBuilder::with_async_std_executor(transport, nc, local_peer_id).build();
 
     swarm.listen_on(addr).unwrap();
 

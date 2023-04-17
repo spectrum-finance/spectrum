@@ -6,19 +6,18 @@ use std::time::{Duration, Instant};
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::Stream;
-use libp2p::core::{ConnectedPoint, Endpoint};
+use libp2p::core::Endpoint;
 use libp2p::swarm::behaviour::ConnectionEstablished;
 use libp2p::swarm::{
-    CloseConnection, ConnectionClosed, ConnectionDenied, ConnectionId, DialError, DialFailure, FromSwarm,
-    IntoConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
-    THandlerOutEvent, ToSwarm,
+    CloseConnection, ConnectionClosed, ConnectionDenied, ConnectionId, DialFailure, FromSwarm,
+    NetworkBehaviour, NotifyHandler, PollParameters, ToSwarm,
 };
 use libp2p::{Multiaddr, PeerId};
 use log::{trace, warn};
 
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{
-    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, PartialPeerConnHandler, PeerConnHandler,
+    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, PeerConnHandler,
     PeerConnHandlerConf, Protocol, ProtocolState, ThrottleStage,
 };
 use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
@@ -163,63 +162,60 @@ pub trait NetworkEvents {
 
 impl<TPeers, TPeerManager, THandler> NetworkEvents for NetworkController<TPeers, TPeerManager, THandler> {
     fn inbound_peer_connected(&mut self, peer_id: PeerId) {
-        self.pending_actions
-            .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::ConnectedWithInboundPeer(peer_id),
-            ));
+        self.pending_actions.push_back(ToSwarm::GenerateEvent(
+            NetworkControllerOut::ConnectedWithInboundPeer(peer_id),
+        ));
     }
 
     fn outbound_peer_connected(&mut self, peer_id: PeerId) {
-        self.pending_actions
-            .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::ConnectedWithOutboundPeer(peer_id),
-            ));
+        self.pending_actions.push_back(ToSwarm::GenerateEvent(
+            NetworkControllerOut::ConnectedWithOutboundPeer(peer_id),
+        ));
     }
 
     fn peer_disconnected(&mut self, peer_id: PeerId, reason: ConnectionLossReason) {
         self.pending_actions
-            .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::Disconnected { peer_id, reason },
-            ));
+            .push_back(ToSwarm::GenerateEvent(NetworkControllerOut::Disconnected {
+                peer_id,
+                reason,
+            }));
     }
 
     fn peer_punished(&mut self, peer_id: PeerId, reason: ReputationChange) {
         self.pending_actions
-            .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::PeerPunished { peer_id, reason },
-            ));
+            .push_back(ToSwarm::GenerateEvent(NetworkControllerOut::PeerPunished {
+                peer_id,
+                reason,
+            }));
     }
 
     fn protocol_enabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId, protocol_ver: ProtocolVer) {
         self.pending_actions
-            .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::ProtocolEnabled {
-                    peer_id,
-                    protocol_id,
-                    protocol_ver,
-                },
-            ));
+            .push_back(ToSwarm::GenerateEvent(NetworkControllerOut::ProtocolEnabled {
+                peer_id,
+                protocol_id,
+                protocol_ver,
+            }));
     }
 
     fn protocol_pending_approve(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
-        self.pending_actions
-            .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::ProtocolPendingApprove { peer_id, protocol_id },
-            ));
+        self.pending_actions.push_back(ToSwarm::GenerateEvent(
+            NetworkControllerOut::ProtocolPendingApprove { peer_id, protocol_id },
+        ));
     }
 
     fn protocol_pending_enable(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
-        self.pending_actions
-            .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::ProtocolPendingEnable { peer_id, protocol_id },
-            ));
+        self.pending_actions.push_back(ToSwarm::GenerateEvent(
+            NetworkControllerOut::ProtocolPendingEnable { peer_id, protocol_id },
+        ));
     }
 
     fn protocol_disabled(&mut self, peer_id: PeerId, protocol_id: ProtocolId) {
         self.pending_actions
-            .push_back(NetworkBehaviourAction::GenerateEvent(
-                NetworkControllerOut::ProtocolDisabled { peer_id, protocol_id },
-            ));
+            .push_back(ToSwarm::GenerateEvent(NetworkControllerOut::ProtocolDisabled {
+                peer_id,
+                protocol_id,
+            }));
     }
 }
 

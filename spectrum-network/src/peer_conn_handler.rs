@@ -7,23 +7,21 @@ use std::time::{Duration, Instant};
 
 use futures::channel::mpsc;
 pub use futures::prelude::*;
-use libp2p::core::ConnectedPoint;
 use libp2p::swarm::handler::{
     ConnectionEvent, DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound,
 };
 use libp2p::swarm::{
-    ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, IntoConnectionHandler, KeepAlive,
-    NegotiatedSubstream, SubstreamProtocol,
+    ConnectionHandler, ConnectionHandlerEvent, KeepAlive, NegotiatedSubstream, SubstreamProtocol,
 };
-use libp2p::{InboundUpgrade, OutboundUpgrade, PeerId};
+use libp2p::PeerId;
 use log::trace;
 
 use crate::peer_conn_handler::message_sink::{MessageSink, StreamNotification};
-use crate::protocol::{ProtocolConfig, ProtocolSpec};
+use crate::protocol::ProtocolSpec;
 use crate::protocol_upgrade::combinators::AnyUpgradeOf;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use crate::protocol_upgrade::substream::{ProtocolSubstreamIn, ProtocolSubstreamOut};
-use crate::protocol_upgrade::{ProtocolUpgradeErr, ProtocolUpgradeIn, ProtocolUpgradeOut};
+use crate::protocol_upgrade::{ProtocolUpgradeIn, ProtocolUpgradeOut};
 use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 
 pub mod message_sink;
@@ -192,20 +190,6 @@ pub trait PeerConnHandlerActions {
     fn close_protocol(&self, protocol_id: ProtocolId);
 }
 
-pub struct PartialPeerConnHandler {
-    conf: PeerConnHandlerConf,
-    supported_protocols: Vec<(ProtocolId, ProtocolConfig)>,
-}
-
-impl PartialPeerConnHandler {
-    pub fn new(conf: PeerConnHandlerConf, supported_protocols: Vec<(ProtocolId, ProtocolConfig)>) -> Self {
-        Self {
-            conf,
-            supported_protocols,
-        }
-    }
-}
-
 pub struct PeerConnHandler {
     pub conf: PeerConnHandlerConf,
     pub protocols: HashMap<ProtocolId, Protocol>,
@@ -344,7 +328,7 @@ impl ConnectionHandler for PeerConnHandler {
         match event {
             ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
                 protocol: (mut upgrade, _),
-                info,
+                ..
             }) => {
                 trace!("inject_fully_negotiated_inbound()");
                 let negotiated_tag = upgrade.negotiated_tag;

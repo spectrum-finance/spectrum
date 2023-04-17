@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use derive_more::Into;
-use elliptic_curve::ScalarCore;
+use elliptic_curve::ScalarPrimitive;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::schnorr::signature::*;
 use k256::schnorr::{Signature, VerifyingKey};
@@ -69,7 +69,7 @@ impl TryFrom<Vec<u8>> for DlogProof {
 
 impl From<DlogProof> for Vec<u8> {
     fn from(DlogProof(sig): DlogProof) -> Self {
-        <Vec<u8>>::from(*sig.as_bytes())
+        <Vec<u8>>::from(sig.to_bytes())
     }
 }
 
@@ -96,13 +96,13 @@ pub struct Committee(HashMap<PeerIx, PublicKey>);
 
 pub struct ResponsesVerifInput {
     individual_inputs: HashMap<PeerIx, ResponseVerifInput>,
-    challenge: ScalarCore<Secp256k1>,
+    challenge: ScalarPrimitive<Secp256k1>,
 }
 
 struct ResponseVerifInput {
     dlog_proof: (PublicKey, DlogProof),
     pk: PublicKey,
-    ai: ScalarCore<Secp256k1>,
+    ai: ScalarPrimitive<Secp256k1>,
 }
 
 impl VerifiableAgainst<ResponsesVerifInput> for Responses {

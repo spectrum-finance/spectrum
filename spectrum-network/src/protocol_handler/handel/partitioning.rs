@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 
 use derive_more::From;
 use libp2p::PeerId;
-use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 

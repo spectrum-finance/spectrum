@@ -30,6 +30,9 @@ smallvec = "1.10.0"
 derive_more = "0.99.17"
 either = "1.8.1"
 sha2 = "0.10.6"
-elliptic-curve = { version = "0.12.*", features = ["serde", "arithmetic"] }
-k256 = { version = "0.11.*", features = ["serde"] }
-group = "0.11.*"
+elliptic-curve = { version = "0.13.*", features = ["serde", "arithmetic"] }
+k256 = { version = "0.13.*", features = ["serde"] }
+group = "0.13.*"
+
+[dev-dependencies]
+libp2p = { version = "0.51.*", features = ["noise", "yamux", "async-std"] }
