@@ -1,14 +1,15 @@
-use futures::prelude::*;
 use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
-
-use libp2p::swarm::{Swarm, SwarmEvent};
-use libp2p::Multiaddr;
+use std::time::Duration;
 
 use futures::channel::mpsc;
+use futures::prelude::*;
 use libp2p::identity;
+use libp2p::swarm::{Swarm, SwarmBuilder, SwarmEvent};
+use libp2p::Multiaddr;
 use libp2p::PeerId;
+
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::data::PeerDestination;
@@ -19,7 +20,6 @@ use spectrum_network::protocol_handler::sync::message::{SyncMessage, SyncMessage
 use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
-use std::time::Duration;
 
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -102,7 +102,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         requests_recv,
     );
 
-    let mut swarm = Swarm::new(transport, nc, local_peer_id);
+    let mut swarm = SwarmBuilder::with_async_std_executor(transport, nc, local_peer_id).build();
 
     swarm.listen_on(std::env::args().nth(1).unwrap().parse()?)?;
 
