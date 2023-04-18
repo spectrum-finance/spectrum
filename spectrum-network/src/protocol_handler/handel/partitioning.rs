@@ -78,6 +78,11 @@ pub trait PeerPartitions {
     fn num_levels(&self) -> usize;
 }
 
+pub trait MakePeerPartitions {
+    type PP: PeerPartitions;
+    fn make(&self, host_peer_id: PeerId, peers: Vec<PeerId>) -> Self::PP;
+}
+
 pub struct BinomialPeerPartitions<R> {
     /// Peers ordered within Handel overlay.
     peers: Vec<PeerId>,
@@ -88,6 +93,20 @@ pub struct BinomialPeerPartitions<R> {
     /// All peers partitioned and ordered according to their CVP at each level `l`.
     partitions_by_cvp: Vec<Vec<PeerIx>>,
     rng: R,
+}
+
+pub struct MakeBinomialPeerPartitions<R> {
+    rng: R,
+}
+
+impl<R> MakePeerPartitions for MakeBinomialPeerPartitions<R>
+where
+    R: GenPermutation + Clone,
+{
+    type PP = BinomialPeerPartitions<R>;
+    fn make(&self, host_peer_id: PeerId, peers: Vec<PeerId>) -> BinomialPeerPartitions<R> {
+        BinomialPeerPartitions::new(host_peer_id, peers, self.rng.clone())
+    }
 }
 
 type TSeed = [u8; 32];

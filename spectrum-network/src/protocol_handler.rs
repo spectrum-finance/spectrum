@@ -25,6 +25,7 @@ pub mod handel;
 pub mod sigma_aggregation;
 pub mod sync;
 pub mod versioning;
+pub mod aggregation;
 
 #[derive(Debug)]
 pub enum NetworkAction<THandshake> {
@@ -111,33 +112,35 @@ pub trait ProtocolBehaviour {
     fn get_protocol_id(&self) -> ProtocolId;
 
     /// Inject an event that we have established a conn with a peer.
-    fn inject_peer_connected(&mut self, peer_id: PeerId);
+    fn inject_peer_connected(&mut self, peer_id: PeerId) {}
 
     /// Inject a new message coming from a peer.
-    fn inject_message(&mut self, peer_id: PeerId, content: <Self::TProto as ProtocolSpec>::TMessage);
+    fn inject_message(&mut self, peer_id: PeerId, content: <Self::TProto as ProtocolSpec>::TMessage) {}
 
     /// Inject an event when the peer sent a malformed message.
-    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage);
+    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {}
 
     /// Inject protocol request coming from a peer.
     fn inject_protocol_requested(
         &mut self,
         peer_id: PeerId,
         handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
-    );
+    ) {
+    }
 
     /// Inject local protocol request coming from a peer.
-    fn inject_protocol_requested_locally(&mut self, peer_id: PeerId);
+    fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {}
 
     /// Inject an event of protocol being enabled with a peer.
     fn inject_protocol_enabled(
         &mut self,
         peer_id: PeerId,
         handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
-    );
+    ) {
+    }
 
     /// Inject an event of protocol being disabled with a peer.
-    fn inject_protocol_disabled(&mut self, peer_id: PeerId);
+    fn inject_protocol_disabled(&mut self, peer_id: PeerId) {}
 
     /// Poll for output actions.
     fn poll(

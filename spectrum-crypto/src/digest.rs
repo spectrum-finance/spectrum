@@ -14,9 +14,17 @@ pub struct Blake2b;
 pub struct Sha2;
 
 /// N-bytes array in a box. Usually a hash.`Digest32` is most type synonym.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Deserialize)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
 #[serde(into = "Vec<u8>", try_from = "Vec<u8>")]
 pub struct Digest<const N: usize, H>([u8; N], PhantomData<H>);
+
+impl<const N: usize, H> Clone for Digest<N, H> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<const N: usize, H> Copy for Digest<N, H> {}
 
 impl<const N: usize, H> Serialize for Digest<N, H> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -27,9 +35,11 @@ impl<const N: usize, H> Serialize for Digest<N, H> {
     }
 }
 
-pub type Blake2b256Digest = Digest<32, Blake2b>;
+pub type Digest256<H> = Digest<32, H>;
 
-pub type Sha256Digest = Digest<32, Sha2>;
+pub type Blake2bDigest256 = Digest<32, Blake2b>;
+
+pub type Sha2Digest256 = Digest<32, Sha2>;
 
 impl<const N: usize, H> Digest<N, H> {
     /// Digest size 32 bytes
@@ -60,12 +70,12 @@ impl<const N: usize, H> std::fmt::Display for Digest<N, H> {
 }
 
 /// Blake2b256 hash (256 bit)
-pub fn blake2b256_hash(bytes: &[u8]) -> Blake2b256Digest {
+pub fn blake2b256_hash(bytes: &[u8]) -> Blake2bDigest256 {
     Digest(*crate::hash::blake2b256_hash(bytes), PhantomData::default())
 }
 
 /// Sha256 hash (256 bit)
-pub fn sha256_hash(bytes: &[u8]) -> Sha256Digest {
+pub fn sha256_hash(bytes: &[u8]) -> Sha2Digest256 {
     Digest(*crate::hash::sha256_hash(bytes), PhantomData::default())
 }
 
@@ -126,7 +136,7 @@ impl<const N: usize, H> TryFrom<&[u8]> for Digest<N, H> {
     }
 }
 
-impl AsRef<[u8]> for Blake2b256Digest {
+impl<const N: usize, H> AsRef<[u8]> for Digest<N, H> {
     fn as_ref(&self) -> &[u8] {
         &self.0[..]
     }
@@ -173,6 +183,6 @@ mod tests {
     #[test]
     fn test_from_base16() {
         let s = "769a48bdb72d0f7bade76a120982b6d479fda6084c84d40957ae9f935f3b99ac";
-        assert!(Blake2b256Digest::from_base16(s).is_ok());
+        assert!(Blake2bDigest256::from_base16(s).is_ok());
     }
 }
