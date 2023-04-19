@@ -5,7 +5,7 @@ use elliptic_curve::ScalarPrimitive;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::schnorr::signature::*;
 use k256::schnorr::VerifyingKey;
-use k256::{ProjectivePoint, Scalar, Secp256k1, SecretKey};
+use k256::{Scalar, Secp256k1, SecretKey};
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +15,7 @@ use spectrum_crypto::VerifiableAgainst;
 
 use crate::protocol_handler::handel::partitioning::PeerIx;
 use crate::protocol_handler::handel::Weighted;
+use crate::protocol_handler::sigma_aggregation::crypto::verify_response;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct PublicKey(k256::PublicKey);
@@ -60,6 +61,9 @@ impl<C> Contributions<C> {
     pub fn unit(peer: PeerIx, c: C) -> Self {
         Self(HashMap::from([(peer, c)]))
     }
+    pub fn values(&self) -> Vec<&C> {
+        self.0.values().collect()
+    }
 }
 
 impl<C> CommutativePartialSemigroup for Contributions<C>
@@ -96,8 +100,8 @@ impl VerifiableAgainst<()> for PreCommitments {
 }
 
 pub struct CommitmentsVerifInput {
-    commitments: PreCommitments,
-    message: Vec<u8>,
+    pub pre_commitments: PreCommitments,
+    pub message_digest_bytes: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Into)]
@@ -128,10 +132,10 @@ pub type CommitmentsWithProofs = Contributions<(PublicKey, Signature)>;
 impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
     fn verify(&self, public_data: &CommitmentsVerifInput) -> bool {
         self.0.iter().all(|(i, (point, sig))| {
-            if let Some(commitment) = public_data.commitments.0.get(&i) {
+            if let Some(commitment) = public_data.pre_commitments.0.get(&i) {
                 *commitment == blake2b256_hash(&point.0.to_encoded_point(false).to_bytes())
                     && VerifyingKey::try_from(point.0)
-                        .map(|vk| vk.verify(&public_data.message, &sig.0).is_ok())
+                        .map(|vk| vk.verify(&public_data.message_digest_bytes, &sig.0).is_ok())
                         .unwrap_or(false)
             } else {
                 false
@@ -145,28 +149,52 @@ pub type Responses = Contributions<Scalar>;
 pub struct Committee(HashMap<PeerIx, PublicKey>);
 
 pub struct ResponsesVerifInput {
-    individual_inputs: HashMap<PeerIx, ResponseVerifInput>,
-    challenge: ScalarPrimitive<Secp256k1>,
+    inputs: HashMap<PeerIx, ResponseVerifInput>,
+    challenge: Scalar,
+}
+
+impl ResponsesVerifInput {
+    pub fn new(
+        commitments: CommitmentsWithProofs,
+        committee: HashMap<PeerIx, PublicKey>,
+        individual_inputs: HashMap<PeerIx, Scalar>,
+        challenge: Scalar,
+    ) -> Self {
+        let mut inputs = HashMap::new();
+        for (pix, (yi, _)) in commitments.0 {
+            if let Some(xi) = committee.get(&pix) {
+                if let Some(ii) = individual_inputs.get(&pix) {
+                    inputs.insert(
+                        pix,
+                        ResponseVerifInput {
+                            commitment: yi,
+                            pk: xi.clone(),
+                            individual_input: *ii,
+                        },
+                    );
+                }
+            }
+        }
+        Self { inputs, challenge }
+    }
 }
 
 struct ResponseVerifInput {
-    dlog_proof: (PublicKey, Signature),
+    commitment: PublicKey,
     pk: PublicKey,
-    ai: ScalarPrimitive<Secp256k1>,
+    individual_input: Scalar,
 }
 
 impl VerifiableAgainst<ResponsesVerifInput> for Responses {
     fn verify(&self, public_data: &ResponsesVerifInput) -> bool {
-        let c = &public_data.challenge.into();
+        let c = &public_data.challenge;
         self.0.iter().all(|(k, zi)| {
             public_data
-                .individual_inputs
+                .inputs
                 .get(&k)
                 .map(|input| {
-                    let xi = input.pk.0.to_projective();
-                    let yi = input.dlog_proof.0 .0.to_projective();
-                    let ai = &input.ai.into();
-                    ProjectivePoint::GENERATOR * zi == yi + xi * ai * c
+                    let ai = &input.individual_input.into();
+                    verify_response(zi, ai, c, input.commitment.clone(), input.pk.clone())
                 })
                 .unwrap_or(false)
         })
