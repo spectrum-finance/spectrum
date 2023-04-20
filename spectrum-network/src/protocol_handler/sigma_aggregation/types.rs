@@ -1,11 +1,11 @@
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 use derive_more::Into;
-use elliptic_curve::ScalarPrimitive;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::schnorr::signature::*;
 use k256::schnorr::VerifyingKey;
-use k256::{Scalar, Secp256k1, SecretKey};
+use k256::{Scalar, SecretKey};
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,12 @@ use crate::protocol_handler::sigma_aggregation::crypto::verify_response;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct PublicKey(k256::PublicKey);
+
+impl Hash for PublicKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.0.to_encoded_point(true).as_bytes());
+    }
+}
 
 impl From<SecretKey> for PublicKey {
     fn from(sk: SecretKey) -> Self {
@@ -61,8 +67,23 @@ impl<C> Contributions<C> {
     pub fn unit(peer: PeerIx, c: C) -> Self {
         Self(HashMap::from([(peer, c)]))
     }
-    pub fn values(&self) -> Vec<&C> {
-        self.0.values().collect()
+
+    pub fn entries(&self) -> Vec<(PeerIx, C)>
+    where
+        C: Clone,
+    {
+        self.0.iter().map(|(k, v)| (*k, v.clone())).collect()
+    }
+
+    pub fn values(&self) -> Vec<C>
+    where
+        C: Clone,
+    {
+        self.0.values().map(|v| v.clone()).collect()
+    }
+
+    pub fn get(&self, peer: &PeerIx) -> Option<&C> {
+        self.0.get(peer)
     }
 }
 

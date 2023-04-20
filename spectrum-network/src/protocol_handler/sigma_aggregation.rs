@@ -1,29 +1,37 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt::Debug;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use either::Either;
 use elliptic_curve::rand_core::OsRng;
 use futures::channel::mpsc::Receiver;
+use futures::channel::oneshot::Sender;
 use futures::Stream;
 use k256::{Scalar, SecretKey};
 use libp2p::PeerId;
 use nonempty::NonEmpty;
 
-use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest256};
+use spectrum_crypto::digest::{Blake2bDigest256, Digest256};
 
 use crate::protocol::SIGMA_AGGR_PROTOCOL_ID;
 use crate::protocol_handler::aggregation::AggregationAction;
 use crate::protocol_handler::handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
 use crate::protocol_handler::handel::{Handel, HandelConfig};
 use crate::protocol_handler::sigma_aggregation::crypto::{
-    aggregate, challenge, exclusion_proof, individual_input, pre_commitment, response, schnorr_commitment,
+    aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input, pre_commitment, response,
+    schnorr_commitment,
 };
-use crate::protocol_handler::sigma_aggregation::message::{SigmaAggrMessage, SigmaAggrSpec};
+use crate::protocol_handler::sigma_aggregation::message::{
+    SigmaAggrMessage, SigmaAggrMessageV1, SigmaAggrSpec,
+};
 use crate::protocol_handler::sigma_aggregation::types::{
     CommitmentsVerifInput, CommitmentsWithProofs, Contributions, PreCommitments, PublicKey, Responses,
     ResponsesVerifInput, Signature,
 };
-use crate::protocol_handler::{MalformedMessage, ProtocolBehaviour, ProtocolBehaviourOut};
+use crate::protocol_handler::{
+    NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, TemporalProtocolStage,
+};
 use crate::types::ProtocolId;
 
 mod crypto;
@@ -111,7 +119,6 @@ where
         self,
         pre_commitments: PreCommitments,
         handel_conf: HandelConfig,
-        partitions: PP,
     ) -> AggregateSchnorrCommitments<H, PP> {
         let verif_input = CommitmentsVerifInput {
             pre_commitments,
@@ -131,7 +138,7 @@ where
                 handel_conf,
                 Contributions::unit(self.host_ix, (self.host_commitment, self.host_explusion_proof)),
                 verif_input,
-                partitions,
+                self.process.take_partitions(),
             ),
         }
     }
@@ -167,20 +174,19 @@ where
         self,
         commitments_with_proofs: CommitmentsWithProofs,
         handel_conf: HandelConfig,
-        partitions: PP,
     ) -> AggregateResponses<H, PP> {
-        let aggr_pk = aggregate(NonEmpty::from_vec(self.committee.values().cloned().collect()).unwrap());
-        let aggr_commitment = aggregate(
+        let aggr_pk = aggregate_pk(NonEmpty::from_vec(self.committee.values().cloned().collect()).unwrap());
+        let aggr_commitment = aggregate_pk(
             NonEmpty::from_vec(
                 commitments_with_proofs
                     .values()
                     .into_iter()
-                    .map(|(xi, _)| xi.clone())
+                    .map(|(xi, _)| xi)
                     .collect(),
             )
             .unwrap(),
         );
-        let challenge = challenge(aggr_pk, aggr_commitment, self.message_digest);
+        let challenge = challenge(aggr_pk, aggr_commitment.clone(), self.message_digest);
         let individual_input = self.individual_inputs.get(&self.host_ix).unwrap().clone();
         let host_response = response(
             self.host_secret.clone(),
@@ -189,7 +195,7 @@ where
             individual_input,
         );
         let verif_inputs = ResponsesVerifInput::new(
-            commitments_with_proofs,
+            commitments_with_proofs.clone(),
             self.committee.clone(),
             self.individual_inputs.clone(),
             challenge,
@@ -202,13 +208,15 @@ where
             message_digest: self.message_digest,
             host_secret: self.host_secret,
             host_commitment: self.host_commitment,
+            aggr_commitment,
             host_explusion_proof: self.host_explusion_proof,
             host_pre_commitment: self.host_pre_commitment,
+            commitments_with_proofs,
             process: Handel::new(
                 handel_conf,
                 Contributions::unit(self.host_ix, host_response),
                 verif_inputs,
-                partitions,
+                self.process.take_partitions(),
             ),
         }
     }
@@ -229,25 +237,51 @@ struct AggregateResponses<H, PP> {
     host_secret: SecretKey,
     /// `Y_i = g^{y_i}`
     host_commitment: PublicKey,
+    aggr_commitment: PublicKey,
     /// `σ_i`. Dlog proof of knowledge of `Y_i`.
     host_explusion_proof: Signature,
     /// `t_i = H(Y_i)`. Hash type of host pre-commitment is fixed.
     host_pre_commitment: Blake2bDigest256,
+    commitments_with_proofs: CommitmentsWithProofs,
     process: Handel<Responses, ResponsesVerifInput, PP>,
 }
 
-struct Aggregated<H> {
+impl<H, PP> AggregateResponses<H, PP> {
+    fn complete(self, responses: Responses) -> Aggregated<H> {
+        let mut exclusion_set = HashMap::new();
+        for (pix, (yi, sig)) in self.commitments_with_proofs.entries() {
+            if responses.get(&pix).is_none() {
+                exclusion_set.insert(yi, sig);
+            }
+        }
+        let aggr_resp =
+            aggregate_response(NonEmpty::from_vec(responses.values().into_iter().collect()).unwrap());
+        Aggregated {
+            message_digest: self.message_digest,
+            aggregate_commitment: self.aggr_commitment,
+            aggregate_response: aggr_resp,
+            exclusion_set,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Aggregated<H> {
     message_digest: Digest256<H>,
     aggregate_commitment: PublicKey,
     aggregate_response: Scalar,
-    exclusion_proof: HashMap<PublicKey, Signature>,
+    exclusion_set: HashMap<PublicKey, Signature>,
 }
 
 enum AggregationState<H, PP> {
     AggregatePreCommitments(AggregatePreCommitments<H, PP>),
     AggregateSchnorrCommitments(AggregateSchnorrCommitments<H, PP>),
     AggregateResponses(AggregateResponses<H, PP>),
-    Aggregated(Aggregated<H>),
+}
+
+struct AggregationTask<H, PP> {
+    state: AggregationState<H, PP>,
+    channel: Sender<Result<Aggregated<H>, ()>>,
 }
 
 pub struct SigmaAggregation<H, MPP>
@@ -256,7 +290,7 @@ where
 {
     host_sk: SecretKey,
     handel_conf: HandelConfig,
-    state: AggregationState<H, MPP::PP>,
+    task: Option<AggregationTask<H, MPP::PP>>,
     partitioner: MPP,
     inbox: Receiver<AggregationAction<H>>,
     outbox: VecDeque<ProtocolBehaviourOut<SigmaAggrMessage, SigmaAggrMessage>>,
@@ -264,6 +298,7 @@ where
 
 impl<H, MPP> ProtocolBehaviour for SigmaAggregation<H, MPP>
 where
+    H: Debug,
     MPP: MakePeerPartitions + Clone,
 {
     type TProto = SigmaAggrSpec;
@@ -272,30 +307,38 @@ where
         SIGMA_AGGR_PROTOCOL_ID
     }
 
-    fn inject_peer_connected(&mut self, peer_id: PeerId) {
-        todo!()
-    }
-
-    fn inject_message(&mut self, peer_id: PeerId, content: SigmaAggrMessage) {
-        todo!()
-    }
-
-    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {
-        todo!()
-    }
-
-    fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<SigmaAggrMessage>) {
-        todo!()
-    }
-
-    fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {}
-
-    fn inject_protocol_enabled(&mut self, peer_id: PeerId, handshake: Option<SigmaAggrMessage>) {
-        todo!()
-    }
-
-    fn inject_protocol_disabled(&mut self, peer_id: PeerId) {
-        todo!()
+    fn inject_message(
+        &mut self,
+        peer_id: PeerId,
+        SigmaAggrMessage::SigmaAggrMessageV1(msg): SigmaAggrMessage,
+    ) {
+        match &mut self.task {
+            Some(AggregationTask {
+                state: AggregationState::AggregatePreCommitments(ref mut pre_commitment),
+                ..
+            }) => {
+                if let SigmaAggrMessageV1::PreCommitments(pre_commits) = msg {
+                    pre_commitment.process.inject_message(peer_id, pre_commits);
+                }
+            }
+            Some(AggregationTask {
+                state: AggregationState::AggregateSchnorrCommitments(ref mut commitment),
+                ..
+            }) => {
+                if let SigmaAggrMessageV1::Commitments(commits) = msg {
+                    commitment.process.inject_message(peer_id, commits);
+                }
+            }
+            Some(AggregationTask {
+                state: AggregationState::AggregateResponses(ref mut response),
+                ..
+            }) => {
+                if let SigmaAggrMessageV1::Responses(resps) = msg {
+                    response.process.inject_message(peer_id, resps);
+                }
+            }
+            None => {}
+        }
     }
 
     fn poll(
@@ -312,18 +355,145 @@ where
                     AggregationAction::Reset {
                         new_committee,
                         new_message,
+                        channel,
                     } => {
-                        self.state =
-                            AggregationState::AggregatePreCommitments(AggregatePreCommitments::init(
+                        self.task = Some(AggregationTask {
+                            state: AggregationState::AggregatePreCommitments(AggregatePreCommitments::init(
                                 self.host_sk.clone(),
                                 new_committee,
                                 new_message,
                                 self.partitioner.clone(),
                                 self.handel_conf.clone(),
-                            ));
+                            )),
+                            channel,
+                        });
                     }
                 }
             }
+
+            if let Some(task) = self.task.take() {
+                match task {
+                    AggregationTask {
+                        state: AggregationState::AggregatePreCommitments(mut st),
+                        channel,
+                    } => {
+                        match st.process.poll(cx) {
+                            Poll::Ready(out) => match out {
+                                Either::Left(cmd) => match cmd {
+                                    ProtocolBehaviourOut::Send { peer_id, message } => {
+                                        self.outbox.push_back(ProtocolBehaviourOut::Send {
+                                            peer_id,
+                                            message: SigmaAggrMessage::SigmaAggrMessageV1(
+                                                SigmaAggrMessageV1::PreCommitments(message),
+                                            ),
+                                        });
+                                    }
+                                    ProtocolBehaviourOut::NetworkAction(NetworkAction::BanPeer(pid)) => {
+                                        self.outbox.push_back(ProtocolBehaviourOut::NetworkAction(
+                                            NetworkAction::BanPeer(pid),
+                                        ));
+                                    }
+                                    ProtocolBehaviourOut::NetworkAction(_) => {}
+                                },
+                                Either::Right(pre_commitments) => {
+                                    self.task = Some(AggregationTask {
+                                        state: AggregationState::AggregateSchnorrCommitments(
+                                            st.complete(pre_commitments, self.handel_conf),
+                                        ),
+                                        channel,
+                                    });
+                                    continue;
+                                }
+                            },
+                            Poll::Pending => {}
+                        }
+                        self.task = Some(AggregationTask {
+                            state: AggregationState::AggregatePreCommitments(st),
+                            channel,
+                        });
+                    }
+                    AggregationTask {
+                        state: AggregationState::AggregateSchnorrCommitments(mut st),
+                        channel,
+                    } => {
+                        match st.process.poll(cx) {
+                            Poll::Ready(out) => match out {
+                                Either::Left(cmd) => match cmd {
+                                    ProtocolBehaviourOut::Send { peer_id, message } => {
+                                        self.outbox.push_back(ProtocolBehaviourOut::Send {
+                                            peer_id,
+                                            message: SigmaAggrMessage::SigmaAggrMessageV1(
+                                                SigmaAggrMessageV1::Commitments(message),
+                                            ),
+                                        });
+                                    }
+                                    ProtocolBehaviourOut::NetworkAction(NetworkAction::BanPeer(pid)) => {
+                                        self.outbox.push_back(ProtocolBehaviourOut::NetworkAction(
+                                            NetworkAction::BanPeer(pid),
+                                        ));
+                                    }
+                                    ProtocolBehaviourOut::NetworkAction(_) => {}
+                                },
+
+                                Either::Right(commitments) => {
+                                    self.task = Some(AggregationTask {
+                                        state: AggregationState::AggregateResponses(
+                                            st.complete(commitments, self.handel_conf),
+                                        ),
+                                        channel,
+                                    });
+                                    continue;
+                                }
+                            },
+                            Poll::Pending => {}
+                        }
+                        self.task = Some(AggregationTask {
+                            state: AggregationState::AggregateSchnorrCommitments(st),
+                            channel,
+                        });
+                    }
+                    AggregationTask {
+                        state: AggregationState::AggregateResponses(mut st),
+                        channel,
+                    } => {
+                        match st.process.poll(cx) {
+                            Poll::Ready(out) => match out {
+                                Either::Left(cmd) => match cmd {
+                                    ProtocolBehaviourOut::Send { peer_id, message } => {
+                                        self.outbox.push_back(ProtocolBehaviourOut::Send {
+                                            peer_id,
+                                            message: SigmaAggrMessage::SigmaAggrMessageV1(
+                                                SigmaAggrMessageV1::Responses(message),
+                                            ),
+                                        });
+                                    }
+                                    ProtocolBehaviourOut::NetworkAction(NetworkAction::BanPeer(pid)) => {
+                                        self.outbox.push_back(ProtocolBehaviourOut::NetworkAction(
+                                            NetworkAction::BanPeer(pid),
+                                        ));
+                                    }
+                                    ProtocolBehaviourOut::NetworkAction(_) => {}
+                                },
+                                Either::Right(responses) => {
+                                    self.task = None;
+                                    let res = st.complete(responses);
+                                    // todo: support error case.
+                                    if channel.send(Ok(res)).is_err() {
+                                        // warn here.
+                                    }
+                                    continue;
+                                }
+                            },
+                            Poll::Pending => {}
+                        }
+                        self.task = Some(AggregationTask {
+                            state: AggregationState::AggregateResponses(st),
+                            channel,
+                        });
+                    }
+                }
+            }
+            return Poll::Pending;
         }
     }
 }

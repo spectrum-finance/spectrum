@@ -27,11 +27,13 @@ pub fn individual_input(committee: Vec<PublicKey>, pki: PublicKey) -> Scalar {
     let pki_bytes = k256::PublicKey::from(pki).to_encoded_point(true).to_bytes();
     hasher.update(pki_bytes);
     let hash: [u8; 32] = hasher.finalize().into();
-    ScalarPrimitive::from_bytes(GenericArray::from_slice(&hash)).unwrap().into()
+    ScalarPrimitive::from_bytes(GenericArray::from_slice(&hash))
+        .unwrap()
+        .into()
 }
 
 /// `X = Π_iX_i`
-pub fn aggregate(NonEmpty { head, tail }: NonEmpty<PublicKey>) -> PublicKey {
+pub fn aggregate_pk(NonEmpty { head, tail }: NonEmpty<PublicKey>) -> PublicKey {
     tail.into_iter().fold(head, |apk, pk| {
         k256::PublicKey::try_from(
             k256::PublicKey::from(apk).to_projective() + k256::PublicKey::from(pk).to_projective(),
@@ -39,6 +41,10 @@ pub fn aggregate(NonEmpty { head, tail }: NonEmpty<PublicKey>) -> PublicKey {
         .unwrap()
         .into()
     })
+}
+
+pub fn aggregate_response(NonEmpty { head, tail }: NonEmpty<Scalar>) -> Scalar {
+    tail.into_iter().fold(head, |ar, r| ar + r)
 }
 
 /// c = H(˜X, Y, m)

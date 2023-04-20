@@ -15,8 +15,8 @@ pub enum SigmaAggrMessage {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum SigmaAggrMessageV1 {
-    SchnorrCommitments(HandelMessage<PreCommitments>),
-    DlogProofs(HandelMessage<CommitmentsWithProofs>),
+    PreCommitments(HandelMessage<PreCommitments>),
+    Commitments(HandelMessage<CommitmentsWithProofs>),
     Responses(HandelMessage<Responses>),
 }
 

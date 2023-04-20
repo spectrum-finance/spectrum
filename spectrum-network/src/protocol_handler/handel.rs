@@ -138,6 +138,11 @@ where
         }
     }
 
+    /// Destroy Handel and take peer_partitions out of it.
+    pub fn take_partitions(self) -> PP {
+        self.peer_partitions
+    }
+
     fn try_disseminatate(&mut self) {
         let now = Instant::now();
         if now >= self.next_dissemination_at {
