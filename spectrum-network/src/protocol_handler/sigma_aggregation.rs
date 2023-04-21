@@ -17,7 +17,7 @@ use spectrum_crypto::digest::{Blake2bDigest256, Digest256};
 use crate::protocol::SIGMA_AGGR_PROTOCOL_ID;
 use crate::protocol_handler::aggregation::AggregationAction;
 use crate::protocol_handler::handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
-use crate::protocol_handler::handel::{Handel, HandelRound, HandelConfig, NarrowTo};
+use crate::protocol_handler::handel::{Handel, HandelConfig, HandelRound, NarrowTo};
 use crate::protocol_handler::sigma_aggregation::crypto::{
     aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input, pre_commitment, response,
     schnorr_commitment,
@@ -56,8 +56,6 @@ struct AggregatePreCommitments<'a, H, PP> {
     host_commitment: PublicKey,
     /// `σ_i`. Dlog proof of knowledge of `Y_i`.
     host_explusion_proof: Signature,
-    /// `t_i = H(Y_i)`. Hash type of host pre-commitment is fixed.
-    host_pre_commitment: Blake2bDigest256,
     handel: Box<dyn HandelRound<'a, PreCommitments, PP>>,
 }
 
@@ -106,7 +104,6 @@ where
             host_secret: host_secret.clone(),
             host_commitment,
             host_explusion_proof: exclusion_proof(host_secret, message_digest),
-            host_pre_commitment,
             handel: Box::new(Handel::new(
                 handel_conf,
                 Contributions::unit(host_ix, host_pre_commitment),

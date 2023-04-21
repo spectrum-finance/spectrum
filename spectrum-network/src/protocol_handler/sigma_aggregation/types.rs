@@ -228,7 +228,7 @@ mod tests {
     use elliptic_curve::sec1::ToEncodedPoint;
 
     #[test]
-    fn libp2p_pk_compatible() {
+    fn libp2p_pk_is_compatible() {
         let host_secret = k256::SecretKey::random(&mut OsRng);
         let k256_pk = host_secret.public_key();
         let k256_point = k256_pk.to_encoded_point(true);
