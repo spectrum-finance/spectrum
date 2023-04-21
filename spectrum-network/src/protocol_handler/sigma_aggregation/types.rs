@@ -221,3 +221,20 @@ impl VerifiableAgainst<ResponsesVerifInput> for Responses {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use elliptic_curve::rand_core::OsRng;
+    use elliptic_curve::sec1::ToEncodedPoint;
+
+    #[test]
+    fn libp2p_pk_compatible() {
+        let host_secret = k256::SecretKey::random(&mut OsRng);
+        let k256_pk = host_secret.public_key();
+        let k256_point = k256_pk.to_encoded_point(true);
+        let k256_encoded = k256_point.as_bytes();
+        let libp2p_pk =
+            libp2p_identity::secp256k1::PublicKey::decode(k256_encoded).unwrap();
+        assert_eq!(libp2p_pk.encode(), k256_encoded)
+    }
+}

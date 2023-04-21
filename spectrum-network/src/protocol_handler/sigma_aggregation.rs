@@ -17,7 +17,7 @@ use spectrum_crypto::digest::{Blake2bDigest256, Digest256};
 use crate::protocol::SIGMA_AGGR_PROTOCOL_ID;
 use crate::protocol_handler::aggregation::AggregationAction;
 use crate::protocol_handler::handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
-use crate::protocol_handler::handel::{Handel, HandelConfig};
+use crate::protocol_handler::handel::{Handel, HandelRound, HandelConfig, NarrowTo};
 use crate::protocol_handler::sigma_aggregation::crypto::{
     aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input, pre_commitment, response,
     schnorr_commitment,
@@ -29,16 +29,17 @@ use crate::protocol_handler::sigma_aggregation::types::{
     CommitmentsVerifInput, CommitmentsWithProofs, Contributions, PreCommitments, PublicKey, Responses,
     ResponsesVerifInput, Signature,
 };
-use crate::protocol_handler::{
-    NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, TemporalProtocolStage,
-};
+use crate::protocol_handler::NetworkAction;
+use crate::protocol_handler::ProtocolBehaviour;
+use crate::protocol_handler::ProtocolBehaviourOut;
+use crate::protocol_handler::TemporalProtocolStage;
 use crate::types::ProtocolId;
 
 mod crypto;
 mod message;
 pub mod types;
 
-struct AggregatePreCommitments<H, PP> {
+struct AggregatePreCommitments<'a, H, PP> {
     /// `x_i`
     host_sk: SecretKey,
     /// Host's index in the Handel overlay.
@@ -57,12 +58,12 @@ struct AggregatePreCommitments<H, PP> {
     host_explusion_proof: Signature,
     /// `t_i = H(Y_i)`. Hash type of host pre-commitment is fixed.
     host_pre_commitment: Blake2bDigest256,
-    process: Handel<PreCommitments, (), PP>,
+    handel: Box<dyn HandelRound<'a, PreCommitments, PP>>,
 }
 
-impl<H, PP> AggregatePreCommitments<H, PP>
+impl<'a, H, PP> AggregatePreCommitments<'a, H, PP>
 where
-    PP: PeerPartitions,
+    PP: PeerPartitions + 'a,
 {
     fn init<MPP: MakePeerPartitions<PP = PP>>(
         host_sk: SecretKey,
@@ -70,7 +71,7 @@ where
         message_digest: Digest256<H>,
         partitioner: MPP,
         handel_conf: HandelConfig,
-    ) -> AggregatePreCommitments<H, PP> {
+    ) -> AggregatePreCommitments<'a, H, PP> {
         let host_pk = PublicKey::from(host_sk.clone());
         let host_pid = PeerId::from(host_pk);
         let peers = committee.iter().map(PeerId::from).collect();
@@ -106,12 +107,12 @@ where
             host_commitment,
             host_explusion_proof: exclusion_proof(host_secret, message_digest),
             host_pre_commitment,
-            process: Handel::new(
+            handel: Box::new(Handel::new(
                 handel_conf,
                 Contributions::unit(host_ix, host_pre_commitment),
                 (),
                 partitions,
-            ),
+            )),
         }
     }
 
@@ -119,7 +120,7 @@ where
         self,
         pre_commitments: PreCommitments,
         handel_conf: HandelConfig,
-    ) -> AggregateSchnorrCommitments<H, PP> {
+    ) -> AggregateSchnorrCommitments<'a, H, PP> {
         let verif_input = CommitmentsVerifInput {
             pre_commitments,
             message_digest_bytes: self.message_digest.as_ref().to_vec(),
@@ -133,18 +134,17 @@ where
             host_secret: self.host_secret,
             host_commitment: self.host_commitment.clone(),
             host_explusion_proof: self.host_explusion_proof.clone(),
-            host_pre_commitment: self.host_pre_commitment,
-            process: Handel::new(
+            process: Box::new(Handel::new(
                 handel_conf,
                 Contributions::unit(self.host_ix, (self.host_commitment, self.host_explusion_proof)),
                 verif_input,
-                self.process.take_partitions(),
-            ),
+                self.handel.narrow(),
+            )),
         }
     }
 }
 
-struct AggregateSchnorrCommitments<H, PP> {
+struct AggregateSchnorrCommitments<'a, H, PP> {
     /// `x_i`
     host_sk: SecretKey,
     /// Host's index in the Handel overlay.
@@ -161,20 +161,18 @@ struct AggregateSchnorrCommitments<H, PP> {
     host_commitment: PublicKey,
     /// `σ_i`. Dlog proof of knowledge of `Y_i`.
     host_explusion_proof: Signature,
-    /// `t_i = H(Y_i)`. Hash type of host pre-commitment is fixed.
-    host_pre_commitment: Blake2bDigest256,
-    process: Handel<CommitmentsWithProofs, CommitmentsVerifInput, PP>,
+    process: Box<dyn HandelRound<'a, CommitmentsWithProofs, PP>>,
 }
 
-impl<H, PP> AggregateSchnorrCommitments<H, PP>
+impl<'a, H, PP> AggregateSchnorrCommitments<'a, H, PP>
 where
-    PP: PeerPartitions,
+    PP: PeerPartitions + 'a,
 {
     fn complete(
         self,
         commitments_with_proofs: CommitmentsWithProofs,
         handel_conf: HandelConfig,
-    ) -> AggregateResponses<H, PP> {
+    ) -> AggregateResponses<'a, H, PP> {
         let aggr_pk = aggregate_pk(NonEmpty::from_vec(self.committee.values().cloned().collect()).unwrap());
         let aggr_commitment = aggregate_pk(
             NonEmpty::from_vec(
@@ -210,19 +208,18 @@ where
             host_commitment: self.host_commitment,
             aggr_commitment,
             host_explusion_proof: self.host_explusion_proof,
-            host_pre_commitment: self.host_pre_commitment,
             commitments_with_proofs,
-            process: Handel::new(
+            process: Box::new(Handel::new(
                 handel_conf,
                 Contributions::unit(self.host_ix, host_response),
                 verif_inputs,
-                self.process.take_partitions(),
-            ),
+                self.process.narrow(),
+            )),
         }
     }
 }
 
-struct AggregateResponses<H, PP> {
+struct AggregateResponses<'a, H, PP> {
     /// `x_i`
     host_sk: SecretKey,
     /// Host's index in the Handel overlay.
@@ -240,13 +237,11 @@ struct AggregateResponses<H, PP> {
     aggr_commitment: PublicKey,
     /// `σ_i`. Dlog proof of knowledge of `Y_i`.
     host_explusion_proof: Signature,
-    /// `t_i = H(Y_i)`. Hash type of host pre-commitment is fixed.
-    host_pre_commitment: Blake2bDigest256,
     commitments_with_proofs: CommitmentsWithProofs,
-    process: Handel<Responses, ResponsesVerifInput, PP>,
+    process: Box<dyn HandelRound<'a, Responses, PP>>,
 }
 
-impl<H, PP> AggregateResponses<H, PP> {
+impl<'a, H, PP> AggregateResponses<'a, H, PP> {
     fn complete(self, responses: Responses) -> Aggregated<H> {
         let mut exclusion_set = HashMap::new();
         for (pix, (yi, sig)) in self.commitments_with_proofs.entries() {
@@ -265,41 +260,43 @@ impl<H, PP> AggregateResponses<H, PP> {
     }
 }
 
+/// Result of an aggregation.
 #[derive(Debug)]
 pub struct Aggregated<H> {
-    message_digest: Digest256<H>,
-    aggregate_commitment: PublicKey,
-    aggregate_response: Scalar,
-    exclusion_set: HashMap<PublicKey, Signature>,
+    pub message_digest: Digest256<H>,
+    pub aggregate_commitment: PublicKey,
+    pub aggregate_response: Scalar,
+    pub exclusion_set: HashMap<PublicKey, Signature>,
 }
 
-enum AggregationState<H, PP> {
-    AggregatePreCommitments(AggregatePreCommitments<H, PP>),
-    AggregateSchnorrCommitments(AggregateSchnorrCommitments<H, PP>),
-    AggregateResponses(AggregateResponses<H, PP>),
+enum AggregationState<'a, H, PP> {
+    AggregatePreCommitments(AggregatePreCommitments<'a, H, PP>),
+    AggregateSchnorrCommitments(AggregateSchnorrCommitments<'a, H, PP>),
+    AggregateResponses(AggregateResponses<'a, H, PP>),
 }
 
-struct AggregationTask<H, PP> {
-    state: AggregationState<H, PP>,
+struct AggregationTask<'a, H, PP> {
+    state: AggregationState<'a, H, PP>,
     channel: Sender<Result<Aggregated<H>, ()>>,
 }
 
-pub struct SigmaAggregation<H, MPP>
+pub struct SigmaAggregation<'a, H, MPP>
 where
     MPP: MakePeerPartitions + Clone,
 {
     host_sk: SecretKey,
     handel_conf: HandelConfig,
-    task: Option<AggregationTask<H, MPP::PP>>,
+    task: Option<AggregationTask<'a, H, MPP::PP>>,
     partitioner: MPP,
     inbox: Receiver<AggregationAction<H>>,
     outbox: VecDeque<ProtocolBehaviourOut<SigmaAggrMessage, SigmaAggrMessage>>,
 }
 
-impl<H, MPP> ProtocolBehaviour for SigmaAggregation<H, MPP>
+impl<'a, H, MPP> ProtocolBehaviour for SigmaAggregation<'a, H, MPP>
 where
     H: Debug,
     MPP: MakePeerPartitions + Clone,
+    MPP::PP: 'a,
 {
     type TProto = SigmaAggrSpec;
 
@@ -318,7 +315,7 @@ where
                 ..
             }) => {
                 if let SigmaAggrMessageV1::PreCommitments(pre_commits) = msg {
-                    pre_commitment.process.inject_message(peer_id, pre_commits);
+                    pre_commitment.handel.inject_message(peer_id, pre_commits);
                 }
             }
             Some(AggregationTask {
@@ -377,7 +374,7 @@ where
                         state: AggregationState::AggregatePreCommitments(mut st),
                         channel,
                     } => {
-                        match st.process.poll(cx) {
+                        match st.handel.poll(cx) {
                             Poll::Ready(out) => match out {
                                 Either::Left(cmd) => match cmd {
                                     ProtocolBehaviourOut::Send { peer_id, message } => {
