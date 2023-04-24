@@ -23,8 +23,6 @@ use unsigned_varint::codec::UviBytes;
 pub enum ProtocolHandshakeErr {
     #[error(transparent)]
     IoErr(#[from] io::Error),
-    #[error(transparent)]
-    PrefixReadErr(#[from] unsigned_varint::io::ReadError),
     #[error("Invalid approve message")]
     InvalidApprove(),
 }
@@ -93,7 +91,7 @@ impl UpgradeInfo for ProtocolUpgradeIn {
 
 impl<Substream> InboundUpgrade<Substream> for ProtocolUpgradeIn
 where
-    Substream: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    Substream: AsyncRead + Unpin + Send + 'static,
 {
     type Output = InboundProtocolUpgraded<ProtocolSubstreamIn<Substream>>;
     type Error = ProtocolUpgradeErr;

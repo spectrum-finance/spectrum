@@ -4,6 +4,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+use either::Either;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::Stream;
 use libp2p::core::Endpoint;
@@ -14,18 +15,16 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 use log::{trace, warn};
+use crate::atomic_protocol_upgrade::AtomicUpgradeOut;
 
 use crate::peer_conn_handler::message_sink::MessageSink;
-use crate::peer_conn_handler::{
-    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, PeerConnHandler,
-    PeerConnHandlerConf, Protocol, ProtocolState, ThrottleStage,
-};
+use crate::peer_conn_handler::{AtomicHandler, AtomicConnHandlerOut, ConnHandlerError, ConnHandlerIn, ConnHandlerOut, PeerConnHandler, PeerConnHandlerConf, Protocol, ProtocolState, ThrottleStage};
 use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
 use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
 use crate::protocol::ProtocolConfig;
 use crate::protocol_api::ProtocolEvents;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
-use crate::types::{ProtocolId, ProtocolVer};
+use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 
 /// States of an enabled protocol.
 #[derive(Debug)]
@@ -104,6 +103,14 @@ pub enum NetworkControllerIn {
         peer: PeerId,
         protocols: Vec<ProtocolId>,
     },
+    /// A directive to send a one-shot message to the specified peer.
+    SendMessageOneShot {
+        /// The desired protocol and version.
+        protocol: ProtocolTag,
+        /// A specific peer we should start the protocol with.
+        peer: PeerId,
+        message: RawMessage,
+    },
     /// Ban peer permanently.
     BanPeer(PeerId),
 }
@@ -112,9 +119,10 @@ pub enum NetworkControllerIn {
 pub trait NetworkAPI {
     /// Enables the specified protocol with the specified peer.
     fn enable_protocol(&self, protocol: ProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec);
-
     /// Updates the set of protocols supported by the specified peer.
     fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>);
+    /// A directive to send a one-shot message to the specified peer.
+    fn send_message_one_shot(&self, protocol: ProtocolTag, peer: PeerId, message: RawMessage);
     /// Ban peer permanently.
     fn ban_peer(&self, peer: PeerId);
 }
@@ -134,11 +142,23 @@ impl NetworkAPI for NetworkMailbox {
                 handshake,
             });
     }
+
     fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>) {
         let _ = self
             .mailbox_snd
             .unbounded_send(NetworkControllerIn::UpdatePeerProtocols { peer, protocols });
     }
+
+    fn send_message_one_shot(&self, protocol: ProtocolTag, peer: PeerId, message: RawMessage) {
+        let _ = self
+            .mailbox_snd
+            .unbounded_send(NetworkControllerIn::SendMessageOneShot {
+                protocol,
+                peer,
+                message,
+            });
+    }
+
     fn ban_peer(&self, peer: PeerId) {
         let _ = self
             .mailbox_snd
@@ -293,7 +313,7 @@ where
     TPeerManager: Stream<Item = PeerManagerOut> + Unpin + 'static,
     THandler: ProtocolEvents + Clone + 'static,
 {
-    type ConnectionHandler = PeerConnHandler;
+    type ConnectionHandler = Either<PeerConnHandler, AtomicHandler>;
     type OutEvent = NetworkControllerOut;
 
     fn handle_established_inbound_connection(
@@ -406,7 +426,7 @@ where
         &mut self,
         peer_id: PeerId,
         connection: ConnectionId,
-        event: ConnHandlerOut,
+        event: Either<ConnHandlerOut, AtomicConnHandlerOut>,
     ) {
         match event {
             ConnHandlerOut::Opened {
@@ -526,7 +546,7 @@ where
         &mut self,
         cx: &mut Context<'_>,
         _: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<NetworkControllerOut, ConnHandlerIn>> {
+    ) -> Poll<ToSwarm<NetworkControllerOut, Either<ConnHandlerIn, AtomicUpgradeOut>>> {
         loop {
             // 1. Try to return a pending action.
             if let Some(action) = self.pending_actions.pop_front() {

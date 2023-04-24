@@ -16,12 +16,13 @@ use libp2p::swarm::{
 use libp2p::PeerId;
 use log::trace;
 
+use crate::atomic_protocol_upgrade::{AtomicUpgradeIn, AtomicUpgradeOut};
 use crate::peer_conn_handler::message_sink::{MessageSink, StreamNotification};
 use crate::protocol::ProtocolSpec;
 use crate::protocol_upgrade::combinators::AnyUpgradeOf;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use crate::protocol_upgrade::substream::{ProtocolSubstreamIn, ProtocolSubstreamOut};
-use crate::protocol_upgrade::{ProtocolUpgradeIn, ProtocolUpgradeOut};
+use crate::protocol_upgrade::{InboundProtocolUpgraded, ProtocolUpgradeIn, ProtocolUpgradeOut};
 use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 
 pub mod message_sink;
@@ -138,6 +139,12 @@ pub enum ConnHandlerIn {
 }
 
 #[derive(Debug, Clone)]
+pub struct Message {
+    pub protocol_tag: ProtocolTag,
+    pub content: RawMessage,
+}
+
+#[derive(Debug, Clone)]
 pub enum ConnHandlerOut {
     // Input commands outcomes:
     /// Ack [`ConnHandlerIn::Open`]. Substream was negotiated.
@@ -170,10 +177,7 @@ pub enum ConnHandlerOut {
     ClosedByPeer(ProtocolId),
     /// Received a message on a custom protocol substream.
     /// Can only happen when the handler is in the open state.
-    Message {
-        protocol_tag: ProtocolTag,
-        content: RawMessage,
-    },
+    Message(Message),
 }
 
 /// Error specific to the collection of protocols.
@@ -605,10 +609,10 @@ impl ConnectionHandler for PeerConnHandler {
                             match Stream::poll_next(Pin::new(substream_in), cx) {
                                 Poll::Pending => {}
                                 Poll::Ready(Some(Ok(msg))) => {
-                                    let event = ConnHandlerOut::Message {
+                                    let event = ConnHandlerOut::Message(Message {
                                         protocol_tag: ProtocolTag::new(*protocol_id, protocol.ver),
                                         content: msg,
-                                    };
+                                    });
                                     return Poll::Ready(ConnectionHandlerEvent::Custom(event));
                                 }
                                 Poll::Ready(None) | Poll::Ready(Some(Err(_))) => {
@@ -666,6 +670,32 @@ impl ConnectionHandler for PeerConnHandler {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum AtomicConnHandlerOut {
+    /// A message has been received.
+    Message(Message),
+    /// One-shot message has been sent to peer.
+    MessageSent,
+}
+
+impl From<(Message, usize)> for AtomicConnHandlerOut {
+    fn from((msg, _): (Message, usize)) -> Self {
+        AtomicConnHandlerOut::Message(msg)
+    }
+}
+
+impl From<()> for AtomicConnHandlerOut {
+    fn from(_: ()) -> Self {
+        AtomicConnHandlerOut::MessageSent
+    }
+}
+
+pub type AtomicHandler = libp2p::swarm::handler::OneShotHandler<
+    AnyUpgradeOf<AtomicUpgradeIn>,
+    AtomicUpgradeOut,
+    AtomicConnHandlerOut,
+>;
 
 /// This is used to throttle `StreamNotification`s sent to us by the other peer.
 #[derive(PartialEq, Eq)]

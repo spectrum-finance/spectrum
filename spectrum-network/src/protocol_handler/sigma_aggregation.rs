@@ -12,7 +12,7 @@ use k256::{Scalar, SecretKey};
 use libp2p::PeerId;
 use nonempty::NonEmpty;
 
-use spectrum_crypto::digest::{Blake2bDigest256, Digest256};
+use spectrum_crypto::digest::Digest256;
 
 use crate::protocol::SIGMA_AGGR_PROTOCOL_ID;
 use crate::protocol_handler::aggregation::AggregationAction;
@@ -374,12 +374,13 @@ where
                         match st.handel.poll(cx) {
                             Poll::Ready(out) => match out {
                                 Either::Left(cmd) => match cmd {
-                                    ProtocolBehaviourOut::Send { peer_id, message } => {
+                                    ProtocolBehaviourOut::Send { peer_id, message, one_shot } => {
                                         self.outbox.push_back(ProtocolBehaviourOut::Send {
                                             peer_id,
                                             message: SigmaAggrMessage::SigmaAggrMessageV1(
                                                 SigmaAggrMessageV1::PreCommitments(message),
                                             ),
+                                            one_shot,
                                         });
                                     }
                                     ProtocolBehaviourOut::NetworkAction(NetworkAction::BanPeer(pid)) => {

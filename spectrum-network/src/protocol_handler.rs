@@ -17,15 +17,15 @@ use crate::peer_conn_handler::stream::FusedStream;
 use crate::protocol_api::{ProtocolEvent, ProtocolMailbox};
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
-use crate::types::{ProtocolId, ProtocolVer, RawMessage};
+use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 
+pub mod aggregation;
 pub mod codec;
 pub mod cosi;
 pub mod handel;
 pub mod sigma_aggregation;
 pub mod sync;
 pub mod versioning;
-pub mod aggregation;
 
 #[derive(Debug)]
 pub enum NetworkAction<THandshake> {
@@ -48,7 +48,15 @@ pub enum NetworkAction<THandshake> {
 
 #[derive(Debug)]
 pub enum ProtocolBehaviourOut<THandshake, TMessage> {
-    Send { peer_id: PeerId, message: TMessage },
+    Send {
+        peer_id: PeerId,
+        message: TMessage,
+    },
+    SendOneShot {
+        peer_id: PeerId,
+        version: ProtocolVer,
+        message: TMessage,
+    },
     NetworkAction(NetworkAction<THandshake>),
 }
 
@@ -210,6 +218,15 @@ where
                             } else {
                                 error!("Cannot find sink for peer {}", peer_id);
                             }
+                        }
+                        ProtocolBehaviourOut::SendOneShot {
+                            peer_id,
+                            version,
+                            message,
+                        } => {
+                            let msg_bytes = codec::BinCodec::encode(message.clone());
+                            let tag = ProtocolTag::new(self.behaviour.get_protocol_id(), version);
+                            self.network.send_message_one_shot(tag, peer_id, msg_bytes);
                         }
                         ProtocolBehaviourOut::NetworkAction(action) => match action {
                             NetworkAction::EnablePeer {

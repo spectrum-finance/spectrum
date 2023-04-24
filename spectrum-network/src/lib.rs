@@ -7,3 +7,4 @@ pub mod protocol_upgrade;
 pub mod types;
 pub mod protocol_api;
 pub mod functionality;
+pub mod atomic_protocol_upgrade;
