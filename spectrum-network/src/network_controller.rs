@@ -15,17 +15,18 @@ use libp2p::swarm::{
 use libp2p::{Multiaddr, PeerId};
 use log::{trace, warn};
 
+use crate::one_shot_upgrade::OneShotMessage;
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{
-    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, PeerConnHandler,
-    PeerConnHandlerConf, Protocol, ProtocolState, ThrottleStage,
+    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, PeerConnHandler, PeerConnHandlerConf, Protocol,
+    ProtocolState, ThrottleStage,
 };
 use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
 use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
 use crate::protocol::ProtocolConfig;
 use crate::protocol_api::ProtocolEvents;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
-use crate::types::{ProtocolId, ProtocolVer};
+use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 
 /// States of an enabled protocol.
 #[derive(Debug)]
@@ -104,6 +105,13 @@ pub enum NetworkControllerIn {
         peer: PeerId,
         protocols: Vec<ProtocolId>,
     },
+    /// Send the given message to the specified peer without
+    /// establishing a persistent two-way communication channel.
+    SendOneShotMessage {
+        peer: PeerId,
+        protocol: ProtocolTag,
+        message: RawMessage,
+    },
     /// Ban peer permanently.
     BanPeer(PeerId),
 }
@@ -115,6 +123,9 @@ pub trait NetworkAPI {
 
     /// Updates the set of protocols supported by the specified peer.
     fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>);
+    /// Send the given message to the specified peer without
+    /// establishing a persistent two-way communication channel.
+    fn send_one_shot_message(&self, peer: PeerId, protocol: ProtocolTag, message: RawMessage);
     /// Ban peer permanently.
     fn ban_peer(&self, peer: PeerId);
 }
@@ -138,6 +149,15 @@ impl NetworkAPI for NetworkMailbox {
         let _ = self
             .mailbox_snd
             .unbounded_send(NetworkControllerIn::UpdatePeerProtocols { peer, protocols });
+    }
+    fn send_one_shot_message(&self, peer: PeerId, protocol: ProtocolTag, message: RawMessage) {
+        let _ = self
+            .mailbox_snd
+            .unbounded_send(NetworkControllerIn::SendOneShotMessage {
+                peer,
+                protocol,
+                message,
+            });
     }
     fn ban_peer(&self, peer: PeerId) {
         let _ = self
@@ -228,6 +248,8 @@ pub struct NetworkController<TPeers, TPeerManager, THandler> {
     /// PeerManager stream itself
     peer_manager: TPeerManager,
     enabled_peers: HashMap<PeerId, ConnectedPeer<THandler>>,
+    /// Pending one-shot messages awaiting a dialing before being sent
+    pending_one_shot_requests: HashMap<PeerId, OneShotMessage>,
     requests_recv: UnboundedReceiver<NetworkControllerIn>,
     pending_actions: VecDeque<ToSwarm<NetworkControllerOut, ConnHandlerIn>>,
 }
@@ -249,6 +271,7 @@ where
             peers,
             peer_manager,
             enabled_peers: HashMap::new(),
+            pending_one_shot_requests: HashMap::new(),
             requests_recv,
             pending_actions: VecDeque::new(),
         }
@@ -313,6 +336,9 @@ where
         _addr: &Multiaddr,
         _role_override: Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, ConnectionDenied> {
+        if let Some(req) = self.pending_one_shot_requests.get(&peer) {
+            // todo: init one-shot handler here
+        }
         Ok(self.init_conn_handler(peer))
     }
 
@@ -323,6 +349,7 @@ where
                 connection_id,
                 ..
             }) => {
+                // todo: check
                 match self.enabled_peers.entry(peer_id) {
                     Entry::Occupied(mut peer_entry) => match peer_entry.get() {
                         ConnectedPeer::PendingConnect => {
@@ -636,6 +663,22 @@ where
             // 3. Poll commands from protocol handlers.
             if let Poll::Ready(Some(input)) = Stream::poll_next(Pin::new(&mut self.requests_recv), cx) {
                 match input {
+                    NetworkControllerIn::SendOneShotMessage {
+                        peer,
+                        protocol,
+                        message,
+                    } => {
+                        // Register the request
+                        self.pending_one_shot_requests.insert(
+                            peer,
+                            OneShotMessage {
+                                protocol,
+                                content: message,
+                            },
+                        );
+                        // Dial the peer
+                        self.pending_actions.push_back(ToSwarm::Dial { opts: peer.into() })
+                    }
                     NetworkControllerIn::UpdatePeerProtocols { peer, protocols } => {
                         self.peers.set_peer_protocols(peer, protocols);
                     }

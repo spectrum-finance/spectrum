@@ -4,6 +4,7 @@ use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+use either::Either;
 
 use futures::channel::mpsc;
 pub use futures::prelude::*;
@@ -15,6 +16,7 @@ use libp2p::swarm::{
 };
 use libp2p::PeerId;
 use log::trace;
+use crate::one_shot_upgrade::{AtomicUpgradeIn, AtomicUpgradeOut, OneShotMessage};
 
 use crate::peer_conn_handler::message_sink::{MessageSink, StreamNotification};
 use crate::protocol::ProtocolSpec;
@@ -666,6 +668,32 @@ impl ConnectionHandler for PeerConnHandler {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum OneShotConnHandlerOut {
+    /// A message has been received.
+    Message(OneShotMessage),
+    /// One-shot message has been sent to peer.
+    MessageSent,
+}
+
+impl From<(OneShotMessage, usize)> for OneShotConnHandlerOut {
+    fn from((msg, _): (OneShotMessage, usize)) -> Self {
+        OneShotConnHandlerOut::Message(msg)
+    }
+}
+
+impl From<()> for OneShotConnHandlerOut {
+    fn from(_: ()) -> Self {
+        OneShotConnHandlerOut::MessageSent
+    }
+}
+
+pub type OneShotConnHandler = libp2p::swarm::handler::OneShotHandler<
+    AnyUpgradeOf<AtomicUpgradeIn>,
+    AtomicUpgradeOut,
+    OneShotConnHandlerOut,
+>;
 
 /// This is used to throttle `StreamNotification`s sent to us by the other peer.
 #[derive(PartialEq, Eq)]

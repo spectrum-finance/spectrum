@@ -17,18 +17,18 @@ use crate::peer_conn_handler::stream::FusedStream;
 use crate::protocol_api::{ProtocolEvent, ProtocolMailbox};
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
-use crate::types::{ProtocolId, ProtocolVer, RawMessage};
+use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 
+pub mod aggregation;
 pub mod codec;
 pub mod cosi;
 pub mod handel;
 pub mod sigma_aggregation;
 pub mod sync;
 pub mod versioning;
-pub mod aggregation;
 
 #[derive(Debug)]
-pub enum NetworkAction<THandshake> {
+pub enum NetworkAction<THandshake, TMessage> {
     /// A directive to enable the specified protocol with the specified peer.
     EnablePeer {
         /// A specific peer we should start the protocol with.
@@ -42,6 +42,13 @@ pub enum NetworkAction<THandshake> {
         peer: PeerId,
         protocols: Vec<ProtocolId>,
     },
+    /// Send the given message to the specified peer without
+    /// establishing a persistent two-way communication channel.
+    SendOneShotMessage {
+        peer: PeerId,
+        use_version: ProtocolVer,
+        message: TMessage,
+    },
     /// Ban peer.
     BanPeer(PeerId),
 }
@@ -49,7 +56,7 @@ pub enum NetworkAction<THandshake> {
 #[derive(Debug)]
 pub enum ProtocolBehaviourOut<THandshake, TMessage> {
     Send { peer_id: PeerId, message: TMessage },
-    NetworkAction(NetworkAction<THandshake>),
+    NetworkAction(NetworkAction<THandshake, TMessage>),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -230,6 +237,16 @@ where
                             }
                             NetworkAction::UpdatePeerProtocols { peer, protocols } => {
                                 self.network.update_peer_protocols(peer, protocols);
+                            }
+                            NetworkAction::SendOneShotMessage {
+                                peer,
+                                use_version,
+                                message,
+                            } => {
+                                let message_bytes = codec::BinCodec::encode(message.clone());
+                                let protocol =
+                                    ProtocolTag::new(self.behaviour.get_protocol_id(), use_version);
+                                self.network.send_one_shot_message(peer, protocol, message_bytes);
                             }
                             NetworkAction::BanPeer(pid) => self.network.ban_peer(pid),
                         },
