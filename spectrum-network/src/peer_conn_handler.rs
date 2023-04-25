@@ -17,7 +17,7 @@ use libp2p::swarm::{
 use libp2p::PeerId;
 use log::trace;
 
-use crate::one_shot_upgrade::{AtomicUpgradeOut, OneShotMessage, OneShotUpgradeIn};
+use crate::one_shot_upgrade::{OneShotMessage, OneShotUpgradeIn, OneShotUpgradeOut};
 use crate::peer_conn_handler::message_sink::{MessageSink, StreamNotification};
 use crate::protocol::{OneShotProtocolSpec, StatefulProtocolSpec};
 use crate::protocol_upgrade::combinators::AnyUpgradeOf;
@@ -209,8 +209,14 @@ pub struct PeerConnHandler {
     /// Remote we are connected to.
     pub peer_id: PeerId,
     /// Events to return in priority from `poll`.
-    pub pending_events:
-        VecDeque<ConnectionHandlerEvent<ProtocolUpgradeOut, ProtocolTag, ConnHandlerOut, ConnHandlerError>>,
+    pub pending_events: VecDeque<
+        ConnectionHandlerEvent<
+            Either<ProtocolUpgradeOut, OneShotUpgradeOut>,
+            ProtocolTag,
+            ConnHandlerOut,
+            ConnHandlerError,
+        >,
+    >,
     /// Is the handler going to terminate due to this err.
     pub fault: Option<ConnHandlerError>,
     /// Current throttle stage. Throttling is performed for each inbound `StreamNotification`.
@@ -218,6 +224,7 @@ pub struct PeerConnHandler {
     /// If throttling inbound `StreamNotification`s, this represents the delay before processing a
     /// new element.
     pub delay: wasm_timer::Delay,
+    pub mode: OperationMode,
 }
 
 impl PeerConnHandler {
@@ -231,7 +238,7 @@ impl ConnectionHandler for PeerConnHandler {
     type OutEvent = ConnHandlerOut;
     type Error = ConnHandlerError;
     type InboundProtocol = AnyUpgradeOf<Either<ProtocolUpgradeIn, OneShotUpgradeIn>>;
-    type OutboundProtocol = ProtocolUpgradeOut;
+    type OutboundProtocol = Either<ProtocolUpgradeOut, OneShotUpgradeOut>;
     type InboundOpenInfo = ();
     type OutboundOpenInfo = ProtocolTag;
 
@@ -264,7 +271,7 @@ impl ConnectionHandler for PeerConnHandler {
                     if let Some(state) = state {
                         let state_next = match state {
                             ProtocolState::Closed => {
-                                let upgrade = ProtocolUpgradeOut::new(
+                                let upgrade = Left(ProtocolUpgradeOut::new(
                                     protocol_id,
                                     protocol
                                         .all_versions_specs
@@ -273,7 +280,7 @@ impl ConnectionHandler for PeerConnHandler {
                                         .zip::<Vec<_>>(handshake.into())
                                         .map(|((ver, spec), (_, hs))| (ver, spec, hs))
                                         .collect(),
-                                );
+                                ));
                                 self.pending_events.push_back(
                                     ConnectionHandlerEvent::OutboundSubstreamRequest {
                                         protocol: SubstreamProtocol::new(
@@ -292,11 +299,11 @@ impl ConnectionHandler for PeerConnHandler {
                                     trace!("Sending approve for inbound protocol {:?}", protocol_id);
                                     substream_in.send_approve()
                                 }
-                                let upgrade = ProtocolUpgradeOut::new(
+                                let upgrade = Left(ProtocolUpgradeOut::new(
                                     protocol_id,
                                     // Version is negotiated during inbound upgr, so we pass it exclusively to outbound upgr.
                                     vec![(protocol.ver, protocol.spec, ver_handshake)],
-                                );
+                                ));
                                 self.pending_events.push_back(
                                     ConnectionHandlerEvent::OutboundSubstreamRequest {
                                         protocol: SubstreamProtocol::new(
@@ -430,7 +437,15 @@ impl ConnectionHandler for PeerConnHandler {
             }
 
             ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
-                protocol: upgrade,
+                protocol: future::Either::Right(_),
+                ..
+            }) => {
+                trace!("One shot delivery attempt done, terminating");
+                self.mode = OperationMode::OneShot(OneShotState::Terminate);
+            }
+
+            ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
+                protocol: future::Either::Left(upgrade),
                 info: negotiated_tag,
             }) => {
                 trace!("inject_fully_negotiated_outbound()");
@@ -506,16 +521,25 @@ impl ConnectionHandler for PeerConnHandler {
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
-        // Keep alive unless all protocols are inactive.
-        // Otherwise close connection once initial_keep_alive interval passed.
-        if self
-            .stateful_protocols
-            .values()
-            .any(|p| !matches!(p.state, Some(ProtocolState::Closed)))
-        {
-            KeepAlive::Yes
-        } else {
-            KeepAlive::Until(self.created_at + self.conf.initial_keep_alive)
+        match self.mode {
+            OperationMode::ServeAll => {
+                // Keep alive unless all protocols are inactive.
+                // Otherwise close connection once initial_keep_alive interval passed.
+                if self
+                    .stateful_protocols
+                    .values()
+                    .any(|p| !matches!(p.state, Some(ProtocolState::Closed)))
+                {
+                    KeepAlive::Yes
+                } else {
+                    KeepAlive::Until(self.created_at + self.conf.initial_keep_alive)
+                }
+            }
+
+            OperationMode::OneShot(OneShotState::PendingRequest(_) | OneShotState::PendingTerminate) => {
+                KeepAlive::Yes
+            }
+            OperationMode::OneShot(_) => KeepAlive::No,
         }
     }
 
@@ -525,6 +549,18 @@ impl ConnectionHandler for PeerConnHandler {
     ) -> Poll<
         ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::OutEvent, Self::Error>,
     > {
+        if let OperationMode::OneShot(OneShotState::PendingRequest(message)) = &self.mode {
+            let upgrade = Right(OneShotUpgradeOut {
+                protocol: message.protocol,
+                message: message.content.clone(),
+            });
+            self.pending_events
+                .push_back(ConnectionHandlerEvent::OutboundSubstreamRequest {
+                    protocol: SubstreamProtocol::new(upgrade, message.protocol)
+                        .with_timeout(self.conf.open_timeout),
+                });
+            self.mode = OperationMode::OneShot(OneShotState::PendingTerminate);
+        }
         if let Some(out) = self.pending_events.pop_front() {
             Poll::Ready(out)
         } else {
@@ -719,9 +755,25 @@ impl From<()> for OneShotConnHandlerOut {
 
 pub type OneShotConnHandler = libp2p::swarm::handler::OneShotHandler<
     AnyUpgradeOf<OneShotUpgradeIn>,
-    AtomicUpgradeOut,
+    OneShotUpgradeOut,
     OneShotConnHandlerOut,
 >;
+
+/// Possible modes of PCH operation.
+#[derive(Clone, Debug)]
+pub enum OperationMode {
+    /// Serve all protocols.
+    ServeAll,
+    /// Attempts to deliver the message once, then terminate.
+    OneShot(OneShotState),
+}
+
+#[derive(Clone, Debug)]
+pub enum OneShotState {
+    PendingRequest(OneShotMessage),
+    PendingTerminate,
+    Terminate,
+}
 
 /// This is used to throttle `StreamNotification`s sent to us by the other peer.
 #[derive(PartialEq, Eq)]

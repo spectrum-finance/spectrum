@@ -19,8 +19,8 @@ use log::{trace, warn};
 use crate::one_shot_upgrade::OneShotMessage;
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{
-    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, OneShotProtocol, PeerConnHandler, PeerConnHandlerConf,
-    ProtocolState, StatefulProtocol, ThrottleStage,
+    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, OneShotProtocol, OneShotState, OperationMode,
+    PeerConnHandler, PeerConnHandlerConf, ProtocolState, StatefulProtocol, ThrottleStage,
 };
 use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
 use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
@@ -278,7 +278,7 @@ where
         }
     }
 
-    fn init_conn_handler(&self, peer_id: PeerId) -> PeerConnHandler {
+    fn init_conn_handler(&self, peer_id: PeerId, mode: OperationMode) -> PeerConnHandler {
         let mut stateful_protocols = HashMap::new();
         let mut one_shot_protocols = HashMap::new();
         for (protocol_id, (p, _)) in self.supported_protocols.iter() {
@@ -322,6 +322,7 @@ where
             fault: None,
             delay: wasm_timer::Delay::new(Duration::from_millis(300)),
             throttle_stage: throttle_recv,
+            mode,
         }
     }
 }
@@ -342,7 +343,7 @@ where
         _local_addr: &Multiaddr,
         _remote_addr: &Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, ConnectionDenied> {
-        Ok(self.init_conn_handler(peer))
+        Ok(self.init_conn_handler(peer, OperationMode::ServeAll))
     }
 
     fn handle_established_outbound_connection(
@@ -352,10 +353,12 @@ where
         _addr: &Multiaddr,
         _role_override: Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, ConnectionDenied> {
-        if let Some(req) = self.pending_one_shot_requests.get(&peer) {
-            // todo: init one-shot handler here
-        }
-        Ok(self.init_conn_handler(peer))
+        let mode = if let Some(req) = self.pending_one_shot_requests.get(&peer) {
+            OperationMode::OneShot(OneShotState::PendingRequest(req.clone()))
+        } else {
+            OperationMode::ServeAll
+        };
+        Ok(self.init_conn_handler(peer, mode))
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
@@ -365,7 +368,6 @@ where
                 connection_id,
                 ..
             }) => {
-                // todo: check
                 match self.enabled_peers.entry(peer_id) {
                     Entry::Occupied(mut peer_entry) => match peer_entry.get() {
                         ConnectedPeer::PendingConnect => {

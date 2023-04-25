@@ -10,12 +10,12 @@ use crate::types::{ProtocolTag, RawMessage};
 
 /// Upgrade that opens a connection and immediately sends a single message.
 #[derive(Debug, Clone)]
-pub struct AtomicUpgradeOut {
-    protocol: ProtocolTag,
-    message: RawMessage,
+pub struct OneShotUpgradeOut {
+    pub(crate) protocol: ProtocolTag,
+    pub(crate) message: RawMessage,
 }
 
-impl UpgradeInfo for AtomicUpgradeOut {
+impl UpgradeInfo for OneShotUpgradeOut {
     type Info = ProtocolTag;
     type InfoIter = vec::IntoIter<Self::Info>;
 
@@ -24,7 +24,7 @@ impl UpgradeInfo for AtomicUpgradeOut {
     }
 }
 
-impl<TSubstream> OutboundUpgrade<TSubstream> for AtomicUpgradeOut
+impl<TSubstream> OutboundUpgrade<TSubstream> for OneShotUpgradeOut
 where
     TSubstream: AsyncWrite + Unpin + Send + 'static,
 {
@@ -75,7 +75,7 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct OneShotMessage {
     pub protocol: ProtocolTag,
     pub content: RawMessage,
