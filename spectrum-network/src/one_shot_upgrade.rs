@@ -42,12 +42,12 @@ where
 
 /// Upgrade that expects a single message upon establishing a connection.
 #[derive(Debug, Clone)]
-pub struct AtomicUpgradeIn {
-    protocol: ProtocolTag,
-    max_message_size: usize,
+pub struct OneShotUpgradeIn {
+    pub protocol: ProtocolTag,
+    pub max_message_size: usize,
 }
 
-impl UpgradeInfo for AtomicUpgradeIn {
+impl UpgradeInfo for OneShotUpgradeIn {
     type Info = ProtocolTag;
     type InfoIter = vec::IntoIter<Self::Info>;
 
@@ -56,7 +56,7 @@ impl UpgradeInfo for AtomicUpgradeIn {
     }
 }
 
-impl<TSubstream> InboundUpgrade<TSubstream> for AtomicUpgradeIn
+impl<TSubstream> InboundUpgrade<TSubstream> for OneShotUpgradeIn
 where
     TSubstream: AsyncRead + Unpin + Send + 'static,
 {

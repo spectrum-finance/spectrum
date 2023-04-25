@@ -27,7 +27,7 @@ use spectrum_network::peer_conn_handler::{ConnHandlerIn, PeerConnHandlerConf};
 use spectrum_network::peer_manager::data::PeerDestination;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
 use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerConfig, PeersMailbox};
-use spectrum_network::protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID};
+use spectrum_network::protocol::{StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID};
 use spectrum_network::protocol_api::ProtocolMailbox;
 use spectrum_network::protocol_handler::sync::message::SyncSpec;
 use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
@@ -154,10 +154,10 @@ pub fn build_node(
     ];
     let peer_state = PeerRepo::new(netw_conf, boot_peers);
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
-    let sync_conf = ProtocolConfig {
+    let sync_conf = StatefulProtocolConfig {
         supported_versions: vec![(
             SyncSpec::v1(),
-            ProtocolSpec {
+            StatefulProtocolSpec {
                 max_message_size: 100,
                 approve_required: true,
             },

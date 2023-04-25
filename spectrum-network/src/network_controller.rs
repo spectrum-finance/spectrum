@@ -4,6 +4,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+use either::{Either, Left, Right};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::Stream;
 use libp2p::core::Endpoint;
@@ -18,12 +19,12 @@ use log::{trace, warn};
 use crate::one_shot_upgrade::OneShotMessage;
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{
-    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, PeerConnHandler, PeerConnHandlerConf, Protocol,
-    ProtocolState, ThrottleStage,
+    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, OneShotProtocol, PeerConnHandler, PeerConnHandlerConf,
+    ProtocolState, StatefulProtocol, ThrottleStage,
 };
 use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
 use crate::peer_manager::{PeerEvents, PeerManagerOut, Peers};
-use crate::protocol::ProtocolConfig;
+use crate::protocol::{OneShotProtocolConfig, OneShotProtocolSpec, ProtocolConfig, StatefulProtocolConfig};
 use crate::protocol_api::ProtocolEvents;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
@@ -278,20 +279,34 @@ where
     }
 
     fn init_conn_handler(&self, peer_id: PeerId) -> PeerConnHandler {
-        let protocols =
-            HashMap::from_iter(self.supported_protocols.iter().flat_map(|(protocol_id, (p, _))| {
-                p.supported_versions.iter().map(|(ver, spec)| {
-                    (
+        let mut stateful_protocols = HashMap::new();
+        let mut one_shot_protocols = HashMap::new();
+        for (protocol_id, (p, _)) in self.supported_protocols.iter() {
+            match p {
+                ProtocolConfig::Stateful(stateful) => {
+                    for (ver, spec) in stateful.supported_versions.iter() {
+                        stateful_protocols.insert(
+                            *protocol_id,
+                            StatefulProtocol {
+                                ver: *ver,
+                                spec: *spec,
+                                state: Some(ProtocolState::Closed),
+                                all_versions_specs: stateful.supported_versions.clone(),
+                            },
+                        );
+                    }
+                }
+                ProtocolConfig::OneShot(one_shot) => {
+                    one_shot_protocols.insert(
                         *protocol_id,
-                        Protocol {
-                            ver: *ver,
-                            spec: *spec,
-                            state: Some(ProtocolState::Closed),
-                            all_versions_specs: p.supported_versions.clone(),
+                        OneShotProtocol {
+                            ver: one_shot.version,
+                            spec: one_shot.spec.clone(),
                         },
-                    )
-                })
-            }));
+                    );
+                }
+            }
+        }
         #[cfg(not(feature = "test_peer_punish_too_slow"))]
         let throttle_recv = ThrottleStage::Disable;
         #[cfg(feature = "test_peer_punish_too_slow")]
@@ -299,7 +314,8 @@ where
 
         PeerConnHandler {
             conf: self.conn_handler_conf.clone(),
-            protocols,
+            stateful_protocols,
+            one_shot_protocols,
             created_at: Instant::now(),
             peer_id,
             pending_events: VecDeque::new(),
@@ -677,7 +693,8 @@ where
                             },
                         );
                         // Dial the peer
-                        self.pending_actions.push_back(ToSwarm::Dial { opts: peer.into() })
+                        self.pending_actions
+                            .push_back(ToSwarm::Dial { opts: peer.into() })
                     }
                     NetworkControllerIn::UpdatePeerProtocols { peer, protocols } => {
                         self.peers.set_peer_protocols(peer, protocols);

@@ -4,42 +4,50 @@ use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
-use either::Either;
 
+use either::Either;
 use futures::channel::mpsc;
 pub use futures::prelude::*;
-use libp2p::swarm::handler::{
-    ConnectionEvent, DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound,
-};
+use libp2p::PeerId;
 use libp2p::swarm::{
     ConnectionHandler, ConnectionHandlerEvent, KeepAlive, NegotiatedSubstream, SubstreamProtocol,
 };
-use libp2p::PeerId;
+use libp2p::swarm::handler::{
+    ConnectionEvent, DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound,
+};
 use log::trace;
-use crate::one_shot_upgrade::{AtomicUpgradeIn, AtomicUpgradeOut, OneShotMessage};
 
+use crate::one_shot_upgrade::{AtomicUpgradeOut, OneShotMessage, OneShotUpgradeIn};
 use crate::peer_conn_handler::message_sink::{MessageSink, StreamNotification};
-use crate::protocol::ProtocolSpec;
+use crate::protocol::{OneShotProtocolSpec, StatefulProtocolSpec};
+use crate::protocol_upgrade::{ProtocolUpgradeIn, ProtocolUpgradeOut};
 use crate::protocol_upgrade::combinators::AnyUpgradeOf;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use crate::protocol_upgrade::substream::{ProtocolSubstreamIn, ProtocolSubstreamOut};
-use crate::protocol_upgrade::{ProtocolUpgradeIn, ProtocolUpgradeOut};
 use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 
 pub mod message_sink;
 
 #[derive(Debug)]
-pub struct Protocol {
+pub struct StatefulProtocol {
     /// Negotiated protocol version
     pub ver: ProtocolVer,
     /// Spec for negotiated protocol version
-    pub spec: ProtocolSpec,
+    pub spec: StatefulProtocolSpec,
     /// Protocol state
     /// Always `Some`. `None` only during update (state transition).
     pub state: Option<ProtocolState>,
     /// Specs for all supported versions of this protocol
     /// Note, versions must be listed in descending order.
-    pub all_versions_specs: Vec<(ProtocolVer, ProtocolSpec)>,
+    pub all_versions_specs: Vec<(ProtocolVer, StatefulProtocolSpec)>,
+}
+
+#[derive(Debug)]
+pub struct OneShotProtocol {
+    /// The only version supported by this type of protocol.
+    pub ver: ProtocolVer,
+    /// Spec for negotiated protocol version
+    pub spec: OneShotProtocolSpec,
 }
 
 pub enum ProtocolState {
@@ -194,7 +202,8 @@ pub trait PeerConnHandlerActions {
 
 pub struct PeerConnHandler {
     pub conf: PeerConnHandlerConf,
-    pub protocols: HashMap<ProtocolId, Protocol>,
+    pub stateful_protocols: HashMap<ProtocolId, StatefulProtocol>,
+    pub one_shot_protocols: HashMap<ProtocolId, OneShotProtocol>,
     /// When the connection with the remote has been successfully established.
     pub created_at: Instant,
     /// Remote we are connected to.
@@ -228,7 +237,7 @@ impl ConnectionHandler for PeerConnHandler {
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
         let protocols = self
-            .protocols
+            .stateful_protocols
             .iter()
             .map(|(pid, prot)| ProtocolUpgradeIn::new(*pid, prot.all_versions_specs.clone()))
             .collect::<AnyUpgradeOf<_>>();
@@ -242,7 +251,7 @@ impl ConnectionHandler for PeerConnHandler {
                 handshake,
             } => {
                 trace!("ConnHandlerIn::Open[{:?}]", protocol_id);
-                if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
+                if let Some(protocol) = self.stateful_protocols.get_mut(&protocol_id) {
                     let state = protocol.state.take();
                     if let Some(state) = state {
                         let state_next = match state {
@@ -300,7 +309,7 @@ impl ConnectionHandler for PeerConnHandler {
                 }
             }
             ConnHandlerIn::Close(protocol_id) => {
-                if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
+                if let Some(protocol) = self.stateful_protocols.get_mut(&protocol_id) {
                     protocol.state = Some(ProtocolState::Closed);
                     self.pending_events
                         .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::Closed(
@@ -309,7 +318,7 @@ impl ConnectionHandler for PeerConnHandler {
                 }
             }
             ConnHandlerIn::CloseAllProtocols => {
-                for protocol in self.protocols.values_mut() {
+                for protocol in self.stateful_protocols.values_mut() {
                     protocol.state = Some(ProtocolState::Closed);
                 }
                 self.pending_events
@@ -335,7 +344,7 @@ impl ConnectionHandler for PeerConnHandler {
                 trace!("inject_fully_negotiated_inbound()");
                 let negotiated_tag = upgrade.negotiated_tag;
                 let protocol_id = negotiated_tag.protocol_id();
-                if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
+                if let Some(protocol) = self.stateful_protocols.get_mut(&protocol_id) {
                     let state = protocol.state.take();
                     if let Some(state) = state {
                         trace!("Current protocol state is {:?}", state);
@@ -407,7 +416,7 @@ impl ConnectionHandler for PeerConnHandler {
             }) => {
                 trace!("inject_fully_negotiated_outbound()");
                 let protocol_id = negotiated_tag.protocol_id();
-                if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
+                if let Some(protocol) = self.stateful_protocols.get_mut(&protocol_id) {
                     let state = protocol.state.take();
                     trace!("Current protocol state is {:?}", state);
                     if let Some(state) = state {
@@ -456,7 +465,7 @@ impl ConnectionHandler for PeerConnHandler {
                 error,
             }) => {
                 let protocol_id = protocol_tag.protocol_id();
-                if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
+                if let Some(protocol) = self.stateful_protocols.get_mut(&protocol_id) {
                     if let Some(state) = &protocol.state {
                         match state {
                             ProtocolState::Opening | ProtocolState::Accepting { .. } => {
@@ -481,7 +490,7 @@ impl ConnectionHandler for PeerConnHandler {
         // Keep alive unless all protocols are inactive.
         // Otherwise close connection once initial_keep_alive interval passed.
         if self
-            .protocols
+            .stateful_protocols
             .values()
             .any(|p| !matches!(p.state, Some(ProtocolState::Closed)))
         {
@@ -501,7 +510,7 @@ impl ConnectionHandler for PeerConnHandler {
             Poll::Ready(out)
         } else {
             // For each open substream, try to send messages from `pending_messages_recv`.
-            for protocol in self.protocols.values_mut() {
+            for protocol in self.stateful_protocols.values_mut() {
                 if let Some(
                     ProtocolState::Opened {
                         substream_out,
@@ -574,7 +583,7 @@ impl ConnectionHandler for PeerConnHandler {
             // performed before the code paths that can produce `Ready` (with some rare exceptions).
             // Importantly, the flush is performed *after* notifications are queued with
             // `Sink::start_send`.
-            for (protocol_id, protocol) in &mut self.protocols {
+            for (protocol_id, protocol) in &mut self.stateful_protocols {
                 if let Some(state) = &mut protocol.state {
                     if let ProtocolState::Opened { substream_out, .. }
                     | ProtocolState::InboundClosedByPeer { substream_out, .. } = state
@@ -599,7 +608,7 @@ impl ConnectionHandler for PeerConnHandler {
             }
 
             // Poll inbound substreams.
-            for (protocol_id, protocol) in &mut self.protocols {
+            for (protocol_id, protocol) in &mut self.stateful_protocols {
                 if let Some(state) = &mut protocol.state {
                     match state {
                         ProtocolState::Opened { substream_in, .. }
@@ -690,7 +699,7 @@ impl From<()> for OneShotConnHandlerOut {
 }
 
 pub type OneShotConnHandler = libp2p::swarm::handler::OneShotHandler<
-    AnyUpgradeOf<AtomicUpgradeIn>,
+    AnyUpgradeOf<OneShotUpgradeIn>,
     AtomicUpgradeOut,
     OneShotConnHandlerOut,
 >;

@@ -15,7 +15,7 @@ use spectrum_network::{
         peers_state::PeerRepo,
         NetworkingConfig, PeerManager, PeerManagerConfig, PeersMailbox,
     },
-    protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID},
+    protocol::{StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID},
     protocol_api::ProtocolMailbox,
     protocol_handler::{
         sync::{
@@ -824,10 +824,10 @@ where
     };
     let peer_state = PeerRepo::new(netw_config, peers);
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
-    let sync_conf = ProtocolConfig {
+    let sync_conf = StatefulProtocolConfig {
         supported_versions: vec![(
             SyncSpec::v1(),
-            ProtocolSpec {
+            StatefulProtocolSpec {
                 max_message_size: 100,
                 approve_required: true,
             },
