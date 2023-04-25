@@ -5,25 +5,25 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use either::Either;
+use either::{Either, Left, Right};
 use futures::channel::mpsc;
 pub use futures::prelude::*;
-use libp2p::PeerId;
-use libp2p::swarm::{
-    ConnectionHandler, ConnectionHandlerEvent, KeepAlive, NegotiatedSubstream, SubstreamProtocol,
-};
 use libp2p::swarm::handler::{
     ConnectionEvent, DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound,
 };
+use libp2p::swarm::{
+    ConnectionHandler, ConnectionHandlerEvent, KeepAlive, NegotiatedSubstream, SubstreamProtocol,
+};
+use libp2p::PeerId;
 use log::trace;
 
 use crate::one_shot_upgrade::{AtomicUpgradeOut, OneShotMessage, OneShotUpgradeIn};
 use crate::peer_conn_handler::message_sink::{MessageSink, StreamNotification};
 use crate::protocol::{OneShotProtocolSpec, StatefulProtocolSpec};
-use crate::protocol_upgrade::{ProtocolUpgradeIn, ProtocolUpgradeOut};
 use crate::protocol_upgrade::combinators::AnyUpgradeOf;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
 use crate::protocol_upgrade::substream::{ProtocolSubstreamIn, ProtocolSubstreamOut};
+use crate::protocol_upgrade::{ProtocolUpgradeIn, ProtocolUpgradeOut};
 use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 
 pub mod message_sink;
@@ -230,16 +230,24 @@ impl ConnectionHandler for PeerConnHandler {
     type InEvent = ConnHandlerIn;
     type OutEvent = ConnHandlerOut;
     type Error = ConnHandlerError;
-    type InboundProtocol = AnyUpgradeOf<ProtocolUpgradeIn>;
+    type InboundProtocol = AnyUpgradeOf<Either<ProtocolUpgradeIn, OneShotUpgradeIn>>;
     type OutboundProtocol = ProtocolUpgradeOut;
     type InboundOpenInfo = ();
     type OutboundOpenInfo = ProtocolTag;
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
-        let protocols = self
+        let stateful_protocols = self
             .stateful_protocols
             .iter()
-            .map(|(pid, prot)| ProtocolUpgradeIn::new(*pid, prot.all_versions_specs.clone()))
+            .map(|(pid, prot)| Left(ProtocolUpgradeIn::new(*pid, prot.all_versions_specs.clone())));
+        let one_shot_protocols = self.one_shot_protocols.iter().map(|(pid, prot)| {
+            Right(OneShotUpgradeIn {
+                protocol: ProtocolTag::new(*pid, prot.ver),
+                max_message_size: prot.spec.max_message_size,
+            })
+        });
+        let protocols = stateful_protocols
+            .chain(one_shot_protocols)
             .collect::<AnyUpgradeOf<_>>();
         SubstreamProtocol::new(protocols, ())
     }
@@ -338,7 +346,18 @@ impl ConnectionHandler for PeerConnHandler {
     ) {
         match event {
             ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
-                protocol: (mut upgrade, _),
+                protocol: (future::Either::Right(message), _),
+                ..
+            }) => {
+                trace!("Received inbound one-shot message");
+                self.pending_events
+                    .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::Message {
+                        protocol_tag: message.protocol,
+                        content: message.content,
+                    }));
+            }
+            ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
+                protocol: (future::Either::Left(mut upgrade), _),
                 ..
             }) => {
                 trace!("inject_fully_negotiated_inbound()");
