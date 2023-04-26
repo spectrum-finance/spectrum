@@ -28,6 +28,8 @@ use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 
 pub mod message_sink;
 
+const ONE_SHOT_TERMINATE_AFTER: Duration = Duration::from_millis(50);
+
 #[derive(Debug)]
 pub struct StatefulProtocol {
     /// Negotiated protocol version
@@ -181,6 +183,11 @@ pub enum ConnHandlerOut {
     /// Received a message on a custom protocol substream.
     /// Can only happen when the handler is in the open state.
     Message {
+        protocol_tag: ProtocolTag,
+        content: RawMessage,
+    },
+    /// Received one shot message.
+    OneShotMessage {
         protocol_tag: ProtocolTag,
         content: RawMessage,
     },
@@ -358,7 +365,7 @@ impl ConnectionHandler for PeerConnHandler {
             }) => {
                 trace!("Received inbound one-shot message");
                 self.pending_events
-                    .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::Message {
+                    .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::OneShotMessage {
                         protocol_tag: message.protocol,
                         content: message.content,
                     }));
@@ -539,7 +546,8 @@ impl ConnectionHandler for PeerConnHandler {
             OperationMode::OneShot(OneShotState::PendingRequest(_) | OneShotState::PendingTerminate) => {
                 KeepAlive::Yes
             }
-            OperationMode::OneShot(_) => KeepAlive::No,
+            // For some reason message is not delivered if we terminate immediately
+            OperationMode::OneShot(_) => KeepAlive::Until(Instant::now() + ONE_SHOT_TERMINATE_AFTER),
         }
     }
 

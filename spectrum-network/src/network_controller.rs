@@ -547,6 +547,15 @@ where
             ConnHandlerOut::ClosedAllProtocols => {
                 assert!(self.enabled_peers.remove(&peer_id).is_some());
             }
+            ConnHandlerOut::OneShotMessage {
+                protocol_tag,
+                content,
+            } => {
+                if let Some((_, han)) = self.supported_protocols.get(&protocol_tag.protocol_id()) {
+                    han.incoming_msg(peer_id, protocol_tag.protocol_ver(), content);
+                }
+                // todo: punish peer for spam otherwise?
+            }
             ConnHandlerOut::Message {
                 protocol_tag,
                 content,
