@@ -76,7 +76,7 @@ async fn one_shot_messaging() {
 
     let (protocol_snd_0, mut protocol_recv_0) = mpsc::unbounded::<ProtocolEvent>();
     let prot_mailbox_0 = ProtocolMailbox::new(protocol_snd_0);
-    let (protocol_snd_1, mut protocol_recv_1) = mpsc::unbounded::<ProtocolEvent>();
+    let (protocol_snd_1, _protocol_recv_1) = mpsc::unbounded::<ProtocolEvent>();
     let prot_mailbox_1 = ProtocolMailbox::new(protocol_snd_1);
 
     let pid = ProtocolId::from_u8(1u8);
@@ -103,11 +103,6 @@ async fn one_shot_messaging() {
 
     let protocol = ProtocolTag::new(pid, ver);
     let message = RawMessage::from(vec![0, 0, 0]);
-    let _ = nc_mailbox_1.unbounded_send(NetworkControllerIn::SendOneShotMessage {
-        peer: local_peer_id_0,
-        protocol,
-        message: message.clone(),
-    });
 
     // Though we spawn multiple tasks we use this single channel for messaging.
     let (msg_tx, _msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
@@ -126,146 +121,35 @@ async fn one_shot_messaging() {
         let _ = cancel_rx_0.await;
         handle_0.abort();
     });
+
+    // Spawn tasks for peer_1
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_1.await;
+        handle_1.abort();
+    });
+
+    async_std::task::spawn(abortable_peer_0);
+    async_std::task::spawn(abortable_peer_1);
+    wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
+
+    let _ = nc_mailbox_1.unbounded_send(NetworkControllerIn::SendOneShotMessage {
+        peer: local_peer_id_0,
+        protocol,
+        message: message.clone(),
+    });
+
     async_std::task::spawn(async move {
         wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
         cancel_tx_0.send(()).unwrap();
     });
-
-    // Spawn tasks for peer_1
     async_std::task::spawn(async move {
-        let _ = cancel_rx_1.await;
-        handle_1.abort();
-    });
-    async_std::task::spawn(async move {
-        wasm_timer::Delay::new(Duration::from_secs(4)).await.unwrap();
+        wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
         cancel_tx_1.send(()).unwrap();
     });
-    async_std::task::spawn(abortable_peer_1);
-    async_std::task::spawn(abortable_peer_0);
 
     // Collect messages from the peers. Note that the while loop below will end since all tasks that
     // use clones of `msg_tx` are guaranteed to drop, leading to the senders dropping too.
     let mut protocol_mailbox = vec![];
-
-    while let Some(event) = protocol_recv_0.next().await {
-        protocol_mailbox.push(event);
-    }
-
-    while let Some(event) = protocol_recv_1.next().await {
-        protocol_mailbox.push(event);
-    }
-
-    dbg!(&protocol_mailbox);
-
-    let maybe_message = if let ProtocolEvent::Message { content, .. } = &protocol_mailbox[0] {
-        Some(content.clone())
-    } else {
-        None
-    };
-    assert_eq!(maybe_message, Some(message));
-}
-
-/// Integration test which covers:
-///  - outbound one-shot message delivery attempt
-///  - inbound one-shot message handling
-#[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
-// #[async_std::test]
-async fn one_shot_messaging_overlaping_conns() {
-    //  --------             --------
-    // | peer_0 | <~~~~~~~~ | peer_1 |
-    //  --------             --------
-    //
-    // In this scenario `peer_1` sends one-shot message to `peer_0`.
-    let local_key_0 = identity::Keypair::generate_ed25519();
-    let local_peer_id_0 = PeerId::from(local_key_0.public());
-    let local_key_1 = identity::Keypair::generate_ed25519();
-    let local_peer_id_1 = PeerId::from(local_key_1.public());
-
-    let addr_0: Multiaddr = "/ip4/127.0.0.1/tcp/1234".parse().unwrap();
-    let addr_1: Multiaddr = "/ip4/127.0.0.1/tcp/1235".parse().unwrap();
-    let peers_0 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1.clone())];
-    let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
-
-    let (protocol_snd_0, mut protocol_recv_0) = mpsc::unbounded::<ProtocolEvent>();
-    let prot_mailbox_0 = ProtocolMailbox::new(protocol_snd_0);
-    let (protocol_snd_1, _protocol_recv_1) = mpsc::unbounded::<ProtocolEvent>();
-    let prot_mailbox_1 = ProtocolMailbox::new(protocol_snd_1);
-
-    let pid = ProtocolId::from_u8(1u8);
-    let ver = ProtocolVer::from(1u8);
-    let one_shot_proto_conf = OneShotProtocolConfig {
-        version: ver,
-        spec: OneShotProtocolSpec {
-            max_message_size: 100,
-        },
-    };
-    let protocols_0 = HashMap::from([(
-        pid,
-        (
-            ProtocolConfig::OneShot(one_shot_proto_conf.clone()),
-            prot_mailbox_0,
-        ),
-    )]);
-    let protocols_1 = HashMap::from([(
-        pid,
-        (ProtocolConfig::OneShot(one_shot_proto_conf), prot_mailbox_1),
-    )]);
-    let (nc_0, _nc_mailbox_0) = make_nc_without_protocol_handler(peers_0, protocols_0);
-    let (nc_1, nc_mailbox_1) = make_nc_without_protocol_handler(peers_1, protocols_1);
-
-    let protocol = ProtocolTag::new(pid, ver);
-    let message = RawMessage::from(vec![0, 0, 0]);
-
-    // Though we spawn multiple tasks we use this single channel for messaging.
-    let (msg_tx, _msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
-
-    let (abortable_peer_0, handle_0) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
-    );
-    let (abortable_peer_1, handle_1) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, msg_tx),
-    );
-    let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
-    let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
-
-    // Spawn tasks for peer_0
-    async_std::task::spawn(async move {
-        let _ = cancel_rx_0.await;
-        handle_0.abort();
-    });
-    async_std::task::spawn(async move {
-        wasm_timer::Delay::new(Duration::from_secs(10)).await.unwrap();
-        cancel_tx_0.send(()).unwrap();
-    });
-
-    // Spawn tasks for peer_1
-    async_std::task::spawn(async move {
-        let _ = cancel_rx_1.await;
-        handle_1.abort();
-    });
-    async_std::task::spawn(async move {
-        wasm_timer::Delay::new(Duration::from_secs(9)).await.unwrap();
-        cancel_tx_1.send(()).unwrap();
-    });
-    async_std::task::spawn(abortable_peer_1);
-    async_std::task::spawn(abortable_peer_0);
-
-    while let Some(event) = protocol_recv_0.next().await {
-        if let ProtocolEvent::Connected(_) = event {
-            println!("Peers are connected");
-            break;
-        }
-    }
-
-    // Collect messages from the peers. Note that the while loop below will end since all tasks that
-    // use clones of `msg_tx` are guaranteed to drop, leading to the senders dropping too.
-    let mut protocol_mailbox = vec![];
-
-    let _ = nc_mailbox_1.unbounded_send(NetworkControllerIn::SendOneShotMessage {
-        peer: local_peer_id_0,
-        protocol,
-        message: message.clone(),
-    });
 
     while let Some(event) = protocol_recv_0.next().await {
         protocol_mailbox.push(event);
@@ -1096,7 +980,7 @@ pub fn make_nc_without_protocol_handler(
         async_msg_buffer_size: 100,
         sync_msg_buffer_size: 100,
         open_timeout: Duration::from_secs(60),
-        initial_keep_alive: Duration::from_secs(60),
+        initial_keep_alive: Duration::from_secs(120),
     };
     let netw_config = NetworkingConfig {
         min_known_peers: 1,
@@ -1105,8 +989,8 @@ pub fn make_nc_without_protocol_handler(
         max_outbound: 20,
     };
     let peer_manager_conf = PeerManagerConfig {
-        min_acceptable_reputation: Reputation::from(0),
-        min_reputation: Reputation::from(0),
+        min_acceptable_reputation: Reputation::from(-50),
+        min_reputation: Reputation::from(-20),
         conn_reset_outbound_backoff: Duration::from_secs(120),
         conn_alloc_interval: Duration::from_secs(30),
         prot_alloc_interval: Duration::from_secs(30),
@@ -1146,9 +1030,8 @@ async fn create_swarm<P>(
     loop {
         match swarm.select_next_some().await {
             SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {:?}", address),
-            SwarmEvent::Behaviour(event) => tx.try_send((peer, Msg::NetworkController(event))).unwrap(),
             ce => {
-                dbg!(ce);
+                dbg!(peer, ce);
             }
         }
     }

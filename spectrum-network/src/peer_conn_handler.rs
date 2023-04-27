@@ -565,26 +565,26 @@ impl ConnectionHandler for PeerConnHandler {
     ) -> Poll<
         ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::OutEvent, Self::Error>,
     > {
+        // Process pending outbound one-shot requests.
+        for (id, req) in &mut self.pending_one_shots {
+            if let OneShotRequest::Pending(message) = req {
+                let upgrade = Right(OneShotUpgradeOut {
+                    protocol: message.protocol,
+                    id: *id,
+                    message: message.content.clone(),
+                });
+                self.pending_events
+                    .push_back(ConnectionHandlerEvent::OutboundSubstreamRequest {
+                        protocol: SubstreamProtocol::new(upgrade, message.protocol)
+                            .with_timeout(self.conf.open_timeout),
+                    });
+            }
+            *req = OneShotRequest::Confirming;
+        }
+
         if let Some(out) = self.pending_events.pop_front() {
             Poll::Ready(out)
         } else {
-            // Process pending outbound one-shot requests.
-            for (id, mut req) in &mut self.pending_one_shots {
-                if let OneShotRequest::Pending(message) = req {
-                    let upgrade = Right(OneShotUpgradeOut {
-                        protocol: message.protocol,
-                        id: *id,
-                        message: message.content.clone(),
-                    });
-                    self.pending_events
-                        .push_back(ConnectionHandlerEvent::OutboundSubstreamRequest {
-                            protocol: SubstreamProtocol::new(upgrade, message.protocol)
-                                .with_timeout(self.conf.open_timeout),
-                        });
-                }
-                *req = OneShotRequest::Confirming;
-            }
-
             // For each open substream, try to send messages from `pending_messages_recv`.
             for protocol in self.stateful_protocols.values_mut() {
                 if let Some(
