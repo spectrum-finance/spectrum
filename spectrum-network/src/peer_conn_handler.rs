@@ -1,3 +1,4 @@
+use std::collections::btree_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
 use std::mem;
@@ -16,6 +17,8 @@ use libp2p::swarm::{
 };
 use libp2p::PeerId;
 use log::trace;
+use rand::rngs::OsRng;
+use rand::RngCore;
 
 use crate::one_shot_upgrade::{OneShotMessage, OneShotUpgradeIn, OneShotUpgradeOut};
 use crate::peer_conn_handler::message_sink::{MessageSink, StreamNotification};
@@ -28,7 +31,7 @@ use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 
 pub mod message_sink;
 
-const ONE_SHOT_TERMINATE_AFTER: Duration = Duration::from_millis(50);
+const MIN_TERM_DELAY: Duration = Duration::from_millis(50);
 
 #[derive(Debug)]
 pub struct StatefulProtocol {
@@ -147,6 +150,8 @@ pub enum ConnHandlerIn {
     ///
     /// Must always be answered by a [`ConnHandlerOut::ClosedAllProtocols`] event.
     CloseAllProtocols,
+    /// Instruct the handler to make a single attempt to deliver the given message.
+    TryDeliverOnce(OneShotMessage),
 }
 
 #[derive(Debug, Clone)]
@@ -231,7 +236,10 @@ pub struct PeerConnHandler {
     /// If throttling inbound `StreamNotification`s, this represents the delay before processing a
     /// new element.
     pub delay: wasm_timer::Delay,
-    pub mode: OperationMode,
+    /// Pending one-shot messages that the handler should try to deliver.
+    pub pending_one_shots: HashMap<OneShotRequestId, OneShotRequest>,
+    /// Should the handler terminate as soon as possible when no work left.
+    pub terminate_asap: bool,
 }
 
 impl PeerConnHandler {
@@ -268,6 +276,10 @@ impl ConnectionHandler for PeerConnHandler {
 
     fn on_behaviour_event(&mut self, event: ConnHandlerIn) {
         match event {
+            ConnHandlerIn::TryDeliverOnce(msg) => {
+                self.pending_one_shots
+                    .insert(OneShotRequestId::random(), OneShotRequest::Pending(msg));
+            }
             ConnHandlerIn::Open {
                 protocol_id,
                 handshake,
@@ -364,11 +376,12 @@ impl ConnectionHandler for PeerConnHandler {
                 ..
             }) => {
                 trace!("Received inbound one-shot message");
-                self.pending_events
-                    .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::OneShotMessage {
+                self.pending_events.push_back(ConnectionHandlerEvent::Custom(
+                    ConnHandlerOut::OneShotMessage {
                         protocol_tag: message.protocol,
                         content: message.content,
-                    }));
+                    },
+                ));
             }
             ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
                 protocol: (future::Either::Left(mut upgrade), _),
@@ -444,11 +457,11 @@ impl ConnectionHandler for PeerConnHandler {
             }
 
             ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
-                protocol: future::Either::Right(_),
+                protocol: future::Either::Right(rid),
                 ..
             }) => {
-                trace!("One shot delivery attempt done, terminating");
-                self.mode = OperationMode::OneShot(OneShotState::Terminate);
+                trace!("{:?} has been fired", rid);
+                self.pending_one_shots.remove(&rid);
             }
 
             ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
@@ -528,26 +541,21 @@ impl ConnectionHandler for PeerConnHandler {
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
-        match self.mode {
-            OperationMode::ServeAll => {
-                // Keep alive unless all protocols are inactive.
-                // Otherwise close connection once initial_keep_alive interval passed.
-                if self
-                    .stateful_protocols
-                    .values()
-                    .any(|p| !matches!(p.state, Some(ProtocolState::Closed)))
-                {
-                    KeepAlive::Yes
-                } else {
-                    KeepAlive::Until(self.created_at + self.conf.initial_keep_alive)
-                }
+        // Keep alive unless all protocols are inactive.
+        // Otherwise close connection once initial_keep_alive interval passed.
+        if self
+            .stateful_protocols
+            .values()
+            .any(|p| !matches!(p.state, Some(ProtocolState::Closed)))
+            || !self.pending_one_shots.is_empty()
+        {
+            KeepAlive::Yes
+        } else {
+            if self.terminate_asap {
+                KeepAlive::Until(Instant::now() + MIN_TERM_DELAY)
+            } else {
+                KeepAlive::Until(self.created_at + self.conf.initial_keep_alive)
             }
-
-            OperationMode::OneShot(OneShotState::PendingRequest(_) | OneShotState::PendingTerminate) => {
-                KeepAlive::Yes
-            }
-            // For some reason message is not delivered if we terminate immediately
-            OperationMode::OneShot(_) => KeepAlive::Until(Instant::now() + ONE_SHOT_TERMINATE_AFTER),
         }
     }
 
@@ -557,21 +565,26 @@ impl ConnectionHandler for PeerConnHandler {
     ) -> Poll<
         ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::OutEvent, Self::Error>,
     > {
-        if let OperationMode::OneShot(OneShotState::PendingRequest(message)) = &self.mode {
-            let upgrade = Right(OneShotUpgradeOut {
-                protocol: message.protocol,
-                message: message.content.clone(),
-            });
-            self.pending_events
-                .push_back(ConnectionHandlerEvent::OutboundSubstreamRequest {
-                    protocol: SubstreamProtocol::new(upgrade, message.protocol)
-                        .with_timeout(self.conf.open_timeout),
-                });
-            self.mode = OperationMode::OneShot(OneShotState::PendingTerminate);
-        }
         if let Some(out) = self.pending_events.pop_front() {
             Poll::Ready(out)
         } else {
+            // Process pending outbound one-shot requests.
+            for (id, mut req) in &mut self.pending_one_shots {
+                if let OneShotRequest::Pending(message) = req {
+                    let upgrade = Right(OneShotUpgradeOut {
+                        protocol: message.protocol,
+                        id: *id,
+                        message: message.content.clone(),
+                    });
+                    self.pending_events
+                        .push_back(ConnectionHandlerEvent::OutboundSubstreamRequest {
+                            protocol: SubstreamProtocol::new(upgrade, message.protocol)
+                                .with_timeout(self.conf.open_timeout),
+                        });
+                }
+                *req = OneShotRequest::Confirming;
+            }
+
             // For each open substream, try to send messages from `pending_messages_recv`.
             for protocol in self.stateful_protocols.values_mut() {
                 if let Some(
@@ -741,46 +754,21 @@ impl ConnectionHandler for PeerConnHandler {
     }
 }
 
-#[derive(Debug)]
-pub enum OneShotConnHandlerOut {
-    /// A message has been received.
-    Message(OneShotMessage),
-    /// One-shot message has been sent to peer.
-    MessageSent,
-}
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Copy, Clone)]
+pub struct OneShotRequestId(u64);
 
-impl From<(OneShotMessage, usize)> for OneShotConnHandlerOut {
-    fn from((msg, _): (OneShotMessage, usize)) -> Self {
-        OneShotConnHandlerOut::Message(msg)
+impl OneShotRequestId {
+    pub fn random() -> Self {
+        Self(OsRng.next_u64())
     }
 }
 
-impl From<()> for OneShotConnHandlerOut {
-    fn from(_: ()) -> Self {
-        OneShotConnHandlerOut::MessageSent
-    }
-}
-
-pub type OneShotConnHandler = libp2p::swarm::handler::OneShotHandler<
-    AnyUpgradeOf<OneShotUpgradeIn>,
-    OneShotUpgradeOut,
-    OneShotConnHandlerOut,
->;
-
-/// Possible modes of PCH operation.
-#[derive(Clone, Debug)]
-pub enum OperationMode {
-    /// Serve all protocols.
-    ServeAll,
-    /// Attempts to deliver the message once, then terminate.
-    OneShot(OneShotState),
-}
-
-#[derive(Clone, Debug)]
-pub enum OneShotState {
-    PendingRequest(OneShotMessage),
-    PendingTerminate,
-    Terminate,
+/// One-shot request state.
+pub enum OneShotRequest {
+    /// The message is avaiting to be sent.
+    Pending(OneShotMessage),
+    /// The message is fired, waiting for confirmation that it was written to the socket.
+    Confirming,
 }
 
 /// This is used to throttle `StreamNotification`s sent to us by the other peer.

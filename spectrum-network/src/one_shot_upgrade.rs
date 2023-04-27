@@ -6,12 +6,14 @@ use futures::{AsyncRead, AsyncWrite};
 use libp2p::core::{upgrade, UpgradeInfo};
 use libp2p::{InboundUpgrade, OutboundUpgrade};
 
+use crate::peer_conn_handler::OneShotRequestId;
 use crate::types::{ProtocolTag, RawMessage};
 
 /// Upgrade that opens a connection and immediately sends a single message.
 #[derive(Debug, Clone)]
 pub struct OneShotUpgradeOut {
     pub(crate) protocol: ProtocolTag,
+    pub(crate) id: OneShotRequestId,
     pub(crate) message: RawMessage,
 }
 
@@ -28,14 +30,14 @@ impl<TSubstream> OutboundUpgrade<TSubstream> for OneShotUpgradeOut
 where
     TSubstream: AsyncWrite + Unpin + Send + 'static,
 {
-    type Output = ();
+    type Output = OneShotRequestId;
     type Error = AtomicUpgradeErr;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_outbound(self, mut socket: TSubstream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
             upgrade::write_length_prefixed(&mut socket, self.message).await?;
-            Ok(())
+            Ok(self.id)
         })
     }
 }

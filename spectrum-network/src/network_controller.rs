@@ -19,7 +19,7 @@ use log::{trace, warn};
 use crate::one_shot_upgrade::OneShotMessage;
 use crate::peer_conn_handler::message_sink::MessageSink;
 use crate::peer_conn_handler::{
-    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, OneShotProtocol, OneShotState, OperationMode,
+    ConnHandlerError, ConnHandlerIn, ConnHandlerOut, OneShotProtocol, OneShotRequest, OneShotRequestId,
     PeerConnHandler, PeerConnHandlerConf, ProtocolState, StatefulProtocol, ThrottleStage,
 };
 use crate::peer_manager::data::{ConnectionLossReason, ReputationChange};
@@ -43,6 +43,9 @@ pub enum EnabledProtocol {
 }
 
 /// States of a connected peer.
+/// `PendingConnect` -> `Connected`
+/// `PendingApprove` -> `Connected`
+/// `Connected`      -> `PendingDisconnect`
 pub enum ConnectedPeer<THandler> {
     /// We are connected to this peer.
     Connected {
@@ -51,9 +54,14 @@ pub enum ConnectedPeer<THandler> {
     },
     /// The peer is connected but not approved by PM yet.
     PendingApprove(ConnectionId),
-    /// PM requested that we should connect to this peer.
-    PendingConnect,
-    /// PM requested that we should disconnect this peer.
+    /// PM or Protocol requested that we should connect to this peer.
+    PendingConnect {
+        /// One-shot messages that the handler should try to deliver once connected.
+        tasks: Vec<OneShotMessage>,
+        /// Should the handler terminate as soon as possible when no work left.
+        terminate_asap: bool,
+    },
+    /// PM or Protocol requested that we should disconnect this peer.
     PendingDisconnect(ConnectionId),
 }
 
@@ -278,7 +286,12 @@ where
         }
     }
 
-    fn init_conn_handler(&self, peer_id: PeerId, mode: OperationMode) -> PeerConnHandler {
+    fn init_conn_handler(
+        &self,
+        peer_id: PeerId,
+        one_shot_requests: Vec<OneShotMessage>,
+        terminate_asap: bool,
+    ) -> PeerConnHandler {
         let mut stateful_protocols = HashMap::new();
         let mut one_shot_protocols = HashMap::new();
         for (protocol_id, (p, _)) in self.supported_protocols.iter() {
@@ -322,7 +335,11 @@ where
             fault: None,
             delay: wasm_timer::Delay::new(Duration::from_millis(300)),
             throttle_stage: throttle_recv,
-            mode,
+            pending_one_shots: one_shot_requests
+                .into_iter()
+                .map(|msg| (OneShotRequestId::random(), OneShotRequest::Pending(msg)))
+                .collect(),
+            terminate_asap,
         }
     }
 }
@@ -343,7 +360,7 @@ where
         _local_addr: &Multiaddr,
         _remote_addr: &Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, ConnectionDenied> {
-        Ok(self.init_conn_handler(peer, OperationMode::ServeAll))
+        Ok(self.init_conn_handler(peer, vec![], false))
     }
 
     fn handle_established_outbound_connection(
@@ -353,12 +370,13 @@ where
         _addr: &Multiaddr,
         _role_override: Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, ConnectionDenied> {
-        let mode = if let Some(req) = self.pending_one_shot_requests.get(&peer) {
-            OperationMode::OneShot(OneShotState::PendingRequest(req.clone()))
-        } else {
-            OperationMode::ServeAll
-        };
-        Ok(self.init_conn_handler(peer, mode))
+        match self.enabled_peers.get(&peer) {
+            Some(ConnectedPeer::PendingConnect {
+                tasks,
+                terminate_asap,
+            }) => Ok(self.init_conn_handler(peer, tasks.clone(), *terminate_asap)),
+            _ => Ok(self.init_conn_handler(peer, vec![], false)),
+        }
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
@@ -370,7 +388,7 @@ where
             }) => {
                 match self.enabled_peers.entry(peer_id) {
                     Entry::Occupied(mut peer_entry) => match peer_entry.get() {
-                        ConnectedPeer::PendingConnect => {
+                        ConnectedPeer::PendingConnect { .. } => {
                             self.peers.connection_established(peer_id, connection_id); // confirm connection
                             peer_entry.insert(ConnectedPeer::Connected {
                                 conn_id: connection_id,
@@ -420,7 +438,7 @@ where
                             }
                         }
                         // todo: is it possible in case of simultaneous connection?
-                        ConnectedPeer::PendingConnect | ConnectedPeer::PendingApprove(..) => None,
+                        ConnectedPeer::PendingConnect { .. } | ConnectedPeer::PendingApprove(..) => None,
                     },
                     Entry::Vacant(_) => None,
                 };
@@ -592,7 +610,10 @@ where
                     match self.enabled_peers.entry(pid.peer_id()) {
                         Entry::Occupied(_) => {}
                         Entry::Vacant(peer_entry) => {
-                            peer_entry.insert(ConnectedPeer::PendingConnect);
+                            peer_entry.insert(ConnectedPeer::PendingConnect {
+                                tasks: Vec::new(),
+                                terminate_asap: false,
+                            });
                             self.pending_actions.push_back(ToSwarm::Dial { opts: pid.into() })
                         }
                     }
@@ -670,7 +691,7 @@ where
                                         }
                                     };
                                 }
-                                ConnectedPeer::PendingConnect
+                                ConnectedPeer::PendingConnect { .. }
                                 | ConnectedPeer::PendingApprove(_)
                                 | ConnectedPeer::PendingDisconnect(_) => {}
                             }
@@ -694,19 +715,44 @@ where
                         peer,
                         protocol,
                         message,
-                    } => {
-                        // Register the request
-                        self.pending_one_shot_requests.insert(
-                            peer,
-                            OneShotMessage {
-                                protocol,
-                                content: message,
-                            },
-                        );
-                        // Dial the peer
-                        self.pending_actions
-                            .push_back(ToSwarm::Dial { opts: peer.into() })
-                    }
+                    } => match self.enabled_peers.entry(peer) {
+                        Entry::Occupied(mut enabled_peer) => match enabled_peer.get_mut() {
+                            ConnectedPeer::Connected { conn_id, .. }
+                            | ConnectedPeer::PendingApprove(conn_id) => {
+                                // if the peer is enabled already we reuse existing connection
+                                self.pending_actions.push_back(ToSwarm::NotifyHandler {
+                                    peer_id: peer,
+                                    handler: NotifyHandler::One(*conn_id),
+                                    event: ConnHandlerIn::TryDeliverOnce(OneShotMessage {
+                                        protocol,
+                                        content: message,
+                                    }),
+                                })
+                            }
+                            ConnectedPeer::PendingConnect {
+                                tasks: adjacent_tasks,
+                                ..
+                            } => {
+                                // if we are going to connect it anyway then we add an adjacent task
+                                adjacent_tasks.push(OneShotMessage {
+                                    protocol,
+                                    content: message,
+                                });
+                            }
+                            ConnectedPeer::PendingDisconnect(_) => {} // todo: wait for disconnect; reconnect?
+                        },
+                        Entry::Vacant(not_enabled_peer) => {
+                            self.pending_actions
+                                .push_back(ToSwarm::Dial { opts: peer.into() });
+                            not_enabled_peer.insert(ConnectedPeer::PendingConnect {
+                                tasks: vec![OneShotMessage {
+                                    protocol,
+                                    content: message,
+                                }],
+                                terminate_asap: true,
+                            });
+                        }
+                    },
                     NetworkControllerIn::UpdatePeerProtocols { peer, protocols } => {
                         self.peers.set_peer_protocols(peer, protocols);
                     }
