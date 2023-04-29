@@ -60,6 +60,24 @@ impl From<&PublicKey> for PeerId {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Hash, derive_more::From, derive_more::Into)]
+pub struct Commitment(PublicKey);
+
+impl From<Commitment> for k256::PublicKey {
+    fn from(Commitment(pk): Commitment) -> Self {
+        k256::PublicKey::from(pk)
+    }
+}
+
+impl From<k256::PublicKey> for Commitment {
+    fn from(pk: k256::PublicKey) -> Self {
+        Self(PublicKey::from(pk))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, derive_more::From, derive_more::Into)]
+pub struct CommitmentSecret(SecretKey);
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Contributions<C>(HashMap<PeerIx, C>);
 
@@ -148,14 +166,15 @@ impl From<Signature> for Vec<u8> {
     }
 }
 
-pub type CommitmentsWithProofs = Contributions<(PublicKey, Signature)>;
+pub type CommitmentsWithProofs = Contributions<(Commitment, Signature)>;
 
 impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
     fn verify(&self, public_data: &CommitmentsVerifInput) -> bool {
         self.0.iter().all(|(i, (point, sig))| {
             if let Some(commitment) = public_data.pre_commitments.0.get(&i) {
-                *commitment == blake2b256_hash(&point.0.to_encoded_point(false).to_bytes())
-                    && VerifyingKey::try_from(point.0)
+                let pk = k256::PublicKey::from(point.clone());
+                *commitment == blake2b256_hash(&pk.to_encoded_point(false).to_bytes())
+                    && VerifyingKey::try_from(pk)
                         .map(|vk| vk.verify(&public_data.message_digest_bytes, &sig.0).is_ok())
                         .unwrap_or(false)
             } else {
@@ -199,7 +218,7 @@ impl ResponsesVerifInput {
 }
 
 struct ResponseVerifInput {
-    commitment: PublicKey,
+    commitment: Commitment,
     pk: PublicKey,
     individual_input: Scalar,
 }
@@ -231,8 +250,7 @@ mod tests {
         let k256_pk = host_secret.public_key();
         let k256_point = k256_pk.to_encoded_point(true);
         let k256_encoded = k256_point.as_bytes();
-        let libp2p_pk =
-            libp2p_identity::secp256k1::PublicKey::decode(k256_encoded).unwrap();
+        let libp2p_pk = libp2p_identity::secp256k1::PublicKey::decode(k256_encoded).unwrap();
         assert_eq!(libp2p_pk.encode(), k256_encoded)
     }
 }
