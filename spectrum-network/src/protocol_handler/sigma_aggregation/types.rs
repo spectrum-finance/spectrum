@@ -167,8 +167,6 @@ impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
 
 pub type Responses = Contributions<Scalar>;
 
-pub struct Committee(HashMap<PeerIx, PublicKey>);
-
 pub struct ResponsesVerifInput {
     inputs: HashMap<PeerIx, ResponseVerifInput>,
     challenge: Scalar,

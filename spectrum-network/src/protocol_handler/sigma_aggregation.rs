@@ -12,15 +12,15 @@ use k256::{Scalar, SecretKey};
 use libp2p::PeerId;
 use nonempty::NonEmpty;
 
-use spectrum_crypto::digest::{Blake2bDigest256, Digest256};
+use spectrum_crypto::digest::Digest256;
 
 use crate::protocol::SIGMA_AGGR_PROTOCOL_ID;
 use crate::protocol_handler::aggregation::AggregationAction;
 use crate::protocol_handler::handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
 use crate::protocol_handler::handel::{Handel, HandelConfig, HandelRound, NarrowTo};
 use crate::protocol_handler::sigma_aggregation::crypto::{
-    aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input, pre_commitment, response,
-    schnorr_commitment,
+    aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
+    pre_commitment, response, schnorr_commitment,
 };
 use crate::protocol_handler::sigma_aggregation::message::{
     SigmaAggrMessage, SigmaAggrMessageV1, SigmaAggrSpec,
@@ -170,16 +170,16 @@ where
         commitments_with_proofs: CommitmentsWithProofs,
         handel_conf: HandelConfig,
     ) -> AggregateResponses<'a, H, PP> {
-        let aggr_pk = aggregate_pk(NonEmpty::from_vec(self.committee.values().cloned().collect()).unwrap());
-        let aggr_commitment = aggregate_pk(
-            NonEmpty::from_vec(
-                commitments_with_proofs
-                    .values()
-                    .into_iter()
-                    .map(|(xi, _)| xi)
-                    .collect(),
-            )
-            .unwrap(),
+        let aggr_pk = aggregate_pk(
+            self.committee.values().cloned().collect(),
+            self.individual_inputs.values().cloned().collect(), // todo: wrong order
+        );
+        let aggr_commitment = aggregate_commitment(
+            commitments_with_proofs
+                .values()
+                .into_iter()
+                .map(|(xi, _)| xi)
+                .collect(),
         );
         let challenge = challenge(aggr_pk, aggr_commitment.clone(), self.message_digest);
         let individual_input = self.individual_inputs.get(&self.host_ix).unwrap().clone();
@@ -246,8 +246,7 @@ impl<'a, H, PP> AggregateResponses<'a, H, PP> {
                 exclusion_set.insert(yi, sig);
             }
         }
-        let aggr_resp =
-            aggregate_response(NonEmpty::from_vec(responses.values().into_iter().collect()).unwrap());
+        let aggr_resp = aggregate_response(responses.values().into_iter().collect());
         Aggregated {
             message_digest: self.message_digest,
             aggregate_commitment: self.aggr_commitment,
