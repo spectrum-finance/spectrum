@@ -13,7 +13,7 @@ pub trait DataBridge {
 
 pub struct DataBridgeComponents<T> {
     /// Each consumer of the data bridge is given a receiver to stream transaction data.
-    pub receivers: Vec<tokio::sync::broadcast::Receiver<TxEvent<T>>>,
+    pub receiver: tokio::sync::mpsc::Receiver<TxEvent<T>>,
     /// Call `send(())` on this `Sender` to indicate that the bridge should start transmitting
     /// transaction data. Note that the receivers should have already been distributed to
     /// consumers.

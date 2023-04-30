@@ -14,7 +14,7 @@ use spectrum_offchain::event_source::{data::LedgerTxEvent, event_source_ledger};
 use crate::{DataBridge, DataBridgeComponents, TxEvent};
 
 pub struct ErgoDataBridge {
-    pub receivers: Vec<tokio::sync::broadcast::Receiver<TxEvent<ergo_lib::chain::transaction::Transaction>>>,
+    pub receiver: tokio::sync::mpsc::Receiver<TxEvent<ergo_lib::chain::transaction::Transaction>>,
     tx_start: tokio::sync::oneshot::Sender<()>,
 }
 
@@ -26,19 +26,13 @@ pub struct ErgoDataBridgeConfig {
 }
 
 impl ErgoDataBridge {
-    pub fn new(num_receivers: usize, config: ErgoDataBridgeConfig) -> Self {
-        let (tx, rx1) = tokio::sync::broadcast::channel(16);
-        let mut receivers = Vec::with_capacity(num_receivers);
-        receivers.push(rx1);
-
-        for _ in 0..(num_receivers - 1) {
-            receivers.push(tx.subscribe());
-        }
+    pub fn new(config: ErgoDataBridgeConfig) -> Self {
+        let (tx, receiver) = tokio::sync::mpsc::channel(16);
         let (tx_start, rx_start) = tokio::sync::oneshot::channel();
 
         tokio::spawn(run_bridge(tx, rx_start, config));
 
-        ErgoDataBridge { receivers, tx_start }
+        ErgoDataBridge { receiver, tx_start }
     }
 }
 
@@ -47,14 +41,14 @@ impl DataBridge for ErgoDataBridge {
 
     fn get_components(self) -> DataBridgeComponents<Self::TxType> {
         DataBridgeComponents {
-            receivers: self.receivers,
+            receiver: self.receiver,
             start_signal: self.tx_start,
         }
     }
 }
 
 async fn run_bridge(
-    tx: tokio::sync::broadcast::Sender<TxEvent<ergo_lib::chain::transaction::Transaction>>,
+    tx: tokio::sync::mpsc::Sender<TxEvent<ergo_lib::chain::transaction::Transaction>>,
     rx_start: tokio::sync::oneshot::Receiver<()>,
     config: ErgoDataBridgeConfig,
 ) {
@@ -90,7 +84,7 @@ async fn run_bridge(
             LedgerTxEvent::AppliedTx { tx, .. } => TxEvent::AppliedTx(tx),
             LedgerTxEvent::UnappliedTx(tx) => TxEvent::UnappliedTx(tx),
         };
-        tx.send(event).unwrap();
+        tx.send(event).await.unwrap();
     }
 }
 
@@ -111,16 +105,15 @@ mod tests {
             chain_cache_db_path: String::from("tmp/"),
             node_addr: Url::try_from(String::from("http://213.239.193.208:9053")).unwrap(),
         };
-        let ergo_bridge = ErgoDataBridge::new(1, config);
+        let ergo_bridge = ErgoDataBridge::new(config);
         let DataBridgeComponents {
-            mut receivers,
+            mut receiver,
             start_signal,
         } = ergo_bridge.get_components();
 
         start_signal.send(()).unwrap();
-        let mut rx = receivers.pop().unwrap();
         for _ in 0..10 {
-            let tx = rx.recv().await.unwrap();
+            let tx = receiver.recv().await.unwrap();
             match tx {
                 TxEvent::AppliedTx(tx) => {
                     let height = tx.outputs[0].creation_height;
