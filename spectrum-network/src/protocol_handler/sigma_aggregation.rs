@@ -16,17 +16,11 @@ use crate::protocol::SIGMA_AGGR_PROTOCOL_ID;
 use crate::protocol_handler::aggregation::AggregationAction;
 use crate::protocol_handler::handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
 use crate::protocol_handler::handel::{Handel, HandelConfig, HandelRound, NarrowTo};
-use crate::protocol_handler::sigma_aggregation::crypto::{
-    aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
-    pre_commitment, response, schnorr_commitment,
-};
+use crate::protocol_handler::sigma_aggregation::crypto::{aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input, pre_commitment, response, schnorr_commitment, schnorr_commitment_pair};
 use crate::protocol_handler::sigma_aggregation::message::{
     SigmaAggrMessage, SigmaAggrMessageV1, SigmaAggrSpec,
 };
-use crate::protocol_handler::sigma_aggregation::types::{
-    Commitment, CommitmentSecret, CommitmentsVerifInput, CommitmentsWithProofs, Contributions,
-    PreCommitments, PublicKey, Responses, ResponsesVerifInput, Signature,
-};
+use crate::protocol_handler::sigma_aggregation::types::{AggregateCommitment, Commitment, CommitmentSecret, CommitmentsVerifInput, CommitmentsWithProofs, Contributions, PreCommitments, PublicKey, Responses, ResponsesVerifInput, Signature};
 use crate::protocol_handler::NetworkAction;
 use crate::protocol_handler::ProtocolBehaviour;
 use crate::protocol_handler::ProtocolBehaviourOut;
@@ -88,8 +82,7 @@ where
                 )
             })
             .collect();
-        let host_secret = CommitmentSecret::random();
-        let host_commitment = schnorr_commitment(host_secret.clone());
+        let (host_secret, host_commitment) = schnorr_commitment_pair();
         let host_pre_commitment = pre_commitment(host_commitment.clone());
         let host_ix = partitions.try_index_peer(host_pid).unwrap();
         AggregatePreCommitments {
@@ -228,7 +221,7 @@ struct AggregateResponses<'a, H, PP> {
     host_secret: CommitmentSecret,
     /// `Y_i = g^{y_i}`
     host_commitment: Commitment,
-    aggr_commitment: Commitment,
+    aggr_commitment: AggregateCommitment,
     /// `σ_i`. Dlog proof of knowledge of `Y_i`.
     host_explusion_proof: Signature,
     commitments_with_proofs: CommitmentsWithProofs,
@@ -257,7 +250,7 @@ impl<'a, H, PP> AggregateResponses<'a, H, PP> {
 #[derive(Debug)]
 pub struct Aggregated<H> {
     pub message_digest: Digest256<H>,
-    pub aggregate_commitment: Commitment,
+    pub aggregate_commitment: AggregateCommitment,
     pub aggregate_response: Scalar,
     pub exclusion_set: HashMap<Commitment, Signature>,
 }

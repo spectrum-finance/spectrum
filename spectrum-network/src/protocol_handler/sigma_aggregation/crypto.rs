@@ -2,6 +2,7 @@ use blake2::digest::typenum::U32;
 use blake2::Blake2b;
 use blake2::Digest;
 use elliptic_curve::generic_array::GenericArray;
+use elliptic_curve::rand_core::OsRng;
 use elliptic_curve::ScalarPrimitive;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::schnorr::signature::{Signer, Verifier};
@@ -11,7 +12,9 @@ use k256::{ProjectivePoint, Scalar, SecretKey};
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest256};
 
 use crate::protocol_handler::handel::Threshold;
-use crate::protocol_handler::sigma_aggregation::types::{Commitment, CommitmentSecret, PublicKey, Signature};
+use crate::protocol_handler::sigma_aggregation::types::{
+    AggregateCommitment, Commitment, CommitmentSecret, PublicKey, Signature,
+};
 
 type Blake2b256 = Blake2b<U32>;
 
@@ -45,17 +48,14 @@ pub fn aggregate_pk(committee: Vec<PublicKey>, individual_inputs: Vec<Scalar>) -
 }
 
 /// `Y = Π_iY_i`
-pub fn aggregate_commitment(individual_commitments: Vec<Commitment>) -> Commitment {
-    Commitment::from(
-        k256::PublicKey::try_from(
-            individual_commitments
-                .into_iter()
-                .enumerate()
-                .map(|(i, yi)| k256::PublicKey::from(yi.clone()).to_projective())
-                .sum::<ProjectivePoint>(),
-        )
-        .unwrap(),
+pub fn aggregate_commitment(individual_commitments: Vec<Commitment>) -> AggregateCommitment {
+    AggregateCommitment::try_from(
+        individual_commitments
+            .into_iter()
+            .map(|yi| ProjectivePoint::from(yi))
+            .sum::<ProjectivePoint>(),
     )
+    .unwrap()
 }
 
 pub fn aggregate_response(individual_responses: Vec<Scalar>) -> Scalar {
@@ -63,14 +63,10 @@ pub fn aggregate_response(individual_responses: Vec<Scalar>) -> Scalar {
 }
 
 /// c = H(˜X, Y, m)
-pub fn challenge<H>(aggr_pk: PublicKey, aggr_commitment: Commitment, md: Digest256<H>) -> Scalar {
+pub fn challenge<H>(aggr_pk: PublicKey, aggr_commitment: AggregateCommitment, md: Digest256<H>) -> Scalar {
     let mut hasher = Blake2b256::new();
     hasher.update(k256::PublicKey::from(aggr_pk).to_encoded_point(true).to_bytes());
-    hasher.update(
-        k256::PublicKey::from(aggr_commitment)
-            .to_encoded_point(true)
-            .to_bytes(),
-    );
+    hasher.update(aggr_commitment.to_bytes());
     hasher.update(md.as_ref());
     let hash: [u8; 32] = hasher.finalize().into();
     ScalarPrimitive::from_bytes(GenericArray::from_slice(&hash))
@@ -78,10 +74,22 @@ pub fn challenge<H>(aggr_pk: PublicKey, aggr_commitment: Commitment, md: Digest2
         .into()
 }
 
+/// `y_i, Y_i`
+pub fn schnorr_commitment_pair() -> (CommitmentSecret, Commitment) {
+    let mut rng = OsRng;
+    loop {
+        let commitment_sk = CommitmentSecret::from(SecretKey::random(&mut rng));
+        let commitment = schnorr_commitment(commitment_sk.clone());
+        if let Some(r) = commitment.map(|c| (commitment_sk, c)) {
+            return r;
+        }
+    }
+}
+
 /// `Y_i = g^{y_i}`
-pub fn schnorr_commitment(sk: CommitmentSecret) -> Commitment {
+pub fn schnorr_commitment(sk: CommitmentSecret) -> Option<Commitment> {
     let point = ProjectivePoint::GENERATOR * Scalar::from(k256::SecretKey::from(sk).as_scalar_primitive());
-    Commitment::from(k256::PublicKey::try_from(point).unwrap())
+    point.try_into().ok()
 }
 
 /// `σ_i`
@@ -93,7 +101,7 @@ pub fn exclusion_proof<H>(sk: CommitmentSecret, md: Digest256<H>) -> Signature {
 
 /// `t_i = H(Y_i)`
 pub fn pre_commitment(pk: Commitment) -> Blake2bDigest256 {
-    blake2b256_hash(&*k256::PublicKey::from(pk).to_encoded_point(true).to_bytes())
+    blake2b256_hash(&*pk.as_bytes())
 }
 
 /// `z_i = y_i + c * a_i * x_i`
@@ -119,12 +127,12 @@ pub fn verify_response(
     pk: PublicKey,
 ) -> bool {
     let x = k256::PublicKey::from(pk).to_projective();
-    let y = k256::PublicKey::from(commitment).to_projective();
+    let y = ProjectivePoint::from(commitment);
     ProjectivePoint::GENERATOR * z == y + x * a * challenge
 }
 
 pub fn verify<H>(
-    aggregate_commitment: Commitment,
+    aggregate_commitment: AggregateCommitment,
     aggregate_response: Scalar,
     exclusion_set: Vec<(usize, Commitment, Signature)>,
     failed_committees: Vec<usize>,
@@ -152,22 +160,19 @@ pub fn verify<H>(
         .sum();
     let excluded_y: ProjectivePoint = exclusion_set
         .iter()
-        .map(|(_, yi, _)| k256::PublicKey::from(yi.clone()).to_projective())
+        .map(|(_, yi, _)| ProjectivePoint::from(yi.clone()))
         .sum();
     let challenge = challenge(aggregate_x, aggregate_commitment.clone(), md);
-    let aggregate_commitment_point = k256::PublicKey::from(aggregate_commitment).to_projective();
+    let aggregate_commitment_point = ProjectivePoint::from(aggregate_commitment);
     if ProjectivePoint::GENERATOR * aggregate_response
-        != partial_x * challenge + aggregate_commitment_point + excluded_y
+        != partial_x * challenge + aggregate_commitment_point - excluded_y
     {
         return false;
     }
-    for (_, yi, sigi) in exclusion_set.clone() {
-        if !VerifyingKey::try_from(k256::PublicKey::from(yi))
-            .map(|vk| {
-                vk.verify(&md.as_ref(), &k256::schnorr::Signature::from(sigi))
-                    .is_ok()
-            })
-            .unwrap_or(false)
+    for (_, yi, proof) in exclusion_set.clone() {
+        if !VerifyingKey::from(yi)
+            .verify(&md.as_ref(), &k256::schnorr::Signature::from(proof))
+            .is_ok()
         {
             return false;
         }
@@ -187,14 +192,9 @@ mod tests {
     use crate::protocol_handler::handel::Threshold;
     use crate::protocol_handler::sigma_aggregation::crypto::{
         aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
-        pre_commitment, response, schnorr_commitment, verify, verify_response,
+        response, schnorr_commitment_pair, verify, verify_response,
     };
-    use crate::protocol_handler::sigma_aggregation::types::{Commitment, CommitmentSecret, PublicKey};
-
-    struct TXi(PublicKey);
-    struct Txi(SecretKey);
-    struct TYi(PublicKey);
-    struct Tyi(SecretKey);
+    use crate::protocol_handler::sigma_aggregation::types::{CommitmentSecret, PublicKey};
 
     #[test]
     fn uniqie_individual_inputs() {
@@ -234,14 +234,9 @@ mod tests {
             .map(|_| {
                 let sk = SecretKey::random(&mut rng);
                 let pk = PublicKey::from(sk.public_key());
-                let commitment_sk = CommitmentSecret::from(SecretKey::random(&mut rng));
-                let commitment = Commitment::from(schnorr_commitment(commitment_sk.clone()));
+                let (commitment_sk, commitment) = schnorr_commitment_pair();
                 (sk, pk, commitment_sk, commitment)
             })
-            .collect::<Vec<_>>();
-        let commitment_proofs = individual_keys
-            .iter()
-            .map(|(_, _, sk, _)| exclusion_proof(sk.clone(), md))
             .collect::<Vec<_>>();
         let committee = individual_keys
             .iter()
@@ -269,7 +264,7 @@ mod tests {
             .partition(|(i, _)| byz_indexes.contains(i));
         let individual_responses_subset = active_keys
             .iter()
-            .map(|(i, (sk, pk, commitment_sk, _))| {
+            .map(|(i, (sk, _, commitment_sk, _))| {
                 (
                     *i,
                     response(
@@ -295,7 +290,7 @@ mod tests {
             aggregate_response(individual_responses_subset.into_iter().map(|(_, x)| x).collect());
         let exclusion_set = byz_keys
             .iter()
-            .map(|(i, (_, _, _, commitment))| (*i, commitment.clone(), commitment_proofs[*i].clone()))
+            .map(|(i, (_, _, sk, commitment))| (*i, commitment.clone(), exclusion_proof(sk.clone(), md)))
             .collect::<Vec<_>>();
         assert!(verify(
             aggregate_commitment,
@@ -318,8 +313,7 @@ mod tests {
             .map(|_| {
                 let sk = SecretKey::random(&mut rng);
                 let pk = PublicKey::from(sk.public_key());
-                let commitment_sk = CommitmentSecret::from(SecretKey::random(&mut rng));
-                let commitment = Commitment::from(schnorr_commitment(commitment_sk.clone()));
+                let (commitment_sk, commitment) = schnorr_commitment_pair();
                 (sk, pk, commitment_sk, commitment)
             })
             .collect::<Vec<_>>();

@@ -6,7 +6,7 @@ use elliptic_curve::rand_core::OsRng;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::schnorr::signature::*;
 use k256::schnorr::VerifyingKey;
-use k256::{Scalar, SecretKey};
+use k256::{ProjectivePoint, Scalar, SecretKey};
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 
@@ -61,18 +61,57 @@ impl From<&PublicKey> for PeerId {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Hash, derive_more::From, derive_more::Into)]
-pub struct Commitment(PublicKey);
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, derive_more::From, derive_more::Into)]
+pub struct AggregateCommitment(PublicKey);
 
-impl From<Commitment> for k256::PublicKey {
-    fn from(Commitment(pk): Commitment) -> Self {
-        k256::PublicKey::from(pk)
+impl AggregateCommitment {
+    pub fn to_bytes(self) -> Vec<u8> {
+        let point = k256::PublicKey::from(self.0).to_encoded_point(true);
+        point.as_bytes().to_vec()
     }
 }
 
-impl From<k256::PublicKey> for Commitment {
-    fn from(pk: k256::PublicKey) -> Self {
-        Self(PublicKey::from(pk))
+impl From<ProjectivePoint> for AggregateCommitment {
+    fn from(p: ProjectivePoint) -> Self {
+        Self(PublicKey::from(k256::PublicKey::try_from(p).unwrap()))
+    }
+}
+
+impl From<AggregateCommitment> for ProjectivePoint {
+    fn from(AggregateCommitment(pk): AggregateCommitment) -> Self {
+        pk.0.to_projective()
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, derive_more::From, derive_more::Into)]
+pub struct Commitment(VerifyingKey);
+
+impl Commitment {
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let point = k256::PublicKey::from(self.0).to_encoded_point(true);
+        point.as_bytes().to_vec()
+    }
+}
+
+impl Hash for Commitment {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&*self.as_bytes())
+    }
+}
+
+impl TryFrom<ProjectivePoint> for Commitment {
+    type Error = Error;
+    fn try_from(point: ProjectivePoint) -> std::result::Result<Self, Self::Error> {
+        k256::PublicKey::try_from(point)
+            .map_err(|_| Error::new())
+            .and_then(VerifyingKey::try_from)
+            .map(Self)
+    }
+}
+
+impl From<Commitment> for ProjectivePoint {
+    fn from(Commitment(vk): Commitment) -> Self {
+        ProjectivePoint::from(k256::PublicKey::from(vk))
     }
 }
 
@@ -177,13 +216,11 @@ pub type CommitmentsWithProofs = Contributions<(Commitment, Signature)>;
 
 impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
     fn verify(&self, public_data: &CommitmentsVerifInput) -> bool {
-        self.0.iter().all(|(i, (point, sig))| {
-            if let Some(commitment) = public_data.pre_commitments.0.get(&i) {
-                let pk = k256::PublicKey::from(point.clone());
-                *commitment == blake2b256_hash(&pk.to_encoded_point(false).to_bytes())
-                    && VerifyingKey::try_from(pk)
-                        .map(|vk| vk.verify(&public_data.message_digest_bytes, &sig.0).is_ok())
-                        .unwrap_or(false)
+        self.0.iter().all(|(i, (commitment, sig))| {
+            if let Some(pre_commitment) = public_data.pre_commitments.0.get(&i) {
+                let vk = VerifyingKey::from(commitment.clone());
+                *pre_commitment == blake2b256_hash(&*commitment.as_bytes())
+                    && vk.verify(&public_data.message_digest_bytes, &sig.0).is_ok()
             } else {
                 false
             }
