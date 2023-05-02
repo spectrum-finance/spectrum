@@ -126,7 +126,7 @@ pub fn verify_response(
 pub fn verify<H>(
     aggregate_commitment: Commitment,
     aggregate_response: Scalar,
-    exclusion_set: Vec<(usize, PublicKey, Signature)>,
+    exclusion_set: Vec<(usize, Commitment, Signature)>,
     failed_committees: Vec<usize>,
     committee: Vec<PublicKey>,
     md: Digest256<H>,
@@ -180,13 +180,14 @@ pub fn verify<H>(
 mod tests {
     use elliptic_curve::rand_core::OsRng;
     use k256::SecretKey;
+    use rand::Rng;
 
     use spectrum_crypto::digest::blake2b256_hash;
 
     use crate::protocol_handler::handel::Threshold;
     use crate::protocol_handler::sigma_aggregation::crypto::{
-        aggregate_commitment, aggregate_pk, aggregate_response, challenge, individual_input, pre_commitment,
-        response, schnorr_commitment, verify, verify_response,
+        aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
+        pre_commitment, response, schnorr_commitment, verify, verify_response,
     };
     use crate::protocol_handler::sigma_aggregation::types::{Commitment, CommitmentSecret, PublicKey};
 
@@ -213,7 +214,102 @@ mod tests {
     }
 
     #[test]
-    fn aggregation_no_corrupted_parties() {
+    fn aggregation_with_byzantine_nodes() {
+        let num_participants = 16;
+        let num_byzantine = 2;
+        let mut rng = OsRng;
+        let mut byz_indexes = vec![];
+        loop {
+            let rng = rng.gen_range(0usize..num_participants);
+            if !byz_indexes.contains(&rng) {
+                byz_indexes.push(rng);
+            }
+            if byz_indexes.len() == num_byzantine {
+                break;
+            }
+        }
+        let md = blake2b256_hash(b"foo");
+        let individual_keys = (0..num_participants)
+            .into_iter()
+            .map(|_| {
+                let sk = SecretKey::random(&mut rng);
+                let pk = PublicKey::from(sk.public_key());
+                let commitment_sk = CommitmentSecret::from(SecretKey::random(&mut rng));
+                let commitment = Commitment::from(schnorr_commitment(commitment_sk.clone()));
+                (sk, pk, commitment_sk, commitment)
+            })
+            .collect::<Vec<_>>();
+        let commitment_proofs = individual_keys
+            .iter()
+            .map(|(_, _, sk, _)| exclusion_proof(sk.clone(), md))
+            .collect::<Vec<_>>();
+        let committee = individual_keys
+            .iter()
+            .map(|(_, pk, _, _)| pk.clone())
+            .collect::<Vec<_>>();
+        let individual_inputs = individual_keys
+            .iter()
+            .map(|(_, pki, _, _)| individual_input(committee.clone(), pki.clone()))
+            .collect::<Vec<_>>();
+        let aggregate_x = aggregate_pk(
+            individual_keys.iter().map(|(_, pk, _, _)| pk.clone()).collect(),
+            individual_inputs.clone(),
+        );
+        let aggregate_commitment = aggregate_commitment(
+            individual_keys
+                .iter()
+                .map(|(_, _, _, commitment)| commitment.clone())
+                .collect(),
+        );
+        let challenge = challenge(aggregate_x, aggregate_commitment.clone(), md);
+        let (byz_keys, active_keys): (Vec<_>, Vec<_>) = individual_keys
+            .clone()
+            .into_iter()
+            .enumerate()
+            .partition(|(i, _)| byz_indexes.contains(i));
+        let individual_responses_subset = active_keys
+            .iter()
+            .map(|(i, (sk, pk, commitment_sk, _))| {
+                (
+                    *i,
+                    response(
+                        commitment_sk.clone(),
+                        sk.clone(),
+                        challenge,
+                        individual_inputs[*i],
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (i, zi) in individual_responses_subset.iter() {
+            let (_, pk, _, commitment) = &individual_keys[*i];
+            assert!(verify_response(
+                zi,
+                &individual_inputs[*i],
+                &challenge,
+                commitment.clone(),
+                pk.clone()
+            ))
+        }
+        let aggregate_response =
+            aggregate_response(individual_responses_subset.into_iter().map(|(_, x)| x).collect());
+        let exclusion_set = byz_keys
+            .iter()
+            .map(|(i, (_, _, _, commitment))| (*i, commitment.clone(), commitment_proofs[*i].clone()))
+            .collect::<Vec<_>>();
+        assert!(verify(
+            aggregate_commitment,
+            aggregate_response,
+            exclusion_set,
+            Vec::new(),
+            committee,
+            md,
+            Threshold { num: 2, denom: 3 }
+        ))
+    }
+
+    #[test]
+    fn aggregation_ideal() {
         let num_participants = 16;
         let mut rng = OsRng;
         let md = blake2b256_hash(b"foo");
