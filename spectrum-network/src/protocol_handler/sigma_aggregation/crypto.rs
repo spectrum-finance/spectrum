@@ -30,7 +30,7 @@ pub fn individual_input(committee: Vec<PublicKey>, pki: PublicKey) -> Scalar {
         .into()
 }
 
-/// `X = Π_iX_i^{a_i}`
+/// `˜X = Π_iX_i^{a_i}`
 pub fn aggregate_pk(committee: Vec<PublicKey>, individual_inputs: Vec<Scalar>) -> PublicKey {
     PublicKey::from(
         k256::PublicKey::try_from(
@@ -44,7 +44,7 @@ pub fn aggregate_pk(committee: Vec<PublicKey>, individual_inputs: Vec<Scalar>) -
     )
 }
 
-/// `X = Π_iY_i`
+/// `Y = Π_iY_i`
 pub fn aggregate_commitment(individual_commitments: Vec<Commitment>) -> Commitment {
     Commitment::from(
         k256::PublicKey::try_from(
@@ -123,7 +123,7 @@ pub fn verify_response(
     ProjectivePoint::GENERATOR * z == y + x * a * challenge
 }
 
-fn verify<H>(
+pub fn verify<H>(
     aggregate_commitment: Commitment,
     aggregate_response: Scalar,
     exclusion_set: Vec<(usize, PublicKey, Signature)>,

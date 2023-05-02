@@ -4,7 +4,6 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use either::Either;
-use elliptic_curve::rand_core::OsRng;
 use futures::channel::mpsc::Receiver;
 use futures::channel::oneshot::Sender;
 use futures::Stream;
@@ -72,7 +71,7 @@ where
         let host_pid = PeerId::from(host_pk);
         let peers = committee.iter().map(PeerId::from).collect();
         let partitions = partitioner.make(host_pid, peers);
-        let commitee_indexed = committee
+        let committee_indexed = committee
             .iter()
             .map(|pk| {
                 let pid = PeerId::from(pk);
@@ -80,7 +79,7 @@ where
                 (pix, pk.clone())
             })
             .collect::<HashMap<_, _>>();
-        let ais = commitee_indexed
+        let ais = committee_indexed
             .iter()
             .map(|(pix, pk)| {
                 (
@@ -89,14 +88,14 @@ where
                 )
             })
             .collect();
-        let host_secret = CommitmentSecret::from(SecretKey::random(&mut OsRng));
+        let host_secret = CommitmentSecret::random();
         let host_commitment = schnorr_commitment(host_secret.clone());
         let host_pre_commitment = pre_commitment(host_commitment.clone());
         let host_ix = partitions.try_index_peer(host_pid).unwrap();
         AggregatePreCommitments {
             host_sk,
             host_ix,
-            committee: commitee_indexed,
+            committee: committee_indexed,
             individual_inputs: ais,
             message_digest: message_digest.clone(),
             host_secret: host_secret.clone(),
@@ -129,7 +128,7 @@ where
             host_secret: self.host_secret,
             host_commitment: self.host_commitment.clone(),
             host_explusion_proof: self.host_explusion_proof.clone(),
-            process: Box::new(Handel::new(
+            handel: Box::new(Handel::new(
                 handel_conf,
                 Contributions::unit(self.host_ix, (self.host_commitment, self.host_explusion_proof)),
                 verif_input,
@@ -156,7 +155,7 @@ struct AggregateSchnorrCommitments<'a, H, PP> {
     host_commitment: Commitment,
     /// `σ_i`. Dlog proof of knowledge of `Y_i`.
     host_explusion_proof: Signature,
-    process: Box<dyn HandelRound<'a, CommitmentsWithProofs, PP>>,
+    handel: Box<dyn HandelRound<'a, CommitmentsWithProofs, PP>>,
 }
 
 impl<'a, H, PP> AggregateSchnorrCommitments<'a, H, PP>
@@ -204,11 +203,11 @@ where
             aggr_commitment,
             host_explusion_proof: self.host_explusion_proof,
             commitments_with_proofs,
-            process: Box::new(Handel::new(
+            handel: Box::new(Handel::new(
                 handel_conf,
                 Contributions::unit(self.host_ix, host_response),
                 verif_inputs,
-                self.process.narrow(),
+                self.handel.narrow(),
             )),
         }
     }
@@ -233,7 +232,7 @@ struct AggregateResponses<'a, H, PP> {
     /// `σ_i`. Dlog proof of knowledge of `Y_i`.
     host_explusion_proof: Signature,
     commitments_with_proofs: CommitmentsWithProofs,
-    process: Box<dyn HandelRound<'a, Responses, PP>>,
+    handel: Box<dyn HandelRound<'a, Responses, PP>>,
 }
 
 impl<'a, H, PP> AggregateResponses<'a, H, PP> {
@@ -317,7 +316,7 @@ where
                 ..
             }) => {
                 if let SigmaAggrMessageV1::Commitments(commits) = msg {
-                    commitment.process.inject_message(peer_id, commits);
+                    commitment.handel.inject_message(peer_id, commits);
                 }
             }
             Some(AggregationTask {
@@ -325,7 +324,7 @@ where
                 ..
             }) => {
                 if let SigmaAggrMessageV1::Responses(resps) = msg {
-                    response.process.inject_message(peer_id, resps);
+                    response.handel.inject_message(peer_id, resps);
                 }
             }
             None => {}
@@ -407,7 +406,7 @@ where
                         state: AggregationState::AggregateSchnorrCommitments(mut st),
                         channel,
                     } => {
-                        match st.process.poll(cx) {
+                        match st.handel.poll(cx) {
                             Poll::Ready(out) => match out {
                                 Either::Left(cmd) => match cmd {
                                     ProtocolBehaviourOut::Send { peer_id, message } => {
@@ -447,7 +446,7 @@ where
                         state: AggregationState::AggregateResponses(mut st),
                         channel,
                     } => {
-                        match st.process.poll(cx) {
+                        match st.handel.poll(cx) {
                             Poll::Ready(out) => match out {
                                 Either::Left(cmd) => match cmd {
                                     ProtocolBehaviourOut::Send { peer_id, message } => {

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use derive_more::Into;
+use elliptic_curve::rand_core::OsRng;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::schnorr::signature::*;
 use k256::schnorr::VerifyingKey;
@@ -77,6 +78,12 @@ impl From<k256::PublicKey> for Commitment {
 
 #[derive(Clone, Debug, Eq, PartialEq, derive_more::From, derive_more::Into)]
 pub struct CommitmentSecret(SecretKey);
+
+impl CommitmentSecret {
+    pub fn random() -> Self {
+        Self(SecretKey::random(&mut OsRng))
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Contributions<C>(HashMap<PeerIx, C>);
