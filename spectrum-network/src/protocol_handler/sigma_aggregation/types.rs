@@ -2,10 +2,11 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use derive_more::Into;
+use elliptic_curve::rand_core::OsRng;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::schnorr::signature::*;
 use k256::schnorr::VerifyingKey;
-use k256::{Scalar, SecretKey};
+use k256::{ProjectivePoint, Scalar, SecretKey};
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 
@@ -57,6 +58,69 @@ impl From<PublicKey> for PeerId {
 impl From<&PublicKey> for PeerId {
     fn from(pk: &PublicKey) -> Self {
         pk.clone().into()
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, derive_more::From, derive_more::Into)]
+pub struct AggregateCommitment(PublicKey);
+
+impl AggregateCommitment {
+    pub fn to_bytes(self) -> Vec<u8> {
+        let point = k256::PublicKey::from(self.0).to_encoded_point(true);
+        point.as_bytes().to_vec()
+    }
+}
+
+impl From<ProjectivePoint> for AggregateCommitment {
+    fn from(p: ProjectivePoint) -> Self {
+        Self(PublicKey::from(k256::PublicKey::try_from(p).unwrap()))
+    }
+}
+
+impl From<AggregateCommitment> for ProjectivePoint {
+    fn from(AggregateCommitment(pk): AggregateCommitment) -> Self {
+        pk.0.to_projective()
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, derive_more::From, derive_more::Into)]
+pub struct Commitment(VerifyingKey);
+
+impl Commitment {
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let point = k256::PublicKey::from(self.0).to_encoded_point(true);
+        point.as_bytes().to_vec()
+    }
+}
+
+impl Hash for Commitment {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&*self.as_bytes())
+    }
+}
+
+impl TryFrom<ProjectivePoint> for Commitment {
+    type Error = Error;
+    fn try_from(point: ProjectivePoint) -> std::result::Result<Self, Self::Error> {
+        k256::PublicKey::try_from(point)
+            .map_err(|_| Error::new())
+            .and_then(VerifyingKey::try_from)
+            .map(Self)
+    }
+}
+
+impl From<Commitment> for ProjectivePoint {
+    fn from(Commitment(vk): Commitment) -> Self {
+        ProjectivePoint::from(k256::PublicKey::from(vk))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, derive_more::From, derive_more::Into)]
+pub struct CommitmentSecret(SecretKey);
+
+impl CommitmentSecret {
+    pub fn random() -> Self {
+        Self(SecretKey::random(&mut OsRng))
     }
 }
 
@@ -148,16 +212,15 @@ impl From<Signature> for Vec<u8> {
     }
 }
 
-pub type CommitmentsWithProofs = Contributions<(PublicKey, Signature)>;
+pub type CommitmentsWithProofs = Contributions<(Commitment, Signature)>;
 
 impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
     fn verify(&self, public_data: &CommitmentsVerifInput) -> bool {
-        self.0.iter().all(|(i, (point, sig))| {
-            if let Some(commitment) = public_data.pre_commitments.0.get(&i) {
-                *commitment == blake2b256_hash(&point.0.to_encoded_point(false).to_bytes())
-                    && VerifyingKey::try_from(point.0)
-                        .map(|vk| vk.verify(&public_data.message_digest_bytes, &sig.0).is_ok())
-                        .unwrap_or(false)
+        self.0.iter().all(|(i, (commitment, sig))| {
+            if let Some(pre_commitment) = public_data.pre_commitments.0.get(&i) {
+                let vk = VerifyingKey::from(commitment.clone());
+                *pre_commitment == blake2b256_hash(&*commitment.as_bytes())
+                    && vk.verify(&public_data.message_digest_bytes, &sig.0).is_ok()
             } else {
                 false
             }
@@ -166,8 +229,6 @@ impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
 }
 
 pub type Responses = Contributions<Scalar>;
-
-pub struct Committee(HashMap<PeerIx, PublicKey>);
 
 pub struct ResponsesVerifInput {
     inputs: HashMap<PeerIx, ResponseVerifInput>,
@@ -201,7 +262,7 @@ impl ResponsesVerifInput {
 }
 
 struct ResponseVerifInput {
-    commitment: PublicKey,
+    commitment: Commitment,
     pk: PublicKey,
     individual_input: Scalar,
 }
@@ -233,8 +294,7 @@ mod tests {
         let k256_pk = host_secret.public_key();
         let k256_point = k256_pk.to_encoded_point(true);
         let k256_encoded = k256_point.as_bytes();
-        let libp2p_pk =
-            libp2p_identity::secp256k1::PublicKey::decode(k256_encoded).unwrap();
+        let libp2p_pk = libp2p_identity::secp256k1::PublicKey::decode(k256_encoded).unwrap();
         assert_eq!(libp2p_pk.encode(), k256_encoded)
     }
 }
