@@ -73,6 +73,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         conn_alloc_interval: Duration::from_secs(30),
         prot_alloc_interval: Duration::from_secs(30),
         protocols_allocation: Vec::new(),
+        peer_manager_msg_buffer_size: 10,
     };
     let peer_state = PeerRepo::new(netw_config, boot_peers);
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
@@ -91,11 +92,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         height: 0,
     };
     let sync_behaviour = SyncBehaviour::new(peers.clone(), local_status);
-    let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
+    const NC_MSG_BUFFER_SIZE: usize = 10;
+    let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(NC_MSG_BUFFER_SIZE);
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };
-    let (mut sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api);
+    const PH_MSG_BUFFER_SIZE: usize = 10;
+    let (mut sync_handler, sync_mailbox) =
+        ProtocolHandler::new(sync_behaviour, network_api, PH_MSG_BUFFER_SIZE);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(

@@ -142,6 +142,7 @@ pub fn build_node(
         conn_alloc_interval: Duration::from_secs(30),
         protocols_allocation: Vec::new(),
         prot_alloc_interval: Duration::from_secs(30),
+        peer_manager_msg_buffer_size: 10,
     };
     let netw_conf = NetworkingConfig {
         min_known_peers: 2,
@@ -166,11 +167,11 @@ pub fn build_node(
         )],
     };
     let sync_behaviour = SyncBehaviour::new(peers.clone(), local_status);
-    let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
+    let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(10);
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };
-    let (sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api);
+    let (sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api, 10);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(

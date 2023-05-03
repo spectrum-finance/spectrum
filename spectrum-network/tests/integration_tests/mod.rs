@@ -936,6 +936,7 @@ where
         conn_alloc_interval: Duration::from_secs(30),
         prot_alloc_interval: Duration::from_secs(30),
         protocols_allocation: Vec::new(),
+        peer_manager_msg_buffer_size: 10,
     };
     let peer_state = PeerRepo::new(netw_config, peers);
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
@@ -949,12 +950,12 @@ where
         )],
     };
 
-    let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
+    let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(10);
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };
     let (sync_handler, sync_mailbox) =
-        ProtocolHandler::new(gen_protocol_behaviour(peers.clone()), network_api);
+        ProtocolHandler::new(gen_protocol_behaviour(peers.clone()), network_api, 10);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(

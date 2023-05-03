@@ -166,14 +166,14 @@ pub trait ProtocolBehaviour {
 /// A layer that facilitate massage transmission from protocol handlers to peers.
 pub struct ProtocolHandler<TBehaviour, TNetwork> {
     peers: HashMap<PeerId, MessageSink>,
-    inbox: UnboundedReceiver<ProtocolEvent>,
+    inbox: Receiver<ProtocolEvent>,
     behaviour: TBehaviour,
     network: TNetwork,
 }
 
 impl<TBehaviour, TNetwork> ProtocolHandler<TBehaviour, TNetwork> {
-    pub fn new(behaviour: TBehaviour, network: TNetwork) -> (Self, ProtocolMailbox) {
-        let (snd, recv) = mpsc::unbounded::<ProtocolEvent>();
+    pub fn new(behaviour: TBehaviour, network: TNetwork, msg_buffer_size: usize) -> (Self, ProtocolMailbox) {
+        let (snd, recv) = mpsc::channel::<ProtocolEvent>(msg_buffer_size);
         let prot_mailbox = ProtocolMailbox::new(snd);
         let prot_handler = Self {
             peers: HashMap::new(),

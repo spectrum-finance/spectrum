@@ -141,23 +141,25 @@ pub trait NetworkAPI {
 
 #[derive(Clone)]
 pub struct NetworkMailbox {
-    pub mailbox_snd: UnboundedSender<NetworkControllerIn>,
+    pub mailbox_snd: Sender<NetworkControllerIn>,
 }
 
 impl NetworkAPI for NetworkMailbox {
     fn enable_protocol(&self, protocol: ProtocolId, peer: PeerId, handshake: PolyVerHandshakeSpec) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(NetworkControllerIn::EnableProtocol {
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(
+            NetworkControllerIn::EnableProtocol {
                 protocol,
                 peer,
                 handshake,
-            });
+            },
+        ));
     }
     fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(NetworkControllerIn::UpdatePeerProtocols { peer, protocols });
+        let _ = futures::executor::block_on(
+            self.mailbox_snd
+                .clone()
+                .send(NetworkControllerIn::UpdatePeerProtocols { peer, protocols }),
+        );
     }
     fn send_one_shot_message(&self, peer: PeerId, protocol: ProtocolTag, message: RawMessage) {
         let _ = self
@@ -272,7 +274,7 @@ where
         supported_protocols: HashMap<ProtocolId, (ProtocolConfig, THandler)>,
         peers: TPeers,
         peer_manager: TPeerManager,
-        requests_recv: UnboundedReceiver<NetworkControllerIn>,
+        requests_recv: Receiver<NetworkControllerIn>,
     ) -> Self {
         Self {
             conn_handler_conf,
