@@ -17,16 +17,18 @@ use crate::peer_conn_handler::stream::FusedStream;
 use crate::protocol_api::{ProtocolEvent, ProtocolMailbox};
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
-use crate::types::{ProtocolId, ProtocolVer, RawMessage};
+use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 
+pub mod aggregation;
 pub mod codec;
 pub mod cosi;
 pub mod handel;
+pub mod sigma_aggregation;
 pub mod sync;
 pub mod versioning;
 
 #[derive(Debug)]
-pub enum NetworkAction<THandshake> {
+pub enum NetworkAction<THandshake, TMessage> {
     /// A directive to enable the specified protocol with the specified peer.
     EnablePeer {
         /// A specific peer we should start the protocol with.
@@ -40,6 +42,13 @@ pub enum NetworkAction<THandshake> {
         peer: PeerId,
         protocols: Vec<ProtocolId>,
     },
+    /// Send the given message to the specified peer without
+    /// establishing a persistent two-way communication channel.
+    SendOneShotMessage {
+        peer: PeerId,
+        use_version: ProtocolVer,
+        message: TMessage,
+    },
     /// Ban peer.
     BanPeer(PeerId),
 }
@@ -47,7 +56,7 @@ pub enum NetworkAction<THandshake> {
 #[derive(Debug)]
 pub enum ProtocolBehaviourOut<THandshake, TMessage> {
     Send { peer_id: PeerId, message: TMessage },
-    NetworkAction(NetworkAction<THandshake>),
+    NetworkAction(NetworkAction<THandshake, TMessage>),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -110,33 +119,35 @@ pub trait ProtocolBehaviour {
     fn get_protocol_id(&self) -> ProtocolId;
 
     /// Inject an event that we have established a conn with a peer.
-    fn inject_peer_connected(&mut self, peer_id: PeerId);
+    fn inject_peer_connected(&mut self, peer_id: PeerId) {}
 
     /// Inject a new message coming from a peer.
-    fn inject_message(&mut self, peer_id: PeerId, content: <Self::TProto as ProtocolSpec>::TMessage);
+    fn inject_message(&mut self, peer_id: PeerId, content: <Self::TProto as ProtocolSpec>::TMessage) {}
 
     /// Inject an event when the peer sent a malformed message.
-    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage);
+    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {}
 
     /// Inject protocol request coming from a peer.
     fn inject_protocol_requested(
         &mut self,
         peer_id: PeerId,
         handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
-    );
+    ) {
+    }
 
     /// Inject local protocol request coming from a peer.
-    fn inject_protocol_requested_locally(&mut self, peer_id: PeerId);
+    fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {}
 
     /// Inject an event of protocol being enabled with a peer.
     fn inject_protocol_enabled(
         &mut self,
         peer_id: PeerId,
         handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
-    );
+    ) {
+    }
 
     /// Inject an event of protocol being disabled with a peer.
-    fn inject_protocol_disabled(&mut self, peer_id: PeerId);
+    fn inject_protocol_disabled(&mut self, peer_id: PeerId) {}
 
     /// Poll for output actions.
     fn poll(
@@ -226,6 +237,16 @@ where
                             }
                             NetworkAction::UpdatePeerProtocols { peer, protocols } => {
                                 self.network.update_peer_protocols(peer, protocols);
+                            }
+                            NetworkAction::SendOneShotMessage {
+                                peer,
+                                use_version,
+                                message,
+                            } => {
+                                let message_bytes = codec::BinCodec::encode(message.clone());
+                                let protocol =
+                                    ProtocolTag::new(self.behaviour.get_protocol_id(), use_version);
+                                self.network.send_one_shot_message(peer, protocol, message_bytes);
                             }
                             NetworkAction::BanPeer(pid) => self.network.ban_peer(pid),
                         },

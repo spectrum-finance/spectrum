@@ -13,7 +13,6 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot::{Receiver, Sender};
 use futures::channel::{mpsc, oneshot};
 use futures::Stream;
-use libp2p::core::connection::ConnectionId;
 use libp2p::PeerId;
 use log::{error, info, trace};
 use std::collections::{HashSet, VecDeque};
@@ -22,6 +21,7 @@ use std::ops::Add;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+use libp2p::swarm::ConnectionId;
 use wasm_timer::Delay;
 
 /// Peer Manager output commands.

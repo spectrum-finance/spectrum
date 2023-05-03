@@ -5,19 +5,19 @@ use std::ops::{Add, Mul};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use either::{Either, Left};
+use either::{Either, Left, Right};
 use libp2p::PeerId;
 use void::Void;
 
 use algebra_core::CommutativePartialSemigroup;
 use spectrum_crypto::VerifiableAgainst;
 
-use crate::protocol_handler::handel::message::{HandelMessage, HandelMessageV1};
+use crate::protocol_handler::handel::message::HandelMessage;
 use crate::protocol_handler::handel::partitioning::{PeerIx, PeerOrd, PeerPartitions};
 use crate::protocol_handler::{NetworkAction, ProtocolBehaviourOut, TemporalProtocolStage};
 
-mod message;
-mod partitioning;
+pub mod message;
+pub mod partitioning;
 
 pub trait Weighted {
     fn weight(&self) -> usize;
@@ -42,7 +42,7 @@ struct ActiveLevel<C> {
     best_contribution: Verified<ScoredContribution<C>>,
     /// Index of the peer we contacted last at the level.
     last_contacted_peer_ix: Option<usize>,
-    completed: bool,
+    is_completed: bool,
 }
 
 impl<C> ActiveLevel<C> {
@@ -52,7 +52,7 @@ impl<C> ActiveLevel<C> {
             individual_contributions: vec![],
             last_contacted_peer_ix: None,
             best_contribution,
-            completed: false,
+            is_completed: false,
         }
     }
     fn unit(contribution: Verified<ScoredContribution<C>>) -> Self {
@@ -61,12 +61,12 @@ impl<C> ActiveLevel<C> {
             individual_contributions: vec![],
             last_contacted_peer_ix: None,
             best_contribution: contribution,
-            completed: true,
+            is_completed: true,
         }
     }
 
     fn completed(&mut self) {
-        self.completed = true;
+        self.is_completed = true;
     }
 }
 
@@ -151,7 +151,7 @@ where
         for (lvl, schedule) in self.level_activation_schedule.clone().into_iter().enumerate() {
             if let Some(ts) = schedule {
                 if ts <= now {
-                    self.activate_level(lvl);
+                    self.try_activate_level(lvl);
                     self.level_activation_schedule[lvl] = None;
                 } else {
                     break;
@@ -237,20 +237,23 @@ where
             if is_complete(&best_contrib.contribution, level, self.conf.threshold) {
                 lvl.completed();
                 self.run_fast_path(level);
-                self.activate_level(level + 1);
+                self.try_activate_level(level + 1);
             }
         }
     }
 
-    fn activate_level(&mut self, level: usize) {
-        if !self.is_active(level) {
-            if let Some(prev_level) = self.levels[level - 1].as_ref() {
-                if self.peer_partitions.peers_at_level(level, PeerOrd::VP).is_empty() {
-                    // This level is empty, skip it
-                    self.levels[level] = Some(ActiveLevel::unit(prev_level.best_contribution.clone()));
-                    self.activate_level(level + 1);
-                } else {
-                    self.levels[level] = Some(ActiveLevel::new(prev_level.best_contribution.clone()))
+    /// Activates the given level (if possible).
+    fn try_activate_level(&mut self, level: usize) {
+        if self.levels.get(level).is_some() {
+            if !self.is_active(level) {
+                if let Some(prev_level) = self.levels[level - 1].as_ref() {
+                    if self.peer_partitions.peers_at_level(level, PeerOrd::VP).is_empty() {
+                        // This level is empty, skip it
+                        self.levels[level] = Some(ActiveLevel::unit(prev_level.best_contribution.clone()));
+                        self.try_activate_level(level + 1);
+                    } else {
+                        self.levels[level] = Some(ActiveLevel::new(prev_level.best_contribution.clone()))
+                    }
                 }
             }
         }
@@ -267,7 +270,7 @@ where
             if !self.byzantine_nodes.contains(&peer_ix)
                 && !self.levels[level as usize]
                     .as_ref()
-                    .map(|lvl| lvl.completed)
+                    .map(|lvl| lvl.is_completed)
                     .unwrap_or(false)
             {
                 let contrib = PendingContribution {
@@ -305,12 +308,12 @@ where
                 let Verified(best_contrib) = lvl.best_contribution.clone();
                 self.outbox.push_back(ProtocolBehaviourOut::Send {
                     peer_id: self.peer_partitions.identify_peer(pix),
-                    message: HandelMessage::HandelMessageV1(HandelMessageV1 {
+                    message: HandelMessage {
                         level: level as u32,
                         individual_contribution: maybe_own_contrib,
                         aggregate_contribution: best_contrib.contribution,
                         contact_sender: false,
-                    }),
+                    },
                 });
             }
         }
@@ -341,12 +344,12 @@ where
                 let Verified(best_contrib) = active_lvl.best_contribution.clone();
                 self.outbox.push_back(ProtocolBehaviourOut::Send {
                     peer_id: next_peer,
-                    message: HandelMessage::HandelMessageV1(HandelMessageV1 {
+                    message: HandelMessage {
                         level: lix as u32,
                         individual_contribution: maybe_own_contrib,
                         aggregate_contribution: best_contrib.contribution,
                         contact_sender: false,
-                    }),
+                    },
                 });
             }
         }
@@ -363,6 +366,16 @@ where
             best_contrib = best_contrib_at_level.clone().contribution;
         }
         best_contrib
+    }
+
+    /// Get complete aggregate (if available) containing at least `threshold` total contributions.
+    fn get_complete_aggregate(&self) -> Option<C> {
+        if let Some(last_level) = &self.levels[self.levels.len() - 1] {
+            if last_level.is_completed {
+                return Some(last_level.clone().best_contribution.0.contribution);
+            }
+        }
+        None
     }
 
     fn is_active(&self, level: usize) -> bool {
@@ -437,7 +450,7 @@ where
     C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone + Eq + Debug,
     PP: PeerPartitions,
 {
-    fn inject_message(&mut self, peer_id: PeerId, HandelMessage::HandelMessageV1(msg): HandelMessage<C>) {
+    fn inject_message(&mut self, peer_id: PeerId, msg: HandelMessage<C>) {
         if self
             .handle_contribution(
                 peer_id,
@@ -462,13 +475,36 @@ where
         if let Some(out) = self.outbox.pop_front() {
             return Poll::Ready(Left(out));
         }
+        if let Some(ca) = self.get_complete_aggregate() {
+            return Poll::Ready(Right(ca));
+        }
         Poll::Pending
     }
 }
 
+pub trait NarrowTo<T> {
+    fn narrow(self: Box<Self>) -> T;
+}
+
+impl<C, P, PP> NarrowTo<PP> for Handel<C, P, PP> {
+    fn narrow(self: Box<Self>) -> PP {
+        self.peer_partitions
+    }
+}
+
+pub trait HandelRound<'a, C, PP>: TemporalProtocolStage<Void, HandelMessage<C>, C> + NarrowTo<PP> + 'a {}
+
+impl<'a, C, P, PP> HandelRound<'a, C, PP> for Handel<C, P, PP>
+where
+    C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone + Eq + Debug + 'a,
+    PP: PeerPartitions + 'a,
+    P: 'a,
+{
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashSet;
     use std::time::Duration;
 
     use libp2p::PeerId;
@@ -617,7 +653,7 @@ mod tests {
         assert!(res.is_ok());
         handel.run_aggregation(1);
         assert!(handel.levels[2].is_some());
-        assert!(handel.levels[2].as_ref().unwrap().completed);
+        assert!(handel.levels[2].as_ref().unwrap().is_completed);
         assert!(handel.levels[3].is_some());
     }
 }

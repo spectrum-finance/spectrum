@@ -1,12 +1,17 @@
-mod fake_sync_behaviour;
-
 use std::{collections::HashMap, time::Duration};
 
+use futures::channel::mpsc::UnboundedSender;
 use futures::{
     channel::{mpsc, oneshot},
     StreamExt,
 };
+use libp2p::core::upgrade::Version;
+use libp2p::swarm::SwarmBuilder;
 use libp2p::{identity, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
+
+use spectrum_network::protocol::{OneShotProtocolConfig, OneShotProtocolSpec, ProtocolConfig};
+use spectrum_network::protocol_api::ProtocolEvent;
+use spectrum_network::types::{ProtocolTag, RawMessage};
 use spectrum_network::{
     network_controller::{NetworkController, NetworkControllerIn, NetworkControllerOut, NetworkMailbox},
     peer_conn_handler::{ConnHandlerError, PeerConnHandlerConf},
@@ -15,7 +20,7 @@ use spectrum_network::{
         peers_state::PeerRepo,
         NetworkingConfig, PeerManager, PeerManagerConfig, PeersMailbox,
     },
-    protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID},
+    protocol::{StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID},
     protocol_api::ProtocolMailbox,
     protocol_handler::{
         sync::{
@@ -28,6 +33,8 @@ use spectrum_network::{
 };
 
 use crate::integration_tests::fake_sync_behaviour::{FakeSyncBehaviour, FakeSyncMessage, FakeSyncMessageV1};
+
+mod fake_sync_behaviour;
 
 /// Identifies particular peers
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +53,116 @@ enum Msg<M> {
     NetworkController(NetworkControllerOut),
     /// Protocol message.
     Protocol(M),
+}
+
+/// Integration test which covers:
+///  - outbound one-shot message delivery attempt
+///  - inbound one-shot message handling
+#[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
+#[async_std::test]
+async fn one_shot_messaging() {
+    //  --------             --------
+    // | peer_0 | <~~~~~~~~ | peer_1 |
+    //  --------             --------
+    //
+    // In this scenario `peer_1` sends one-shot message to `peer_0`.
+    let local_key_0 = identity::Keypair::generate_ed25519();
+    let local_peer_id_0 = PeerId::from(local_key_0.public());
+    let local_key_1 = identity::Keypair::generate_ed25519();
+
+    let addr_0: Multiaddr = "/ip4/127.0.0.1/tcp/1234".parse().unwrap();
+    let addr_1: Multiaddr = "/ip4/127.0.0.1/tcp/1235".parse().unwrap();
+    let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
+
+    let (protocol_snd_0, mut protocol_recv_0) = mpsc::unbounded::<ProtocolEvent>();
+    let prot_mailbox_0 = ProtocolMailbox::new(protocol_snd_0);
+    let (protocol_snd_1, _protocol_recv_1) = mpsc::unbounded::<ProtocolEvent>();
+    let prot_mailbox_1 = ProtocolMailbox::new(protocol_snd_1);
+
+    let pid = ProtocolId::from_u8(1u8);
+    let ver = ProtocolVer::from(1u8);
+    let one_shot_proto_conf = OneShotProtocolConfig {
+        version: ver,
+        spec: OneShotProtocolSpec {
+            max_message_size: 100,
+        },
+    };
+    let protocols_0 = HashMap::from([(
+        pid,
+        (
+            ProtocolConfig::OneShot(one_shot_proto_conf.clone()),
+            prot_mailbox_0,
+        ),
+    )]);
+    let protocols_1 = HashMap::from([(
+        pid,
+        (ProtocolConfig::OneShot(one_shot_proto_conf), prot_mailbox_1),
+    )]);
+    let (nc_0, _nc_mailbox_0) = make_nc_without_protocol_handler(vec![], protocols_0);
+    let (nc_1, nc_mailbox_1) = make_nc_without_protocol_handler(peers_1, protocols_1);
+
+    let protocol = ProtocolTag::new(pid, ver);
+    let message = RawMessage::from(vec![0, 0, 0]);
+
+    // Though we spawn multiple tasks we use this single channel for messaging.
+    let (msg_tx, _msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
+
+    let (abortable_peer_0, handle_0) = futures::future::abortable(
+        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
+    );
+    let (abortable_peer_1, handle_1) = futures::future::abortable(
+        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, msg_tx),
+    );
+    let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
+    let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
+
+    // Spawn tasks for peer_0
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_0.await;
+        handle_0.abort();
+    });
+
+    // Spawn tasks for peer_1
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_1.await;
+        handle_1.abort();
+    });
+
+    async_std::task::spawn(abortable_peer_0);
+    async_std::task::spawn(abortable_peer_1);
+    wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
+
+    let _ = nc_mailbox_1.unbounded_send(NetworkControllerIn::SendOneShotMessage {
+        peer: local_peer_id_0,
+        protocol,
+        message: message.clone(),
+    });
+
+    async_std::task::spawn(async move {
+        wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
+        cancel_tx_0.send(()).unwrap();
+    });
+    async_std::task::spawn(async move {
+        wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
+        cancel_tx_1.send(()).unwrap();
+    });
+
+    // Collect messages from the peers. Note that the while loop below will end since all tasks that
+    // use clones of `msg_tx` are guaranteed to drop, leading to the senders dropping too.
+    let mut protocol_mailbox = vec![];
+
+    while let Some(event) = protocol_recv_0.next().await {
+        protocol_mailbox.push(event);
+    }
+
+    dbg!(&protocol_mailbox);
+
+    let maybe_message = if let ProtocolEvent::Message { content, .. } = &protocol_mailbox[0] {
+        Some(content.clone())
+    } else {
+        None
+    };
+    assert_eq!(maybe_message, Some(message));
 }
 
 /// Integration test which covers:
@@ -797,7 +914,7 @@ fn make_swarm_components<P, F>(
     NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>,
 )
 where
-    P: ProtocolBehaviour + Unpin + std::marker::Send + 'static,
+    P: ProtocolBehaviour + Unpin + Send + 'static,
     F: FnOnce(PeersMailbox) -> P,
 {
     let peer_conn_handler_conf = PeerConnHandlerConf {
@@ -822,10 +939,10 @@ where
     };
     let peer_state = PeerRepo::new(netw_config, peers);
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
-    let sync_conf = ProtocolConfig {
+    let sync_conf = StatefulProtocolConfig {
         supported_versions: vec![(
             SyncSpec::v1(),
-            ProtocolSpec {
+            StatefulProtocolSpec {
                 max_message_size: 100,
                 approve_required: true,
             },
@@ -840,13 +957,56 @@ where
         ProtocolHandler::new(gen_protocol_behaviour(peers.clone()), network_api);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
-        HashMap::from([(SYNC_PROTOCOL_ID, (sync_conf, sync_mailbox))]),
+        HashMap::from([(
+            SYNC_PROTOCOL_ID,
+            (ProtocolConfig::Stateful(sync_conf), sync_mailbox),
+        )]),
         peers,
         peer_manager,
         requests_recv,
     );
 
     (sync_handler, nc)
+}
+
+pub fn make_nc_without_protocol_handler(
+    peers: Vec<PeerDestination>,
+    protocols: HashMap<ProtocolId, (ProtocolConfig, ProtocolMailbox)>,
+) -> (
+    NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>,
+    UnboundedSender<NetworkControllerIn>,
+) {
+    let peer_conn_handler_conf = PeerConnHandlerConf {
+        async_msg_buffer_size: 100,
+        sync_msg_buffer_size: 100,
+        open_timeout: Duration::from_secs(60),
+        initial_keep_alive: Duration::from_secs(120),
+    };
+    let netw_config = NetworkingConfig {
+        min_known_peers: 1,
+        min_outbound: 1,
+        max_inbound: 10,
+        max_outbound: 20,
+    };
+    let peer_manager_conf = PeerManagerConfig {
+        min_acceptable_reputation: Reputation::from(-50),
+        min_reputation: Reputation::from(-20),
+        conn_reset_outbound_backoff: Duration::from_secs(120),
+        conn_alloc_interval: Duration::from_secs(30),
+        prot_alloc_interval: Duration::from_secs(30),
+        protocols_allocation: Vec::new(),
+    };
+    let peer_state = PeerRepo::new(netw_config, peers);
+    let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
+    let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
+    let nc = NetworkController::new(
+        peer_conn_handler_conf,
+        protocols,
+        peers,
+        peer_manager,
+        requests_recv,
+    );
+    (nc, requests_snd)
 }
 
 async fn create_swarm<P>(
@@ -859,22 +1019,20 @@ async fn create_swarm<P>(
         Msg<<<P as ProtocolBehaviour>::TProto as spectrum_network::protocol_handler::ProtocolSpec>::TMessage>,
     )>,
 ) where
-    P: ProtocolBehaviour + Unpin + std::marker::Send + 'static,
+    P: ProtocolBehaviour + Unpin + Send + 'static,
 {
     let transport = libp2p::development_transport(local_key.clone()).await.unwrap();
     let local_peer_id = PeerId::from(local_key.public());
-    let mut swarm = Swarm::new(transport, nc, local_peer_id);
+    let mut swarm = SwarmBuilder::with_async_std_executor(transport, nc, local_peer_id).build();
 
     swarm.listen_on(addr).unwrap();
 
     loop {
         match swarm.select_next_some().await {
             SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {:?}", address),
-            SwarmEvent::Behaviour(event) => tx.try_send((peer, Msg::NetworkController(event))).unwrap(),
-            ce @ SwarmEvent::ConnectionEstablished { .. } => {
-                dbg!(ce);
+            ce => {
+                dbg!(peer, ce);
             }
-            _ => {}
         }
     }
 }
