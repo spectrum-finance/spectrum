@@ -87,7 +87,7 @@ pub fn schnorr_commitment_pair() -> (CommitmentSecret, Commitment) {
 }
 
 /// `Y_i = g^{y_i}`
-pub fn schnorr_commitment(sk: CommitmentSecret) -> Option<Commitment> {
+fn schnorr_commitment(sk: CommitmentSecret) -> Option<Commitment> {
     let point = ProjectivePoint::GENERATOR * Scalar::from(k256::SecretKey::from(sk).as_scalar_primitive());
     point.try_into().ok()
 }
@@ -194,7 +194,7 @@ mod tests {
         aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
         response, schnorr_commitment_pair, verify, verify_response,
     };
-    use crate::protocol_handler::sigma_aggregation::types::{CommitmentSecret, PublicKey};
+    use crate::protocol_handler::sigma_aggregation::types::PublicKey;
 
     #[test]
     fn uniqie_individual_inputs() {
@@ -204,8 +204,7 @@ mod tests {
             .into_iter()
             .map(|_| {
                 let sk = SecretKey::random(&mut rng);
-                let pk = PublicKey::from(sk.public_key());
-                pk
+                PublicKey::from(sk.public_key())
             })
             .collect::<Vec<_>>();
         let ii0 = individual_input(committee.clone(), committee[0].clone());

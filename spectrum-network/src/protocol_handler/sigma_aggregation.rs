@@ -16,11 +16,17 @@ use crate::protocol::SIGMA_AGGR_PROTOCOL_ID;
 use crate::protocol_handler::aggregation::AggregationAction;
 use crate::protocol_handler::handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
 use crate::protocol_handler::handel::{Handel, HandelConfig, HandelRound, NarrowTo};
-use crate::protocol_handler::sigma_aggregation::crypto::{aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input, pre_commitment, response, schnorr_commitment, schnorr_commitment_pair};
+use crate::protocol_handler::sigma_aggregation::crypto::{
+    aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
+    pre_commitment, response, schnorr_commitment_pair,
+};
 use crate::protocol_handler::sigma_aggregation::message::{
     SigmaAggrMessage, SigmaAggrMessageV1, SigmaAggrSpec,
 };
-use crate::protocol_handler::sigma_aggregation::types::{AggregateCommitment, Commitment, CommitmentSecret, CommitmentsVerifInput, CommitmentsWithProofs, Contributions, PreCommitments, PublicKey, Responses, ResponsesVerifInput, Signature};
+use crate::protocol_handler::sigma_aggregation::types::{
+    AggregateCommitment, Commitment, CommitmentSecret, CommitmentsVerifInput, CommitmentsWithProofs,
+    Contributions, PreCommitments, PublicKey, Responses, ResponsesVerifInput, Signature,
+};
 use crate::protocol_handler::NetworkAction;
 use crate::protocol_handler::ProtocolBehaviour;
 use crate::protocol_handler::ProtocolBehaviourOut;
