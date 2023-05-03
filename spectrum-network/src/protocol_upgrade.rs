@@ -3,7 +3,7 @@ pub mod handshake;
 mod message;
 pub(crate) mod substream;
 
-use crate::protocol::ProtocolSpec;
+use crate::protocol::StatefulProtocolSpec;
 use crate::protocol_upgrade::message::{Approve, APPROVE_SIZE};
 use crate::protocol_upgrade::substream::{ProtocolApproveState, ProtocolSubstreamIn, ProtocolSubstreamOut};
 use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
@@ -43,8 +43,8 @@ pub struct InboundProtocolSpec {
     handshake_required: bool,
 }
 
-impl From<ProtocolSpec> for InboundProtocolSpec {
-    fn from(spec: ProtocolSpec) -> Self {
+impl From<StatefulProtocolSpec> for InboundProtocolSpec {
+    fn from(spec: StatefulProtocolSpec) -> Self {
         Self {
             max_message_size: spec.max_message_size,
             handshake_required: spec.approve_required,
@@ -64,7 +64,7 @@ pub struct ProtocolUpgradeIn {
 }
 
 impl ProtocolUpgradeIn {
-    pub fn new(protocol_id: ProtocolId, supported_versions: Vec<(ProtocolVer, ProtocolSpec)>) -> Self {
+    pub fn new(protocol_id: ProtocolId, supported_versions: Vec<(ProtocolVer, StatefulProtocolSpec)>) -> Self {
         let supported_versions = BTreeMap::from_iter(
             supported_versions
                 .into_iter()
@@ -167,7 +167,7 @@ pub struct ProtocolUpgradeOut {
 impl ProtocolUpgradeOut {
     pub fn new(
         protocol_id: ProtocolId,
-        supported_versions: Vec<(ProtocolVer, ProtocolSpec, Option<RawMessage>)>,
+        supported_versions: Vec<(ProtocolVer, StatefulProtocolSpec, Option<RawMessage>)>,
     ) -> Self {
         let supported_versions =
             BTreeMap::from_iter(supported_versions.into_iter().map(|(ver, spec, handshake)| {

@@ -8,7 +8,7 @@ rust-version = "1.65.0"
 
 [dependencies]
 futures = "0.3.21"
-libp2p = { version = "0.49.0", features = ["websocket", "noise", "mplex", "yamux", "ping", "tcp", "dns", "async-std"] }
+libp2p = { version = "0.51.*", features = ["websocket", "noise", "mplex", "yamux", "ping", "tcp", "dns", "async-std", "secp256k1"] }
 async-std = { version = "1.10.0", features = ["attributes"] }
 spectrum-network = { version = "0.1.0", path = "../spectrum-network" }
 rand = "0.8.5"

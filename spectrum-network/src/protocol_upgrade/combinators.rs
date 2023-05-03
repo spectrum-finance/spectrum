@@ -25,17 +25,17 @@ impl<T> FromIterator<T> for AnyUpgradeOf<T> {
 }
 
 impl<T: UpgradeInfo> UpgradeInfo for AnyUpgradeOf<T> {
-    type Info = ProtoNameWithUsize<T::Info>;
+    type Info = ProtoNameWithIndex<T::Info>;
     type InfoIter = vec::IntoIter<Self::Info>;
 
     fn protocol_info(&self) -> Self::InfoIter {
         self.0
             .iter()
             .enumerate()
-            .flat_map(|(n, p)| {
+            .flat_map(|(ix, p)| {
                 p.protocol_info()
                     .into_iter()
-                    .map(move |i| ProtoNameWithUsize(i, n))
+                    .map(move |pn| ProtoNameWithIndex(pn, ix))
             })
             .collect::<Vec<_>>()
             .into_iter()
@@ -48,19 +48,19 @@ where
 {
     type Output = (T::Output, usize);
     type Error = (T::Error, usize);
-    type Future = FutWithUsize<T::Future>;
+    type Future = FutWithIndex<T::Future>;
 
     fn upgrade_inbound(mut self, sock: C, info: Self::Info) -> Self::Future {
         let fut = self.0.remove(info.1).upgrade_inbound(sock, info.0);
-        FutWithUsize(fut, info.1)
+        FutWithIndex(fut, info.1)
     }
 }
 
 /// Groups a `ProtocolName` with a `usize`.
 #[derive(Debug, Clone)]
-pub struct ProtoNameWithUsize<T>(T, usize);
+pub struct ProtoNameWithIndex<T>(T, usize);
 
-impl<T: ProtocolName> ProtocolName for ProtoNameWithUsize<T> {
+impl<T: ProtocolName> ProtocolName for ProtoNameWithIndex<T> {
     fn protocol_name(&self) -> &[u8] {
         self.0.protocol_name()
     }
@@ -69,9 +69,9 @@ impl<T: ProtocolName> ProtocolName for ProtoNameWithUsize<T> {
 /// Equivalent to `fut.map_ok(|v| (v, num)).map_err(|e| (e, num))`, where `fut` and `num` are
 /// the two fields of this struct.
 #[pin_project::pin_project]
-pub struct FutWithUsize<T>(#[pin] T, usize);
+pub struct FutWithIndex<T>(#[pin] T, usize);
 
-impl<T: Future<Output = Result<O, E>>, O, E> Future for FutWithUsize<T> {
+impl<T: Future<Output = Result<O, E>>, O, E> Future for FutWithIndex<T> {
     type Output = Result<(O, usize), (E, usize)>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {

@@ -21,7 +21,7 @@ use std::ops::Add;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
-use libp2p::core::connection::ConnectionId;
+use libp2p::swarm::ConnectionId;
 use wasm_timer::Delay;
 
 /// Peer Manager output commands.
