@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::protocol_handler::handel::message::HandelMessage;
-use crate::protocol_handler::sigma_aggregation::types::{DlogProofs, Responses, SchnorrCommitments};
+use crate::protocol_handler::sigma_aggregation::types::{CommitmentsWithProofs, Responses, PreCommitments};
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_handler::ProtocolSpec;
 use crate::types::ProtocolVer;
@@ -15,8 +15,8 @@ pub enum SigmaAggrMessage {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum SigmaAggrMessageV1 {
-    SchnorrCommitments(HandelMessage<SchnorrCommitments>),
-    DlogProofs(HandelMessage<DlogProofs>),
+    PreCommitments(HandelMessage<PreCommitments>),
+    Commitments(HandelMessage<CommitmentsWithProofs>),
     Responses(HandelMessage<Responses>),
 }
 

@@ -482,9 +482,29 @@ where
     }
 }
 
+pub trait NarrowTo<T> {
+    fn narrow(self: Box<Self>) -> T;
+}
+
+impl<C, P, PP> NarrowTo<PP> for Handel<C, P, PP> {
+    fn narrow(self: Box<Self>) -> PP {
+        self.peer_partitions
+    }
+}
+
+pub trait HandelRound<'a, C, PP>: TemporalProtocolStage<Void, HandelMessage<C>, C> + NarrowTo<PP> + 'a {}
+
+impl<'a, C, P, PP> HandelRound<'a, C, PP> for Handel<C, P, PP>
+where
+    C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone + Eq + Debug + 'a,
+    PP: PeerPartitions + 'a,
+    P: 'a,
+{
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashSet;
     use std::time::Duration;
 
     use libp2p::PeerId;
