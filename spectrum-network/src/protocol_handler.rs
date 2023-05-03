@@ -5,7 +5,7 @@ use std::task::{Context, Poll};
 
 use either::Either;
 use futures::channel::mpsc;
-use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::mpsc::Receiver;
 use futures::Stream;
 pub use libp2p::swarm::NetworkBehaviour;
 use libp2p::PeerId;

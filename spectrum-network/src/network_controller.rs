@@ -5,8 +5,8 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use either::{Either, Left, Right};
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use futures::Stream;
+use futures::channel::mpsc::{Receiver, Sender};
+use futures::{SinkExt, Stream};
 use libp2p::core::Endpoint;
 use libp2p::swarm::behaviour::ConnectionEstablished;
 use libp2p::swarm::{
@@ -162,18 +162,17 @@ impl NetworkAPI for NetworkMailbox {
         );
     }
     fn send_one_shot_message(&self, peer: PeerId, protocol: ProtocolTag, message: RawMessage) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(NetworkControllerIn::SendOneShotMessage {
+        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(
+            NetworkControllerIn::SendOneShotMessage {
                 peer,
                 protocol,
                 message,
-            });
+            },
+        ));
     }
     fn ban_peer(&self, peer: PeerId) {
-        let _ = self
-            .mailbox_snd
-            .unbounded_send(NetworkControllerIn::BanPeer(peer));
+        let _ =
+            futures::executor::block_on(self.mailbox_snd.clone().send(NetworkControllerIn::BanPeer(peer)));
     }
 }
 
@@ -261,7 +260,7 @@ pub struct NetworkController<TPeers, TPeerManager, THandler> {
     enabled_peers: HashMap<PeerId, ConnectedPeer<THandler>>,
     /// Pending one-shot messages awaiting a dialing before being sent
     pending_one_shot_requests: HashMap<PeerId, OneShotMessage>,
-    requests_recv: UnboundedReceiver<NetworkControllerIn>,
+    requests_recv: Receiver<NetworkControllerIn>,
     pending_actions: VecDeque<ToSwarm<NetworkControllerOut, ConnHandlerIn>>,
 }
 

@@ -1,4 +1,5 @@
-use futures::channel::mpsc::UnboundedSender;
+use futures::channel::mpsc::Sender;
+use futures::SinkExt;
 use libp2p::PeerId;
 
 use crate::peer_conn_handler::message_sink::MessageSink;

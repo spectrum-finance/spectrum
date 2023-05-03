@@ -1,6 +1,17 @@
-pub mod data;
-pub mod peer_index;
-pub mod peers_state;
+use std::collections::{HashSet, VecDeque};
+use std::future::Future;
+use std::ops::Add;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
+
+use futures::channel::oneshot::{Receiver, Sender};
+use futures::channel::{mpsc, oneshot};
+use futures::{SinkExt, Stream};
+use libp2p::swarm::ConnectionId;
+use libp2p::PeerId;
+use log::{error, info, trace};
+use wasm_timer::Delay;
 
 use crate::peer_conn_handler::ConnHandlerError;
 use crate::peer_manager::data::{
@@ -9,19 +20,10 @@ use crate::peer_manager::data::{
 };
 use crate::peer_manager::peers_state::{NetworkingState, PeerInState, PeerStateFilter, PeersState};
 use crate::types::{ProtocolId, Reputation};
-use futures::channel::oneshot::{Receiver, Sender};
-use futures::channel::{mpsc, oneshot};
-use futures::Stream;
-use libp2p::PeerId;
-use log::{error, info, trace};
-use std::collections::{HashSet, VecDeque};
-use std::future::Future;
-use std::ops::Add;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
-use libp2p::swarm::ConnectionId;
-use wasm_timer::Delay;
+
+pub mod data;
+pub mod peer_index;
+pub mod peers_state;
 
 /// Peer Manager output commands.
 #[derive(Debug, PartialEq, Eq)]

@@ -1,11 +1,10 @@
 use std::{collections::HashMap, time::Duration};
 
-use futures::channel::mpsc::UnboundedSender;
+use futures::channel::mpsc::Sender;
 use futures::{
     channel::{mpsc, oneshot},
-    StreamExt,
+    SinkExt, StreamExt,
 };
-use libp2p::core::upgrade::Version;
 use libp2p::swarm::SwarmBuilder;
 use libp2p::{identity, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
 
@@ -74,9 +73,9 @@ async fn one_shot_messaging() {
     let addr_1: Multiaddr = "/ip4/127.0.0.1/tcp/1235".parse().unwrap();
     let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
 
-    let (protocol_snd_0, mut protocol_recv_0) = mpsc::unbounded::<ProtocolEvent>();
+    let (protocol_snd_0, mut protocol_recv_0) = mpsc::channel::<ProtocolEvent>(100);
     let prot_mailbox_0 = ProtocolMailbox::new(protocol_snd_0);
-    let (protocol_snd_1, _protocol_recv_1) = mpsc::unbounded::<ProtocolEvent>();
+    let (protocol_snd_1, _protocol_recv_1) = mpsc::channel::<ProtocolEvent>(100);
     let prot_mailbox_1 = ProtocolMailbox::new(protocol_snd_1);
 
     let pid = ProtocolId::from_u8(1u8);
@@ -132,11 +131,15 @@ async fn one_shot_messaging() {
     async_std::task::spawn(abortable_peer_1);
     wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
 
-    let _ = nc_mailbox_1.unbounded_send(NetworkControllerIn::SendOneShotMessage {
-        peer: local_peer_id_0,
-        protocol,
-        message: message.clone(),
-    });
+    let _ = futures::executor::block_on(
+        nc_mailbox_1
+            .clone()
+            .send(NetworkControllerIn::SendOneShotMessage {
+                peer: local_peer_id_0,
+                protocol,
+                message: message.clone(),
+            }),
+    );
 
     async_std::task::spawn(async move {
         wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
@@ -975,7 +978,7 @@ pub fn make_nc_without_protocol_handler(
     protocols: HashMap<ProtocolId, (ProtocolConfig, ProtocolMailbox)>,
 ) -> (
     NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>,
-    UnboundedSender<NetworkControllerIn>,
+    Sender<NetworkControllerIn>,
 ) {
     let peer_conn_handler_conf = PeerConnHandlerConf {
         async_msg_buffer_size: 100,
@@ -996,10 +999,11 @@ pub fn make_nc_without_protocol_handler(
         conn_alloc_interval: Duration::from_secs(30),
         prot_alloc_interval: Duration::from_secs(30),
         protocols_allocation: Vec::new(),
+        peer_manager_msg_buffer_size: 1000,
     };
     let peer_state = PeerRepo::new(netw_config, peers);
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
-    let (requests_snd, requests_recv) = mpsc::unbounded::<NetworkControllerIn>();
+    let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(100);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         protocols,
