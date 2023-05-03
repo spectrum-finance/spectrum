@@ -4,35 +4,32 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use either::Either;
-use elliptic_curve::rand_core::OsRng;
 use futures::channel::mpsc::Receiver;
 use futures::channel::oneshot::Sender;
 use futures::Stream;
 use k256::{Scalar, SecretKey};
 use libp2p::PeerId;
-use nonempty::NonEmpty;
 
-use spectrum_crypto::digest::{Blake2bDigest256, Digest256};
+use spectrum_crypto::digest::Digest256;
 
 use crate::protocol::SIGMA_AGGR_PROTOCOL_ID;
 use crate::protocol_handler::aggregation::AggregationAction;
 use crate::protocol_handler::handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
 use crate::protocol_handler::handel::{Handel, HandelConfig, HandelRound, NarrowTo};
 use crate::protocol_handler::sigma_aggregation::crypto::{
-    aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input, pre_commitment, response,
-    schnorr_commitment,
+    aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
+    pre_commitment, response, schnorr_commitment_pair,
 };
 use crate::protocol_handler::sigma_aggregation::message::{
     SigmaAggrMessage, SigmaAggrMessageV1, SigmaAggrSpec,
 };
 use crate::protocol_handler::sigma_aggregation::types::{
-    CommitmentsVerifInput, CommitmentsWithProofs, Contributions, PreCommitments, PublicKey, Responses,
-    ResponsesVerifInput, Signature,
+    AggregateCommitment, Commitment, CommitmentSecret, CommitmentsVerifInput, CommitmentsWithProofs,
+    Contributions, PreCommitments, PublicKey, Responses, ResponsesVerifInput, Signature,
 };
 use crate::protocol_handler::NetworkAction;
 use crate::protocol_handler::ProtocolBehaviour;
 use crate::protocol_handler::ProtocolBehaviourOut;
-use crate::protocol_handler::TemporalProtocolStage;
 use crate::types::ProtocolId;
 
 mod crypto;
@@ -51,9 +48,9 @@ struct AggregatePreCommitments<'a, H, PP> {
     /// Message that we aggregate signatures for.
     message_digest: Digest256<H>,
     /// `y_i`
-    host_secret: SecretKey,
+    host_secret: CommitmentSecret,
     /// `Y_i = g^{y_i}`
-    host_commitment: PublicKey,
+    host_commitment: Commitment,
     /// `σ_i`. Dlog proof of knowledge of `Y_i`.
     host_explusion_proof: Signature,
     handel: Box<dyn HandelRound<'a, PreCommitments, PP>>,
@@ -74,7 +71,7 @@ where
         let host_pid = PeerId::from(host_pk);
         let peers = committee.iter().map(PeerId::from).collect();
         let partitions = partitioner.make(host_pid, peers);
-        let commitee_indexed = committee
+        let committee_indexed = committee
             .iter()
             .map(|pk| {
                 let pid = PeerId::from(pk);
@@ -82,7 +79,7 @@ where
                 (pix, pk.clone())
             })
             .collect::<HashMap<_, _>>();
-        let ais = commitee_indexed
+        let ais = committee_indexed
             .iter()
             .map(|(pix, pk)| {
                 (
@@ -91,14 +88,13 @@ where
                 )
             })
             .collect();
-        let host_secret = SecretKey::random(&mut OsRng);
-        let host_commitment = schnorr_commitment(host_secret.clone());
+        let (host_secret, host_commitment) = schnorr_commitment_pair();
         let host_pre_commitment = pre_commitment(host_commitment.clone());
         let host_ix = partitions.try_index_peer(host_pid).unwrap();
         AggregatePreCommitments {
             host_sk,
             host_ix,
-            committee: commitee_indexed,
+            committee: committee_indexed,
             individual_inputs: ais,
             message_digest: message_digest.clone(),
             host_secret: host_secret.clone(),
@@ -131,7 +127,7 @@ where
             host_secret: self.host_secret,
             host_commitment: self.host_commitment.clone(),
             host_explusion_proof: self.host_explusion_proof.clone(),
-            process: Box::new(Handel::new(
+            handel: Box::new(Handel::new(
                 handel_conf,
                 Contributions::unit(self.host_ix, (self.host_commitment, self.host_explusion_proof)),
                 verif_input,
@@ -153,12 +149,12 @@ struct AggregateSchnorrCommitments<'a, H, PP> {
     /// Message that we aggregate signatures for.
     message_digest: Digest256<H>,
     /// `y_i`
-    host_secret: SecretKey,
+    host_secret: CommitmentSecret,
     /// `Y_i = g^{y_i}`
-    host_commitment: PublicKey,
+    host_commitment: Commitment,
     /// `σ_i`. Dlog proof of knowledge of `Y_i`.
     host_explusion_proof: Signature,
-    process: Box<dyn HandelRound<'a, CommitmentsWithProofs, PP>>,
+    handel: Box<dyn HandelRound<'a, CommitmentsWithProofs, PP>>,
 }
 
 impl<'a, H, PP> AggregateSchnorrCommitments<'a, H, PP>
@@ -170,16 +166,16 @@ where
         commitments_with_proofs: CommitmentsWithProofs,
         handel_conf: HandelConfig,
     ) -> AggregateResponses<'a, H, PP> {
-        let aggr_pk = aggregate_pk(NonEmpty::from_vec(self.committee.values().cloned().collect()).unwrap());
-        let aggr_commitment = aggregate_pk(
-            NonEmpty::from_vec(
-                commitments_with_proofs
-                    .values()
-                    .into_iter()
-                    .map(|(xi, _)| xi)
-                    .collect(),
-            )
-            .unwrap(),
+        let aggr_pk = aggregate_pk(
+            self.committee.values().cloned().collect(),
+            self.individual_inputs.values().cloned().collect(),
+        );
+        let aggr_commitment = aggregate_commitment(
+            commitments_with_proofs
+                .values()
+                .into_iter()
+                .map(|(xi, _)| xi)
+                .collect(),
         );
         let challenge = challenge(aggr_pk, aggr_commitment.clone(), self.message_digest);
         let individual_input = self.individual_inputs.get(&self.host_ix).unwrap().clone();
@@ -206,11 +202,11 @@ where
             aggr_commitment,
             host_explusion_proof: self.host_explusion_proof,
             commitments_with_proofs,
-            process: Box::new(Handel::new(
+            handel: Box::new(Handel::new(
                 handel_conf,
                 Contributions::unit(self.host_ix, host_response),
                 verif_inputs,
-                self.process.narrow(),
+                self.handel.narrow(),
             )),
         }
     }
@@ -228,14 +224,14 @@ struct AggregateResponses<'a, H, PP> {
     /// Message that we aggregate signatures for.
     message_digest: Digest256<H>,
     /// `y_i`
-    host_secret: SecretKey,
+    host_secret: CommitmentSecret,
     /// `Y_i = g^{y_i}`
-    host_commitment: PublicKey,
-    aggr_commitment: PublicKey,
+    host_commitment: Commitment,
+    aggr_commitment: AggregateCommitment,
     /// `σ_i`. Dlog proof of knowledge of `Y_i`.
     host_explusion_proof: Signature,
     commitments_with_proofs: CommitmentsWithProofs,
-    process: Box<dyn HandelRound<'a, Responses, PP>>,
+    handel: Box<dyn HandelRound<'a, Responses, PP>>,
 }
 
 impl<'a, H, PP> AggregateResponses<'a, H, PP> {
@@ -246,8 +242,7 @@ impl<'a, H, PP> AggregateResponses<'a, H, PP> {
                 exclusion_set.insert(yi, sig);
             }
         }
-        let aggr_resp =
-            aggregate_response(NonEmpty::from_vec(responses.values().into_iter().collect()).unwrap());
+        let aggr_resp = aggregate_response(responses.values().into_iter().collect());
         Aggregated {
             message_digest: self.message_digest,
             aggregate_commitment: self.aggr_commitment,
@@ -261,9 +256,9 @@ impl<'a, H, PP> AggregateResponses<'a, H, PP> {
 #[derive(Debug)]
 pub struct Aggregated<H> {
     pub message_digest: Digest256<H>,
-    pub aggregate_commitment: PublicKey,
+    pub aggregate_commitment: AggregateCommitment,
     pub aggregate_response: Scalar,
-    pub exclusion_set: HashMap<PublicKey, Signature>,
+    pub exclusion_set: HashMap<Commitment, Signature>,
 }
 
 enum AggregationState<'a, H, PP> {
@@ -320,7 +315,7 @@ where
                 ..
             }) => {
                 if let SigmaAggrMessageV1::Commitments(commits) = msg {
-                    commitment.process.inject_message(peer_id, commits);
+                    commitment.handel.inject_message(peer_id, commits);
                 }
             }
             Some(AggregationTask {
@@ -328,7 +323,7 @@ where
                 ..
             }) => {
                 if let SigmaAggrMessageV1::Responses(resps) = msg {
-                    response.process.inject_message(peer_id, resps);
+                    response.handel.inject_message(peer_id, resps);
                 }
             }
             None => {}
@@ -410,7 +405,7 @@ where
                         state: AggregationState::AggregateSchnorrCommitments(mut st),
                         channel,
                     } => {
-                        match st.process.poll(cx) {
+                        match st.handel.poll(cx) {
                             Poll::Ready(out) => match out {
                                 Either::Left(cmd) => match cmd {
                                     ProtocolBehaviourOut::Send { peer_id, message } => {
@@ -450,7 +445,7 @@ where
                         state: AggregationState::AggregateResponses(mut st),
                         channel,
                     } => {
-                        match st.process.poll(cx) {
+                        match st.handel.poll(cx) {
                             Poll::Ready(out) => match out {
                                 Either::Left(cmd) => match cmd {
                                     ProtocolBehaviourOut::Send { peer_id, message } => {

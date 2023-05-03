@@ -9,7 +9,7 @@ use crate::protocol_handler::sigma_aggregation::types::PublicKey;
 use crate::protocol_handler::sigma_aggregation::Aggregated;
 
 pub enum AggregationAction<H> {
-    /// Restart aggregation with new commetee.
+    /// Restart aggregation with new committee.
     Reset {
         new_committee: HashSet<PublicKey>,
         new_message: Digest256<H>,
