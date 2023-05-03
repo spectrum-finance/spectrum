@@ -227,10 +227,11 @@ where
                     if sc.score > best_contrib.score {
                         lvl.best_contribution = Verified(sc.into());
                     }
+                    self.scoring_window *= self.conf.window_shrinking_factor;
                 } else {
                     // Ban peer, shrink scoring window.
                     self.byzantine_nodes.insert(sc.sender_id);
-                    self.scoring_window /= self.conf.window_shrinking_factor
+                    self.scoring_window /= self.conf.window_shrinking_factor;
                 }
             }
             let Verified(best_contrib) = &lvl.best_contribution;
@@ -388,10 +389,6 @@ where
             .map(|l| l.best_contribution.0.contribution.clone())
             .unwrap()
     }
-
-    fn num_levels(&self) -> usize {
-        self.levels.len()
-    }
 }
 
 fn is_complete<C: Weighted>(contribution: &C, level: usize, threshold: Threshold) -> bool {
@@ -492,7 +489,10 @@ impl<C, P, PP> NarrowTo<PP> for Handel<C, P, PP> {
     }
 }
 
-pub trait HandelRound<'a, C, PP>: TemporalProtocolStage<Void, HandelMessage<C>, C> + NarrowTo<PP> + 'a {}
+pub trait HandelRound<'a, C, PP>:
+    TemporalProtocolStage<Void, HandelMessage<C>, C> + NarrowTo<PP> + 'a
+{
+}
 
 impl<'a, C, P, PP> HandelRound<'a, C, PP> for Handel<C, P, PP>
 where
