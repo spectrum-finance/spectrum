@@ -6,3 +6,5 @@ pub mod protocol_handler;
 pub mod protocol_upgrade;
 pub mod types;
 pub mod protocol_api;
+pub mod functionality;
+pub mod one_shot_upgrade;

@@ -1,25 +1,27 @@
-use futures::prelude::*;
 use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
-
-use libp2p::swarm::{Swarm, SwarmEvent};
-use libp2p::Multiaddr;
+use std::time::Duration;
 
 use futures::channel::mpsc;
+use futures::prelude::*;
 use libp2p::identity;
+use libp2p::swarm::{SwarmBuilder, SwarmEvent};
+use libp2p::Multiaddr;
 use libp2p::PeerId;
+
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::data::PeerDestination;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
 use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerConfig};
-use spectrum_network::protocol::{ProtocolConfig, ProtocolSpec, SYNC_PROTOCOL_ID};
+use spectrum_network::protocol::{
+    ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID,
+};
 use spectrum_network::protocol_handler::sync::message::{SyncMessage, SyncMessageV1, SyncSpec};
 use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
-use std::time::Duration;
 
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -75,10 +77,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     let peer_state = PeerRepo::new(netw_config, boot_peers);
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
-    let sync_conf = ProtocolConfig {
+    let sync_conf = StatefulProtocolConfig {
         supported_versions: vec![(
             SyncSpec::v1(),
-            ProtocolSpec {
+            StatefulProtocolSpec {
                 max_message_size: 100,
                 approve_required: true,
             },
@@ -100,13 +102,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ProtocolHandler::new(sync_behaviour, network_api, PH_MSG_BUFFER_SIZE);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
-        HashMap::from([(SYNC_PROTOCOL_ID, (sync_conf, sync_mailbox))]),
+        HashMap::from([(
+            SYNC_PROTOCOL_ID,
+            (ProtocolConfig::Stateful(sync_conf), sync_mailbox),
+        )]),
         peers,
         peer_manager,
         requests_recv,
     );
 
-    let mut swarm = Swarm::new(transport, nc, local_peer_id);
+    let mut swarm = SwarmBuilder::with_async_std_executor(transport, nc, local_peer_id).build();
 
     swarm.listen_on(std::env::args().nth(1).unwrap().parse()?)?;
 

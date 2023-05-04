@@ -1,22 +1,4 @@
-pub mod message_sink;
-
-use crate::peer_conn_handler::message_sink::{MessageSink, StreamNotification};
-use crate::protocol_upgrade::combinators::AnyUpgradeOf;
-use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
-use crate::protocol_upgrade::substream::{ProtocolSubstreamIn, ProtocolSubstreamOut};
-use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
-use futures::channel::mpsc;
-pub use futures::prelude::*;
-use libp2p::core::ConnectedPoint;
-use libp2p::swarm::{
-    ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, IntoConnectionHandler, KeepAlive,
-    NegotiatedSubstream, SubstreamProtocol,
-};
-use libp2p::{InboundUpgrade, OutboundUpgrade, PeerId};
-
-use crate::protocol::{ProtocolConfig, ProtocolSpec};
-use crate::protocol_upgrade::{ProtocolUpgradeErr, ProtocolUpgradeIn, ProtocolUpgradeOut};
-use log::trace;
+use std::collections::btree_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
 use std::mem;
@@ -24,18 +6,53 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+use either::{Either, Left, Right};
+use futures::channel::mpsc;
+pub use futures::prelude::*;
+use libp2p::swarm::handler::{
+    ConnectionEvent, DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound,
+};
+use libp2p::swarm::{
+    ConnectionHandler, ConnectionHandlerEvent, KeepAlive, NegotiatedSubstream, SubstreamProtocol,
+};
+use libp2p::PeerId;
+use log::trace;
+use rand::rngs::OsRng;
+use rand::RngCore;
+
+use crate::one_shot_upgrade::{OneShotMessage, OneShotUpgradeIn, OneShotUpgradeOut};
+use crate::peer_conn_handler::message_sink::{MessageSink, StreamNotification};
+use crate::protocol::{OneShotProtocolSpec, StatefulProtocolSpec};
+use crate::protocol_upgrade::combinators::AnyUpgradeOf;
+use crate::protocol_upgrade::handshake::PolyVerHandshakeSpec;
+use crate::protocol_upgrade::substream::{ProtocolSubstreamIn, ProtocolSubstreamOut};
+use crate::protocol_upgrade::{ProtocolUpgradeIn, ProtocolUpgradeOut};
+use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
+
+pub mod message_sink;
+
+const MIN_TERM_DELAY: Duration = Duration::from_millis(50);
+
 #[derive(Debug)]
-pub struct Protocol {
+pub struct StatefulProtocol {
     /// Negotiated protocol version
     pub ver: ProtocolVer,
     /// Spec for negotiated protocol version
-    pub spec: ProtocolSpec,
+    pub spec: StatefulProtocolSpec,
     /// Protocol state
     /// Always `Some`. `None` only during update (state transition).
     pub state: Option<ProtocolState>,
     /// Specs for all supported versions of this protocol
     /// Note, versions must be listed in descending order.
-    pub all_versions_specs: Vec<(ProtocolVer, ProtocolSpec)>,
+    pub all_versions_specs: Vec<(ProtocolVer, StatefulProtocolSpec)>,
+}
+
+#[derive(Debug)]
+pub struct OneShotProtocol {
+    /// The only version supported by this type of protocol.
+    pub ver: ProtocolVer,
+    /// Spec for negotiated protocol version
+    pub spec: OneShotProtocolSpec,
 }
 
 pub enum ProtocolState {
@@ -133,6 +150,8 @@ pub enum ConnHandlerIn {
     ///
     /// Must always be answered by a [`ConnHandlerOut::ClosedAllProtocols`] event.
     CloseAllProtocols,
+    /// Instruct the handler to make a single attempt to deliver the given message.
+    TryDeliverOnce(OneShotMessage),
 }
 
 #[derive(Debug, Clone)]
@@ -172,6 +191,11 @@ pub enum ConnHandlerOut {
         protocol_tag: ProtocolTag,
         content: RawMessage,
     },
+    /// Received one shot message.
+    OneShotMessage {
+        protocol_tag: ProtocolTag,
+        content: RawMessage,
+    },
 }
 
 /// Error specific to the collection of protocols.
@@ -188,83 +212,34 @@ pub trait PeerConnHandlerActions {
     fn close_protocol(&self, protocol_id: ProtocolId);
 }
 
-pub struct PartialPeerConnHandler {
-    conf: PeerConnHandlerConf,
-    supported_protocols: Vec<(ProtocolId, ProtocolConfig)>,
-}
-
-impl PartialPeerConnHandler {
-    pub fn new(conf: PeerConnHandlerConf, supported_protocols: Vec<(ProtocolId, ProtocolConfig)>) -> Self {
-        Self {
-            conf,
-            supported_protocols,
-        }
-    }
-}
-
-impl IntoConnectionHandler for PartialPeerConnHandler {
-    type Handler = PeerConnHandler;
-
-    fn into_handler(self, remote_peer_id: &PeerId, connected_point: &ConnectedPoint) -> Self::Handler {
-        let protocols = HashMap::from_iter(self.supported_protocols.iter().flat_map(|(protocol_id, p)| {
-            p.supported_versions.iter().map(|(ver, spec)| {
-                (
-                    *protocol_id,
-                    Protocol {
-                        ver: *ver,
-                        spec: *spec,
-                        state: Some(ProtocolState::Closed),
-                        all_versions_specs: p.supported_versions.clone(),
-                    },
-                )
-            })
-        }));
-
-        #[cfg(not(feature = "test_peer_punish_too_slow"))]
-        let throttle_recv = ThrottleStage::Disable;
-        #[cfg(feature = "test_peer_punish_too_slow")]
-        let throttle_recv = ThrottleStage::Start;
-
-        PeerConnHandler {
-            conf: self.conf,
-            protocols,
-            created_at: Instant::now(),
-            endpoint: connected_point.clone(),
-            peer_id: *remote_peer_id,
-            pending_events: VecDeque::new(),
-            fault: None,
-            delay: wasm_timer::Delay::new(Duration::from_millis(300)),
-            throttle_stage: throttle_recv,
-        }
-    }
-
-    fn inbound_protocol(&self) -> AnyUpgradeOf<ProtocolUpgradeIn> {
-        self.supported_protocols
-            .iter()
-            .map(|(protocol_id, p)| ProtocolUpgradeIn::new(*protocol_id, p.supported_versions.clone()))
-            .collect::<AnyUpgradeOf<_>>()
-    }
-}
-
 pub struct PeerConnHandler {
-    conf: PeerConnHandlerConf,
-    protocols: HashMap<ProtocolId, Protocol>,
+    pub conf: PeerConnHandlerConf,
+    pub stateful_protocols: HashMap<ProtocolId, StatefulProtocol>,
+    pub one_shot_protocols: HashMap<ProtocolId, OneShotProtocol>,
     /// When the connection with the remote has been successfully established.
-    created_at: Instant,
-    /// Whether we are the connection dialer or listener.
-    endpoint: ConnectedPoint,
+    pub created_at: Instant,
     /// Remote we are connected to.
-    peer_id: PeerId,
+    pub peer_id: PeerId,
     /// Events to return in priority from `poll`.
-    pending_events:
-        VecDeque<ConnectionHandlerEvent<ProtocolUpgradeOut, ProtocolTag, ConnHandlerOut, ConnHandlerError>>,
+    pub pending_events: VecDeque<
+        ConnectionHandlerEvent<
+            Either<ProtocolUpgradeOut, OneShotUpgradeOut>,
+            ProtocolTag,
+            ConnHandlerOut,
+            ConnHandlerError,
+        >,
+    >,
     /// Is the handler going to terminate due to this err.
-    fault: Option<ConnHandlerError>,
+    pub fault: Option<ConnHandlerError>,
     /// Current throttle stage. Throttling is performed for each inbound `StreamNotification`.
-    throttle_stage: ThrottleStage,
+    pub throttle_stage: ThrottleStage,
     /// If throttling inbound `StreamNotification`s, this represents the delay before processing a
     /// new element.
-    delay: wasm_timer::Delay,
+    pub delay: wasm_timer::Delay,
+    /// Pending one-shot messages that the handler should try to deliver.
+    pub pending_one_shots: HashMap<OneShotRequestId, OneShotRequest>,
+    /// Should the handler terminate as soon as possible when no work left.
+    pub terminate_asap: bool,
 }
 
 impl PeerConnHandler {
@@ -277,158 +252,45 @@ impl ConnectionHandler for PeerConnHandler {
     type InEvent = ConnHandlerIn;
     type OutEvent = ConnHandlerOut;
     type Error = ConnHandlerError;
-    type InboundProtocol = AnyUpgradeOf<ProtocolUpgradeIn>;
-    type OutboundProtocol = ProtocolUpgradeOut;
+    type InboundProtocol = AnyUpgradeOf<Either<ProtocolUpgradeIn, OneShotUpgradeIn>>;
+    type OutboundProtocol = Either<ProtocolUpgradeOut, OneShotUpgradeOut>;
     type InboundOpenInfo = ();
     type OutboundOpenInfo = ProtocolTag;
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
-        let protocols = self
-            .protocols
+        let stateful_protocols = self
+            .stateful_protocols
             .iter()
-            .map(|(pid, prot)| ProtocolUpgradeIn::new(*pid, prot.all_versions_specs.clone()))
+            .map(|(pid, prot)| Left(ProtocolUpgradeIn::new(*pid, prot.all_versions_specs.clone())));
+        let one_shot_protocols = self.one_shot_protocols.iter().map(|(pid, prot)| {
+            Right(OneShotUpgradeIn {
+                protocol: ProtocolTag::new(*pid, prot.ver),
+                max_message_size: prot.spec.max_message_size,
+            })
+        });
+        let protocols = stateful_protocols
+            .chain(one_shot_protocols)
             .collect::<AnyUpgradeOf<_>>();
         SubstreamProtocol::new(protocols, ())
     }
 
-    fn inject_fully_negotiated_inbound(
-        &mut self,
-        (mut upgrade, _): <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
-        _: Self::InboundOpenInfo,
-    ) {
-        trace!("inject_fully_negotiated_inbound()");
-        let negotiated_tag = upgrade.negotiated_tag;
-        let protocol_id = negotiated_tag.protocol_id();
-        if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
-            let state = protocol.state.take();
-            if let Some(state) = state {
-                trace!("Current protocol state is {:?}", state);
-                let state_next = match state {
-                    ProtocolState::Closed => {
-                        let event = ConnectionHandlerEvent::Custom(ConnHandlerOut::OpenedByPeer {
-                            protocol_tag: negotiated_tag,
-                            handshake: upgrade.handshake,
-                        });
-                        self.pending_events.push_back(event);
-                        ProtocolState::PartiallyOpenedByPeer {
-                            substream_in: upgrade.substream,
-                        }
-                    }
-                    // Should not happen in normal network conditions.
-                    ProtocolState::Opening => ProtocolState::PartiallyOpenedByPeer {
-                        substream_in: upgrade.substream,
-                    },
-                    ProtocolState::PartiallyOpened { substream_out }
-                    | ProtocolState::InboundClosedByPeer { substream_out, .. } => {
-                        if protocol.spec.approve_required {
-                            // Approve immediately if required.
-                            trace!("Sending approve for outbound protocol {:?}", protocol_id);
-                            upgrade.substream.send_approve();
-                        }
-                        let (async_msg_snd, async_msg_recv) =
-                            mpsc::channel::<StreamNotification>(self.conf.async_msg_buffer_size);
-                        let (sync_msg_snd, sync_msg_recv) =
-                            mpsc::channel::<StreamNotification>(self.conf.sync_msg_buffer_size);
-                        let sink = MessageSink::new(self.peer_id, async_msg_snd, sync_msg_snd);
-                        self.pending_events.push_back(ConnectionHandlerEvent::Custom(
-                            ConnHandlerOut::Opened {
-                                protocol_tag: negotiated_tag,
-                                out_channel: sink,
-                                handshake: upgrade.handshake,
-                            },
-                        ));
-                        ProtocolState::Opened {
-                            substream_out,
-                            substream_in: upgrade.substream,
-                            pending_messages_recv: stream::select(
-                                async_msg_recv.fuse(),
-                                sync_msg_recv.fuse(),
-                            )
-                            .peekable(),
-                        }
-                    }
-                    // If a substream already exists, silently drop the new one.
-                    // Note that we drop the substream, which will send an equivalent to a
-                    // TCP "RST" to the remote and force-close the substream. It might
-                    // seem like an unclean way to get rid of a substream. However, keep
-                    // in mind that it is invalid for the remote to open multiple such
-                    // substreams, and therefore sending a "RST" is the most correct thing
-                    // to do.
-                    ProtocolState::PartiallyOpenedByPeer { .. }
-                    | ProtocolState::Opened { .. }
-                    | ProtocolState::Accepting { .. }
-                    | ProtocolState::OutboundClosedByPeer { .. } => state,
-                };
-                trace!("Next protocol state is {:?}", state_next);
-                protocol.state = Some(state_next);
-            };
-        }
-    }
-
-    fn inject_fully_negotiated_outbound(
-        &mut self,
-        upgrade: <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Output,
-        negotiated_tag: Self::OutboundOpenInfo,
-    ) {
-        trace!("inject_fully_negotiated_outbound()");
-        let protocol_id = negotiated_tag.protocol_id();
-        if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
-            let state = protocol.state.take();
-            trace!("Current protocol state is {:?}", state);
-            if let Some(state) = state {
-                let state_next = match state {
-                    ProtocolState::Opening => ProtocolState::PartiallyOpened {
-                        substream_out: upgrade.substream,
-                    },
-                    ProtocolState::Accepting {
-                        substream_in: Some(substream_in),
-                    } => {
-                        let (async_msg_snd, async_msg_recv) =
-                            mpsc::channel::<StreamNotification>(self.conf.async_msg_buffer_size);
-                        let (sync_msg_snd, sync_msg_recv) =
-                            mpsc::channel::<StreamNotification>(self.conf.sync_msg_buffer_size);
-                        let sink = MessageSink::new(self.peer_id, async_msg_snd, sync_msg_snd);
-                        self.pending_events.push_back(ConnectionHandlerEvent::Custom(
-                            ConnHandlerOut::Opened {
-                                protocol_tag: negotiated_tag,
-                                out_channel: sink,
-                                handshake: None,
-                            },
-                        ));
-                        ProtocolState::Opened {
-                            substream_in,
-                            substream_out: upgrade.substream,
-                            pending_messages_recv: stream::select(
-                                async_msg_recv.fuse(),
-                                sync_msg_recv.fuse(),
-                            )
-                            .peekable(),
-                        }
-                    }
-                    // todo: handle this in the case we decide to re-open out substream.
-                    ProtocolState::OutboundClosedByPeer { .. } => state,
-                    // todo: warn, inconsistent state; discard other options explicitly.
-                    _ => state,
-                };
-                trace!("Next protocol state is {:?}", state_next);
-                protocol.state = Some(state_next);
-            };
-        }
-    }
-
-    fn inject_event(&mut self, cmd: ConnHandlerIn) {
-        match cmd {
+    fn on_behaviour_event(&mut self, event: ConnHandlerIn) {
+        match event {
+            ConnHandlerIn::TryDeliverOnce(msg) => {
+                self.pending_one_shots
+                    .insert(OneShotRequestId::random(), OneShotRequest::Pending(msg));
+            }
             ConnHandlerIn::Open {
                 protocol_id,
                 handshake,
             } => {
                 trace!("ConnHandlerIn::Open[{:?}]", protocol_id);
-                if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
+                if let Some(protocol) = self.stateful_protocols.get_mut(&protocol_id) {
                     let state = protocol.state.take();
                     if let Some(state) = state {
                         let state_next = match state {
                             ProtocolState::Closed => {
-                                let upgrade = ProtocolUpgradeOut::new(
+                                let upgrade = Left(ProtocolUpgradeOut::new(
                                     protocol_id,
                                     protocol
                                         .all_versions_specs
@@ -437,7 +299,7 @@ impl ConnectionHandler for PeerConnHandler {
                                         .zip::<Vec<_>>(handshake.into())
                                         .map(|((ver, spec), (_, hs))| (ver, spec, hs))
                                         .collect(),
-                                );
+                                ));
                                 self.pending_events.push_back(
                                     ConnectionHandlerEvent::OutboundSubstreamRequest {
                                         protocol: SubstreamProtocol::new(
@@ -456,11 +318,11 @@ impl ConnectionHandler for PeerConnHandler {
                                     trace!("Sending approve for inbound protocol {:?}", protocol_id);
                                     substream_in.send_approve()
                                 }
-                                let upgrade = ProtocolUpgradeOut::new(
+                                let upgrade = Left(ProtocolUpgradeOut::new(
                                     protocol_id,
                                     // Version is negotiated during inbound upgr, so we pass it exclusively to outbound upgr.
                                     vec![(protocol.ver, protocol.spec, ver_handshake)],
-                                );
+                                ));
                                 self.pending_events.push_back(
                                     ConnectionHandlerEvent::OutboundSubstreamRequest {
                                         protocol: SubstreamProtocol::new(
@@ -481,7 +343,7 @@ impl ConnectionHandler for PeerConnHandler {
                 }
             }
             ConnHandlerIn::Close(protocol_id) => {
-                if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
+                if let Some(protocol) = self.stateful_protocols.get_mut(&protocol_id) {
                     protocol.state = Some(ProtocolState::Closed);
                     self.pending_events
                         .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::Closed(
@@ -490,7 +352,7 @@ impl ConnectionHandler for PeerConnHandler {
                 }
             }
             ConnHandlerIn::CloseAllProtocols => {
-                for protocol in self.protocols.values_mut() {
+                for protocol in self.stateful_protocols.values_mut() {
                     protocol.state = Some(ProtocolState::Closed);
                 }
                 self.pending_events
@@ -499,25 +361,182 @@ impl ConnectionHandler for PeerConnHandler {
         }
     }
 
-    fn inject_dial_upgrade_error(
+    fn on_connection_event(
         &mut self,
-        protocol_tag: Self::OutboundOpenInfo,
-        err: ConnectionHandlerUpgrErr<ProtocolUpgradeErr>,
+        event: ConnectionEvent<
+            Self::InboundProtocol,
+            Self::OutboundProtocol,
+            Self::InboundOpenInfo,
+            Self::OutboundOpenInfo,
+        >,
     ) {
-        let protocol_id = protocol_tag.protocol_id();
-        if let Some(protocol) = self.protocols.get_mut(&protocol_id) {
-            if let Some(state) = &protocol.state {
-                match state {
-                    ProtocolState::Opening | ProtocolState::Accepting { .. } => {
-                        trace!("Failed to open protocol {:?}, {:?}", protocol_id, err);
-                        self.pending_events.push_back(ConnectionHandlerEvent::Custom(
-                            ConnHandlerOut::RefusedToOpen(protocol_id),
-                        ))
-                    }
-                    _ => {}
+        match event {
+            ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
+                protocol: (future::Either::Right(message), _),
+                ..
+            }) => {
+                trace!("Received inbound one-shot message");
+                self.pending_events.push_back(ConnectionHandlerEvent::Custom(
+                    ConnHandlerOut::OneShotMessage {
+                        protocol_tag: message.protocol,
+                        content: message.content,
+                    },
+                ));
+            }
+            ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
+                protocol: (future::Either::Left(mut upgrade), _),
+                ..
+            }) => {
+                trace!("inject_fully_negotiated_inbound()");
+                let negotiated_tag = upgrade.negotiated_tag;
+                let protocol_id = negotiated_tag.protocol_id();
+                if let Some(protocol) = self.stateful_protocols.get_mut(&protocol_id) {
+                    let state = protocol.state.take();
+                    if let Some(state) = state {
+                        trace!("Current protocol state is {:?}", state);
+                        let state_next = match state {
+                            ProtocolState::Closed => {
+                                let event = ConnectionHandlerEvent::Custom(ConnHandlerOut::OpenedByPeer {
+                                    protocol_tag: negotiated_tag,
+                                    handshake: upgrade.handshake,
+                                });
+                                self.pending_events.push_back(event);
+                                ProtocolState::PartiallyOpenedByPeer {
+                                    substream_in: upgrade.substream,
+                                }
+                            }
+                            // Should not happen in normal network conditions.
+                            ProtocolState::Opening => ProtocolState::PartiallyOpenedByPeer {
+                                substream_in: upgrade.substream,
+                            },
+                            ProtocolState::PartiallyOpened { substream_out }
+                            | ProtocolState::InboundClosedByPeer { substream_out, .. } => {
+                                if protocol.spec.approve_required {
+                                    // Approve immediately if required.
+                                    trace!("Sending approve for outbound protocol {:?}", protocol_id);
+                                    upgrade.substream.send_approve();
+                                }
+                                let (async_msg_snd, async_msg_recv) =
+                                    mpsc::channel::<StreamNotification>(self.conf.async_msg_buffer_size);
+                                let (sync_msg_snd, sync_msg_recv) =
+                                    mpsc::channel::<StreamNotification>(self.conf.sync_msg_buffer_size);
+                                let sink = MessageSink::new(self.peer_id, async_msg_snd, sync_msg_snd);
+                                self.pending_events.push_back(ConnectionHandlerEvent::Custom(
+                                    ConnHandlerOut::Opened {
+                                        protocol_tag: negotiated_tag,
+                                        out_channel: sink,
+                                        handshake: upgrade.handshake,
+                                    },
+                                ));
+                                ProtocolState::Opened {
+                                    substream_out,
+                                    substream_in: upgrade.substream,
+                                    pending_messages_recv: stream::select(
+                                        async_msg_recv.fuse(),
+                                        sync_msg_recv.fuse(),
+                                    )
+                                    .peekable(),
+                                }
+                            }
+                            // If a substream already exists, silently drop the new one.
+                            // Note that we drop the substream, which will send an equivalent to a
+                            // TCP "RST" to the remote and force-close the substream. It might
+                            // seem like an unclean way to get rid of a substream. However, keep
+                            // in mind that it is invalid for the remote to open multiple such
+                            // substreams, and therefore sending a "RST" is the most correct thing
+                            // to do.
+                            ProtocolState::PartiallyOpenedByPeer { .. }
+                            | ProtocolState::Opened { .. }
+                            | ProtocolState::Accepting { .. }
+                            | ProtocolState::OutboundClosedByPeer { .. } => state,
+                        };
+                        trace!("Next protocol state is {:?}", state_next);
+                        protocol.state = Some(state_next);
+                    };
                 }
             }
-            protocol.state = Some(ProtocolState::Closed)
+
+            ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
+                protocol: future::Either::Right(rid),
+                ..
+            }) => {
+                trace!("{:?} has been fired", rid);
+                self.pending_one_shots.remove(&rid);
+            }
+
+            ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
+                protocol: future::Either::Left(upgrade),
+                info: negotiated_tag,
+            }) => {
+                trace!("inject_fully_negotiated_outbound()");
+                let protocol_id = negotiated_tag.protocol_id();
+                if let Some(protocol) = self.stateful_protocols.get_mut(&protocol_id) {
+                    let state = protocol.state.take();
+                    trace!("Current protocol state is {:?}", state);
+                    if let Some(state) = state {
+                        let state_next = match state {
+                            ProtocolState::Opening => ProtocolState::PartiallyOpened {
+                                substream_out: upgrade.substream,
+                            },
+                            ProtocolState::Accepting {
+                                substream_in: Some(substream_in),
+                            } => {
+                                let (async_msg_snd, async_msg_recv) =
+                                    mpsc::channel::<StreamNotification>(self.conf.async_msg_buffer_size);
+                                let (sync_msg_snd, sync_msg_recv) =
+                                    mpsc::channel::<StreamNotification>(self.conf.sync_msg_buffer_size);
+                                let sink = MessageSink::new(self.peer_id, async_msg_snd, sync_msg_snd);
+                                self.pending_events.push_back(ConnectionHandlerEvent::Custom(
+                                    ConnHandlerOut::Opened {
+                                        protocol_tag: negotiated_tag,
+                                        out_channel: sink,
+                                        handshake: None,
+                                    },
+                                ));
+                                ProtocolState::Opened {
+                                    substream_in,
+                                    substream_out: upgrade.substream,
+                                    pending_messages_recv: stream::select(
+                                        async_msg_recv.fuse(),
+                                        sync_msg_recv.fuse(),
+                                    )
+                                    .peekable(),
+                                }
+                            }
+                            // todo: handle this in the case we decide to re-open out substream.
+                            ProtocolState::OutboundClosedByPeer { .. } => state,
+                            // todo: warn, inconsistent state; discard other options explicitly.
+                            _ => state,
+                        };
+                        trace!("Next protocol state is {:?}", state_next);
+                        protocol.state = Some(state_next);
+                    };
+                }
+            }
+
+            ConnectionEvent::DialUpgradeError(DialUpgradeError {
+                info: protocol_tag,
+                error,
+            }) => {
+                let protocol_id = protocol_tag.protocol_id();
+                if let Some(protocol) = self.stateful_protocols.get_mut(&protocol_id) {
+                    if let Some(state) = &protocol.state {
+                        match state {
+                            ProtocolState::Opening | ProtocolState::Accepting { .. } => {
+                                trace!("Failed to open protocol {:?}, {:?}", protocol_id, error);
+                                self.pending_events.push_back(ConnectionHandlerEvent::Custom(
+                                    ConnHandlerOut::RefusedToOpen(protocol_id),
+                                ))
+                            }
+                            _ => {}
+                        }
+                    }
+                    protocol.state = Some(ProtocolState::Closed)
+                }
+            }
+
+            ConnectionEvent::AddressChange(_) => {}
+            ConnectionEvent::ListenUpgradeError(_) => {}
         }
     }
 
@@ -525,13 +544,18 @@ impl ConnectionHandler for PeerConnHandler {
         // Keep alive unless all protocols are inactive.
         // Otherwise close connection once initial_keep_alive interval passed.
         if self
-            .protocols
+            .stateful_protocols
             .values()
             .any(|p| !matches!(p.state, Some(ProtocolState::Closed)))
+            || !self.pending_one_shots.is_empty()
         {
             KeepAlive::Yes
         } else {
-            KeepAlive::Until(self.created_at + self.conf.initial_keep_alive)
+            if self.terminate_asap {
+                KeepAlive::Until(Instant::now() + MIN_TERM_DELAY)
+            } else {
+                KeepAlive::Until(self.created_at + self.conf.initial_keep_alive)
+            }
         }
     }
 
@@ -541,11 +565,28 @@ impl ConnectionHandler for PeerConnHandler {
     ) -> Poll<
         ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::OutEvent, Self::Error>,
     > {
+        // Process pending outbound one-shot requests.
+        for (id, req) in &mut self.pending_one_shots {
+            if let OneShotRequest::Pending(message) = req {
+                let upgrade = Right(OneShotUpgradeOut {
+                    protocol: message.protocol,
+                    id: *id,
+                    message: message.content.clone(),
+                });
+                self.pending_events
+                    .push_back(ConnectionHandlerEvent::OutboundSubstreamRequest {
+                        protocol: SubstreamProtocol::new(upgrade, message.protocol)
+                            .with_timeout(self.conf.open_timeout),
+                    });
+            }
+            *req = OneShotRequest::Confirming;
+        }
+
         if let Some(out) = self.pending_events.pop_front() {
             Poll::Ready(out)
         } else {
             // For each open substream, try to send messages from `pending_messages_recv`.
-            for protocol in self.protocols.values_mut() {
+            for protocol in self.stateful_protocols.values_mut() {
                 if let Some(
                     ProtocolState::Opened {
                         substream_out,
@@ -618,7 +659,7 @@ impl ConnectionHandler for PeerConnHandler {
             // performed before the code paths that can produce `Ready` (with some rare exceptions).
             // Importantly, the flush is performed *after* notifications are queued with
             // `Sink::start_send`.
-            for (protocol_id, protocol) in &mut self.protocols {
+            for (protocol_id, protocol) in &mut self.stateful_protocols {
                 if let Some(state) = &mut protocol.state {
                     if let ProtocolState::Opened { substream_out, .. }
                     | ProtocolState::InboundClosedByPeer { substream_out, .. } = state
@@ -643,7 +684,7 @@ impl ConnectionHandler for PeerConnHandler {
             }
 
             // Poll inbound substreams.
-            for (protocol_id, protocol) in &mut self.protocols {
+            for (protocol_id, protocol) in &mut self.stateful_protocols {
                 if let Some(state) = &mut protocol.state {
                     match state {
                         ProtocolState::Opened { substream_in, .. }
@@ -713,9 +754,26 @@ impl ConnectionHandler for PeerConnHandler {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Copy, Clone)]
+pub struct OneShotRequestId(u64);
+
+impl OneShotRequestId {
+    pub fn random() -> Self {
+        Self(OsRng.next_u64())
+    }
+}
+
+/// One-shot request state.
+pub enum OneShotRequest {
+    /// The message is avaiting to be sent.
+    Pending(OneShotMessage),
+    /// The message is fired, waiting for confirmation that it was written to the socket.
+    Confirming,
+}
+
 /// This is used to throttle `StreamNotification`s sent to us by the other peer.
 #[derive(PartialEq, Eq)]
-enum ThrottleStage {
+pub enum ThrottleStage {
     Start,
     InProgress,
     Finish,

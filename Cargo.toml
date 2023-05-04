@@ -1,7 +1,9 @@
 [workspace]
 members = [
     "spectrum-node",
-    "spectrum-network"
+    "spectrum-network",
+    "spectrum-crypto",
+    "algebra-core"
 ]
 
 [profile.release]

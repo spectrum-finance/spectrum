@@ -1,10 +1,11 @@
-use crate::peer_conn_handler::message_sink::MessageSink;
-use crate::types::{ProtocolVer, RawMessage};
 use futures::channel::mpsc::Sender;
 use futures::SinkExt;
 use libp2p::PeerId;
 
-#[derive(Clone)]
+use crate::peer_conn_handler::message_sink::MessageSink;
+use crate::types::{ProtocolVer, RawMessage};
+
+#[derive(Debug, Clone)]
 pub enum ProtocolEvent {
     Connected(PeerId),
     Message {
