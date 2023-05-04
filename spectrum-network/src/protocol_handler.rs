@@ -26,6 +26,7 @@ pub mod handel;
 pub mod sigma_aggregation;
 pub mod discovery;
 pub mod versioning;
+pub mod diffusion;
 
 #[derive(Debug)]
 pub enum NetworkAction<THandshake, TMessage> {
