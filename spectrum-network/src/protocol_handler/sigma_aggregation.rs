@@ -15,7 +15,7 @@ use spectrum_crypto::digest::Digest256;
 use crate::protocol::SIGMA_AGGR_PROTOCOL_ID;
 use crate::protocol_handler::aggregation::AggregationAction;
 use crate::protocol_handler::handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
-use crate::protocol_handler::handel::{Handel, HandelConfig, HandelRound, NarrowTo};
+use crate::protocol_handler::handel::{Handel, HandelConfig, HandelRound};
 use crate::protocol_handler::sigma_aggregation::crypto::{
     aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
     pre_commitment, response, schnorr_commitment_pair,
@@ -51,7 +51,7 @@ struct AggregatePreCommitments<'a, H, PP> {
     host_secret: CommitmentSecret,
     /// `Y_i = g^{y_i}`
     host_commitment: Commitment,
-    /// `σ_i`. Dlog proof of knowledge of `Y_i`.
+    /// `σ_i`. Dlog proof of knowledge for `Y_i`.
     host_explusion_proof: Signature,
     handel: Box<dyn HandelRound<'a, PreCommitments, PP>>,
 }
@@ -152,7 +152,7 @@ struct AggregateSchnorrCommitments<'a, H, PP> {
     host_secret: CommitmentSecret,
     /// `Y_i = g^{y_i}`
     host_commitment: Commitment,
-    /// `σ_i`. Dlog proof of knowledge of `Y_i`.
+    /// `σ_i`. Dlog proof of knowledge for `Y_i`.
     host_explusion_proof: Signature,
     handel: Box<dyn HandelRound<'a, CommitmentsWithProofs, PP>>,
 }
@@ -228,7 +228,7 @@ struct AggregateResponses<'a, H, PP> {
     /// `Y_i = g^{y_i}`
     host_commitment: Commitment,
     aggr_commitment: AggregateCommitment,
-    /// `σ_i`. Dlog proof of knowledge of `Y_i`.
+    /// `σ_i`. Dlog proof of knowledge for `Y_i`.
     host_explusion_proof: Signature,
     commitments_with_proofs: CommitmentsWithProofs,
     handel: Box<dyn HandelRound<'a, Responses, PP>>,

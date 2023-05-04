@@ -58,11 +58,12 @@ pub fn aggregate_commitment(individual_commitments: Vec<Commitment>) -> Aggregat
     .unwrap()
 }
 
+/// `r = Σ_ir_i`
 pub fn aggregate_response(individual_responses: Vec<Scalar>) -> Scalar {
     individual_responses.into_iter().sum()
 }
 
-/// c = H(˜X, Y, m)
+/// `c = H(˜X, Y, m)`
 pub fn challenge<H>(aggr_pk: PublicKey, aggr_commitment: AggregateCommitment, md: Digest256<H>) -> Scalar {
     let mut hasher = Blake2b256::new();
     hasher.update(k256::PublicKey::from(aggr_pk).to_encoded_point(true).to_bytes());
