@@ -22,8 +22,8 @@ use spectrum_network::{
     protocol::{StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID},
     protocol_api::ProtocolMailbox,
     protocol_handler::{
-        sync::{
-            message::{SyncMessage, SyncMessageV1, SyncSpec},
+        discovery::{
+            message::{DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec},
             NodeStatus, SyncBehaviour,
         },
         MalformedMessage, ProtocolBehaviour, ProtocolHandler,
@@ -104,7 +104,7 @@ async fn one_shot_messaging() {
     let message = RawMessage::from(vec![0, 0, 0]);
 
     // Though we spawn multiple tasks we use this single channel for messaging.
-    let (msg_tx, _msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
+    let (msg_tx, _msg_rx) = mpsc::channel::<(Peer, Msg<DiscoveryMessage>)>(10);
 
     let (abortable_peer_0, handle_0) = futures::future::abortable(
         create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
@@ -207,7 +207,7 @@ async fn integration_test_0() {
     let sync_behaviour_1 = |p| SyncBehaviour::new(p, local_status_1);
 
     // Though we spawn multiple tasks we use this single channel for messaging.
-    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
+    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<DiscoveryMessage>)>(10);
 
     let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
     let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, sync_behaviour_1, 10);
@@ -330,8 +330,8 @@ async fn integration_test_0() {
     assert_eq!(nc_peer_1, expected_nc_peer_1);
 
     let expected_prot_peer_0 = vec![
-        SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers),
-        SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![])),
+        DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::GetPeers),
+        DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![])),
     ];
 
     let expected_prot_peer_1 = expected_prot_peer_0.clone();
@@ -374,7 +374,7 @@ async fn integration_test_1() {
     let fake_sync_behaviour = |p| FakeSyncBehaviour::new(p, local_status_1);
 
     // Note that we use 2 channels here since `peer_0` sends `SyncMessage`s while `peer_1` sends `FakeSyncMessage`s.
-    let (msg_tx, msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
+    let (msg_tx, msg_rx) = mpsc::channel::<(Peer, Msg<DiscoveryMessage>)>(10);
     let (fake_msg_tx, fake_msg_rx) = mpsc::channel::<(Peer, Msg<FakeSyncMessage>)>(10);
 
     let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
@@ -441,7 +441,7 @@ async fn integration_test_1() {
 
     // We use this enum to combine `msg_rx` and `fake_msg_rx` streams
     enum C {
-        SyncMsg((Peer, Msg<SyncMessage>)),
+        SyncMsg((Peer, Msg<DiscoveryMessage>)),
         FakeMsg((Peer, Msg<FakeSyncMessage>)),
     }
 
@@ -458,7 +458,7 @@ async fn integration_test_1() {
     // dropping too.
     let mut nc_peer_0 = vec![];
     let mut nc_peer_1 = vec![];
-    let mut prot_peer_0: Vec<SyncMessage> = vec![];
+    let mut prot_peer_0: Vec<DiscoveryMessage> = vec![];
     let mut prot_peer_1: Vec<FakeSyncMessage> = vec![];
     while let Some(c) = combined_stream.next().await {
         match c {
@@ -527,7 +527,7 @@ async fn integration_test_1() {
 
     assert_eq!(
         prot_peer_0,
-        vec![SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers),]
+        vec![DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::GetPeers),]
     );
     assert_eq!(
         prot_peer_1,
@@ -744,7 +744,7 @@ async fn integration_test_2() {
     let sync_behaviour_2 = |p| SyncBehaviour::new(p, local_status_2);
 
     // Though we spawn multiple tasks we use this single channel for messaging.
-    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
+    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<DiscoveryMessage>)>(10);
 
     let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
     let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, sync_behaviour_1, 10);
@@ -873,36 +873,36 @@ async fn integration_test_2() {
 
     // Check that `peer_0` is sending out the necessary `Peers` messages.
     assert!(
-        prot_peer_0.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+        prot_peer_0.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![
             PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1)
         ])))
     );
     assert!(
-        prot_peer_0.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+        prot_peer_0.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![
             PeerDestination::PeerId(local_peer_id_2)
         ])))
     );
 
     // Check that `peer_1` is sending out the necessary `Peers` messages.
     assert!(
-        prot_peer_1.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+        prot_peer_1.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![
             PeerDestination::PeerIdWithAddr(local_peer_id_2, addr_2)
         ])))
     );
     assert!(
-        prot_peer_1.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+        prot_peer_1.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![
             PeerDestination::PeerId(local_peer_id_0)
         ])))
     );
 
     // Check that `peer_2` is sending out the necessary `Peers` messages.
     assert!(
-        prot_peer_2.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+        prot_peer_2.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![
             PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0)
         ])))
     );
     assert!(
-        prot_peer_2.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+        prot_peer_2.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![
             PeerDestination::PeerId(local_peer_id_1)
         ])))
     );
@@ -945,7 +945,7 @@ where
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
     let sync_conf = StatefulProtocolConfig {
         supported_versions: vec![(
-            SyncSpec::v1(),
+            DiscoverySpec::v1(),
             StatefulProtocolSpec {
                 max_message_size: 100,
                 approve_required: true,

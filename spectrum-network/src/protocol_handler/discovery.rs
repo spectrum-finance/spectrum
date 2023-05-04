@@ -12,8 +12,8 @@ use log::{error, info, trace};
 use crate::peer_manager::data::ReputationChange;
 use crate::peer_manager::Peers;
 use crate::protocol::SYNC_PROTOCOL_ID;
-use crate::protocol_handler::sync::message::{
-    HandshakeV1, SyncHandshake, SyncMessage, SyncMessageV1, SyncSpec,
+use crate::protocol_handler::discovery::message::{
+    HandshakeV1, DiscoveryHandshake, DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec,
 };
 use crate::protocol_handler::{
     MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec,
@@ -30,7 +30,7 @@ pub struct NodeStatus {
     pub height: usize,
 }
 
-type SyncBehaviourOut = ProtocolBehaviourOut<SyncHandshake, SyncMessage>;
+type SyncBehaviourOut = ProtocolBehaviourOut<DiscoveryHandshake, DiscoveryMessage>;
 
 #[derive(Debug, Display)]
 pub enum SyncBehaviorError {
@@ -63,11 +63,11 @@ where
         }
     }
 
-    fn make_poly_handshake(&self) -> Vec<(ProtocolVer, Option<SyncHandshake>)> {
+    fn make_poly_handshake(&self) -> Vec<(ProtocolVer, Option<DiscoveryHandshake>)> {
         let status = &self.local_status;
         vec![(
-            SyncSpec::v1(),
-            Some(SyncHandshake::HandshakeV1(HandshakeV1 {
+            DiscoverySpec::v1(),
+            Some(DiscoveryHandshake::HandshakeV1(HandshakeV1 {
                 supported_protocols: status.supported_protocols.clone(),
                 height: status.height,
             })),
@@ -78,7 +78,7 @@ where
         trace!("Requesting peers from {}", peer_id);
         self.outbox.push_back(SyncBehaviourOut::Send {
             peer_id,
-            message: SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers),
+            message: DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::GetPeers),
         });
     }
 
@@ -92,7 +92,7 @@ where
                     trace!("My peers num {}", peers.len());
                     Ok(ProtocolBehaviourOut::Send {
                         peer_id,
-                        message: SyncMessage::SyncMessageV1(SyncMessageV1::Peers(
+                        message: DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(
                             peers.into_iter().filter(|p| p.peer_id() != peer_id).collect(),
                         )),
                     })
@@ -108,7 +108,7 @@ impl<TPeers> ProtocolBehaviour for SyncBehaviour<TPeers>
 where
     TPeers: Peers,
 {
-    type TProto = SyncSpec;
+    type TProto = DiscoverySpec;
 
     fn get_protocol_id(&self) -> ProtocolId {
         SYNC_PROTOCOL_ID
@@ -123,12 +123,12 @@ where
             }))
     }
 
-    fn inject_message(&mut self, peer_id: PeerId, msg: SyncMessage) {
+    fn inject_message(&mut self, peer_id: PeerId, msg: DiscoveryMessage) {
         match msg {
-            SyncMessage::SyncMessageV1(SyncMessageV1::GetPeers) => {
+            DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::GetPeers) => {
                 self.send_peers(peer_id);
             }
-            SyncMessage::SyncMessageV1(SyncMessageV1::Peers(peers)) => {
+            DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(peers)) => {
                 info!("Peer {} sent {} peers", peer_id, peers.len());
                 self.peers.add_peers(peers);
             }
@@ -140,8 +140,8 @@ where
             .report_peer(peer_id, ReputationChange::MalformedMessage(details));
     }
 
-    fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<SyncHandshake>) {
-        if let Some(SyncHandshake::HandshakeV1(hs)) = handshake {
+    fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<DiscoveryHandshake>) {
+        if let Some(DiscoveryHandshake::HandshakeV1(hs)) = handshake {
             self.tracked_peers.insert(
                 peer_id,
                 NodeStatus {
@@ -179,7 +179,7 @@ where
         self.tracked_peers.remove(&peer_id);
     }
 
-    fn poll(&mut self, cx: &mut Context) -> Poll<Option<ProtocolBehaviourOut<SyncHandshake, SyncMessage>>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<Option<ProtocolBehaviourOut<DiscoveryHandshake, DiscoveryMessage>>> {
         loop {
             match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
                 Poll::Ready(Some(Ok(out))) => {

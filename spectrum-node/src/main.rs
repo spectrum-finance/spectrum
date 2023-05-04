@@ -18,8 +18,8 @@ use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerC
 use spectrum_network::protocol::{
     ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID,
 };
-use spectrum_network::protocol_handler::sync::message::{SyncMessage, SyncMessageV1, SyncSpec};
-use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
+use spectrum_network::protocol_handler::discovery::message::{DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec};
+use spectrum_network::protocol_handler::discovery::{NodeStatus, SyncBehaviour};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
 
@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
     let sync_conf = StatefulProtocolConfig {
         supported_versions: vec![(
-            SyncSpec::v1(),
+            DiscoverySpec::v1(),
             StatefulProtocolSpec {
                 max_message_size: 100,
                 approve_required: true,

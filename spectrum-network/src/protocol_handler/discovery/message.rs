@@ -1,12 +1,13 @@
+use serde::{Deserialize, Serialize};
+
 use crate::peer_manager::data::PeerDestination;
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_handler::ProtocolSpec;
 use crate::types::{ProtocolId, ProtocolVer};
-use serde::{Deserialize, Serialize};
 
 /// Sync handshake provides initial node status.
 #[derive(Serialize, Deserialize, Debug)]
-pub enum SyncHandshake {
+pub enum DiscoveryHandshake {
     HandshakeV1(HandshakeV1),
 }
 
@@ -16,42 +17,42 @@ pub struct HandshakeV1 {
     pub height: usize,
 }
 
-impl Versioned for SyncHandshake {
+impl Versioned for DiscoveryHandshake {
     fn version(&self) -> ProtocolVer {
         match self {
-            SyncHandshake::HandshakeV1(_) => SyncSpec::v1(),
+            DiscoveryHandshake::HandshakeV1(_) => DiscoverySpec::v1(),
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub enum SyncMessage {
-    SyncMessageV1(SyncMessageV1),
+pub enum DiscoveryMessage {
+    DiscoveryMessageV1(DiscoveryMessageV1),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub enum SyncMessageV1 {
+pub enum DiscoveryMessageV1 {
     GetPeers,
     Peers(Vec<PeerDestination>),
 }
 
-impl Versioned for SyncMessage {
+impl Versioned for DiscoveryMessage {
     fn version(&self) -> ProtocolVer {
         match self {
-            SyncMessage::SyncMessageV1(_) => SyncSpec::v1(),
+            DiscoveryMessage::DiscoveryMessageV1(_) => DiscoverySpec::v1(),
         }
     }
 }
 
-pub struct SyncSpec;
+pub struct DiscoverySpec;
 
-impl SyncSpec {
+impl DiscoverySpec {
     pub fn v1() -> ProtocolVer {
         ProtocolVer::from(1)
     }
 }
 
-impl ProtocolSpec for SyncSpec {
-    type THandshake = SyncHandshake;
-    type TMessage = SyncMessage;
+impl ProtocolSpec for DiscoverySpec {
+    type THandshake = DiscoveryHandshake;
+    type TMessage = DiscoveryMessage;
 }
