@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use either::{Either, Left, Right};
 use futures::channel::mpsc::{Receiver, Sender};
 use futures::{SinkExt, Stream};
+use libp2p::allow_block_list::{Behaviour, BlockedPeers};
 use libp2p::core::Endpoint;
 use libp2p::swarm::behaviour::ConnectionEstablished;
 use libp2p::swarm::{
@@ -262,6 +263,7 @@ pub struct NetworkController<TPeers, TPeerManager, THandler> {
     pending_one_shot_requests: HashMap<PeerId, OneShotMessage>,
     requests_recv: Receiver<NetworkControllerIn>,
     pending_actions: VecDeque<ToSwarm<NetworkControllerOut, ConnHandlerIn>>,
+    blocked_list: Behaviour<BlockedPeers>,
 }
 
 impl<TPeers, TPeerManager, THandler> NetworkController<TPeers, TPeerManager, THandler>
@@ -284,6 +286,7 @@ where
             pending_one_shot_requests: HashMap::new(),
             requests_recv,
             pending_actions: VecDeque::new(),
+            blocked_list: Behaviour::default(),
         }
     }
 
@@ -819,7 +822,7 @@ where
                         }
                     }
                     NetworkControllerIn::BanPeer(pid) => {
-                        //todo: Ban peer; DEV-941
+                        self.blocked_list.block_peer(pid);
                     }
                 }
                 continue;
