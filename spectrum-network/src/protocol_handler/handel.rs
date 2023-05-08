@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use either::{Either, Left, Right};
 use libp2p::PeerId;
+use log::{trace, warn};
 use void::Void;
 
 use algebra_core::CommutativePartialSemigroup;
@@ -96,6 +97,8 @@ pub struct Handel<C, P, PP> {
     next_dissemination_at: Instant,
     level_activation_schedule: Vec<Option<Instant>>,
 }
+
+pub type MakeHandel<'a, C, P, PP> = dyn Fn(HandelConfig, C, P, PP) -> Box<dyn HandelRound<'a, C, PP>>;
 
 impl<C, P, PP> Handel<C, P, PP>
 where
@@ -323,7 +326,7 @@ where
     /// Sends messages for one node from each active level.
     fn run_dissemination(&mut self) {
         let own_contrib = self.get_own_contribution();
-        for (lix, lvl) in &mut self.levels.iter_mut().enumerate() {
+        for (lix, lvl) in &mut self.levels.iter_mut().enumerate().skip(1) {
             if let Some(active_lvl) = lvl {
                 let peers_at_level = self.peer_partitions.peers_at_level(lix, PeerOrd::CVP);
                 let maybe_next_peer = active_lvl
@@ -470,9 +473,12 @@ where
         self.try_disseminatate();
         self.try_activate_levels();
         if let Some(out) = self.outbox.pop_front() {
+            warn!("Handel::poll: return Left({:?})", out);
+
             return Poll::Ready(Left(out));
         }
         if let Some(ca) = self.get_complete_aggregate() {
+            warn!("Handel::poll: return Right(ca)");
             return Poll::Ready(Right(ca));
         }
         Poll::Pending

@@ -16,7 +16,7 @@ use libp2p::swarm::{
     ConnectionHandler, ConnectionHandlerEvent, KeepAlive, NegotiatedSubstream, SubstreamProtocol,
 };
 use libp2p::PeerId;
-use log::trace;
+use log::{trace, warn};
 use rand::rngs::OsRng;
 use rand::RngCore;
 
@@ -460,7 +460,7 @@ impl ConnectionHandler for PeerConnHandler {
                 protocol: future::Either::Right(rid),
                 ..
             }) => {
-                trace!("{:?} has been fired", rid);
+                warn!("{:?} has been fired", rid);
                 self.pending_one_shots.remove(&rid);
             }
 

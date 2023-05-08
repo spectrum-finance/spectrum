@@ -14,7 +14,7 @@ use libp2p::swarm::{
     NetworkBehaviour, NotifyHandler, PollParameters, ToSwarm,
 };
 use libp2p::{Multiaddr, PeerId};
-use log::{trace, warn};
+use log::{error, trace, warn};
 
 use crate::one_shot_upgrade::OneShotMessage;
 use crate::peer_conn_handler::message_sink::MessageSink;
@@ -162,6 +162,7 @@ impl NetworkAPI for NetworkMailbox {
         );
     }
     fn send_one_shot_message(&self, peer: PeerId, protocol: ProtocolTag, message: RawMessage) {
+        warn!("Sending one shot message!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
         let _ = futures::executor::block_on(self.mailbox_snd.clone().send(
             NetworkControllerIn::SendOneShotMessage {
                 peer,
@@ -311,6 +312,7 @@ where
                     }
                 }
                 ProtocolConfig::OneShot(one_shot) => {
+                    warn!("init_conn_handler: {:?}", one_shot);
                     one_shot_protocols.insert(
                         *protocol_id,
                         OneShotProtocol {
@@ -450,6 +452,7 @@ where
 
             FromSwarm::DialFailure(DialFailure { peer_id, .. }) => {
                 if let Some(peer_id) = peer_id {
+                    warn!("QQQQQQQ: dialfailure {:?}", peer_id);
                     self.peers.dial_failure(peer_id);
                 }
             }
@@ -478,7 +481,7 @@ where
                 out_channel,
                 handshake,
             } => {
-                trace!("Protocol {} opened with peer {}", protocol_tag, peer_id);
+                error!("Protocol {} opened with peer {}", protocol_tag, peer_id);
                 if let Some(ConnectedPeer::Connected {
                     enabled_protocols, ..
                 }) = self.enabled_peers.get_mut(&peer_id)
@@ -487,7 +490,7 @@ where
                     let protocol_ver = protocol_tag.protocol_ver();
                     match enabled_protocols.entry(protocol_id) {
                         Entry::Occupied(mut entry) => {
-                            trace!(
+                            error!(
                                 "Current state of protocol {:?} is {:?}",
                                 protocol_id,
                                 entry.get().0
@@ -570,6 +573,7 @@ where
                 protocol_tag,
                 content,
             } => {
+                panic!("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS");
                 if let Some((_, han)) = self.supported_protocols.get(&protocol_tag.protocol_id()) {
                     han.incoming_msg(peer_id, protocol_tag.protocol_ver(), content);
                 }
@@ -720,6 +724,7 @@ where
                         Entry::Occupied(mut enabled_peer) => match enabled_peer.get_mut() {
                             ConnectedPeer::Connected { conn_id, .. }
                             | ConnectedPeer::PendingApprove(conn_id) => {
+                                panic!("AAA");
                                 // if the peer is enabled already we reuse existing connection
                                 self.pending_actions.push_back(ToSwarm::NotifyHandler {
                                     peer_id: peer,
@@ -740,9 +745,12 @@ where
                                     content: message,
                                 });
                             }
-                            ConnectedPeer::PendingDisconnect(_) => {} // todo: wait for disconnect; reconnect?
+                            ConnectedPeer::PendingDisconnect(_) => {
+                                panic!("CCC");
+                            } // todo: wait for disconnect; reconnect?
                         },
                         Entry::Vacant(not_enabled_peer) => {
+                            warn!("DDD");
                             self.pending_actions
                                 .push_back(ToSwarm::Dial { opts: peer.into() });
                             not_enabled_peer.insert(ConnectedPeer::PendingConnect {

@@ -95,8 +95,9 @@ pub struct BinomialPeerPartitions<R> {
     rng: R,
 }
 
+#[derive(Clone)]
 pub struct MakeBinomialPeerPartitions<R> {
-    rng: R,
+    pub rng: R,
 }
 
 impl<R> MakePeerPartitions for MakeBinomialPeerPartitions<R>
@@ -149,11 +150,15 @@ where
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
+        let partitions_by_vp = ordered_by_vp(&rng, cleared_partitions.clone(), host_peer_ix);
+        let partitions_by_cvp = ordered_by_cvp(&rng, cleared_partitions, host_peer_ix, num_nodes);
+        println!("partitions_by_vp: {:?}", partitions_by_vp);
+        println!("partitions_by_cvp: {:?}", partitions_by_cvp);
         Self {
             peers: all_peers,
             peer_index: total_index,
-            partitions_by_vp: ordered_by_vp(&rng, cleared_partitions.clone(), host_peer_ix),
-            partitions_by_cvp: ordered_by_cvp(&rng, cleared_partitions, host_peer_ix, num_nodes),
+            partitions_by_vp,
+            partitions_by_cvp,
             rng,
         }
     }
