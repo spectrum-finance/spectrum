@@ -1,13 +1,22 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    time::Duration,
+};
 
+use elliptic_curve::rand_core::OsRng;
 use futures::channel::mpsc::Sender;
 use futures::{
     channel::{mpsc, oneshot},
     SinkExt, StreamExt,
 };
+use k256::SecretKey;
 use libp2p::swarm::SwarmBuilder;
 use libp2p::{identity, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
+use log::{warn, LevelFilter};
+use log4rs_test_utils::test_logging::init_logging_once_for;
+use rand::Rng;
 
+use spectrum_crypto::digest::{Blake2b, Digest256};
 use spectrum_network::protocol::{OneShotProtocolConfig, OneShotProtocolSpec, ProtocolConfig};
 use spectrum_network::protocol_api::ProtocolEvent;
 use spectrum_network::types::{ProtocolTag, RawMessage};
@@ -19,9 +28,19 @@ use spectrum_network::{
         peers_state::PeerRepo,
         NetworkingConfig, PeerManager, PeerManagerConfig, PeersMailbox,
     },
-    protocol::{StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID},
+    protocol::{StatefulProtocolConfig, StatefulProtocolSpec, SIGMA_AGGR_PROTOCOL_ID, SYNC_PROTOCOL_ID},
     protocol_api::ProtocolMailbox,
     protocol_handler::{
+        aggregation::AggregationAction,
+        handel::{
+            partitioning::{MakeBinomialPeerPartitions, PseudoRandomGenPerm},
+            HandelConfig, Threshold,
+        },
+        sigma_aggregation::{
+            message::{SigmaAggrMessage, SigmaAggrSpec, SIGMA_AGGR_V1},
+            types::PublicKey,
+            SigmaAggregation,
+        },
         sync::{
             message::{SyncMessage, SyncMessageV1, SyncSpec},
             NodeStatus, SyncBehaviour,
@@ -106,12 +125,22 @@ async fn one_shot_messaging() {
     // Though we spawn multiple tasks we use this single channel for messaging.
     let (msg_tx, _msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
-    );
-    let (abortable_peer_1, handle_1) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, msg_tx),
-    );
+    let (abortable_peer_0, handle_0) =
+        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>, Peer>(
+            local_key_0,
+            nc_0,
+            addr_0,
+            Peer::First,
+            msg_tx.clone(),
+        ));
+    let (abortable_peer_1, handle_1) =
+        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>, Peer>(
+            local_key_1,
+            nc_1,
+            addr_1,
+            Peer::Second,
+            msg_tx,
+        ));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -209,8 +238,10 @@ async fn integration_test_0() {
     // Though we spawn multiple tasks we use this single channel for messaging.
     let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
 
-    let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
-    let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, sync_behaviour_1, 10);
+    let (mut sync_handler_0, nc_0) =
+        make_swarm_components(peers_0, sync_behaviour_0, SYNC_PROTOCOL_ID, SyncSpec::v1(), 10);
+    let (mut sync_handler_1, nc_1) =
+        make_swarm_components(peers_1, sync_behaviour_1, SYNC_PROTOCOL_ID, SyncSpec::v1(), 10);
 
     let mut msg_tx_sync_handler_0 = msg_tx.clone();
     let sync_handler_0_handle = async_std::task::spawn(async move {
@@ -232,12 +263,22 @@ async fn integration_test_0() {
         }
     });
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
-    );
-    let (abortable_peer_1, handle_1) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, msg_tx),
-    );
+    let (abortable_peer_0, handle_0) =
+        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>, Peer>(
+            local_key_0,
+            nc_0,
+            addr_0,
+            Peer::First,
+            msg_tx.clone(),
+        ));
+    let (abortable_peer_1, handle_1) =
+        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>, Peer>(
+            local_key_1,
+            nc_1,
+            addr_1,
+            Peer::Second,
+            msg_tx,
+        ));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -377,8 +418,10 @@ async fn integration_test_1() {
     let (msg_tx, msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
     let (fake_msg_tx, fake_msg_rx) = mpsc::channel::<(Peer, Msg<FakeSyncMessage>)>(10);
 
-    let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
-    let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, fake_sync_behaviour, 10);
+    let (mut sync_handler_0, nc_0) =
+        make_swarm_components(peers_0, sync_behaviour_0, SYNC_PROTOCOL_ID, SyncSpec::v1(), 10);
+    let (mut sync_handler_1, nc_1) =
+        make_swarm_components(peers_1, fake_sync_behaviour, SYNC_PROTOCOL_ID, SyncSpec::v1(), 10);
 
     let mut msg_tx_sync_handler_0 = msg_tx.clone();
     let sync_handler_0_handle = async_std::task::spawn(async move {
@@ -400,11 +443,16 @@ async fn integration_test_1() {
         }
     });
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx),
-    );
+    let (abortable_peer_0, handle_0) =
+        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>, Peer>(
+            local_key_0,
+            nc_0,
+            addr_0,
+            Peer::First,
+            msg_tx,
+        ));
     let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
+        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>, Peer>(
             local_key_1,
             nc_1,
             addr_1,
@@ -568,8 +616,20 @@ async fn integration_test_peer_punish_too_slow() {
 
     // It's crucial to have a buffer of size 1 for this test
     let msg_buffer_size = 1;
-    let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, msg_buffer_size);
-    let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, sync_behaviour_1, msg_buffer_size);
+    let (mut sync_handler_0, nc_0) = make_swarm_components(
+        peers_0,
+        sync_behaviour_0,
+        SYNC_PROTOCOL_ID,
+        SyncSpec::v1(),
+        msg_buffer_size,
+    );
+    let (mut sync_handler_1, nc_1) = make_swarm_components(
+        peers_1,
+        sync_behaviour_1,
+        SYNC_PROTOCOL_ID,
+        SyncSpec::v1(),
+        msg_buffer_size,
+    );
 
     let mut msg_tx_sync_handler_0 = msg_tx.clone();
     let sync_handler_0_handle = async_std::task::spawn(async move {
@@ -592,7 +652,7 @@ async fn integration_test_peer_punish_too_slow() {
     });
 
     let (abortable_peer_0, handle_0) =
-        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
+        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>, Peer>(
             local_key_0,
             nc_0,
             addr_0,
@@ -600,7 +660,7 @@ async fn integration_test_peer_punish_too_slow() {
             msg_tx.clone(),
         ));
     let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
+        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>, Peer>(
             local_key_1,
             nc_1,
             addr_1,
@@ -746,9 +806,12 @@ async fn integration_test_2() {
     // Though we spawn multiple tasks we use this single channel for messaging.
     let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<SyncMessage>)>(10);
 
-    let (mut sync_handler_0, nc_0) = make_swarm_components(peers_0, sync_behaviour_0, 10);
-    let (mut sync_handler_1, nc_1) = make_swarm_components(peers_1, sync_behaviour_1, 10);
-    let (mut sync_handler_2, nc_2) = make_swarm_components(peers_2, sync_behaviour_2, 10);
+    let (mut sync_handler_0, nc_0) =
+        make_swarm_components(peers_0, sync_behaviour_0, SYNC_PROTOCOL_ID, SyncSpec::v1(), 10);
+    let (mut sync_handler_1, nc_1) =
+        make_swarm_components(peers_1, sync_behaviour_1, SYNC_PROTOCOL_ID, SyncSpec::v1(), 10);
+    let (mut sync_handler_2, nc_2) =
+        make_swarm_components(peers_2, sync_behaviour_2, SYNC_PROTOCOL_ID, SyncSpec::v1(), 10);
 
     let mut msg_tx_sync_handler_0 = msg_tx.clone();
     let sync_handler_0_handle = async_std::task::spawn(async move {
@@ -781,7 +844,7 @@ async fn integration_test_2() {
     });
 
     let (abortable_peer_0, handle_0) =
-        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>>(
+        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>, Peer>(
             local_key_0,
             nc_0,
             addr_0.clone(),
@@ -789,16 +852,21 @@ async fn integration_test_2() {
             msg_tx.clone(),
         ));
     let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>>(
+        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>, Peer>(
             local_key_1,
             nc_1,
             addr_1.clone(),
             Peer::Second,
             msg_tx.clone(),
         ));
-    let (abortable_peer_2, handle_2) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_2, nc_2, addr_2.clone(), Peer::Third, msg_tx),
-    );
+    let (abortable_peer_2, handle_2) =
+        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>, Peer>(
+            local_key_2,
+            nc_2,
+            addr_2.clone(),
+            Peer::Third,
+            msg_tx,
+        ));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
     let (cancel_tx_2, cancel_rx_2) = oneshot::channel::<()>();
@@ -908,9 +976,659 @@ async fn integration_test_2() {
     );
 }
 
+fn k256_to_libsecp255k1(secret_key: SecretKey) -> identity::secp256k1::SecretKey {
+    identity::secp256k1::SecretKey::from_bytes(secret_key.to_bytes().as_mut_slice()).unwrap()
+}
+#[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
+#[async_std::test]
+async fn integration_test_handel_2_peers() {
+    //   --------              --------             --------
+    //  | peer_0 |  ~~~~~~~~> | peer_1 | ~~~~~~~~> | peer_2 |
+    //   --------              --------             --------
+    //     ^                                            |
+    //     |                                            |
+    //     | ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|
+    //
+    // In this scenario `peer_0`, `peer_1` and `peer_2` has `peer_1`, `peer_2` and `peer_0` as a
+    // bootstrap-peer, respectively (indicated by the arrows)
+    init_logging_once_for(vec![], LevelFilter::Warn, None);
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Peer2 {
+        /// The tag for `peer_0`
+        First,
+        /// The tag for `peer_1`
+        Second,
+    }
+
+    let mut rng = OsRng;
+    let sk_0 = SecretKey::random(&mut rng);
+    let sk_1 = SecretKey::random(&mut rng);
+
+    let local_key_0 = identity::Keypair::from(identity::secp256k1::Keypair::from(k256_to_libsecp255k1(
+        sk_0.clone(),
+    )));
+    let local_peer_id_0 = PeerId::from(local_key_0.public());
+    let local_key_1 = identity::Keypair::from(identity::secp256k1::Keypair::from(k256_to_libsecp255k1(
+        sk_1.clone(),
+    )));
+    let local_peer_id_1 = PeerId::from(local_key_1.public());
+
+    let addr_0: Multiaddr = "/ip4/127.0.0.1/tcp/1240".parse().unwrap();
+    let addr_1: Multiaddr = "/ip4/127.0.0.1/tcp/1241".parse().unwrap();
+    let peers_0 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1.clone())];
+    let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
+
+    let handel_conf = HandelConfig {
+        threshold: Threshold { num: 2, denom: 2 },
+        window_shrinking_factor: 4,
+        initial_scoring_window: 3,
+        fast_path_window: 10,
+        dissemination_interval: Duration::from_millis(20),
+        level_activation_delay: Duration::from_millis(50),
+    };
+    let seed = rng.gen::<[u8; 32]>();
+
+    let new_committee: HashSet<PublicKey> =
+        vec![PublicKey::from(sk_0.clone()), PublicKey::from(sk_1.clone())]
+            .into_iter()
+            .collect();
+    let new_message = Digest256::<Blake2b>::from([0; 32]);
+
+    let (channel_0, rx_aggregation_0) = futures::channel::oneshot::channel();
+    let (channel_1, rx_aggregation_1) = futures::channel::oneshot::channel();
+
+    let action_0 = AggregationAction::Reset {
+        new_committee: new_committee.clone(),
+        new_message,
+        channel: channel_0,
+    };
+    let action_1 = AggregationAction::Reset {
+        new_committee: new_committee.clone(),
+        new_message,
+        channel: channel_1,
+    };
+
+    let gen_perm = PseudoRandomGenPerm::new(seed);
+    let (mut tx_0, inbox_0) = futures::channel::mpsc::channel::<AggregationAction<Blake2b>>(10);
+    let (mut tx_1, inbox_1) = futures::channel::mpsc::channel::<AggregationAction<Blake2b>>(10);
+    let sig_aggr_0 = SigmaAggregation::new(
+        sk_0,
+        handel_conf,
+        MakeBinomialPeerPartitions {
+            rng: gen_perm.clone(),
+        },
+        inbox_0,
+        VecDeque::new(),
+    );
+    let sig_aggr_1 = SigmaAggregation::new(
+        sk_1,
+        handel_conf,
+        MakeBinomialPeerPartitions {
+            rng: gen_perm.clone(),
+        },
+        inbox_1,
+        VecDeque::new(),
+    );
+    let sync_behaviour_0 = |_| sig_aggr_0;
+    let sync_behaviour_1 = |_| sig_aggr_1;
+
+    // Though we spawn multiple tasks we use this single channel for messaging.
+    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer2, Msg<SigmaAggrMessage>)>(10);
+
+    let (mut sync_handler_0, nc_0) = make_oneshot_swarm_components(
+        peers_0,
+        sync_behaviour_0,
+        SIGMA_AGGR_PROTOCOL_ID,
+        SIGMA_AGGR_V1,
+        10,
+    );
+    let (mut sync_handler_1, nc_1) = make_oneshot_swarm_components(
+        peers_1,
+        sync_behaviour_1,
+        SIGMA_AGGR_PROTOCOL_ID,
+        SIGMA_AGGR_V1,
+        10,
+    );
+
+    let mut msg_tx_sync_handler_0 = msg_tx.clone();
+    let sync_handler_0_handle = async_std::task::spawn(async move {
+        loop {
+            let msg = sync_handler_0.select_next_some().await;
+            msg_tx_sync_handler_0
+                .try_send((Peer2::First, Msg::Protocol(msg)))
+                .unwrap();
+        }
+    });
+
+    let mut msg_tx_sync_handler_1 = msg_tx.clone();
+    let sync_handler_1_handle = async_std::task::spawn(async move {
+        loop {
+            let msg = sync_handler_1.select_next_some().await;
+            msg_tx_sync_handler_1
+                .try_send((Peer2::Second, Msg::Protocol(msg)))
+                .unwrap();
+        }
+    });
+
+    let (abortable_peer_0, handle_0) =
+        futures::future::abortable(create_swarm::<
+            SigmaAggregation<Blake2b, MakeBinomialPeerPartitions<PseudoRandomGenPerm>>,
+            Peer2,
+        >(
+            local_key_0, nc_0, addr_0.clone(), Peer2::First, msg_tx.clone()
+        ));
+    let (abortable_peer_1, handle_1) =
+        futures::future::abortable(create_swarm::<
+            SigmaAggregation<Blake2b, MakeBinomialPeerPartitions<PseudoRandomGenPerm>>,
+            Peer2,
+        >(local_key_1, nc_1, addr_1.clone(), Peer2::Second, msg_tx));
+
+    let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
+    let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
+
+    let secs = 10;
+
+    // Spawn tasks for peer_0
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_0.await;
+        handle_0.abort();
+        sync_handler_0_handle.cancel().await;
+    });
+    async_std::task::spawn(async move {
+        wasm_timer::Delay::new(Duration::from_secs(secs)).await.unwrap();
+        cancel_tx_0.send(()).unwrap();
+    });
+    async_std::task::spawn(abortable_peer_0);
+
+    // Spawn tasks for peer_1
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_1.await;
+        handle_1.abort();
+        sync_handler_1_handle.cancel().await;
+    });
+    async_std::task::spawn(async move {
+        wasm_timer::Delay::new(Duration::from_secs(secs)).await.unwrap();
+        cancel_tx_1.send(()).unwrap();
+    });
+    async_std::task::spawn(abortable_peer_1);
+
+    //wasm_timer::Delay::new(Duration::from_millis(20)).await.unwrap();
+    // Send Reset message
+    tx_0.try_send(action_0).unwrap();
+    tx_1.try_send(action_1).unwrap();
+
+    // Collect messages from the peers. Note that the while loop below will end since all tasks that
+    // use clones of `msg_tx` are guaranteed to drop, leading to the senders dropping too.
+    let mut nc_peer_0 = vec![];
+    let mut nc_peer_1 = vec![];
+    let mut prot_peer_0 = vec![];
+    let mut prot_peer_1 = vec![];
+    while let Some((peer, msg)) = msg_rx.next().await {
+        match msg {
+            Msg::NetworkController(nc_msg) => match peer {
+                Peer2::First => nc_peer_0.push(nc_msg),
+                Peer2::Second => nc_peer_1.push(nc_msg),
+            },
+            Msg::Protocol(p_msg) => match peer {
+                Peer2::First => prot_peer_0.push(p_msg),
+                Peer2::Second => prot_peer_1.push(p_msg),
+            },
+        }
+    }
+    warn!("Loop passed");
+    let res_0 = rx_aggregation_0.await;
+    let res_1 = rx_aggregation_1.await;
+    dbg!(res_0);
+
+    dbg!(&nc_peer_0);
+    dbg!(&nc_peer_1);
+    dbg!(&prot_peer_0);
+    dbg!(&prot_peer_1);
+
+    // Check that `peer_0` is sending out the necessary `Peers` messages.
+    //assert!(
+    //    prot_peer_0.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+    //        PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1)
+    //    ])))
+    //);
+    //assert!(
+    //    prot_peer_0.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+    //        PeerDestination::PeerId(local_peer_id_2)
+    //    ])))
+    //);
+
+    //// Check that `peer_1` is sending out the necessary `Peers` messages.
+    //assert!(
+    //    prot_peer_1.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+    //        PeerDestination::PeerIdWithAddr(local_peer_id_2, addr_2)
+    //    ])))
+    //);
+    //assert!(
+    //    prot_peer_1.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+    //        PeerDestination::PeerId(local_peer_id_0)
+    //    ])))
+    //);
+
+    //// Check that `peer_2` is sending out the necessary `Peers` messages.
+    //assert!(
+    //    prot_peer_2.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+    //        PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0)
+    //    ])))
+    //);
+    //assert!(
+    //    prot_peer_2.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+    //        PeerDestination::PeerId(local_peer_id_1)
+    //    ])))
+    //);
+}
+
+#[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
+#[async_std::test]
+async fn integration_test_handel_4_peers() {
+    //   --------              --------             --------
+    //  | peer_0 |  ~~~~~~~~> | peer_1 | ~~~~~~~~> | peer_2 |
+    //   --------              --------             --------
+    //     ^                                            |
+    //     |                                            |
+    //     | ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|
+    //
+    // In this scenario `peer_0`, `peer_1` and `peer_2` has `peer_1`, `peer_2` and `peer_0` as a
+    // bootstrap-peer, respectively (indicated by the arrows)
+    init_logging_once_for(vec![], LevelFilter::Error, None);
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Peer4 {
+        /// The tag for `peer_0`
+        First,
+        /// The tag for `peer_1`
+        Second,
+        /// The tag for `peer_2`
+        Third,
+        /// The tag for `peer_3`
+        Fourth,
+    }
+
+    let mut rng = OsRng;
+    let sk_0 = SecretKey::random(&mut rng);
+    let sk_1 = SecretKey::random(&mut rng);
+    let sk_2 = SecretKey::random(&mut rng);
+    let sk_3 = SecretKey::random(&mut rng);
+
+    let local_key_0 = identity::Keypair::from(identity::secp256k1::Keypair::from(k256_to_libsecp255k1(
+        sk_0.clone(),
+    )));
+    let local_peer_id_0 = PeerId::from(local_key_0.public());
+    let local_key_1 = identity::Keypair::from(identity::secp256k1::Keypair::from(k256_to_libsecp255k1(
+        sk_1.clone(),
+    )));
+    let local_peer_id_1 = PeerId::from(local_key_1.public());
+    let local_key_2 = identity::Keypair::from(identity::secp256k1::Keypair::from(k256_to_libsecp255k1(
+        sk_2.clone(),
+    )));
+    let local_peer_id_2 = PeerId::from(local_key_2.public());
+    let local_key_3 = identity::Keypair::from(identity::secp256k1::Keypair::from(k256_to_libsecp255k1(
+        sk_3.clone(),
+    )));
+    let local_peer_id_3 = PeerId::from(local_key_3.public());
+
+    let addr_0: Multiaddr = "/ip4/127.0.0.1/tcp/1240".parse().unwrap();
+    let addr_1: Multiaddr = "/ip4/127.0.0.1/tcp/1241".parse().unwrap();
+    let addr_2: Multiaddr = "/ip4/127.0.0.1/tcp/1242".parse().unwrap();
+    let addr_3: Multiaddr = "/ip4/127.0.0.1/tcp/1243".parse().unwrap();
+    let peers_0 = vec![
+        PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1.clone()),
+        PeerDestination::PeerIdWithAddr(local_peer_id_2, addr_2.clone()),
+        PeerDestination::PeerIdWithAddr(local_peer_id_3, addr_3.clone()),
+    ];
+    let peers_1 = vec![
+        PeerDestination::PeerIdWithAddr(local_peer_id_2, addr_2.clone()),
+        PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone()),
+        PeerDestination::PeerIdWithAddr(local_peer_id_3, addr_3.clone()),
+    ];
+    let peers_2 = vec![
+        PeerDestination::PeerIdWithAddr(local_peer_id_3, addr_3.clone()),
+        PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone()),
+        PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1.clone()),
+    ];
+    let peers_3 = vec![
+        PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone()),
+        PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1.clone()),
+        PeerDestination::PeerIdWithAddr(local_peer_id_2, addr_2.clone()),
+    ];
+
+    let handel_conf = HandelConfig {
+        threshold: Threshold { num: 2, denom: 4 },
+        window_shrinking_factor: 4,
+        initial_scoring_window: 3,
+        fast_path_window: 10,
+        dissemination_interval: Duration::from_millis(20),
+        level_activation_delay: Duration::from_millis(50),
+    };
+    let seed = rng.gen::<[u8; 32]>();
+
+    let new_committee: HashSet<PublicKey> = vec![
+        PublicKey::from(sk_0.clone()),
+        PublicKey::from(sk_1.clone()),
+        PublicKey::from(sk_2.clone()),
+        PublicKey::from(sk_3.clone()),
+    ]
+    .into_iter()
+    .collect();
+    let new_message = Digest256::<Blake2b>::from([0; 32]);
+
+    let (channel_0, rx_aggregation_0) = futures::channel::oneshot::channel();
+    let (channel_1, rx_aggregation_1) = futures::channel::oneshot::channel();
+    let (channel_2, rx_aggregation_2) = futures::channel::oneshot::channel();
+    let (channel_3, rx_aggregation_3) = futures::channel::oneshot::channel();
+
+    let action_0 = AggregationAction::Reset {
+        new_committee: new_committee.clone(),
+        new_message,
+        channel: channel_0,
+    };
+    let action_1 = AggregationAction::Reset {
+        new_committee: new_committee.clone(),
+        new_message,
+        channel: channel_1,
+    };
+    let action_2 = AggregationAction::Reset {
+        new_committee: new_committee.clone(),
+        new_message,
+        channel: channel_2,
+    };
+    let action_3 = AggregationAction::Reset {
+        new_committee: new_committee.clone(),
+        new_message,
+        channel: channel_3,
+    };
+
+    let gen_perm = PseudoRandomGenPerm::new(seed);
+    let (mut tx_0, inbox_0) = futures::channel::mpsc::channel::<AggregationAction<Blake2b>>(10);
+    let (mut tx_1, inbox_1) = futures::channel::mpsc::channel::<AggregationAction<Blake2b>>(10);
+    let (mut tx_2, inbox_2) = futures::channel::mpsc::channel::<AggregationAction<Blake2b>>(10);
+    let (mut tx_3, inbox_3) = futures::channel::mpsc::channel::<AggregationAction<Blake2b>>(10);
+    let sig_aggr_0 = SigmaAggregation::new(
+        sk_0,
+        handel_conf,
+        MakeBinomialPeerPartitions {
+            rng: gen_perm.clone(),
+        },
+        inbox_0,
+        VecDeque::new(),
+    );
+    let sig_aggr_1 = SigmaAggregation::new(
+        sk_1,
+        handel_conf,
+        MakeBinomialPeerPartitions {
+            rng: gen_perm.clone(),
+        },
+        inbox_1,
+        VecDeque::new(),
+    );
+    let sig_aggr_2 = SigmaAggregation::new(
+        sk_2,
+        handel_conf,
+        MakeBinomialPeerPartitions {
+            rng: gen_perm.clone(),
+        },
+        inbox_2,
+        VecDeque::new(),
+    );
+    let sig_aggr_3 = SigmaAggregation::new(
+        sk_3,
+        handel_conf,
+        MakeBinomialPeerPartitions { rng: gen_perm },
+        inbox_3,
+        VecDeque::new(),
+    );
+    let sync_behaviour_0 = |_| sig_aggr_0;
+    let sync_behaviour_1 = |_| sig_aggr_1;
+    let sync_behaviour_2 = |_| sig_aggr_2;
+    let sync_behaviour_3 = |_| sig_aggr_3;
+
+    // Though we spawn multiple tasks we use this single channel for messaging.
+    let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer4, Msg<SigmaAggrMessage>)>(10);
+
+    let (mut sync_handler_0, nc_0) = make_swarm_components(
+        peers_0,
+        sync_behaviour_0,
+        SIGMA_AGGR_PROTOCOL_ID,
+        SIGMA_AGGR_V1,
+        10,
+    );
+    let (mut sync_handler_1, nc_1) = make_swarm_components(
+        peers_1,
+        sync_behaviour_1,
+        SIGMA_AGGR_PROTOCOL_ID,
+        SIGMA_AGGR_V1,
+        10,
+    );
+    let (mut sync_handler_2, nc_2) = make_swarm_components(
+        peers_2,
+        sync_behaviour_2,
+        SIGMA_AGGR_PROTOCOL_ID,
+        SIGMA_AGGR_V1,
+        10,
+    );
+    let (mut sync_handler_3, nc_3) = make_swarm_components(
+        peers_3,
+        sync_behaviour_3,
+        SIGMA_AGGR_PROTOCOL_ID,
+        SIGMA_AGGR_V1,
+        10,
+    );
+
+    let mut msg_tx_sync_handler_0 = msg_tx.clone();
+    let sync_handler_0_handle = async_std::task::spawn(async move {
+        loop {
+            let msg = sync_handler_0.select_next_some().await;
+            msg_tx_sync_handler_0
+                .try_send((Peer4::First, Msg::Protocol(msg)))
+                .unwrap();
+        }
+    });
+
+    let mut msg_tx_sync_handler_1 = msg_tx.clone();
+    let sync_handler_1_handle = async_std::task::spawn(async move {
+        loop {
+            let msg = sync_handler_1.select_next_some().await;
+            msg_tx_sync_handler_1
+                .try_send((Peer4::Second, Msg::Protocol(msg)))
+                .unwrap();
+        }
+    });
+
+    let mut msg_tx_sync_handler_2 = msg_tx.clone();
+    let sync_handler_2_handle = async_std::task::spawn(async move {
+        loop {
+            let msg = sync_handler_2.select_next_some().await;
+            msg_tx_sync_handler_2
+                .try_send((Peer4::Third, Msg::Protocol(msg)))
+                .unwrap();
+        }
+    });
+
+    let mut msg_tx_sync_handler_3 = msg_tx.clone();
+    let sync_handler_3_handle = async_std::task::spawn(async move {
+        loop {
+            let msg = sync_handler_3.select_next_some().await;
+            msg_tx_sync_handler_3
+                .try_send((Peer4::Fourth, Msg::Protocol(msg)))
+                .unwrap();
+        }
+    });
+
+    let (abortable_peer_0, handle_0) =
+        futures::future::abortable(create_swarm::<
+            SigmaAggregation<Blake2b, MakeBinomialPeerPartitions<PseudoRandomGenPerm>>,
+            Peer4,
+        >(
+            local_key_0, nc_0, addr_0.clone(), Peer4::First, msg_tx.clone()
+        ));
+    let (abortable_peer_1, handle_1) =
+        futures::future::abortable(create_swarm::<
+            SigmaAggregation<Blake2b, MakeBinomialPeerPartitions<PseudoRandomGenPerm>>,
+            Peer4,
+        >(
+            local_key_1, nc_1, addr_1.clone(), Peer4::Second, msg_tx.clone()
+        ));
+    let (abortable_peer_2, handle_2) =
+        futures::future::abortable(create_swarm::<
+            SigmaAggregation<Blake2b, MakeBinomialPeerPartitions<PseudoRandomGenPerm>>,
+            Peer4,
+        >(
+            local_key_2, nc_2, addr_2.clone(), Peer4::Third, msg_tx.clone()
+        ));
+    let (abortable_peer_3, handle_3) =
+        futures::future::abortable(create_swarm::<
+            SigmaAggregation<Blake2b, MakeBinomialPeerPartitions<PseudoRandomGenPerm>>,
+            Peer4,
+        >(local_key_3, nc_3, addr_3.clone(), Peer4::Fourth, msg_tx));
+
+    let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
+    let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
+    let (cancel_tx_2, cancel_rx_2) = oneshot::channel::<()>();
+    let (cancel_tx_3, cancel_rx_3) = oneshot::channel::<()>();
+
+    let secs = 20;
+
+    // Spawn tasks for peer_0
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_0.await;
+        handle_0.abort();
+        sync_handler_0_handle.cancel().await;
+    });
+    async_std::task::spawn(async move {
+        wasm_timer::Delay::new(Duration::from_secs(secs)).await.unwrap();
+        cancel_tx_0.send(()).unwrap();
+    });
+    async_std::task::spawn(abortable_peer_0);
+
+    // Spawn tasks for peer_1
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_1.await;
+        handle_1.abort();
+        sync_handler_1_handle.cancel().await;
+    });
+    async_std::task::spawn(async move {
+        wasm_timer::Delay::new(Duration::from_secs(secs)).await.unwrap();
+        cancel_tx_1.send(()).unwrap();
+    });
+    async_std::task::spawn(abortable_peer_1);
+
+    // Spawn tasks for peer_2
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_2.await;
+        handle_2.abort();
+        sync_handler_2_handle.cancel().await;
+    });
+    async_std::task::spawn(async move {
+        wasm_timer::Delay::new(Duration::from_secs(secs)).await.unwrap();
+        cancel_tx_2.send(()).unwrap();
+    });
+    async_std::task::spawn(abortable_peer_2);
+
+    // Spawn tasks for peer_3
+    async_std::task::spawn(async move {
+        let _ = cancel_rx_3.await;
+        handle_3.abort();
+        sync_handler_3_handle.cancel().await;
+    });
+    async_std::task::spawn(async move {
+        wasm_timer::Delay::new(Duration::from_secs(secs)).await.unwrap();
+        cancel_tx_3.send(()).unwrap();
+    });
+    async_std::task::spawn(abortable_peer_3);
+
+    wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
+    // Send Reset message
+    tx_0.try_send(action_0).unwrap();
+    tx_1.try_send(action_1).unwrap();
+    tx_2.try_send(action_2).unwrap();
+    tx_3.try_send(action_3).unwrap();
+
+    // Collect messages from the peers. Note that the while loop below will end since all tasks that
+    // use clones of `msg_tx` are guaranteed to drop, leading to the senders dropping too.
+    let mut nc_peer_0 = vec![];
+    let mut nc_peer_1 = vec![];
+    let mut nc_peer_2 = vec![];
+    let mut nc_peer_3 = vec![];
+    let mut prot_peer_0 = vec![];
+    let mut prot_peer_1 = vec![];
+    let mut prot_peer_2 = vec![];
+    let mut prot_peer_3 = vec![];
+    while let Some((peer, msg)) = msg_rx.next().await {
+        match msg {
+            Msg::NetworkController(nc_msg) => match peer {
+                Peer4::First => nc_peer_0.push(nc_msg),
+                Peer4::Second => nc_peer_1.push(nc_msg),
+                Peer4::Third => nc_peer_2.push(nc_msg),
+                Peer4::Fourth => nc_peer_3.push(nc_msg),
+            },
+            Msg::Protocol(p_msg) => match peer {
+                Peer4::First => prot_peer_0.push(p_msg),
+                Peer4::Second => prot_peer_1.push(p_msg),
+                Peer4::Third => prot_peer_2.push(p_msg),
+                Peer4::Fourth => prot_peer_3.push(p_msg),
+            },
+        }
+    }
+    let res_0 = rx_aggregation_0.await;
+    let res_1 = rx_aggregation_1.await;
+    let res_2 = rx_aggregation_2.await;
+    let res_3 = rx_aggregation_3.await;
+    dbg!(res_0);
+
+    dbg!(&nc_peer_0);
+    dbg!(&nc_peer_1);
+    dbg!(&nc_peer_2);
+    dbg!(&prot_peer_0);
+    dbg!(&prot_peer_1);
+    dbg!(&prot_peer_2);
+
+    // Check that `peer_0` is sending out the necessary `Peers` messages.
+    //assert!(
+    //    prot_peer_0.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+    //        PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1)
+    //    ])))
+    //);
+    //assert!(
+    //    prot_peer_0.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+    //        PeerDestination::PeerId(local_peer_id_2)
+    //    ])))
+    //);
+
+    //// Check that `peer_1` is sending out the necessary `Peers` messages.
+    //assert!(
+    //    prot_peer_1.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+    //        PeerDestination::PeerIdWithAddr(local_peer_id_2, addr_2)
+    //    ])))
+    //);
+    //assert!(
+    //    prot_peer_1.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+    //        PeerDestination::PeerId(local_peer_id_0)
+    //    ])))
+    //);
+
+    //// Check that `peer_2` is sending out the necessary `Peers` messages.
+    //assert!(
+    //    prot_peer_2.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+    //        PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0)
+    //    ])))
+    //);
+    //assert!(
+    //    prot_peer_2.contains(&SyncMessage::SyncMessageV1(SyncMessageV1::Peers(vec![
+    //        PeerDestination::PeerId(local_peer_id_1)
+    //    ])))
+    //);
+}
+
 fn make_swarm_components<P, F>(
     peers: Vec<PeerDestination>,
     gen_protocol_behaviour: F,
+    protocol_id: ProtocolId,
+    protocol_version: ProtocolVer,
     msg_buffer_size: usize,
 ) -> (
     ProtocolHandler<P, NetworkMailbox>,
@@ -945,7 +1663,7 @@ where
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
     let sync_conf = StatefulProtocolConfig {
         supported_versions: vec![(
-            SyncSpec::v1(),
+            protocol_version,
             StatefulProtocolSpec {
                 max_message_size: 100,
                 approve_required: true,
@@ -961,9 +1679,70 @@ where
         ProtocolHandler::new(gen_protocol_behaviour(peers.clone()), network_api, 10);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
+        HashMap::from([(protocol_id, (ProtocolConfig::Stateful(sync_conf), sync_mailbox))]),
+        peers,
+        peer_manager,
+        requests_recv,
+    );
+
+    (sync_handler, nc)
+}
+
+fn make_oneshot_swarm_components<P, F>(
+    peers: Vec<PeerDestination>,
+    gen_protocol_behaviour: F,
+    protocol_id: ProtocolId,
+    protocol_version: ProtocolVer,
+    msg_buffer_size: usize,
+) -> (
+    ProtocolHandler<P, NetworkMailbox>,
+    NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>,
+)
+where
+    P: ProtocolBehaviour + Unpin + Send + 'static,
+    F: FnOnce(PeersMailbox) -> P,
+{
+    let peer_conn_handler_conf = PeerConnHandlerConf {
+        async_msg_buffer_size: msg_buffer_size,
+        sync_msg_buffer_size: msg_buffer_size,
+        open_timeout: Duration::from_secs(60),
+        initial_keep_alive: Duration::from_secs(60),
+    };
+    let netw_config = NetworkingConfig {
+        min_known_peers: 1,
+        min_outbound: 1,
+        max_inbound: 10,
+        max_outbound: 20,
+    };
+    let peer_manager_conf = PeerManagerConfig {
+        min_acceptable_reputation: Reputation::from(0),
+        min_reputation: Reputation::from(0),
+        conn_reset_outbound_backoff: Duration::from_secs(120),
+        conn_alloc_interval: Duration::from_secs(30),
+        prot_alloc_interval: Duration::from_secs(30),
+        protocols_allocation: Vec::new(),
+        peer_manager_msg_buffer_size: 10,
+    };
+    let peer_state = PeerRepo::new(netw_config, peers);
+    let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
+    let one_shot_proto_conf = OneShotProtocolConfig {
+        version: protocol_version,
+        spec: OneShotProtocolSpec {
+            max_message_size: 100,
+        },
+    };
+
+    let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(10);
+    let network_api = NetworkMailbox {
+        mailbox_snd: requests_snd,
+    };
+    let (sync_handler, sync_mailbox) =
+        ProtocolHandler::new(gen_protocol_behaviour(peers.clone()), network_api, 10);
+    let nc = NetworkController::new(
+        peer_conn_handler_conf,
         HashMap::from([(
-            SYNC_PROTOCOL_ID,
-            (ProtocolConfig::Stateful(sync_conf), sync_mailbox),
+            protocol_id,
+            (ProtocolConfig::OneShot(one_shot_proto_conf), sync_mailbox),
         )]),
         peers,
         peer_manager,
@@ -1014,17 +1793,18 @@ pub fn make_nc_without_protocol_handler(
     (nc, requests_snd)
 }
 
-async fn create_swarm<P>(
+async fn create_swarm<P, PT>(
     local_key: identity::Keypair,
     nc: NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>,
     addr: Multiaddr,
-    peer: Peer,
+    peer: PT,
     mut tx: mpsc::Sender<(
-        Peer,
+        PT,
         Msg<<<P as ProtocolBehaviour>::TProto as spectrum_network::protocol_handler::ProtocolSpec>::TMessage>,
     )>,
 ) where
     P: ProtocolBehaviour + Unpin + Send + 'static,
+    PT: std::fmt::Debug + Copy,
 {
     let transport = libp2p::development_transport(local_key.clone()).await.unwrap();
     let local_peer_id = PeerId::from(local_key.public());

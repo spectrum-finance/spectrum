@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
 
-#[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Ord, PartialOrd)]
 pub struct Blake2b;
 
 #[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd)]

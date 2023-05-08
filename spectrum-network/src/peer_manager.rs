@@ -10,7 +10,7 @@ use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream};
 use libp2p::swarm::ConnectionId;
 use libp2p::PeerId;
-use log::{error, info, trace};
+use log::{error, info, trace, warn};
 use wasm_timer::Delay;
 
 use crate::peer_conn_handler::ConnHandlerError;
@@ -488,6 +488,7 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
 
     fn on_connection_established(&mut self, peer_id: PeerId, conn_id: ConnectionId) {
         if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&peer_id) {
+            warn!("ConnectedPeer: confirming connection {:?}", cp);
             cp.confirm_connection();
         } else {
             error!("Peer {} hasn't been acknowledged as connected", peer_id)

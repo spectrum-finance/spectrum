@@ -9,7 +9,7 @@ use futures::channel::mpsc::Receiver;
 use futures::Stream;
 pub use libp2p::swarm::NetworkBehaviour;
 use libp2p::PeerId;
-use log::{error, trace};
+use log::{error, trace, warn};
 
 use crate::network_controller::NetworkAPI;
 use crate::peer_conn_handler::message_sink::MessageSink;
@@ -254,14 +254,17 @@ where
                     continue;
                 }
                 Poll::Ready(None) => return Poll::Ready(None), // terminate, behaviour is exhausted
-                Poll::Pending => {}
+                Poll::Pending => {
+                    warn!("Behaviour returned PENDING");
+                }
             }
 
             // 2. Poll incoming events.
             if let Poll::Ready(Some(notif)) = Stream::poll_next(Pin::new(&mut self.inbox), cx) {
+                warn!("ProtocolHandler.inbox: {:?}", notif);
                 match notif {
                     ProtocolEvent::Connected(peer_id) => {
-                        trace!("Connected {:?}", peer_id);
+                        warn!("Connected {:?}", peer_id);
                         self.behaviour.inject_peer_connected(peer_id);
                     }
                     ProtocolEvent::Message {
@@ -269,6 +272,7 @@ where
                         protocol_ver: negotiated_ver,
                         content,
                     } => {
+                        warn!("ProtocolEvent::Message received");
                         if let Ok(msg) = codec::decode::<
                             <<TBehaviour as ProtocolBehaviour>::TProto as ProtocolSpec>::TMessage,
                         >(content)
@@ -330,6 +334,7 @@ where
                         handshake,
                     } => {
                         self.peers.insert(peer_id, sink);
+                        error!("peers: {:?}", self.peers);
                         match handshake.map(
                             codec::decode::<
                                 <<TBehaviour as ProtocolBehaviour>::TProto as ProtocolSpec>::THandshake,
