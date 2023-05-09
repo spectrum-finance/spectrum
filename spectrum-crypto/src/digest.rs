@@ -7,10 +7,10 @@ use std::marker::PhantomData;
 use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
 
-#[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd)]
+#[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd, Hash)]
 pub struct Blake2b;
 
-#[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd)]
+#[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd, Hash)]
 pub struct Sha2;
 
 /// N-bytes array in a box. Usually a hash.`Digest32` is most type synonym.
