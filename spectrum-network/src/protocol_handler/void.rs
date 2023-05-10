@@ -4,6 +4,7 @@ use crate::protocol_handler::codec::BinCodec;
 use crate::protocol_handler::versioning::Versioned;
 use crate::types::{ProtocolVer, RawMessage};
 
+#[derive(Debug)]
 pub enum VoidMessage {}
 
 impl BinCodec for VoidMessage {

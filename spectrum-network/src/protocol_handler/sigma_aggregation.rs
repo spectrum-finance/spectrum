@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -29,7 +29,6 @@ use crate::protocol_handler::sigma_aggregation::types::{
     Contributions, PreCommitments, PublicKey, Responses, ResponsesVerifInput, Signature,
 };
 use crate::protocol_handler::void::VoidMessage;
-use crate::protocol_handler::NetworkAction;
 use crate::protocol_handler::ProtocolBehaviour;
 use crate::protocol_handler::ProtocolBehaviourOut;
 use crate::types::ProtocolId;
@@ -87,12 +86,7 @@ where
         let committee_keys = committee.iter().map(|(pk, _)| pk.clone()).collect::<Vec<_>>();
         let ais = committee_indexed
             .iter()
-            .map(|(pix, pk)| {
-                (
-                    *pix,
-                    individual_input(committee_keys.clone(), pk.clone()),
-                )
-            })
+            .map(|(pix, pk)| (*pix, individual_input(committee_keys.clone(), pk.clone())))
             .collect();
         let (host_secret, host_commitment) = schnorr_commitment_pair();
         let host_pre_commitment = pre_commitment(host_commitment.clone());
@@ -392,67 +386,86 @@ where
                     AggregationTask {
                         state: AggregationState::AggregatePreCommitments(mut st),
                         channel,
-                    } => {
-                        match st.handel.poll(cx) {
-                            Poll::Ready(out) => match out {
-                                Either::Left(cmd) => self.outbox.push_back(cmd.rmap(|m| {
+                    } => match st.handel.poll(cx) {
+                        Poll::Ready(out) => match out {
+                            Either::Left(cmd) => {
+                                self.outbox.push_back(cmd.rmap(|m| {
                                     SigmaAggrMessage::SigmaAggrMessageV1(SigmaAggrMessageV1::PreCommitments(
                                         m,
                                     ))
-                                })),
-                                Either::Right(pre_commitments) => {
-                                    self.task = Some(AggregationTask {
-                                        state: AggregationState::AggregateSchnorrCommitments(
-                                            st.complete(pre_commitments, self.handel_conf),
-                                        ),
-                                        channel,
-                                    });
-                                    continue;
-                                }
-                            },
-                            Poll::Pending => {}
+                                }));
+                                self.task = Some(AggregationTask {
+                                    state: AggregationState::AggregatePreCommitments(st),
+                                    channel,
+                                });
+                                continue;
+                            }
+                            Either::Right(pre_commitments) => {
+                                self.task = Some(AggregationTask {
+                                    state: AggregationState::AggregateSchnorrCommitments(
+                                        st.complete(pre_commitments, self.handel_conf),
+                                    ),
+                                    channel,
+                                });
+                                continue;
+                            }
+                        },
+                        Poll::Pending => {
+                            self.task = Some(AggregationTask {
+                                state: AggregationState::AggregatePreCommitments(st),
+                                channel,
+                            });
                         }
-                        self.task = Some(AggregationTask {
-                            state: AggregationState::AggregatePreCommitments(st),
-                            channel,
-                        });
-                    }
+                    },
                     AggregationTask {
                         state: AggregationState::AggregateSchnorrCommitments(mut st),
                         channel,
-                    } => {
-                        match st.handel.poll(cx) {
-                            Poll::Ready(out) => match out {
-                                Either::Left(cmd) => self.outbox.push_back(cmd.rmap(|m| {
+                    } => match st.handel.poll(cx) {
+                        Poll::Ready(out) => match out {
+                            Either::Left(cmd) => {
+                                self.outbox.push_back(cmd.rmap(|m| {
                                     SigmaAggrMessage::SigmaAggrMessageV1(SigmaAggrMessageV1::Commitments(m))
-                                })),
+                                }));
+                                self.task = Some(AggregationTask {
+                                    state: AggregationState::AggregateSchnorrCommitments(st),
+                                    channel,
+                                });
+                                continue;
+                            }
 
-                                Either::Right(commitments) => {
-                                    self.task = Some(AggregationTask {
-                                        state: AggregationState::AggregateResponses(
-                                            st.complete(commitments, self.handel_conf),
-                                        ),
-                                        channel,
-                                    });
-                                    continue;
-                                }
-                            },
-                            Poll::Pending => {}
+                            Either::Right(commitments) => {
+                                self.task = Some(AggregationTask {
+                                    state: AggregationState::AggregateResponses(
+                                        st.complete(commitments, self.handel_conf),
+                                    ),
+                                    channel,
+                                });
+                                continue;
+                            }
+                        },
+                        Poll::Pending => {
+                            self.task = Some(AggregationTask {
+                                state: AggregationState::AggregateSchnorrCommitments(st),
+                                channel,
+                            });
                         }
-                        self.task = Some(AggregationTask {
-                            state: AggregationState::AggregateSchnorrCommitments(st),
-                            channel,
-                        });
-                    }
+                    },
                     AggregationTask {
                         state: AggregationState::AggregateResponses(mut st),
                         channel,
                     } => {
                         match st.handel.poll(cx) {
                             Poll::Ready(out) => match out {
-                                Either::Left(cmd) => self.outbox.push_back(cmd.rmap(|m| {
-                                    SigmaAggrMessage::SigmaAggrMessageV1(SigmaAggrMessageV1::Responses(m))
-                                })),
+                                Either::Left(cmd) => {
+                                    self.outbox.push_back(cmd.rmap(|m| {
+                                        SigmaAggrMessage::SigmaAggrMessageV1(SigmaAggrMessageV1::Responses(m))
+                                    }));
+                                    self.task = Some(AggregationTask {
+                                        state: AggregationState::AggregateResponses(st),
+                                        channel,
+                                    });
+                                    continue;
+                                }
                                 Either::Right(responses) => {
                                     self.task = None;
                                     let res = st.complete(responses);
@@ -463,15 +476,17 @@ where
                                     continue;
                                 }
                             },
-                            Poll::Pending => {}
+                            Poll::Pending => {
+                                self.task = Some(AggregationTask {
+                                    state: AggregationState::AggregateResponses(st),
+                                    channel,
+                                });
+                            }
                         }
-                        self.task = Some(AggregationTask {
-                            state: AggregationState::AggregateResponses(st),
-                            channel,
-                        });
                     }
                 }
             }
+
             return Poll::Pending;
         }
     }

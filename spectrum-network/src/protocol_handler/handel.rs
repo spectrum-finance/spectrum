@@ -330,7 +330,7 @@ where
     /// Sends messages for one node from each active level.
     fn run_dissemination(&mut self) {
         let own_contrib = self.get_own_contribution();
-        for (lix, lvl) in &mut self.levels.iter_mut().enumerate() {
+        for (lix, lvl) in &mut self.levels.iter_mut().enumerate().skip(1) {
             if let Some(active_lvl) = lvl {
                 let peers_at_level = self.peer_partitions.peers_at_level(lix, PeerOrd::CVP);
                 let maybe_next_peer = active_lvl
