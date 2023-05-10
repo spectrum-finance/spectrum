@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use derive_more::From;
-use libp2p::PeerId;
+use libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -74,13 +74,15 @@ pub trait PeerPartitions {
     fn identify_peer(&self, peer_ix: PeerIx) -> PeerId;
     /// Match `PeerId` with `PeerIx`.
     fn try_index_peer(&self, peer_id: PeerId) -> Option<PeerIx>;
+    /// Get network address the given peer can be reached on.
+    fn addr_hint(&self, peer_id: PeerId) -> Option<Multiaddr>;
     /// Get the number of levels in this peer set.
     fn num_levels(&self) -> usize;
 }
 
 pub trait MakePeerPartitions {
     type PP: PeerPartitions;
-    fn make(&self, host_peer_id: PeerId, peers: Vec<PeerId>) -> Self::PP;
+    fn make(&self, host_peer_id: PeerId, peers: Vec<(PeerId, Option<Multiaddr>)>) -> Self::PP;
 }
 
 pub struct BinomialPeerPartitions<R> {
@@ -92,11 +94,13 @@ pub struct BinomialPeerPartitions<R> {
     partitions_by_vp: Vec<Vec<PeerIx>>,
     /// All peers partitioned and ordered according to their CVP at each level `l`.
     partitions_by_cvp: Vec<Vec<PeerIx>>,
+    addr_book: HashMap<PeerId, Multiaddr>,
     rng: R,
 }
 
+#[derive(Clone)]
 pub struct MakeBinomialPeerPartitions<R> {
-    rng: R,
+    pub rng: R,
 }
 
 impl<R> MakePeerPartitions for MakeBinomialPeerPartitions<R>
@@ -104,7 +108,11 @@ where
     R: GenPermutation + Clone,
 {
     type PP = BinomialPeerPartitions<R>;
-    fn make(&self, host_peer_id: PeerId, peers: Vec<PeerId>) -> BinomialPeerPartitions<R> {
+    fn make(
+        &self,
+        host_peer_id: PeerId,
+        peers: Vec<(PeerId, Option<Multiaddr>)>,
+    ) -> BinomialPeerPartitions<R> {
         BinomialPeerPartitions::new(host_peer_id, peers, self.rng.clone())
     }
 }
@@ -115,7 +123,7 @@ impl<R> BinomialPeerPartitions<R>
 where
     R: GenPermutation,
 {
-    pub fn new(host_peer_id: PeerId, peers: Vec<PeerId>, rng: R) -> Self {
+    pub fn new(host_peer_id: PeerId, peers: Vec<(PeerId, Option<Multiaddr>)>, rng: R) -> Self {
         let num_real_peers = <u32>::try_from(peers.len()).unwrap();
         let normalized_num_peers = normalize(num_real_peers);
         let num_fake_peers = normalized_num_peers - num_real_peers;
@@ -126,6 +134,7 @@ where
         let mut all_peers = peers
             .clone()
             .into_iter()
+            .map(|(pid, _)| pid)
             .chain(fake_peers.clone())
             .collect::<Vec<_>>();
         all_peers.sort_by_key(|pid| rng.gen_priority(*pid));
@@ -154,6 +163,10 @@ where
             peer_index: total_index,
             partitions_by_vp: ordered_by_vp(&rng, cleared_partitions.clone(), host_peer_ix),
             partitions_by_cvp: ordered_by_cvp(&rng, cleared_partitions, host_peer_ix, num_nodes),
+            addr_book: peers
+                .into_iter()
+                .filter_map(|(pid, maybe_addr)| maybe_addr.map(|addr| (pid, addr)))
+                .collect(),
             rng,
         }
     }
@@ -248,6 +261,10 @@ impl<R> PeerPartitions for BinomialPeerPartitions<R> {
         self.peer_index.get(&peer_id).copied()
     }
 
+    fn addr_hint(&self, peer_id: PeerId) -> Option<Multiaddr> {
+        self.addr_book.get(&peer_id).cloned()
+    }
+
     fn num_levels(&self) -> usize {
         self.partitions_by_vp.len()
     }
@@ -257,7 +274,7 @@ impl<R> PeerPartitions for BinomialPeerPartitions<R> {
 pub mod tests {
     use std::collections::HashMap;
 
-    use libp2p::PeerId;
+    use libp2p::{Multiaddr, PeerId};
 
     use crate::protocol_handler::handel::partitioning::{
         bin_partition, normalize, BinomialPeerPartitions, PeerIx, PeerOrd, PeerPartitions,
@@ -305,6 +322,10 @@ pub mod tests {
             self.peer_index.get(&peer_id).copied()
         }
 
+        fn addr_hint(&self, peer_id: PeerId) -> Option<Multiaddr> {
+            None
+        }
+
         fn num_levels(&self) -> usize {
             self.partitions.len()
         }
@@ -349,8 +370,8 @@ pub mod tests {
 
     #[test]
     fn test_instantiate_partitions() {
-        let init_peers = (0..10).map(|_| PeerId::random()).collect::<Vec<_>>();
-        let own_peer_id = init_peers[9];
+        let init_peers = (0..10).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
+        let own_peer_id = init_peers[9].0;
         let rng = PseudoRandomGenPerm::new([0u8; 32]);
         let part = BinomialPeerPartitions::new(own_peer_id, init_peers.clone(), rng);
         assert_eq!(part.partitions_by_vp.len(), 5);
@@ -359,9 +380,9 @@ pub mod tests {
 
     #[test]
     fn overlay_structure_is_coherent_across_peers() {
-        let init_peers = (0..16).map(|_| PeerId::random()).collect::<Vec<_>>();
-        let host_id = init_peers[9];
-        let peer_id = init_peers[15];
+        let init_peers = (0..16).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
+        let host_id = init_peers[9].0;
+        let peer_id = init_peers[15].0;
         let rng = PseudoRandomGenPerm::new([0u8; 32]);
         let host_pp = BinomialPeerPartitions::new(host_id, init_peers.clone(), rng.clone());
         let peer_pp = BinomialPeerPartitions::new(peer_id, init_peers.clone(), rng);

@@ -1,10 +1,13 @@
+use ciborium::de::Error;
 use serde::{Deserialize, Serialize};
+use crate::protocol_handler::codec::BinCodec;
 
 use crate::protocol_handler::handel::message::HandelMessage;
 use crate::protocol_handler::sigma_aggregation::types::{CommitmentsWithProofs, Responses, PreCommitments};
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_handler::ProtocolSpec;
-use crate::types::ProtocolVer;
+use crate::protocol_handler::void::VoidMessage;
+use crate::types::{ProtocolVer, RawMessage};
 
 pub const SIGMA_AGGR_V1: ProtocolVer = ProtocolVer(1);
 
@@ -31,6 +34,6 @@ impl Versioned for SigmaAggrMessage {
 pub struct SigmaAggrSpec;
 
 impl ProtocolSpec for SigmaAggrSpec {
-    type THandshake = SigmaAggrMessage;
+    type THandshake = VoidMessage;
     type TMessage = SigmaAggrMessage;
 }

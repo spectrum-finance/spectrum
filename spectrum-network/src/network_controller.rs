@@ -9,6 +9,7 @@ use futures::channel::mpsc::{Receiver, Sender};
 use futures::{SinkExt, Stream};
 use libp2p::core::Endpoint;
 use libp2p::swarm::behaviour::ConnectionEstablished;
+use libp2p::swarm::dial_opts::DialOpts;
 use libp2p::swarm::{
     CloseConnection, ConnectionClosed, ConnectionDenied, ConnectionId, DialFailure, FromSwarm,
     NetworkBehaviour, NotifyHandler, PollParameters, ToSwarm,
@@ -118,6 +119,7 @@ pub enum NetworkControllerIn {
     /// establishing a persistent two-way communication channel.
     SendOneShotMessage {
         peer: PeerId,
+        addr_hint: Option<Multiaddr>,
         protocol: ProtocolTag,
         message: RawMessage,
     },
@@ -134,7 +136,13 @@ pub trait NetworkAPI {
     fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>);
     /// Send the given message to the specified peer without
     /// establishing a persistent two-way communication channel.
-    fn send_one_shot_message(&self, peer: PeerId, protocol: ProtocolTag, message: RawMessage);
+    fn send_one_shot_message(
+        &self,
+        peer: PeerId,
+        addr_hint: Option<Multiaddr>,
+        protocol: ProtocolTag,
+        message: RawMessage,
+    );
     /// Ban peer permanently.
     fn ban_peer(&self, peer: PeerId);
 }
@@ -161,10 +169,17 @@ impl NetworkAPI for NetworkMailbox {
                 .send(NetworkControllerIn::UpdatePeerProtocols { peer, protocols }),
         );
     }
-    fn send_one_shot_message(&self, peer: PeerId, protocol: ProtocolTag, message: RawMessage) {
+    fn send_one_shot_message(
+        &self,
+        peer: PeerId,
+        addr_hint: Option<Multiaddr>,
+        protocol: ProtocolTag,
+        message: RawMessage,
+    ) {
         let _ = futures::executor::block_on(self.mailbox_snd.clone().send(
             NetworkControllerIn::SendOneShotMessage {
                 peer,
+                addr_hint,
                 protocol,
                 message,
             },
@@ -714,6 +729,7 @@ where
                 match input {
                     NetworkControllerIn::SendOneShotMessage {
                         peer,
+                        addr_hint,
                         protocol,
                         message,
                     } => match self.enabled_peers.entry(peer) {
@@ -743,8 +759,11 @@ where
                             ConnectedPeer::PendingDisconnect(_) => {} // todo: wait for disconnect; reconnect?
                         },
                         Entry::Vacant(not_enabled_peer) => {
-                            self.pending_actions
-                                .push_back(ToSwarm::Dial { opts: peer.into() });
+                            self.pending_actions.push_back(ToSwarm::Dial {
+                                opts: DialOpts::peer_id(peer)
+                                    .addresses(addr_hint.map_or(Vec::new(), |a| vec![a]))
+                                    .build(),
+                            });
                             not_enabled_peer.insert(ConnectedPeer::PendingConnect {
                                 tasks: vec![OneShotMessage {
                                     protocol,

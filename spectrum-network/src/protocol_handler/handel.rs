@@ -14,7 +14,9 @@ use spectrum_crypto::VerifiableAgainst;
 
 use crate::protocol_handler::handel::message::HandelMessage;
 use crate::protocol_handler::handel::partitioning::{PeerIx, PeerOrd, PeerPartitions};
+use crate::protocol_handler::void::VoidMessage;
 use crate::protocol_handler::{NetworkAction, ProtocolBehaviourOut, TemporalProtocolStage};
+use crate::types::ProtocolVer;
 
 pub mod message;
 pub mod partitioning;
@@ -92,7 +94,7 @@ pub struct Handel<C, P, PP> {
     byzantine_nodes: HashSet<PeerIx>,
     /// Keeps track of the peers to whom we've sent our own contribution already.
     own_contribution_recvs: HashSet<PeerIx>,
-    outbox: VecDeque<ProtocolBehaviourOut<Void, HandelMessage<C>>>,
+    outbox: VecDeque<ProtocolBehaviourOut<VoidMessage, HandelMessage<C>>>,
     next_dissemination_at: Instant,
     level_activation_schedule: Vec<Option<Instant>>,
 }
@@ -301,21 +303,26 @@ where
                 .map(|ix| nodes_at_level[ix])
                 .collect::<Vec<_>>();
             for pix in nodes {
+                let pid = self.peer_partitions.identify_peer(pix);
                 let maybe_own_contrib = if !self.own_contribution_recvs.contains(&pix) {
                     own_contrib.clone()
                 } else {
                     None
                 };
                 let Verified(best_contrib) = lvl.best_contribution.clone();
-                self.outbox.push_back(ProtocolBehaviourOut::Send {
-                    peer_id: self.peer_partitions.identify_peer(pix),
-                    message: HandelMessage {
-                        level: level as u32,
-                        individual_contribution: maybe_own_contrib,
-                        aggregate_contribution: best_contrib.contribution,
-                        contact_sender: false,
+                self.outbox.push_back(ProtocolBehaviourOut::NetworkAction(
+                    NetworkAction::SendOneShotMessage {
+                        peer: pid,
+                        addr_hint: self.peer_partitions.addr_hint(pid),
+                        use_version: ProtocolVer::default(),
+                        message: HandelMessage {
+                            level: level as u32,
+                            individual_contribution: maybe_own_contrib,
+                            aggregate_contribution: best_contrib.contribution,
+                            contact_sender: false,
+                        },
                     },
-                });
+                ));
             }
         }
     }
@@ -343,15 +350,19 @@ where
                     None
                 };
                 let Verified(best_contrib) = active_lvl.best_contribution.clone();
-                self.outbox.push_back(ProtocolBehaviourOut::Send {
-                    peer_id: next_peer,
-                    message: HandelMessage {
-                        level: lix as u32,
-                        individual_contribution: maybe_own_contrib,
-                        aggregate_contribution: best_contrib.contribution,
-                        contact_sender: false,
+                self.outbox.push_back(ProtocolBehaviourOut::NetworkAction(
+                    NetworkAction::SendOneShotMessage {
+                        peer: next_peer,
+                        addr_hint: self.peer_partitions.addr_hint(next_peer),
+                        use_version: ProtocolVer::default(),
+                        message: HandelMessage {
+                            level: lix as u32,
+                            individual_contribution: maybe_own_contrib,
+                            aggregate_contribution: best_contrib.contribution,
+                            contact_sender: false,
+                        },
                     },
-                });
+                ));
             }
         }
     }
@@ -442,7 +453,7 @@ impl<C: Eq> Ord for ScoredContributionTraced<C> {
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone)]
 struct Verified<C>(C);
 
-impl<C, P, PP> TemporalProtocolStage<Void, HandelMessage<C>, C> for Handel<C, P, PP>
+impl<C, P, PP> TemporalProtocolStage<VoidMessage, HandelMessage<C>, C> for Handel<C, P, PP>
 where
     C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone + Eq + Debug,
     PP: PeerPartitions,
@@ -466,7 +477,10 @@ where
         }
     }
 
-    fn poll(&mut self, _: &mut Context<'_>) -> Poll<Either<ProtocolBehaviourOut<Void, HandelMessage<C>>, C>> {
+    fn poll(
+        &mut self,
+        _: &mut Context<'_>,
+    ) -> Poll<Either<ProtocolBehaviourOut<VoidMessage, HandelMessage<C>>, C>> {
         self.try_disseminatate();
         self.try_activate_levels();
         if let Some(out) = self.outbox.pop_front() {
@@ -490,7 +504,7 @@ impl<C, P, PP> NarrowTo<PP> for Handel<C, P, PP> {
 }
 
 pub trait HandelRound<'a, C, PP>:
-    TemporalProtocolStage<Void, HandelMessage<C>, C> + NarrowTo<PP> + 'a
+    TemporalProtocolStage<VoidMessage, HandelMessage<C>, C> + NarrowTo<PP> + 'a
 {
 }
 
@@ -507,7 +521,7 @@ mod tests {
     use std::collections::HashSet;
     use std::time::Duration;
 
-    use libp2p::PeerId;
+    use libp2p::{Multiaddr, PeerId};
 
     use algebra_core::CommutativePartialSemigroup;
     use spectrum_crypto::VerifiableAgainst;
@@ -550,7 +564,7 @@ mod tests {
 
     fn make_handel(
         own_peer: PeerId,
-        peers: Vec<PeerId>,
+        peers: Vec<(PeerId, Option<Multiaddr>)>,
         contrib: Contrib,
     ) -> Handel<Contrib, (), BinomialPeerPartitions<PseudoRandomGenPerm>> {
         let rng = PseudoRandomGenPerm::new([0u8; 32]);
@@ -561,8 +575,8 @@ mod tests {
     #[test]
     fn best_contrib_is_own_contrib_when_no_interactions() {
         let my_contrib = Contrib(HashSet::from([0]));
-        let peers = (0..10).map(|_| PeerId::random()).collect::<Vec<_>>();
-        let own_peer = peers[0];
+        let peers = (0..10).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
+        let own_peer = peers[0].0;
         let handel = make_handel(own_peer, peers, my_contrib.clone());
         assert_eq!(handel.best_contribution(), my_contrib);
     }
@@ -570,8 +584,8 @@ mod tests {
     #[test]
     fn zeroth_and_first_levels_are_active_on_start() {
         let my_contrib = Contrib(HashSet::from([0]));
-        let peers = (0..10).map(|_| PeerId::random()).collect::<Vec<_>>();
-        let own_peer = peers[0];
+        let peers = (0..10).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
+        let own_peer = peers[0].0;
         let handel = make_handel(own_peer, peers, my_contrib.clone());
         assert!(handel.is_active(0));
         assert!(handel.is_active(1));
@@ -583,8 +597,8 @@ mod tests {
         let my_contrib = Contrib(HashSet::from([0]));
         let their_contrib = Contrib(HashSet::from([1]));
         let their_aggregate_contrib = Contrib(HashSet::from([1, 4, 9]));
-        let peers = (0..16).map(|_| PeerId::random()).collect::<Vec<_>>();
-        let own_peer = peers[0];
+        let peers = (0..16).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
+        let own_peer = peers[0].0;
         let mut handel = make_handel(own_peer, peers.clone(), my_contrib.clone());
         let peer = handel.peer_partitions.peers_at_level(1, PeerOrd::VP)[0];
         let res = handel.handle_contribution(
@@ -603,8 +617,8 @@ mod tests {
         let my_contrib = Contrib(HashSet::from([0]));
         let their_contrib = Contrib(HashSet::from([1]));
         let their_aggregate_contrib = Contrib(HashSet::from([1, 4, 9]));
-        let peers = (0..10).map(|_| PeerId::random()).collect::<Vec<_>>();
-        let own_peer = peers[0];
+        let peers = (0..10).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
+        let own_peer = peers[0].0;
         let mut handel = make_handel(own_peer, peers.clone(), my_contrib.clone());
         let res =
             handel.handle_contribution(PeerId::random(), 1, their_aggregate_contrib, Some(their_contrib));
