@@ -8,3 +8,4 @@ rust-version = "1.65.0"
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
 serde = { version = "1.0.147", features = ["derive"] }
 derive_more = "0.99.17"
+k256 = { version = "0.13.*", features = ["serde"] }

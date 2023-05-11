@@ -1,4 +1,10 @@
+pub mod sbox;
+pub mod transaction;
+
 use spectrum_crypto::digest::{Blake2b, Digest256};
+
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug)]
+pub struct ChainId(u16);
 
 #[derive(
     Copy,
