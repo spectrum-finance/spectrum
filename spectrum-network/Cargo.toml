@@ -12,7 +12,7 @@ integration_tests = []
 algebra-core = { version = "0.1.0", path = "../algebra-core" }
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
 libp2p = { version = "0.51.*", features = ["noise", "yamux", "secp256k1"] }
-libp2p-identity = "0.1.1"
+libp2p-identity = "0.1.*"
 futures = "0.3.21"
 async-std = { version = "1.10.0", features = ["attributes"] }
 unsigned-varint = { version = "0.7.1", features = ["futures", "asynchronous_codec"] }
