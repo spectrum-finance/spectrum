@@ -322,11 +322,13 @@ where
         peer_id: PeerId,
         SigmaAggrMessage::SigmaAggrMessageV1(msg): SigmaAggrMessage,
     ) {
+        println!("Recv message {:?} from {}", msg, peer_id);
         match &mut self.task {
             Some(AggregationTask {
                 state: AggregationState::AggregatePreCommitments(ref mut pre_commitment),
                 ..
             }) => {
+                println!("SigmaAggrMessageV1::PreCommitments");
                 if let SigmaAggrMessageV1::PreCommitments(pre_commits) = msg {
                     pre_commitment.handel.inject_message(peer_id, pre_commits);
                 }
@@ -335,6 +337,7 @@ where
                 state: AggregationState::AggregateSchnorrCommitments(ref mut commitment),
                 ..
             }) => {
+                println!("SigmaAggrMessageV1::Commitments");
                 if let SigmaAggrMessageV1::Commitments(commits) = msg {
                     commitment.handel.inject_message(peer_id, commits);
                 }
@@ -343,6 +346,7 @@ where
                 state: AggregationState::AggregateResponses(ref mut response),
                 ..
             }) => {
+                println!("SigmaAggrMessageV1::Responses");
                 if let SigmaAggrMessageV1::Responses(resps) = msg {
                     response.handel.inject_message(peer_id, resps);
                 }

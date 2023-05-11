@@ -65,7 +65,7 @@ pub struct ProtocolVer(pub u8);
 
 impl Default for ProtocolVer {
     fn default() -> Self {
-        ProtocolVer(0)
+        ProtocolVer(1)
     }
 }
 

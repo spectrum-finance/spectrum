@@ -77,6 +77,7 @@ impl ProtocolEvents for ProtocolMailbox {
             protocol_ver,
             content,
         }));
+        println!("[PE] Message sent");
     }
 
     fn protocol_requested(&self, peer_id: PeerId, protocol_ver: ProtocolVer, handshake: Option<RawMessage>) {

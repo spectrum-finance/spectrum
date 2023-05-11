@@ -585,7 +585,10 @@ where
                 protocol_tag,
                 content,
             } => {
+                println!("[NC] Recv OS message");
+                println!("[NC] Avail prot handlers are {:?}", self.supported_protocols.iter().map(|(pid, _)| pid).collect::<Vec<_>>());
                 if let Some((_, han)) = self.supported_protocols.get(&protocol_tag.protocol_id()) {
+                    println!("[NC] handler is found for {:?}", protocol_tag.protocol_id());
                     han.incoming_msg(peer_id, protocol_tag.protocol_ver(), content);
                 }
                 // todo: punish peer for spam otherwise?

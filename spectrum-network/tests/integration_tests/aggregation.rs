@@ -1,10 +1,9 @@
 use std::collections::HashMap;
-use std::fmt::format;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use elliptic_curve::rand_core::OsRng;
+use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
-use futures::channel::{mpsc, oneshot};
 use futures::future::AbortHandle;
 use futures::StreamExt;
 use k256::SecretKey;
@@ -14,22 +13,23 @@ use libp2p::{identity, noise, tcp, yamux, Multiaddr, Transport};
 use libp2p_identity::{Keypair, PeerId};
 use rand::Rng;
 
-use spectrum_crypto::digest::{blake2b256_hash, Blake2b};
+use spectrum_crypto::digest::Blake2b;
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
 use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerConfig, PeersMailbox};
-use spectrum_network::protocol::{OneShotProtocolConfig, OneShotProtocolSpec, ProtocolConfig};
+use spectrum_network::protocol::{
+    OneShotProtocolConfig, OneShotProtocolSpec, ProtocolConfig, SIGMA_AGGR_PROTOCOL_ID,
+};
 use spectrum_network::protocol_api::ProtocolMailbox;
 use spectrum_network::protocol_handler::aggregation::AggregationAction;
 use spectrum_network::protocol_handler::handel::partitioning::{
     MakeBinomialPeerPartitions, PseudoRandomGenPerm,
 };
 use spectrum_network::protocol_handler::handel::{HandelConfig, Threshold};
-use spectrum_network::protocol_handler::sigma_aggregation::types::PublicKey;
-use spectrum_network::protocol_handler::sigma_aggregation::{Aggregated, SigmaAggregation};
+use spectrum_network::protocol_handler::sigma_aggregation::SigmaAggregation;
 use spectrum_network::protocol_handler::ProtocolHandler;
-use spectrum_network::types::{ProtocolId, ProtocolVer, Reputation};
+use spectrum_network::types::{ProtocolVer, Reputation};
 
 pub struct Peer {
     pub peer_id: PeerId,
@@ -53,10 +53,8 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
         let peer_id = PeerId::from(peer_key.public());
         let peer_addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", 7000 + node_ix).parse().unwrap();
 
-        let pid = ProtocolId::from_u8(1u8);
-        let ver = ProtocolVer::from(1u8);
         let one_shot_proto_conf = OneShotProtocolConfig {
-            version: ver,
+            version: ProtocolVer::default(),
             spec: OneShotProtocolSpec {
                 max_message_size: 500,
             },
@@ -111,19 +109,15 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
         let nc = NetworkController::new(
             peer_conn_handler_conf,
             HashMap::from([(
-                pid,
+                SIGMA_AGGR_PROTOCOL_ID,
                 (ProtocolConfig::OneShot(one_shot_proto_conf.clone()), aggr_mailbox),
             )]),
             peers,
             peer_manager,
             requests_recv,
         );
-        let (abortable_peer, handle) = futures::future::abortable(create_swarm(
-            peer_key.clone(),
-            nc,
-            peer_addr.clone(),
-            node_ix,
-        ));
+        let (abortable_peer, handle) =
+            futures::future::abortable(create_swarm(peer_key.clone(), nc, peer_addr.clone(), node_ix));
         async_std::task::spawn(async move {
             println!("PEER:{} :: spawning protocol handler..", node_ix);
             loop {
@@ -165,11 +159,12 @@ pub async fn create_swarm(
 
     swarm.listen_on(addr).unwrap();
 
+    let peer = format!("Peer::{}", peer_index);
     loop {
         match swarm.select_next_some().await {
-            SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {:?}", address),
+            SwarmEvent::NewListenAddr { address, .. } => println!("{} :: Listening on {:?}", peer, address),
             ce => {
-                dbg!(format!("Peer::{}", peer_index), ce);
+                println!("{} :: Recv event :: {:?}", peer, ce);
             }
         }
     }

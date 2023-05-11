@@ -1,15 +1,11 @@
-use ciborium::de::Error;
 use serde::{Deserialize, Serialize};
-use crate::protocol_handler::codec::BinCodec;
 
 use crate::protocol_handler::handel::message::HandelMessage;
-use crate::protocol_handler::sigma_aggregation::types::{CommitmentsWithProofs, Responses, PreCommitments};
+use crate::protocol_handler::sigma_aggregation::types::{CommitmentsWithProofs, PreCommitments, Responses};
 use crate::protocol_handler::versioning::Versioned;
-use crate::protocol_handler::ProtocolSpec;
 use crate::protocol_handler::void::VoidMessage;
-use crate::types::{ProtocolVer, RawMessage};
-
-pub const SIGMA_AGGR_V1: ProtocolVer = ProtocolVer(1);
+use crate::protocol_handler::ProtocolSpec;
+use crate::types::ProtocolVer;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum SigmaAggrMessage {
@@ -26,7 +22,7 @@ pub enum SigmaAggrMessageV1 {
 impl Versioned for SigmaAggrMessage {
     fn version(&self) -> ProtocolVer {
         match self {
-            SigmaAggrMessage::SigmaAggrMessageV1(_) => SIGMA_AGGR_V1,
+            SigmaAggrMessage::SigmaAggrMessageV1(_) => ProtocolVer::default(),
         }
     }
 }
