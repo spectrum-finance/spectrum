@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use k256::PublicKey;
 
 use spectrum_crypto::digest::Blake2bDigest256;
+use spectrum_move::{SerializedModule, SerializedValue};
 
 use crate::ChainId;
 
@@ -43,6 +44,10 @@ pub struct ScriptHash(Blake2bDigest256);
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug)]
 pub struct ScriptRef(BoxRef);
 
+/// Where the datum source can be found.
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug)]
+pub struct DatumRef(BoxRef);
+
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Debug)]
 pub enum Owner {
     ProveDlog(PublicKey),
@@ -74,10 +79,13 @@ pub struct SBox {
     pub owner: Owner,
     /// Data attached to the box.
     pub datum: Option<DatumHash>,
-    pub reference_script: Option<()>,
     /// Source chain of the box. `None` if the box is local.
     pub src: Option<ChainId>,
     /// Destination chain of the box (where the value of the box is supposed to settle in the end).
     /// `None` if the box is supposed to remain on the multichain.
     pub dst: Option<BoxDestination>,
+    /// Script that can be referenced by other transactions.
+    pub reference_script: Option<SerializedModule>,
+    /// Datum that can be referenced by other transactions.
+    pub reference_datum: Option<SerializedValue>,
 }
