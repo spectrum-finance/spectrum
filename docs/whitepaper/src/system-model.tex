@@ -12,36 +12,45 @@ It should also satisfy the following properties:
 
 \subsection{Time and Slots.}\label{subsec:time-and-slots.}
 We consider a setting where time is divided into discrete units called slots.
-A ledger, described in more detail above, associates with each time slot (at most) one ledger block.
-Participants are equipped with (roughly synchronized) clocks that indicate the current slot.
+A ledger, which is described in more details in another section, associates one ledger block with each time slot (at most).
+Participants are equipped with (roughly synchronized) clocks that indicates the current slot.
 This will permit them to carry out a distributed protocol intending to collectively assign a block to this current
 slot.
 In general, each slot $sl_r$ is indexed by an integer $r \subseteq \{1, 2, ..\}$, and we assume that the real
 time window that corresponds to each slot has the following two properties:
 \begin{enumerate}
-    \item The current slot is determined by a publicly-known and monotonically increasing function of current time.
+    \item The current slot is determined by a publicly-known and monotonically increasing function of the current time.
     \item Each participant has access to the current time.
-    Any discrepancies between parties' local time are insignificant in comparison with the length of time represented by a slot.
+    Any discrepancies between parties' local time are insignificant in comparison with the slot duration.
 \end{enumerate}
 
 \subsection{Synchrony.}\label{subsec:synchrony.}
-We consider an untrustworthy network environment that allows for adversarially-controlled message delays and immediate adaptive corruption.
-Namely, we allow the adversary $A$ to selectively delay any messages sent by honest parties for up to $\Delta \subseteq \mathbb{N}$ slots and corrupt parties without delay.
+We consider an untrustworthy network environment that allows for adversarial-controlled message delays and immediate adaptive corruption.
+Namely, we allow the adversary $A$ to selectively delay any messages sent by an honest party for up to $\Delta \subseteq \mathbb{K}$ slots and corrupt parties without delay.
 
 \subsection{Security Model.}\label{subsec:security-model.}
 The system is composed of a set of nodes $N$.
-Each node $n \in N$ is able to generate key-pairs ${(PK_n, SK_n)}$ without trusted public key infrastructure and is able to sign messages ${sign: (SK_n, m) \rightarrow \sigma}$.
-Each node $n \in N$ is also able to verify signatures ${verify: (\sigma, PK_n, m) \rightarrow 0 | 1}$.
-Each node $n \in N$ is associated with a unique wallet holding a balance of tokens $B_n$.
 
-At any time $t$ a susbset ${V_t \subseteq N}$ of nodes is controlled by an adversary and are considered faulty.
-Byzantine nodes can divert from the protocol and collude to attack the system.
-The remaining honest nodes follow the protocol.
-We assume that the total balance of all faulty nodes is less than 1/3 of the total balance $B$ of all nodes.
+Each node $n \in N$ is:
+\begin{itemize}
+    \item Able to generate the key-pairs ${(PK_n, SK_n)}$ without trusted public key infrastructure.
+    \item Able to sign messages ${sign: (SK_n, m) \rightarrow \sigma}$.
+    \item Able to Verify signatures ${verify: (\sigma, PK_n, m) \rightarrow 0 | 1}$.
+    \item Associated with a unique wallet holding a stake of tokens $s_n$.
+\end{itemize}
+
+At any time $t$ a subset ${V \subseteq N}$ of nodes is controlled by an adversary and are considered faulty.
+Byzantine nodes can divert from the protocol and collude to attack the system while the remaining honest nodes follow the protocol.
+We assume that the total stake of all faulty nodes is less than 1/3 of the total stake $s$ of all nodes.
 
 \subsection{Random Oracle.}\label{subsec:random-oracle.}
-We also assume the availability of a random oracle.
-This is a function $H: \{0,1\}^* \rightarrow \{0,1\}^\omega$ available to all parties that answers every fresh query with an independent, uniformly random string from f0; 1gw, while any repeated queries are answered consistently.
+We also assume that a random oracle is available to each node $n \in N$.
+Random oracle is designed in such a way that it is able to:
+\begin{itemize}
+    \item Generate the key-pairs ${(PK^r_n, SK^r_n)}$ associated with the unique wallet holding a stake of tokens $s_n$.
+    \item Generate uniformly-distributed pseudo-random numbers ${random: (seed || x; R_n) \rightarrow y}$, where ${seed, x \in \{0,1\}^*}$, ${y \in \{0,1\}^\omega}$ and all the repeated queries are answered consistently.
+    \item Verify the correctness of the generated random number ${verify: (y, seed, PK_n) \rightarrow 0 | 1}$.
+\end{itemize}
 
 \subsection{External Systems.}\label{subsec:external-systems.}
 We also assume multiple independent distributed systems ${S_1, \dots, S_k}$ with underlying ledgers ${L_1, \dots, L_k}$ as defined in~\cite{cryptoeprint:2019/1128}.

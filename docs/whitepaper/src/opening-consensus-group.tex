@@ -72,11 +72,15 @@ Stakeholders interacting among themselves and with ideal functionalities ${\math
     \end{enumerate}
 
     \item \textbf{Consensus group reinitialization}.
-    At the end of each epoch $e_j$, with $j \geqslant 1$ all consensus group lottery participants should commit their generated verification keys tuples as in the step (a) into the blockchain.
-    If $PK_i$ keys are already stored in the blockchain, when he evaluates ${\mathcal_{F}}_{VRF}$ with a query ${(\textbf{EvalProve}, sid, \eta_j || e_j || \textbf{test*})}$ and compares the received random $y$ with a threshold ${T_i^j}^*$, which he sets according to $e_j$ snapshot with modified $\phi$ function (to select $M$ consensus group members out of $K$ total stakeholders).
+    Every new epoch has a new consensus group.
+    Any protocol participant can try to become a member of the consensus group if he is verified.
+    Participant is verified if his generated verification key tuple is stored in the blockchain for a reliable period of time.
+
+    At the end of each epoch $e_j$ with $j \geqslant 1$ all verified protocol participants
+    evaluate ${\mathcal_{F}}_{VRF}$ with a query ${(\textbf{EvalProve}, sid, \eta_j || e_j || \textbf{test*})}$ and compares the received random $y$ value with a threshold ${T_i^j}^*$.
+    Threshould which is calculated with the $\phi$ function, parameterized with a total stake at the beginning of the current epoch.
+    Argument ${f = M \/ K}$, where $M$ is a number of new consensus group members to select and $K$ is the total number of the verified stakeholders.
     Afterwards he includes the associated proofs into the blockchain.
-    If $PK_i$ is a new stakeholder, when he will be able to participate in the lottery only in the $j+1$ epoch.
-    All previous participants, who has not provided new proofs of their consensus group membership are removed from the verified list.
 \end{enumerate}
 
 
