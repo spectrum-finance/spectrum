@@ -1,5 +1,8 @@
 pub mod sbox;
 pub mod transaction;
+pub mod validation;
+pub mod eval;
+pub mod linking;
 
 use spectrum_crypto::digest::{Blake2b, Digest256};
 
