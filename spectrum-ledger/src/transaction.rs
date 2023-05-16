@@ -88,16 +88,16 @@ pub struct Witness {
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct ScriptInv {
     /// Index of the script in the witness.
-    script: u16,
+    pub script: u16,
     /// Index of the datum in the witness.
     /// `None` if datum is not required for script execution.
-    datum: Option<u16>,
-    function: Identifier,
+    pub datum: Option<u16>,
+    pub function: Identifier,
     /// Arguments supplied to the function called.
     /// Note, these cannot be extracted into witness as long as
     /// they must be included into transaction hash.
-    args: Vec<SerializedValue>,
-    targs: Vec<TypeTag>,
+    pub args: Vec<SerializedValue>,
+    pub targs: Vec<TypeTag>,
 }
 
 #[derive(Eq, PartialEq, Clone, Debug)]
