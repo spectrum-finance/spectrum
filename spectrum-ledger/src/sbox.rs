@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use k256::PublicKey;
 
-use spectrum_crypto::digest::Blake2bDigest256;
+use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_move::{SerializedModule, SerializedValue};
 
 use crate::ChainId;
@@ -15,6 +15,12 @@ pub struct BoxVer(u32);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug)]
 pub struct BoxRef(BoxId, BoxVer);
+
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug)]
+pub enum BoxPointer {
+    Id(BoxId),
+    Ref(BoxRef),
+}
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash, Debug)]
 pub struct NativeCoin(u64);
@@ -39,6 +45,12 @@ pub struct SValue {
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug)]
 pub struct ScriptHash(Blake2bDigest256);
+
+impl From<SerializedModule> for ScriptHash {
+    fn from(sm: SerializedModule) -> Self {
+        Self(blake2b256_hash(&*<Vec<u8>>::from(sm)))
+    }
+}
 
 /// Where the script source can be found.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug)]

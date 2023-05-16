@@ -1,10 +1,11 @@
+use spectrum_crypto::digest::{Blake2b, Blake2bDigest256, Digest256};
+
+pub mod eval;
+pub mod ledger;
+pub mod linking;
 pub mod sbox;
 pub mod transaction;
 pub mod validation;
-pub mod eval;
-pub mod linking;
-
-use spectrum_crypto::digest::{Blake2b, Digest256};
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug)]
 pub struct ChainId(u16);
@@ -29,5 +30,10 @@ pub struct ModifierId(Digest256<Blake2b>);
 pub enum ModifierType {
     BlockHeader,
     BlockBody,
-    Transaction
+    Transaction,
+}
+
+/// Provides digest used across the system for authentication.
+pub trait SystemDigest {
+    fn digest(&self) -> Blake2bDigest256;
 }

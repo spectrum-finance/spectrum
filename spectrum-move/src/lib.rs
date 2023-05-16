@@ -8,3 +8,7 @@ pub struct SerializedValue(Vec<u8>);
 
 #[derive(Eq, PartialEq, Copy, Clone, derive_more::Add, derive_more::Sub, Debug)]
 pub struct GasUnits(u64);
+
+impl GasUnits {
+    pub const ZERO: GasUnits = GasUnits(0);
+}
