@@ -176,6 +176,7 @@ where
                     }
                 }
             } else {
+                println!("[Handel] No unverified contributions @ level {}", level);
                 return;
             }
             let Verified(best_contribution) = lvl.best_contribution.clone();
@@ -199,6 +200,11 @@ where
                     .try_combine(&c.aggregate_contribution)
                 {
                     Some(aggr) => {
+                        println!(
+                            "[Handel] Successful combination (weight: {}) @ level {}",
+                            aggr.weight(),
+                            level
+                        );
                         let score = aggr.weight();
                         scored_contributions.insert(ScoredContributionTraced {
                             score,
@@ -207,6 +213,7 @@ where
                         });
                     }
                     None => {
+                        println!("[Handel] Failed combination @ level {}", level);
                         let mut acc_aggr = c.aggregate_contribution.clone();
                         for Verified(ic) in &lvl.individual_contributions {
                             if let Some(aggr) = acc_aggr.try_combine(&ic) {
@@ -225,6 +232,7 @@ where
             // Verify aggregate contributions
             for sc in scored_contributions.into_iter() {
                 if sc.contribution.verify(&self.public_data) {
+                    println!("[Handel] Contribution verified");
                     let Verified(best_contrib) = &lvl.best_contribution;
                     if sc.score > best_contrib.score {
                         lvl.best_contribution = Verified(sc.into());
@@ -238,6 +246,7 @@ where
             }
             let Verified(best_contrib) = &lvl.best_contribution;
             if is_complete(&best_contrib.contribution, level, self.conf.threshold) {
+                println!("[Handel] level {:?} complete", level);
                 lvl.completed();
                 self.run_fast_path(level);
                 self.try_activate_level(level + 1);
@@ -255,6 +264,7 @@ where
                         self.levels[level] = Some(ActiveLevel::unit(prev_level.best_contribution.clone()));
                         self.try_activate_level(level + 1);
                     } else {
+                        println!("[Handel] Activating level {}", level);
                         self.levels[level] = Some(ActiveLevel::new(prev_level.best_contribution.clone()))
                     }
                 }
@@ -270,29 +280,34 @@ where
         individual_contribution: Option<C>,
     ) -> Result<(), ()> {
         if let Some(peer_ix) = self.peer_partitions.try_index_peer(peer_id) {
-            if !self.byzantine_nodes.contains(&peer_ix)
-                && !self.levels[level as usize]
-                    .as_ref()
-                    .map(|lvl| lvl.is_completed)
-                    .unwrap_or(false)
-            {
+            let is_byzantine = self.byzantine_nodes.contains(&peer_ix);
+            let level_uncompleted = !self.levels[level as usize]
+                .as_ref()
+                .map(|lvl| lvl.is_completed)
+                .unwrap_or(false);
+            if !is_byzantine && level_uncompleted {
                 let contrib = PendingContribution {
                     sender_id: peer_ix,
                     aggregate_contribution,
                     individual_contribution,
                 };
                 self.unverified_contributions[level as usize].insert(peer_ix, contrib);
-                return Ok(());
+                Ok(())
+            } else {
+                Err(())
             }
+        } else {
+            Err(())
         }
-        Err(())
     }
 
     fn run_fast_path(&mut self, level: usize) {
+        println!("[Handel] Running fast path @ level {}", level);
         let own_contrib = self.levels[0]
             .as_ref()
             .map(|l| l.best_contribution.0.contribution.clone());
         if let Some(lvl) = &mut self.levels[level] {
+            assert!(lvl.is_completed);
             let offset = lvl.last_contacted_peer_ix.map(|x| x + 1).unwrap_or(0);
             let nodes_at_level = self.peer_partitions.peers_at_level(level, PeerOrd::CVP);
             let indexes = (0..self.conf.fast_path_window)
@@ -468,6 +483,7 @@ where
             )
             .is_ok()
         {
+            //println!("[Handel] run_aggregation @ level {}", msg.level);
             self.run_aggregation(msg.level as usize);
         } else {
             self.outbox
@@ -479,16 +495,17 @@ where
 
     fn poll(
         &mut self,
-        _: &mut Context<'_>,
+        cx: &mut Context<'_>,
     ) -> Poll<Either<ProtocolBehaviourOut<VoidMessage, HandelMessage<C>>, C>> {
         self.try_disseminatate();
         self.try_activate_levels();
-        if let Some(out) = self.outbox.pop_front() {
-            return Poll::Ready(Left(out));
-        }
         if let Some(ca) = self.get_complete_aggregate() {
             return Poll::Ready(Right(ca));
         }
+        if let Some(out) = self.outbox.pop_front() {
+            return Poll::Ready(Left(out));
+        }
+        cx.waker().wake_by_ref();
         Poll::Pending
     }
 }

@@ -81,7 +81,7 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
             peer_manager_msg_buffer_size: 1000,
         };
         let handel_conf = HandelConfig {
-            threshold: Threshold { num: 2, denom: 4 },
+            threshold: Threshold { num: 8, denom: 8 },
             window_shrinking_factor: 4,
             initial_scoring_window: 3,
             fast_path_window: 10,

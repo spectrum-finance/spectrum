@@ -36,9 +36,9 @@ where
 
     fn upgrade_outbound(self, mut socket: TSubstream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            println!("Upgrading outbound");
+            // println!("Upgrading outbound");
             upgrade::write_length_prefixed(&mut socket, self.message).await?;
-            println!("Upgraded outbound");
+            // println!("Upgraded outbound");
             Ok(self.id)
         })
     }
@@ -70,9 +70,9 @@ where
 
     fn upgrade_inbound(self, mut socket: TSubstream, protocol: Self::Info) -> Self::Future {
         Box::pin(async move {
-            println!("Upgrading inbound");
+            // println!("Upgrading inbound");
             let msg = upgrade::read_length_prefixed(&mut socket, self.max_message_size).await?;
-            println!("Upgraded inbound");
+            // println!("Upgraded inbound");
             Ok(OneShotMessage {
                 protocol,
                 content: RawMessage::from(msg),

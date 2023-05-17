@@ -4,7 +4,10 @@ use std::convert::TryInto;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
+use derive_more::From;
+use derive_more::Into;
 use serde::{Deserialize, Serialize, Serializer};
+use serde_with::serde_as;
 use thiserror::Error;
 
 #[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd, Debug)]
@@ -14,9 +17,10 @@ pub struct Blake2b;
 pub struct Sha2;
 
 /// N-bytes array in a box. Usually a hash.`Digest32` is most type synonym.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
-#[serde(into = "Vec<u8>", try_from = "Vec<u8>")]
-pub struct Digest<const N: usize, H>([u8; N], PhantomData<H>);
+#[serde_as]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+//#[serde(into = "Vec<u8>", try_from = "Vec<u8>")]
+pub struct Digest<const N: usize, H>(#[serde_as(as = "[_; N]")] [u8; N], PhantomData<H>);
 
 impl<const N: usize, H> Clone for Digest<N, H> {
     fn clone(&self) -> Self {
@@ -26,14 +30,14 @@ impl<const N: usize, H> Clone for Digest<N, H> {
 
 impl<const N: usize, H> Copy for Digest<N, H> {}
 
-impl<const N: usize, H> Serialize for Digest<N, H> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bytes(&self.0)
-    }
-}
+//impl<const N: usize, H> Serialize for Digest<N, H> {
+//    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//    where
+//        S: Serializer,
+//    {
+//        serializer.serialize_bytes(&self.0)
+//    }
+//}
 
 pub type Digest256<H> = Digest<32, H>;
 

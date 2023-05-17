@@ -110,10 +110,8 @@ async fn one_shot_messaging() {
     let protocol = ProtocolTag::new(pid, ver);
     let message = RawMessage::from(vec![0, 0, 0]);
 
-    let (abortable_peer_0, handle_0) =
-        futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0, 1));
-    let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, 2));
+    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0, 1));
+    let (abortable_peer_1, handle_1) = futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, 2));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -235,10 +233,8 @@ async fn integration_test_0() {
         }
     });
 
-    let (abortable_peer_0, handle_0) =
-        futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0, 1));
-    let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, 2));
+    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0, 1));
+    let (abortable_peer_1, handle_1) = futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, 2));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -401,10 +397,8 @@ async fn integration_test_1() {
         }
     });
 
-    let (abortable_peer_0, handle_0) =
-        futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0, 1));
-    let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, 2));
+    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0, 1));
+    let (abortable_peer_1, handle_1) = futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, 2));
 
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
@@ -585,10 +579,8 @@ async fn integration_test_peer_punish_too_slow() {
         }
     });
 
-    let (abortable_peer_0, handle_0) =
-        futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0, 1));
-    let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, 2));
+    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0, 1));
+    let (abortable_peer_1, handle_1) = futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, 2));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -880,7 +872,7 @@ async fn integration_test_2() {
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
 #[async_std::test]
 async fn sigma_aggregation_normal() {
-    let mut peers = setup_nodes(16);
+    let mut peers = setup_nodes(8);
     let md = blake2b256_hash(b"foo");
     let committee: HashMap<PublicKey, Option<Multiaddr>> = peers
         .iter()
@@ -891,6 +883,7 @@ async fn sigma_aggregation_normal() {
         )
         .collect();
     let mut result_futures = Vec::new();
+    wasm_timer::Delay::new(Duration::from_secs(2)).await.unwrap();
     for peer in peers.iter_mut() {
         let (snd, recv) = oneshot::channel();
         result_futures.push(recv);
@@ -916,7 +909,7 @@ async fn sigma_aggregation_normal() {
         });
     }
 
-    wasm_timer::Delay::new(Duration::from_secs(20)).await.unwrap();
+    wasm_timer::Delay::new(Duration::from_secs(2)).await.unwrap();
 
     for peer in &peers {
         peer.peer_handle.abort();

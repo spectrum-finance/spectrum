@@ -14,5 +14,6 @@ sha2 = "0.10.6"
 blake2 = "0.10.6"
 thiserror = "1.0.34"
 serde = { version = "1.0.147", features = ["derive"] }
+serde_with = "3.0.0"
 elliptic-curve = "0.13.*"
 k256 = "0.13.*"

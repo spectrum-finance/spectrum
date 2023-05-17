@@ -322,13 +322,13 @@ where
         peer_id: PeerId,
         SigmaAggrMessage::SigmaAggrMessageV1(msg): SigmaAggrMessage,
     ) {
-        println!("Recv message {:?} from {}", msg, peer_id);
+        //println!("Recv message {:?} from {}", msg, peer_id);
         match &mut self.task {
             Some(AggregationTask {
                 state: AggregationState::AggregatePreCommitments(ref mut pre_commitment),
                 ..
             }) => {
-                println!("SigmaAggrMessageV1::PreCommitments");
+                //println!("SigmaAggrMessageV1::PreCommitments");
                 if let SigmaAggrMessageV1::PreCommitments(pre_commits) = msg {
                     pre_commitment.handel.inject_message(peer_id, pre_commits);
                 }
@@ -337,8 +337,8 @@ where
                 state: AggregationState::AggregateSchnorrCommitments(ref mut commitment),
                 ..
             }) => {
-                println!("SigmaAggrMessageV1::Commitments");
                 if let SigmaAggrMessageV1::Commitments(commits) = msg {
+                    println!("SigmaAggrMessageV1::Commitments: {:?}", commits);
                     commitment.handel.inject_message(peer_id, commits);
                 }
             }
@@ -405,12 +405,14 @@ where
                                 continue;
                             }
                             Either::Right(pre_commitments) => {
+                                let host_ix = st.host_ix;
                                 self.task = Some(AggregationTask {
                                     state: AggregationState::AggregateSchnorrCommitments(
                                         st.complete(pre_commitments, self.handel_conf),
                                     ),
                                     channel,
                                 });
+                                println!("[SA] host_ix: {:?} Got precommitments", host_ix);
                                 continue;
                             }
                         },
@@ -427,6 +429,7 @@ where
                     } => match st.handel.poll(cx) {
                         Poll::Ready(out) => match out {
                             Either::Left(cmd) => {
+                                //println!("[SA] Handel LEFT");
                                 self.outbox.push_back(cmd.rmap(|m| {
                                     SigmaAggrMessage::SigmaAggrMessageV1(SigmaAggrMessageV1::Commitments(m))
                                 }));
@@ -438,6 +441,7 @@ where
                             }
 
                             Either::Right(commitments) => {
+                                println!("[SA] Got commitments");
                                 self.task = Some(AggregationTask {
                                     state: AggregationState::AggregateResponses(
                                         st.complete(commitments, self.handel_conf),
