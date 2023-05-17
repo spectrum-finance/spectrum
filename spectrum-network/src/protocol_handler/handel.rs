@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::cmp::{max, Ordering};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::ops::{Add, Mul};
@@ -82,6 +82,21 @@ pub struct HandelConfig {
     pub level_activation_delay: Duration,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct HandelProgress {
+    num_verified: u32,
+    num_failed: u32,
+}
+
+impl HandelProgress {
+    pub fn new() -> Self {
+        Self {
+            num_verified: 0,
+            num_failed: 0,
+        }
+    }
+}
+
 /// A round of Handel protocol that drives aggregation of contribution `C`.
 pub struct Handel<C, P, PP> {
     conf: HandelConfig,
@@ -97,6 +112,7 @@ pub struct Handel<C, P, PP> {
     outbox: VecDeque<ProtocolBehaviourOut<VoidMessage, HandelMessage<C>>>,
     next_dissemination_at: Instant,
     level_activation_schedule: Vec<Option<Instant>>,
+    progress: HandelProgress,
 }
 
 impl<C, P, PP> Handel<C, P, PP>
@@ -137,6 +153,7 @@ where
                     }
                 })
                 .collect(),
+            progress: HandelProgress::new(),
         }
     }
 
@@ -185,12 +202,17 @@ where
                 // Verify individual contribution first
                 if let Some(ic) = c.individual_contribution {
                     if ic.verify(&self.public_data) {
-                        lvl.individual_contributions.push(Verified(ic))
+                        self.progress.num_verified += 1;
+                        lvl.individual_contributions.push(Verified(ic));
                     } else {
                         // Ban peer, shrink scoring window, skip scoring and
                         // verification of aggregate contribution from this peer.
+                        self.progress.num_failed += 1;
                         self.byzantine_nodes.insert(c.sender_id);
-                        self.scoring_window /= self.conf.window_shrinking_factor;
+                        let shrinked_window = self
+                            .scoring_window
+                            .saturating_div(self.conf.window_shrinking_factor);
+                        self.scoring_window = max(shrinked_window, 1);
                         continue;
                     }
                 }
@@ -233,17 +255,30 @@ where
             for sc in scored_contributions.into_iter() {
                 if sc.contribution.verify(&self.public_data) {
                     println!("[Handel] Contribution verified");
+                    self.progress.num_verified += 1;
                     let Verified(best_contrib) = &lvl.best_contribution;
                     if sc.score > best_contrib.score {
                         lvl.best_contribution = Verified(sc.into());
                     }
-                    self.scoring_window *= self.conf.window_shrinking_factor;
+                    self.scoring_window = self
+                        .scoring_window
+                        .saturating_mul(self.conf.window_shrinking_factor);
                 } else {
                     // Ban peer, shrink scoring window.
+                    self.progress.num_failed += 1;
                     self.byzantine_nodes.insert(sc.sender_id);
-                    self.scoring_window /= self.conf.window_shrinking_factor;
+                    let shrinked_window = self
+                        .scoring_window
+                        .saturating_div(self.conf.window_shrinking_factor);
+                    self.scoring_window = max(shrinked_window, 1);
                 }
             }
+            println!(
+                "[Handel] [Level[{}of{}]] Progress::{:?}",
+                level,
+                self.peer_partitions.num_levels(),
+                self.progress
+            );
             let Verified(best_contrib) = &lvl.best_contribution;
             if is_complete(&best_contrib.contribution, level, self.conf.threshold) {
                 println!("[Handel] level {:?} complete", level);
@@ -419,8 +454,12 @@ where
 
 fn is_complete<C: Weighted>(contribution: &C, level: usize, threshold: Threshold) -> bool {
     let weight = contribution.weight();
-    let num_nodes_at_level = (2 as usize).pow(level as u32);
+    let num_nodes_at_level = (2 as usize).pow(level as u32 - 1);
     let threshold = threshold.min(num_nodes_at_level);
+    println!(
+        "[Handel] [Level[{}]] Accumulated weight [{}], Threshold weight [{}] (num_nodes_at_level = {})",
+        level, weight, threshold, num_nodes_at_level
+    );
     weight >= threshold
 }
 
