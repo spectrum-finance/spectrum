@@ -14,7 +14,7 @@ pub struct BoxId(Blake2bDigest256);
 pub struct BoxVer(u32);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug)]
-pub struct BoxRef(BoxId, BoxVer);
+pub struct BoxRef(pub BoxId, pub BoxVer);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug)]
 pub enum BoxPointer {
@@ -100,4 +100,10 @@ pub struct SBox {
     pub reference_script: Option<SerializedModule>,
     /// Datum that can be referenced by other transactions.
     pub reference_datum: Option<SerializedValue>,
+}
+
+impl SBox {
+    pub fn get_ref(&self) -> BoxRef {
+        BoxRef(self.id, self.ver)
+    }
 }

@@ -1,5 +1,5 @@
 use crate::ledger::Ledger;
-use crate::sbox::{BoxPointer, DatumRef, Owner, ScriptHash, ScriptRef};
+use crate::sbox::{BoxPointer, DatumRef, Owner, ScriptRef};
 use crate::transaction::{
     DatumWitness, LinkedScriptInv, LinkedTransaction, ScriptInv, ScriptWitness, Transaction,
 };

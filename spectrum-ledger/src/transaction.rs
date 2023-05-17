@@ -32,7 +32,7 @@ pub struct Transaction {
 
 impl SystemDigest for Transaction {
     fn digest(&self) -> Blake2bDigest256 {
-        todo!()
+        todo!() // todo: DEV-1034
     }
 }
 
