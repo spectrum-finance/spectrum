@@ -76,6 +76,11 @@ and agree on the genesis block.
     Nodes in $V_n$ observe events on supported L1 chains, agree on the set of updates
     and compute state outbound state transitions accordingly.
     \item Notarisation (Non-custodial).
-    Nodes in $V_n$ observe events on supported L1 chains, batch updates, collectively sign them and
-    publish on-chain.
+    Nodes in $V_n$ observe events on supported L1 chains.
+    Committee leader batch an updates and batch is collectively notarized.
+    All notarized batches are syncing and one of the committee leaders publish resulted block on-chain.
 \end{enumerate}
+
+\item The ${\mathcal_{F}}_{VRF}$ is designed in such a way that not every slot has a leader, moreover, most of the slots remain empty to serve protocol synchronization.
+If there are $P$ several elected leaders for this slot, they all propose a new batches of updates $\{B_p\}_{p=0}^P$ with included proofs of the leadership ${(v_i^{vrf}, y, \pi)}$ and
+${(\pi, \rho_\pi)}$.
