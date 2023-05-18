@@ -32,7 +32,7 @@ use spectrum_network::protocol::{
 };
 use spectrum_network::protocol_api::ProtocolMailbox;
 use spectrum_network::protocol_handler::discovery::message::DiscoverySpec;
-use spectrum_network::protocol_handler::discovery::{NodeStatus, SyncBehaviour};
+use spectrum_network::protocol_handler::discovery::{NodeStatus, DiscoveryBehaviour};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
 
@@ -116,7 +116,7 @@ pub fn build_node(
     local_status: NodeStatus,
 ) -> (
     Swarm<CustomProtoWithAddr>,
-    ProtocolHandler<SyncBehaviour<PeersMailbox>, NetworkMailbox>,
+    ProtocolHandler<DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
 ) {
     let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
         .into_authentic(&keypair)
@@ -166,7 +166,7 @@ pub fn build_node(
             },
         )],
     };
-    let sync_behaviour = SyncBehaviour::new(peers.clone(), local_status);
+    let sync_behaviour = DiscoveryBehaviour::new(peers.clone(), local_status);
     let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(10);
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
@@ -201,7 +201,7 @@ pub fn build_nodes(
     n: usize,
 ) -> Vec<(
     Swarm<CustomProtoWithAddr>,
-    ProtocolHandler<SyncBehaviour<PeersMailbox>, NetworkMailbox>,
+    ProtocolHandler<DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
 )> {
     let mut out = Vec::with_capacity(n);
 

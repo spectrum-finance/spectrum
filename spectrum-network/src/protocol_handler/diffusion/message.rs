@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::peer_manager::data::PeerDestination;
+use spectrum_ledger::{ModifierId, ModifierType};
+
+use crate::protocol_handler::diffusion::types::SerializedModifier;
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_handler::ProtocolSpec;
 use crate::types::{ProtocolId, ProtocolVer};
@@ -31,9 +33,17 @@ pub enum DiffusionMessage {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct Modifiers<T> {
+    pub mod_type: ModifierType,
+    pub modifiers: Vec<T>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum DiffusionMessageV1 {
-    GetPeers,
-    Peers(Vec<PeerDestination>),
+    Inv(Modifiers<ModifierId>),
+    RequestModifiers(Modifiers<ModifierId>),
+    Modifiers(Modifiers<SerializedModifier>),
+    SyncStatus(Vec<ModifierId>),
 }
 
 impl Versioned for DiffusionMessage {

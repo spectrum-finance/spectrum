@@ -24,7 +24,7 @@ use spectrum_network::{
     protocol_handler::{
         discovery::{
             message::{DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec},
-            NodeStatus, SyncBehaviour,
+            NodeStatus, DiscoveryBehaviour,
         },
         MalformedMessage, ProtocolBehaviour, ProtocolHandler,
     },
@@ -107,10 +107,10 @@ async fn one_shot_messaging() {
     let (msg_tx, _msg_rx) = mpsc::channel::<(Peer, Msg<DiscoveryMessage>)>(10);
 
     let (abortable_peer_0, handle_0) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
+        create_swarm::<DiscoveryBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
     );
     let (abortable_peer_1, handle_1) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, msg_tx),
+        create_swarm::<DiscoveryBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, msg_tx),
     );
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
@@ -203,8 +203,8 @@ async fn integration_test_0() {
         height: 0,
     };
     let local_status_1 = local_status_0.clone();
-    let sync_behaviour_0 = |p| SyncBehaviour::new(p, local_status_0);
-    let sync_behaviour_1 = |p| SyncBehaviour::new(p, local_status_1);
+    let sync_behaviour_0 = |p| DiscoveryBehaviour::new(p, local_status_0);
+    let sync_behaviour_1 = |p| DiscoveryBehaviour::new(p, local_status_1);
 
     // Though we spawn multiple tasks we use this single channel for messaging.
     let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<DiscoveryMessage>)>(10);
@@ -233,10 +233,10 @@ async fn integration_test_0() {
     });
 
     let (abortable_peer_0, handle_0) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
+        create_swarm::<DiscoveryBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
     );
     let (abortable_peer_1, handle_1) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, msg_tx),
+        create_swarm::<DiscoveryBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, msg_tx),
     );
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
@@ -370,7 +370,7 @@ async fn integration_test_1() {
         height: 0,
     };
     let local_status_1 = local_status_0.clone();
-    let sync_behaviour_0 = |p| SyncBehaviour::new(p, local_status_0);
+    let sync_behaviour_0 = |p| DiscoveryBehaviour::new(p, local_status_0);
     let fake_sync_behaviour = |p| FakeSyncBehaviour::new(p, local_status_1);
 
     // Note that we use 2 channels here since `peer_0` sends `SyncMessage`s while `peer_1` sends `FakeSyncMessage`s.
@@ -401,7 +401,7 @@ async fn integration_test_1() {
     });
 
     let (abortable_peer_0, handle_0) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx),
+        create_swarm::<DiscoveryBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx),
     );
     let (abortable_peer_1, handle_1) =
         futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
@@ -739,9 +739,9 @@ async fn integration_test_2() {
     };
     let local_status_1 = local_status_0.clone();
     let local_status_2 = local_status_0.clone();
-    let sync_behaviour_0 = |p| SyncBehaviour::new(p, local_status_0);
-    let sync_behaviour_1 = |p| SyncBehaviour::new(p, local_status_1);
-    let sync_behaviour_2 = |p| SyncBehaviour::new(p, local_status_2);
+    let sync_behaviour_0 = |p| DiscoveryBehaviour::new(p, local_status_0);
+    let sync_behaviour_1 = |p| DiscoveryBehaviour::new(p, local_status_1);
+    let sync_behaviour_2 = |p| DiscoveryBehaviour::new(p, local_status_2);
 
     // Though we spawn multiple tasks we use this single channel for messaging.
     let (msg_tx, mut msg_rx) = mpsc::channel::<(Peer, Msg<DiscoveryMessage>)>(10);
@@ -781,7 +781,7 @@ async fn integration_test_2() {
     });
 
     let (abortable_peer_0, handle_0) =
-        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>>(
+        futures::future::abortable(create_swarm::<DiscoveryBehaviour<PeersMailbox>>(
             local_key_0,
             nc_0,
             addr_0.clone(),
@@ -789,7 +789,7 @@ async fn integration_test_2() {
             msg_tx.clone(),
         ));
     let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>>(
+        futures::future::abortable(create_swarm::<DiscoveryBehaviour<PeersMailbox>>(
             local_key_1,
             nc_1,
             addr_1.clone(),
@@ -797,7 +797,7 @@ async fn integration_test_2() {
             msg_tx.clone(),
         ));
     let (abortable_peer_2, handle_2) = futures::future::abortable(
-        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_2, nc_2, addr_2.clone(), Peer::Third, msg_tx),
+        create_swarm::<DiscoveryBehaviour<PeersMailbox>>(local_key_2, nc_2, addr_2.clone(), Peer::Third, msg_tx),
     );
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();

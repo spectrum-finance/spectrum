@@ -26,7 +26,7 @@ pub struct ChainId(u16);
 )]
 pub struct ModifierId(Digest256<Blake2b>);
 
-#[derive(Copy, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ModifierType {
     BlockHeader,
     BlockBody,

@@ -19,7 +19,7 @@ use spectrum_network::protocol::{
     ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID,
 };
 use spectrum_network::protocol_handler::discovery::message::{DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec};
-use spectrum_network::protocol_handler::discovery::{NodeStatus, SyncBehaviour};
+use spectrum_network::protocol_handler::discovery::{NodeStatus, DiscoveryBehaviour};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
 
@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
         height: 0,
     };
-    let sync_behaviour = SyncBehaviour::new(peers.clone(), local_status);
+    let sync_behaviour = DiscoveryBehaviour::new(peers.clone(), local_status);
     const NC_MSG_BUFFER_SIZE: usize = 10;
     let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(NC_MSG_BUFFER_SIZE);
     let network_api = NetworkMailbox {

@@ -13,7 +13,7 @@ use crate::peer_manager::data::ReputationChange;
 use crate::peer_manager::Peers;
 use crate::protocol::SYNC_PROTOCOL_ID;
 use crate::protocol_handler::discovery::message::{
-    HandshakeV1, DiscoveryHandshake, DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec,
+    DiscoveryHandshake, DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec, HandshakeV1,
 };
 use crate::protocol_handler::{
     MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec,
@@ -30,26 +30,27 @@ pub struct NodeStatus {
     pub height: usize,
 }
 
-type SyncBehaviourOut = ProtocolBehaviourOut<DiscoveryHandshake, DiscoveryMessage>;
+type DiscoveryBehaviourOut = ProtocolBehaviourOut<DiscoveryHandshake, DiscoveryMessage>;
 
 #[derive(Debug, Display)]
-pub enum SyncBehaviorError {
+pub enum DiscoveryBehaviorError {
     EmptyPeers,
     OperationCancelled,
 }
 
-type SyncTask = Pin<Box<dyn Future<Output = Result<SyncBehaviourOut, SyncBehaviorError>> + Send>>;
+type DiscoveryTask =
+    Pin<Box<dyn Future<Output = Result<DiscoveryBehaviourOut, DiscoveryBehaviorError>> + Send>>;
 
-pub struct SyncBehaviour<TPeers> {
+pub struct DiscoveryBehaviour<TPeers> {
     local_status: NodeStatus,
-    outbox: VecDeque<SyncBehaviourOut>,
+    outbox: VecDeque<DiscoveryBehaviourOut>,
     tracked_peers: HashMap<PeerId, NodeStatus>,
     // ideally tasks should be ordered in the scope of one peer.
-    tasks: FuturesOrdered<SyncTask>,
+    tasks: FuturesOrdered<DiscoveryTask>,
     peers: TPeers,
 }
 
-impl<TPeers> SyncBehaviour<TPeers>
+impl<TPeers> DiscoveryBehaviour<TPeers>
 where
     TPeers: Peers,
 {
@@ -76,7 +77,7 @@ where
 
     fn send_get_peers(&mut self, peer_id: PeerId) {
         trace!("Requesting peers from {}", peer_id);
-        self.outbox.push_back(SyncBehaviourOut::Send {
+        self.outbox.push_back(DiscoveryBehaviourOut::Send {
             peer_id,
             message: DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::GetPeers),
         });
@@ -85,7 +86,7 @@ where
     fn send_peers(&mut self, peer_id: PeerId) {
         trace!("Sharing known peers with {}", peer_id);
         let get_peers_fut = self.peers.get_peers(MAX_SHARED_PEERS);
-        self.tasks.push(Box::pin({
+        self.tasks.push_back(Box::pin({
             async move {
                 trace!("Waiting for peers");
                 if let Ok(peers) = get_peers_fut.await {
@@ -97,14 +98,14 @@ where
                         )),
                     })
                 } else {
-                    Err(SyncBehaviorError::OperationCancelled)
+                    Err(DiscoveryBehaviorError::OperationCancelled)
                 }
             }
         }));
     }
 }
 
-impl<TPeers> ProtocolBehaviour for SyncBehaviour<TPeers>
+impl<TPeers> ProtocolBehaviour for DiscoveryBehaviour<TPeers>
 where
     TPeers: Peers,
 {
@@ -179,7 +180,10 @@ where
         self.tracked_peers.remove(&peer_id);
     }
 
-    fn poll(&mut self, cx: &mut Context) -> Poll<Option<ProtocolBehaviourOut<DiscoveryHandshake, DiscoveryMessage>>> {
+    fn poll(
+        &mut self,
+        cx: &mut Context,
+    ) -> Poll<Option<ProtocolBehaviourOut<DiscoveryHandshake, DiscoveryMessage>>> {
         loop {
             match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
                 Poll::Ready(Some(Ok(out))) => {
