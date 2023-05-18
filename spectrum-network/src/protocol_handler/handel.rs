@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 
 use either::{Either, Left, Right};
 use libp2p::PeerId;
-use void::Void;
 
 use algebra_core::CommutativePartialSemigroup;
 use spectrum_crypto::VerifiableAgainst;
@@ -37,32 +36,37 @@ impl Threshold {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct ActiveLevel<C> {
     prioritized_contributions: Vec<PendingContribution<C>>,
     individual_contributions: Vec<Verified<C>>,
     best_contribution: Verified<ScoredContribution<C>>,
     /// Index of the peer we contacted last at the level.
     last_contacted_peer_ix: Option<usize>,
+    /// Scores of contributions we shared with peers at this level.
+    sent_contribution_scores: Vec<usize>,
     is_completed: bool,
 }
 
 impl<C> ActiveLevel<C> {
-    fn new(best_contribution: Verified<ScoredContribution<C>>) -> Self {
+    fn new(best_contribution: Verified<ScoredContribution<C>>, num_nodes_at_level: usize) -> Self {
         Self {
             prioritized_contributions: vec![],
             individual_contributions: vec![],
-            last_contacted_peer_ix: None,
             best_contribution,
+            last_contacted_peer_ix: None,
+            sent_contribution_scores: vec![0; num_nodes_at_level],
             is_completed: false,
         }
     }
+
     fn unit(contribution: Verified<ScoredContribution<C>>) -> Self {
         Self {
             prioritized_contributions: vec![],
             individual_contributions: vec![],
-            last_contacted_peer_ix: None,
             best_contribution: contribution,
+            last_contacted_peer_ix: None,
+            sent_contribution_scores: vec![0],
             is_completed: true,
         }
     }
@@ -128,7 +132,7 @@ where
             contribution: own_contribution,
         });
         levels[0] = Some(ActiveLevel::unit(own_contribution_scored.clone()));
-        levels[1] = Some(ActiveLevel::new(own_contribution_scored));
+        levels[1] = Some(ActiveLevel::new(own_contribution_scored, 1));
         let now = Instant::now();
         Handel {
             conf,
@@ -193,7 +197,6 @@ where
                     }
                 }
             } else {
-                println!("[Handel] No unverified contributions @ level {}", level);
                 return;
             }
             let Verified(best_contribution) = lvl.best_contribution.clone();
@@ -222,11 +225,6 @@ where
                     .try_combine(&c.aggregate_contribution)
                 {
                     Some(aggr) => {
-                        println!(
-                            "[Handel] Successful combination (weight: {}) @ level {}",
-                            aggr.weight(),
-                            level
-                        );
                         let score = aggr.weight();
                         scored_contributions.insert(ScoredContributionTraced {
                             score,
@@ -235,7 +233,6 @@ where
                         });
                     }
                     None => {
-                        println!("[Handel] Failed combination @ level {}", level);
                         let mut acc_aggr = c.aggregate_contribution.clone();
                         for Verified(ic) in &lvl.individual_contributions {
                             if let Some(aggr) = acc_aggr.try_combine(&ic) {
@@ -254,7 +251,6 @@ where
             // Verify aggregate contributions
             for sc in scored_contributions.into_iter() {
                 if sc.contribution.verify(&self.public_data) {
-                    println!("[Handel] Contribution verified");
                     self.progress.num_verified += 1;
                     let Verified(best_contrib) = &lvl.best_contribution;
                     if sc.score > best_contrib.score {
@@ -273,15 +269,8 @@ where
                     self.scoring_window = max(shrinked_window, 1);
                 }
             }
-            println!(
-                "[Handel] [Level[{}of{}]] Progress::{:?}",
-                level,
-                self.peer_partitions.num_levels(),
-                self.progress
-            );
             let Verified(best_contrib) = &lvl.best_contribution;
             if is_complete(&best_contrib.contribution, level, self.conf.threshold) {
-                println!("[Handel] level {:?} complete", level);
                 lvl.completed();
                 self.run_fast_path(level);
                 self.try_activate_level(level + 1);
@@ -294,13 +283,16 @@ where
         if self.levels.get(level).is_some() {
             if !self.is_active(level) {
                 if let Some(prev_level) = self.levels[level - 1].as_ref() {
-                    if self.peer_partitions.peers_at_level(level, PeerOrd::VP).is_empty() {
+                    let peers_at_level = self.peer_partitions.peers_at_level(level, PeerOrd::VP);
+                    if peers_at_level.is_empty() {
                         // This level is empty, skip it
                         self.levels[level] = Some(ActiveLevel::unit(prev_level.best_contribution.clone()));
                         self.try_activate_level(level + 1);
                     } else {
-                        println!("[Handel] Activating level {}", level);
-                        self.levels[level] = Some(ActiveLevel::new(prev_level.best_contribution.clone()))
+                        self.levels[level] = Some(ActiveLevel::new(
+                            prev_level.best_contribution.clone(),
+                            peers_at_level.len(),
+                        ))
                     }
                 }
             }
@@ -337,7 +329,6 @@ where
     }
 
     fn run_fast_path(&mut self, level: usize) {
-        println!("[Handel] Running fast path @ level {}", level);
         let own_contrib = self.levels[0]
             .as_ref()
             .map(|l| l.best_contribution.0.contribution.clone());
@@ -386,6 +377,7 @@ where
                 let maybe_next_peer = active_lvl
                     .last_contacted_peer_ix
                     .and_then(|i| peers_at_level.get(i + 1));
+                let next_peer_ix_within_level = active_lvl.last_contacted_peer_ix.unwrap_or(0);
                 let next_peer_ix = if let Some(next_peer) = maybe_next_peer {
                     active_lvl.last_contacted_peer_ix = active_lvl.last_contacted_peer_ix.map(|i| i + 1);
                     *next_peer
@@ -400,19 +392,22 @@ where
                     None
                 };
                 let Verified(best_contrib) = active_lvl.best_contribution.clone();
-                self.outbox.push_back(ProtocolBehaviourOut::NetworkAction(
-                    NetworkAction::SendOneShotMessage {
-                        peer: next_peer,
-                        addr_hint: self.peer_partitions.addr_hint(next_peer),
-                        use_version: ProtocolVer::default(),
-                        message: HandelMessage {
-                            level: lix as u32,
-                            individual_contribution: maybe_own_contrib,
-                            aggregate_contribution: best_contrib.contribution,
-                            contact_sender: false,
+                if active_lvl.sent_contribution_scores[next_peer_ix_within_level] < best_contrib.score {
+                    active_lvl.sent_contribution_scores[next_peer_ix_within_level] = best_contrib.score;
+                    self.outbox.push_back(ProtocolBehaviourOut::NetworkAction(
+                        NetworkAction::SendOneShotMessage {
+                            peer: next_peer,
+                            addr_hint: self.peer_partitions.addr_hint(next_peer),
+                            use_version: ProtocolVer::default(),
+                            message: HandelMessage {
+                                level: lix as u32,
+                                individual_contribution: maybe_own_contrib,
+                                aggregate_contribution: best_contrib.contribution,
+                                contact_sender: false,
+                            },
                         },
-                    },
-                ));
+                    ));
+                }
             }
         }
     }
@@ -454,12 +449,8 @@ where
 
 fn is_complete<C: Weighted>(contribution: &C, level: usize, threshold: Threshold) -> bool {
     let weight = contribution.weight();
-    let num_nodes_at_level = (2 as usize).pow(level as u32 - 1);
-    let threshold = threshold.min(num_nodes_at_level);
-    println!(
-        "[Handel] [Level[{}]] Accumulated weight [{}], Threshold weight [{}] (num_nodes_at_level = {})",
-        level, weight, threshold, num_nodes_at_level
-    );
+    let max_score_at_level = (2 as usize).pow(level as u32);
+    let threshold = threshold.min(max_score_at_level);
     weight >= threshold
 }
 
@@ -504,7 +495,7 @@ impl<C: Eq> Ord for ScoredContributionTraced<C> {
     }
 }
 
-#[derive(Ord, PartialOrd, Eq, PartialEq, Clone)]
+#[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
 struct Verified<C>(C);
 
 impl<C, P, PP> TemporalProtocolStage<VoidMessage, HandelMessage<C>, C> for Handel<C, P, PP>
