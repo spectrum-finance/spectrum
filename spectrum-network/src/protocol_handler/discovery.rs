@@ -11,7 +11,7 @@ use log::{error, info, trace};
 
 use crate::peer_manager::data::ReputationChange;
 use crate::peer_manager::Peers;
-use crate::protocol::SYNC_PROTOCOL_ID;
+use crate::protocol::DISCOVERY_PROTOCOL_ID;
 use crate::protocol_handler::discovery::message::{
     DiscoveryHandshake, DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec, HandshakeV1,
 };
@@ -112,7 +112,7 @@ where
     type TProto = DiscoverySpec;
 
     fn get_protocol_id(&self) -> ProtocolId {
-        SYNC_PROTOCOL_ID
+        DISCOVERY_PROTOCOL_ID
     }
 
     fn inject_peer_connected(&mut self, peer_id: PeerId) {

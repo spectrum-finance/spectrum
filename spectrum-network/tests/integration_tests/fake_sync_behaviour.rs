@@ -12,7 +12,7 @@ use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use spectrum_network::{
     peer_manager::Peers,
-    protocol::SYNC_PROTOCOL_ID,
+    protocol::DISCOVERY_PROTOCOL_ID,
     protocol_handler::{
         discovery::{
             message::{HandshakeV1, DiscoveryHandshake, DiscoverySpec},
@@ -134,7 +134,7 @@ where
     type TProto = FakeSyncSpec;
 
     fn get_protocol_id(&self) -> ProtocolId {
-        SYNC_PROTOCOL_ID
+        DISCOVERY_PROTOCOL_ID
     }
 
     fn inject_peer_connected(&mut self, peer_id: PeerId) {

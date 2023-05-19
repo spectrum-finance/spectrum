@@ -16,7 +16,7 @@ use spectrum_network::peer_manager::data::PeerDestination;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
 use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerConfig};
 use spectrum_network::protocol::{
-    ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID,
+    ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec, DISCOVERY_PROTOCOL_ID,
 };
 use spectrum_network::protocol_handler::discovery::message::{DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec};
 use spectrum_network::protocol_handler::discovery::{NodeStatus, DiscoveryBehaviour};
@@ -88,7 +88,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let local_status = NodeStatus {
-        supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
+        supported_protocols: Vec::from([DISCOVERY_PROTOCOL_ID]),
         height: 0,
     };
     let sync_behaviour = DiscoveryBehaviour::new(peers.clone(), local_status);
@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(
-            SYNC_PROTOCOL_ID,
+            DISCOVERY_PROTOCOL_ID,
             (ProtocolConfig::Stateful(sync_conf), sync_mailbox),
         )]),
         peers,

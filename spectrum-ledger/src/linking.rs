@@ -1,4 +1,4 @@
-use crate::ledger::Ledger;
+use crate::ledger_view::state::LedgerState;
 use crate::sbox::{BoxPointer, DatumRef, Owner, ScriptRef};
 use crate::transaction::{
     DatumWitness, LinkedScriptInv, LinkedTransaction, ScriptInv, ScriptWitness, Transaction,
@@ -27,7 +27,7 @@ pub struct LedgerTxLinker<L> {
 
 impl<L> TxLinker for LedgerTxLinker<L>
 where
-    L: Ledger,
+    L: LedgerState,
 {
     fn link_transaction(&self, tx: Transaction) -> Result<LinkedTransaction, LinkingError> {
         let digest = tx.digest();

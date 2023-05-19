@@ -2,7 +2,8 @@ use spectrum_move::{SerializedModule, SerializedValue};
 
 use crate::sbox::{BoxPointer, DatumRef, SBox, ScriptRef};
 
-pub trait Ledger {
+/// Sync API to ledger state.
+pub trait LedgerState {
     /// Get box by pointer from ledger state.
     fn get(&self, pt: BoxPointer) -> Option<SBox>;
     /// Get reference script.

@@ -19,7 +19,7 @@ use spectrum_network::{
         peers_state::PeerRepo,
         NetworkingConfig, PeerManager, PeerManagerConfig, PeersMailbox,
     },
-    protocol::{StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID},
+    protocol::{StatefulProtocolConfig, StatefulProtocolSpec, DISCOVERY_PROTOCOL_ID},
     protocol_api::ProtocolMailbox,
     protocol_handler::{
         discovery::{
@@ -199,7 +199,7 @@ async fn integration_test_0() {
     let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
 
     let local_status_0 = NodeStatus {
-        supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
+        supported_protocols: Vec::from([DISCOVERY_PROTOCOL_ID]),
         height: 0,
     };
     let local_status_1 = local_status_0.clone();
@@ -366,7 +366,7 @@ async fn integration_test_1() {
     let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
 
     let local_status_0 = NodeStatus {
-        supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
+        supported_protocols: Vec::from([DISCOVERY_PROTOCOL_ID]),
         height: 0,
     };
     let local_status_1 = local_status_0.clone();
@@ -557,7 +557,7 @@ async fn integration_test_peer_punish_too_slow() {
     let peers_1 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
 
     let local_status_0 = NodeStatus {
-        supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
+        supported_protocols: Vec::from([DISCOVERY_PROTOCOL_ID]),
         height: 0,
     };
     let local_status_1 = local_status_0.clone();
@@ -734,7 +734,7 @@ async fn integration_test_2() {
     let peers_2 = vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0.clone())];
 
     let local_status_0 = NodeStatus {
-        supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
+        supported_protocols: Vec::from([DISCOVERY_PROTOCOL_ID]),
         height: 0,
     };
     let local_status_1 = local_status_0.clone();
@@ -962,7 +962,7 @@ where
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(
-            SYNC_PROTOCOL_ID,
+            DISCOVERY_PROTOCOL_ID,
             (ProtocolConfig::Stateful(sync_conf), sync_mailbox),
         )]),
         peers,

@@ -28,7 +28,7 @@ use spectrum_network::peer_manager::data::PeerDestination;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
 use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerConfig, PeersMailbox};
 use spectrum_network::protocol::{
-    ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID,
+    ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec, DISCOVERY_PROTOCOL_ID,
 };
 use spectrum_network::protocol_api::ProtocolMailbox;
 use spectrum_network::protocol_handler::discovery::message::DiscoverySpec;
@@ -175,7 +175,7 @@ pub fn build_node(
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(
-            SYNC_PROTOCOL_ID,
+            DISCOVERY_PROTOCOL_ID,
             (ProtocolConfig::Stateful(sync_conf), sync_mailbox),
         )]),
         peers,
@@ -226,7 +226,7 @@ pub fn build_nodes(
             .collect();
 
         let status = NodeStatus {
-            supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
+            supported_protocols: Vec::from([DISCOVERY_PROTOCOL_ID]),
             height: 0,
         };
         out.push(build_node(keypair, addr, peers, status));

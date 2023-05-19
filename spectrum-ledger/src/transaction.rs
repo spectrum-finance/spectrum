@@ -17,6 +17,7 @@ use crate::SystemDigest;
 /// Unverified transaction possibly containing yet unresolved inputs.
 /// This is the only form of transaction that travels over the wire and goes on-chain,
 /// that's why the size of this representation is optimized.
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Transaction {
     /// Consumed boxes.
     pub inputs: Vec<(BoxPointer, Option<u16>)>,
@@ -38,6 +39,7 @@ impl SystemDigest for Transaction {
 
 /// Unverified transaction whose inputs are resolved.
 /// `Transaction` -> `LinkedTransaction`
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct LinkedTransaction {
     /// Consumed boxes.
     pub inputs: Vec<(SBox, Option<Signature>)>,
@@ -53,6 +55,7 @@ pub struct LinkedTransaction {
 
 /// Transaction whose inputs are verified and outputs are computed.
 /// `Transaction` -> `LinkedTransaction` -> `EvaluatedTransaction`
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct EvaluatedTransaction {
     /// Consumed boxes.
     pub inputs: Vec<SBox>,
