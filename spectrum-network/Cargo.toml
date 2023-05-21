@@ -30,7 +30,7 @@ serde = { version = "1.0.147", features = ["derive"] }
 ciborium = "0.2.0"
 smallvec = "1.10.0"
 derive_more = "0.99.17"
-either = "1.8.1"
+either = { version = "1.8.1", features = ["serde"] }
 sha2 = "0.10.6"
 blake2 = "0.10.6"
 elliptic-curve = { version = "0.13.*", features = ["serde", "arithmetic"] }

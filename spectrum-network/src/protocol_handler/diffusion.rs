@@ -5,14 +5,16 @@ use std::task::{Context, Poll};
 
 use futures::stream::FuturesOrdered;
 use futures::Stream;
+use libp2p_identity::PeerId;
 use log::error;
 
 use spectrum_ledger::ledger_view::history::HistoryAsync;
 
-use crate::protocol::DIFFUSION_PROTOCOL_ID;
-use crate::protocol_handler::diffusion::message::{DiffusionHandshake, DiffusionMessage, DiffusionSpec};
-use crate::protocol_handler::{ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec};
-use crate::types::ProtocolId;
+use crate::protocol_handler::diffusion::message::{
+    DiffusionHandshake, DiffusionMessage, DiffusionSpec, HandshakeV1, SyncStatus,
+};
+use crate::protocol_handler::{NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut};
+use crate::types::ProtocolVer;
 
 pub mod message;
 pub(super) mod types;
@@ -34,14 +36,41 @@ pub struct DiffusionBehaviour<THistory> {
     history: THistory,
 }
 
-impl<THistory> ProtocolBehaviour for DiffusionBehaviour<THistory>
+impl<THistory> DiffusionBehaviour<THistory> {
+    fn local_status(&self) -> SyncStatus {
+        todo!()
+    }
+
+    fn make_poly_handshake(&self) -> Vec<(ProtocolVer, Option<DiffusionHandshake>)> {
+        vec![(
+            DiffusionSpec::v1(),
+            Some(DiffusionHandshake::HandshakeV1(HandshakeV1(self.local_status()))),
+        )]
+    }
+}
+
+impl<'de, THistory> ProtocolBehaviour<'de> for DiffusionBehaviour<THistory>
 where
     THistory: HistoryAsync,
 {
     type TProto = DiffusionSpec;
 
-    fn get_protocol_id(&self) -> ProtocolId {
-        DIFFUSION_PROTOCOL_ID
+    fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<DiffusionHandshake>) {
+        if let Some(DiffusionHandshake::HandshakeV1(hs)) = handshake {
+            self.outbox
+                .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
+                    peer_id,
+                    handshakes: self.make_poly_handshake(),
+                }))
+        }
+    }
+
+    fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {
+        self.outbox
+            .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
+                peer_id,
+                handshakes: self.make_poly_handshake(),
+            }))
     }
 
     fn poll(

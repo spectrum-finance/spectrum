@@ -10,16 +10,17 @@ use derive_more::Display;
 use futures::{stream::FuturesOrdered, Future, Stream};
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
+
 use spectrum_network::{
     peer_manager::Peers,
     protocol::DISCOVERY_PROTOCOL_ID,
     protocol_handler::{
         discovery::{
-            message::{HandshakeV1, DiscoveryHandshake, DiscoverySpec},
+            message::{DiscoveryHandshake, DiscoverySpec, HandshakeV1},
             NodeStatus,
         },
         versioning::Versioned,
-        MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut,
+        NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut,
     },
     types::{ProtocolId, ProtocolVer},
 };
@@ -51,7 +52,7 @@ impl FakeSyncSpec {
     }
 }
 
-impl spectrum_network::protocol_handler::ProtocolSpec for FakeSyncSpec {
+impl<'de> spectrum_network::protocol_handler::ProtocolSpec<'de> for FakeSyncSpec {
     type THandshake = DiscoveryHandshake;
     type TMessage = FakeSyncMessage;
 }
@@ -127,15 +128,11 @@ where
     }
 }
 
-impl<TPeers> ProtocolBehaviour for FakeSyncBehaviour<TPeers>
+impl<'de, TPeers> ProtocolBehaviour<'de> for FakeSyncBehaviour<TPeers>
 where
     TPeers: Peers,
 {
     type TProto = FakeSyncSpec;
-
-    fn get_protocol_id(&self) -> ProtocolId {
-        DISCOVERY_PROTOCOL_ID
-    }
 
     fn inject_peer_connected(&mut self, peer_id: PeerId) {
         // Immediately enable sync with the peer.
@@ -149,8 +146,6 @@ where
     fn inject_message(&mut self, peer_id: PeerId, msg: FakeSyncMessage) {
         self.send_fake_msg(peer_id);
     }
-
-    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {}
 
     fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<DiscoveryHandshake>) {
         if let Some(DiscoveryHandshake::HandshakeV1(hs)) = handshake {
@@ -181,7 +176,9 @@ where
     fn inject_protocol_enabled(
         &mut self,
         peer_id: PeerId,
-        _handshake: Option<<Self::TProto as spectrum_network::protocol_handler::ProtocolSpec>::THandshake>,
+        _handshake: Option<
+            <Self::TProto as spectrum_network::protocol_handler::ProtocolSpec<'de>>::THandshake,
+        >,
     ) {
         self.send_fake_msg(peer_id);
     }
@@ -190,7 +187,10 @@ where
         self.tracked_peers.remove(&peer_id);
     }
 
-    fn poll(&mut self, cx: &mut Context) -> Poll<Option<ProtocolBehaviourOut<DiscoveryHandshake, FakeSyncMessage>>> {
+    fn poll(
+        &mut self,
+        cx: &mut Context,
+    ) -> Poll<Option<ProtocolBehaviourOut<DiscoveryHandshake, FakeSyncMessage>>> {
         loop {
             match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
                 Poll::Ready(Some(Ok(out))) => {

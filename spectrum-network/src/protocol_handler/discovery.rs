@@ -9,15 +9,11 @@ use futures::Stream;
 use libp2p::PeerId;
 use log::{error, info, trace};
 
-use crate::peer_manager::data::ReputationChange;
 use crate::peer_manager::Peers;
-use crate::protocol::DISCOVERY_PROTOCOL_ID;
 use crate::protocol_handler::discovery::message::{
     DiscoveryHandshake, DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec, HandshakeV1,
 };
-use crate::protocol_handler::{
-    MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec,
-};
+use crate::protocol_handler::{NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec};
 use crate::types::{ProtocolId, ProtocolVer};
 
 pub mod message;
@@ -105,15 +101,11 @@ where
     }
 }
 
-impl<TPeers> ProtocolBehaviour for DiscoveryBehaviour<TPeers>
+impl<'de, TPeers> ProtocolBehaviour<'de> for DiscoveryBehaviour<TPeers>
 where
     TPeers: Peers,
 {
     type TProto = DiscoverySpec;
-
-    fn get_protocol_id(&self) -> ProtocolId {
-        DISCOVERY_PROTOCOL_ID
-    }
 
     fn inject_peer_connected(&mut self, peer_id: PeerId) {
         // Immediately enable sync with the peer.
@@ -134,11 +126,6 @@ where
                 self.peers.add_peers(peers);
             }
         }
-    }
-
-    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {
-        self.peers
-            .report_peer(peer_id, ReputationChange::MalformedMessage(details));
     }
 
     fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<DiscoveryHandshake>) {

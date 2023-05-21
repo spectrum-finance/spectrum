@@ -24,9 +24,9 @@ use spectrum_network::{
     protocol_handler::{
         discovery::{
             message::{DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec},
-            NodeStatus, DiscoveryBehaviour,
+            DiscoveryBehaviour, NodeStatus,
         },
-        MalformedMessage, ProtocolBehaviour, ProtocolHandler,
+        ProtocolBehaviour, ProtocolHandler,
     },
     types::{ProtocolId, ProtocolVer, Reputation},
 };
@@ -106,12 +106,16 @@ async fn one_shot_messaging() {
     // Though we spawn multiple tasks we use this single channel for messaging.
     let (msg_tx, _msg_rx) = mpsc::channel::<(Peer, Msg<DiscoveryMessage>)>(10);
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(
-        create_swarm::<DiscoveryBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
-    );
-    let (abortable_peer_1, handle_1) = futures::future::abortable(
-        create_swarm::<DiscoveryBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, msg_tx),
-    );
+    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm::<
+        DiscoveryBehaviour<PeersMailbox>,
+    >(
+        local_key_0, nc_0, addr_0, Peer::First
+    ));
+    let (abortable_peer_1, handle_1) = futures::future::abortable(create_swarm::<
+        DiscoveryBehaviour<PeersMailbox>,
+    >(
+        local_key_1, nc_1, addr_1, Peer::Second
+    ));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -232,12 +236,16 @@ async fn integration_test_0() {
         }
     });
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(
-        create_swarm::<DiscoveryBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
-    );
-    let (abortable_peer_1, handle_1) = futures::future::abortable(
-        create_swarm::<DiscoveryBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, msg_tx),
-    );
+    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm::<
+        DiscoveryBehaviour<PeersMailbox>,
+    >(
+        local_key_0, nc_0, addr_0, Peer::First
+    ));
+    let (abortable_peer_1, handle_1) = futures::future::abortable(create_swarm::<
+        DiscoveryBehaviour<PeersMailbox>,
+    >(
+        local_key_1, nc_1, addr_1, Peer::Second
+    ));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -400,17 +408,16 @@ async fn integration_test_1() {
         }
     });
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(
-        create_swarm::<DiscoveryBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx),
-    );
-    let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
-            local_key_1,
-            nc_1,
-            addr_1,
-            Peer::Second,
-            fake_msg_tx,
-        ));
+    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm::<
+        DiscoveryBehaviour<PeersMailbox>,
+    >(
+        local_key_0, nc_0, addr_0, Peer::First
+    ));
+    let (abortable_peer_1, handle_1) = futures::future::abortable(create_swarm::<
+        FakeSyncBehaviour<PeersMailbox>,
+    >(
+        local_key_1, nc_1, addr_1, Peer::Second
+    ));
 
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
@@ -501,7 +508,7 @@ async fn integration_test_1() {
         },
         NetworkControllerOut::PeerPunished {
             peer_id: local_peer_id_1,
-            reason: ReputationChange::MalformedMessage(MalformedMessage::UnknownFormat),
+            reason: ReputationChange::NoResponse,
         },
         NetworkControllerOut::Disconnected {
             peer_id: local_peer_id_1,
@@ -591,22 +598,16 @@ async fn integration_test_peer_punish_too_slow() {
         }
     });
 
-    let (abortable_peer_0, handle_0) =
-        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
-            local_key_0,
-            nc_0,
-            addr_0,
-            Peer::First,
-            msg_tx.clone(),
-        ));
-    let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
-            local_key_1,
-            nc_1,
-            addr_1,
-            Peer::Second,
-            msg_tx,
-        ));
+    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm::<
+        FakeSyncBehaviour<PeersMailbox>,
+    >(
+        local_key_0, nc_0, addr_0, Peer::First
+    ));
+    let (abortable_peer_1, handle_1) = futures::future::abortable(create_swarm::<
+        FakeSyncBehaviour<PeersMailbox>,
+    >(
+        local_key_1, nc_1, addr_1, Peer::Second
+    ));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -786,7 +787,6 @@ async fn integration_test_2() {
             nc_0,
             addr_0.clone(),
             Peer::First,
-            msg_tx.clone(),
         ));
     let (abortable_peer_1, handle_1) =
         futures::future::abortable(create_swarm::<DiscoveryBehaviour<PeersMailbox>>(
@@ -794,11 +794,14 @@ async fn integration_test_2() {
             nc_1,
             addr_1.clone(),
             Peer::Second,
-            msg_tx.clone(),
         ));
-    let (abortable_peer_2, handle_2) = futures::future::abortable(
-        create_swarm::<DiscoveryBehaviour<PeersMailbox>>(local_key_2, nc_2, addr_2.clone(), Peer::Third, msg_tx),
-    );
+    let (abortable_peer_2, handle_2) =
+        futures::future::abortable(create_swarm::<DiscoveryBehaviour<PeersMailbox>>(
+            local_key_2,
+            nc_2,
+            addr_2.clone(),
+            Peer::Third,
+        ));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
     let (cancel_tx_2, cancel_rx_2) = oneshot::channel::<()>();
@@ -873,51 +876,51 @@ async fn integration_test_2() {
 
     // Check that `peer_0` is sending out the necessary `Peers` messages.
     assert!(
-        prot_peer_0.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![
-            PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1)
-        ])))
+        prot_peer_0.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(
+            vec![PeerDestination::PeerIdWithAddr(local_peer_id_1, addr_1)]
+        )))
     );
     assert!(
-        prot_peer_0.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![
-            PeerDestination::PeerId(local_peer_id_2)
-        ])))
+        prot_peer_0.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(
+            vec![PeerDestination::PeerId(local_peer_id_2)]
+        )))
     );
 
     // Check that `peer_1` is sending out the necessary `Peers` messages.
     assert!(
-        prot_peer_1.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![
-            PeerDestination::PeerIdWithAddr(local_peer_id_2, addr_2)
-        ])))
+        prot_peer_1.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(
+            vec![PeerDestination::PeerIdWithAddr(local_peer_id_2, addr_2)]
+        )))
     );
     assert!(
-        prot_peer_1.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![
-            PeerDestination::PeerId(local_peer_id_0)
-        ])))
+        prot_peer_1.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(
+            vec![PeerDestination::PeerId(local_peer_id_0)]
+        )))
     );
 
     // Check that `peer_2` is sending out the necessary `Peers` messages.
     assert!(
-        prot_peer_2.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![
-            PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0)
-        ])))
+        prot_peer_2.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(
+            vec![PeerDestination::PeerIdWithAddr(local_peer_id_0, addr_0)]
+        )))
     );
     assert!(
-        prot_peer_2.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(vec![
-            PeerDestination::PeerId(local_peer_id_1)
-        ])))
+        prot_peer_2.contains(&DiscoveryMessage::DiscoveryMessageV1(DiscoveryMessageV1::Peers(
+            vec![PeerDestination::PeerId(local_peer_id_1)]
+        )))
     );
 }
 
-fn make_swarm_components<P, F>(
+fn make_swarm_components<'de, P, F>(
     peers: Vec<PeerDestination>,
     gen_protocol_behaviour: F,
     msg_buffer_size: usize,
 ) -> (
-    ProtocolHandler<P, NetworkMailbox>,
+    ProtocolHandler<'de, P, NetworkMailbox>,
     NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>,
 )
 where
-    P: ProtocolBehaviour + Unpin + Send + 'static,
+    P: ProtocolBehaviour<'de> + Unpin + Send + 'static,
     F: FnOnce(PeersMailbox) -> P,
 {
     let peer_conn_handler_conf = PeerConnHandlerConf {
@@ -957,12 +960,16 @@ where
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };
-    let (sync_handler, sync_mailbox) =
-        ProtocolHandler::new(gen_protocol_behaviour(peers.clone()), network_api, 10);
+    let (sync_handler, sync_mailbox) = ProtocolHandler::new(
+        gen_protocol_behaviour(peers.clone()),
+        network_api,
+        DISCOVERY_PROTOCOL_ID,
+        10,
+    );
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(
-            DISCOVERY_PROTOCOL_ID,
+            sync_handler.protocol,
             (ProtocolConfig::Stateful(sync_conf), sync_mailbox),
         )]),
         peers,
@@ -1014,17 +1021,13 @@ pub fn make_nc_without_protocol_handler(
     (nc, requests_snd)
 }
 
-async fn create_swarm<P>(
+async fn create_swarm<'de, P>(
     local_key: identity::Keypair,
     nc: NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>,
     addr: Multiaddr,
     peer: Peer,
-    mut tx: mpsc::Sender<(
-        Peer,
-        Msg<<<P as ProtocolBehaviour>::TProto as spectrum_network::protocol_handler::ProtocolSpec>::TMessage>,
-    )>,
 ) where
-    P: ProtocolBehaviour + Unpin + Send + 'static,
+    P: ProtocolBehaviour<'de> + Unpin + Send + 'static,
 {
     let transport = libp2p::development_transport(local_key.clone()).await.unwrap();
     let local_peer_id = PeerId::from(local_key.public());

@@ -109,14 +109,14 @@ impl NetworkBehaviour for CustomProtoWithAddr {
     }
 }
 
-pub fn build_node(
+pub fn build_node<'de>(
     keypair: Keypair,
     self_addr: Multiaddr,
     peers_addrs: Vec<(PeerId, Multiaddr)>,
     local_status: NodeStatus,
 ) -> (
     Swarm<CustomProtoWithAddr>,
-    ProtocolHandler<DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
+    ProtocolHandler<'de, DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
 ) {
     let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
         .into_authentic(&keypair)
@@ -171,11 +171,11 @@ pub fn build_node(
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };
-    let (sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api, 10);
+    let (sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api, DISCOVERY_PROTOCOL_ID, 10);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(
-            DISCOVERY_PROTOCOL_ID,
+            sync_handler.protocol,
             (ProtocolConfig::Stateful(sync_conf), sync_mailbox),
         )]),
         peers,
@@ -197,11 +197,11 @@ pub fn build_node(
 /// Builds two nodes that have each other as bootstrap nodes.
 /// This is to be used only for testing, and a panic will happen if something goes wrong.
 #[allow(clippy::type_complexity)]
-pub fn build_nodes(
+pub fn build_nodes<'de>(
     n: usize,
 ) -> Vec<(
     Swarm<CustomProtoWithAddr>,
-    ProtocolHandler<DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
+    ProtocolHandler<'de, DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
 )> {
     let mut out = Vec::with_capacity(n);
 

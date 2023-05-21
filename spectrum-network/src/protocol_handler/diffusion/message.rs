@@ -5,7 +5,7 @@ use spectrum_ledger::{ModifierId, ModifierType};
 use crate::protocol_handler::diffusion::types::SerializedModifier;
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_handler::ProtocolSpec;
-use crate::types::{ProtocolId, ProtocolVer};
+use crate::types::ProtocolVer;
 
 /// Sync handshake provides initial node status.
 #[derive(Serialize, Deserialize, Debug)]
@@ -14,10 +14,7 @@ pub enum DiffusionHandshake {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct HandshakeV1 {
-    pub supported_protocols: Vec<ProtocolId>,
-    pub height: usize,
-}
+pub struct HandshakeV1(pub SyncStatus);
 
 impl Versioned for DiffusionHandshake {
     fn version(&self) -> ProtocolVer {
@@ -39,11 +36,17 @@ pub struct Modifiers<T> {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SyncStatus {
+    pub height: u64,
+    pub last_blocks: Vec<ModifierId>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum DiffusionMessageV1 {
     Inv(Modifiers<ModifierId>),
     RequestModifiers(Modifiers<ModifierId>),
     Modifiers(Modifiers<SerializedModifier>),
-    SyncStatus(Vec<ModifierId>),
+    SyncStatus(SyncStatus),
 }
 
 impl Versioned for DiffusionMessage {
@@ -62,7 +65,7 @@ impl DiffusionSpec {
     }
 }
 
-impl ProtocolSpec for DiffusionSpec {
+impl<'de> ProtocolSpec<'de> for DiffusionSpec {
     type THandshake = DiffusionHandshake;
     type TMessage = DiffusionMessage;
 }

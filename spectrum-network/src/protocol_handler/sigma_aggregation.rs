@@ -285,17 +285,13 @@ where
     outbox: VecDeque<ProtocolBehaviourOut<SigmaAggrMessage, SigmaAggrMessage>>,
 }
 
-impl<'a, H, MPP> ProtocolBehaviour for SigmaAggregation<'a, H, MPP>
+impl<'a, 'de, H, MPP> ProtocolBehaviour<'de> for SigmaAggregation<'a, H, MPP>
 where
     H: Debug,
     MPP: MakePeerPartitions + Clone,
     MPP::PP: 'a,
 {
     type TProto = SigmaAggrSpec;
-
-    fn get_protocol_id(&self) -> ProtocolId {
-        SIGMA_AGGR_PROTOCOL_ID
-    }
 
     fn inject_message(
         &mut self,
