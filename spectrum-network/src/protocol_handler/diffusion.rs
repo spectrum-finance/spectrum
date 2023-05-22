@@ -1,22 +1,24 @@
-use std::collections::VecDeque;
-use std::future::Future;
+use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
+use std::sync::mpsc::Receiver;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use futures::stream::FuturesOrdered;
 use futures::Stream;
 use libp2p_identity::PeerId;
 use log::error;
 
-use spectrum_ledger::ledger_view::history::HistoryAsync;
+use spectrum_ledger::ledger_view::history::HistoryReadAsync;
 
 use crate::protocol_handler::diffusion::message::{
-    DiffusionHandshake, DiffusionMessage, DiffusionSpec, HandshakeV1, SyncStatus,
+    DiffusionHandshake, DiffusionMessage, DiffusionSpec, HandshakeV1,
 };
+use crate::protocol_handler::diffusion::service::{DiffusionService, SyncState};
+use crate::protocol_handler::pool::TaskPool;
 use crate::protocol_handler::{NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut};
-use crate::types::ProtocolVer;
 
 pub mod message;
+mod service;
 pub(super) mod types;
 
 type DiffusionBehaviourOut = ProtocolBehaviourOut<DiffusionHandshake, DiffusionMessage>;
@@ -27,50 +29,40 @@ pub enum DiffusionBehaviorError {
     OperationCancelled,
 }
 
-type DiffusionTask =
-    Pin<Box<dyn Future<Output = Result<DiffusionBehaviourOut, DiffusionBehaviorError>> + Send>>;
-
 pub struct DiffusionBehaviour<THistory> {
     outbox: VecDeque<DiffusionBehaviourOut>,
-    tasks: FuturesOrdered<DiffusionTask>,
-    history: THistory,
-}
-
-impl<THistory> DiffusionBehaviour<THistory> {
-    fn local_status(&self) -> SyncStatus {
-        todo!()
-    }
-
-    fn make_poly_handshake(&self) -> Vec<(ProtocolVer, Option<DiffusionHandshake>)> {
-        vec![(
-            DiffusionSpec::v1(),
-            Some(DiffusionHandshake::HandshakeV1(HandshakeV1(self.local_status()))),
-        )]
-    }
+    tasks: TaskPool<DiffusionBehaviourOut, DiffusionBehaviorError>,
+    peers: HashMap<PeerId, SyncState>,
+    service: Arc<DiffusionService<THistory>>,
 }
 
 impl<'de, THistory> ProtocolBehaviour<'de> for DiffusionBehaviour<THistory>
 where
-    THistory: HistoryAsync,
+    THistory: HistoryReadAsync + 'static,
 {
     type TProto = DiffusionSpec;
 
     fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<DiffusionHandshake>) {
-        if let Some(DiffusionHandshake::HandshakeV1(hs)) = handshake {
-            self.outbox
-                .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
+        if let Some(DiffusionHandshake::HandshakeV1(HandshakeV1(status))) = handshake {
+            let service = self.service.clone();
+            self.tasks.spawn(async move {
+                let peer_state = service.remote_state(status).await;
+                Ok(DiffusionBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
                     peer_id,
-                    handshakes: self.make_poly_handshake(),
+                    handshakes: service.make_poly_handshake().await,
                 }))
+            })
         }
     }
 
     fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {
-        self.outbox
-            .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
+        let service = self.service.clone();
+        self.tasks.spawn(async move {
+            Ok(DiffusionBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
                 peer_id,
-                handshakes: self.make_poly_handshake(),
+                handshakes: service.make_poly_handshake().await,
             }))
+        })
     }
 
     fn poll(

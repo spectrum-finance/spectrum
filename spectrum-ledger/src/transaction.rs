@@ -63,7 +63,7 @@ pub struct EvaluatedTransaction {
     pub outputs: Vec<SBox>,
 }
 
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ScriptWitness {
     /// Reference to the existing on-chain box that contains the script.
     ScriptRef(ScriptRef),
@@ -71,7 +71,7 @@ pub enum ScriptWitness {
     Script(SerializedModule),
 }
 
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum DatumWitness {
     /// Reference to the existing on-chain box that contains the datum.
     DatumRef(DatumRef),
@@ -88,7 +88,7 @@ pub struct Witness {
 }
 
 /// Invokation of the owning script.
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ScriptInv {
     /// Index of the script in the witness.
     pub script: u16,
@@ -103,7 +103,7 @@ pub struct ScriptInv {
     pub targs: Vec<TypeTag>,
 }
 
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct LinkedScriptInv {
     pub script: SerializedModule,
     pub datum: Option<SerializedValue>,

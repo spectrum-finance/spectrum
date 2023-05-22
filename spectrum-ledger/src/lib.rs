@@ -1,14 +1,32 @@
 use spectrum_crypto::digest::{Blake2b, Blake2bDigest256, Digest256};
 
+pub mod block;
 pub mod eval;
+pub mod ledger_view;
 pub mod linking;
 pub mod sbox;
 pub mod transaction;
 pub mod validation;
-pub mod ledger_view;
-pub mod block;
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug)]
+#[derive(
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Copy,
+    Clone,
+    Hash,
+    derive_more::Add,
+    derive_more::Sub,
+    derive_more::From,
+    derive_more::Into,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+)]
+pub struct Height(u64);
+
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ChainId(u16);
 
 #[derive(

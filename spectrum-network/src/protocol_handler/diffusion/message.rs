@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use spectrum_ledger::{ModifierId, ModifierType};
+use spectrum_ledger::{Height, ModifierId, ModifierType};
+use spectrum_ledger::block::BlockId;
 
 use crate::protocol_handler::diffusion::types::SerializedModifier;
 use crate::protocol_handler::versioning::Versioned;
@@ -37,8 +38,8 @@ pub struct Modifiers<T> {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SyncStatus {
-    pub height: u64,
-    pub last_blocks: Vec<ModifierId>,
+    pub height: Height,
+    pub last_blocks: Vec<BlockId>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
