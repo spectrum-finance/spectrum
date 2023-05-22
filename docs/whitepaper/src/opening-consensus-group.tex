@@ -1,17 +1,29 @@
-As long as Spectrum is an open-membership protocol, PBFTNetwork's assumption on a closed consensus group is nod valid.
-Sybil attacks cat break any protocol with security thresholds such as PBFT's assumption that at most $f$ out of ${3 f + 1}$ members are honest, thus, an appropriate dynamic selection of opening consensus group is crucial for network livness and safety.
-Consensus group members selection should be performed in a random and trusted way to ensure that a sufficient fraction of the selected members are honest, procedure itself should be independent of any internal or external advisers.
-Bitcoin~\cite{nakamoto2009bitcoin} and many of its successors are using proof-of-work (PoW) to achieve this goal.
-The consensus group selection problem is relevant to an equally important issue of the leader election.
-In essence, PoW in Bitcoin is a robust mechanism that facilitates randomized selection of a \enquote{leader} that is eligible to produce a new block.
-A primary consideration regarding PoW is the amount of energy required for the systems that operate on it.
-A natural alternative to PoW is a mechanism that relies on the notion of proof-of-stake (PoS).
-Rather than investing computational resources in order to participate in the leader election process, participants of a PoS system instead run a process that randomly selects one of them proportionally to the stake each possesses according to the current state of blockchain.
+Spectrum is an open-membership protocol, thus, PBFTNetwork's assumption on a closed consensus group is nod valid.
+Sybil attacks cat break any protocol with security thresholds such as PBFT's assumption that at most $f$ out of\
+${3 f + 1}$ members are honest, thus, an appropriate dynamic selection of opening consensus group is crucial for\
+network livness and safety.
+Consensus group members selection should be performed in a random and trusted way to ensure that a sufficient fraction\
+of the selected members are honest, selection procedure should be independent of any internal or external advisers.
+
+Bitcoin~\cite{nakamoto2009bitcoin} and many of its successors are using proof-of-work (PoW) consensus.
+In essence, PoW in Bitcoin is a robust mechanism that facilitates randomized selection of a \enquote{leader} that is\
+eligible to produce a new block.
+Later, PoW approach was adapted into a proof-of-membership mechanism by ~\cite{kokoriskogias2016enhancing}\
+to select a new consensus group once in a while, which then executes the PBFT consensus protocol.
+A primary consideration regarding PoW is the amount of energy required for the systems that operate on it and
+a natural alternative to PoW is a mechanism that relies on the concept of proof-of-stake (PoS).
+Rather than investing computational resources in order to participate in the leader election process,\
+participants of a PoS system instead run a process that randomly selects one of them proportionally to the stake.
+Pure PoS mechanism to solve the PBFT problem was firstly used in ~\cite{cryptoeprint:2017/454} to select both consensus\
+group members and PBFT rounds leaders.
+To introduce randomness into these processes, Verifiable Random Function (VRF) has been applied.
 
 \subsubsection{Verifiable Random Function}
 
-Verifiable Random Function (VRF) is a reliable way to introduce randomness in the protocol.
-By definition the function $\mathcal{F}$ can be attributed to the VRF family if the following methods are defined for the $\mathcal{F}$:
+Verifiable Random Function (VRF) is a reliable way to introduce randomness in the protocol and to be\
+used as a random oracle.
+By definition the function $\mathcal{F}$ can be attributed to the VRF family if the following methods are defined\
+for the $\mathcal{F}$:
 \begin{enumerate}
     \item \textbf{Gen}: ${Gen(1^k) \rightarrow (pk, sk)}$, where $pk$ is the public key and $sk$ is the secret key;
     \item \textbf{Prove}: ${Prove(x; sk) \rightarrow (\mathcal{F}(x; sk), \pi)}$, where $x$ is a random input, $\mathcal{F}(x; sk)$ is a random value, sampled from $\{0,1\}^{l_{VRF}}$ and $\pi \vcentcolon= \pi(x; sk)$ is the associated proof;
