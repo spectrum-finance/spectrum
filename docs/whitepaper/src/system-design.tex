@@ -47,40 +47,73 @@ todo
 \subsubsection{Bootstrapping}\label{subsubsec:bootstrapping}
 
 The system is bootstrapped in a trusted way.
-A manually picked set of validators $V_0$ is assigned to the first epoch $e_0$.
-On-chain vaults are initialized with an aggregated public key $aPK_0$ of the initial committee.
-All initial committee members generate verification tuples ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$
-and agree on the genesis block.
+A manually picked set of validators $V_0$ of the predefined size $M$ is assigned to the first epoch $e_0$.
+\begin{enumerate}
+    \item On-chain vaults are initialized with an aggregated public key $aPK_0$ of the initial committee.
+
+    \item All consensus group members i.e. $\forall PK_i \in V_0$ should generate the tuple of verification keys\
+    ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$, using the ideal functionalities ${\mathcal_{F}}_{VRF}$,\
+    ${\mathcal_{F}}_{KES}$, ${\mathcal_{F}}_{DSIG}$ instances, running on their machines.
+
+    \item Then, to claim an initial stakes $\{s_i\}_{i=0}^M$ every protocol participant sends a request\
+    ${(\textbf{ver\_keys}, sid, PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$ to ${\mathcal_{F}}_{RLB}$,\
+    which saves the key tuple ${(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$.
+
+    \item Full set of the verification\
+    keys tuples ${V_{init} = \{(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})\}_{i=0}^M}$\
+    should be stored in the blockchain and acknowledged by all members of the initial consensus group.
+
+    \item ${\mathcal_{F}}_{RLB}$, parameterized with confirmed $V_{init}$ is evaluated independently by every\
+    participant to sample an initial random seed value $\eta \leftarrow \{0, 1\}^\lambda$.
+
+    \item Finally, all approved stakeholders should agree on the genesis block\
+    ${B_0=\left(\{(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig}, s_i)\}_{i=0}^M, \eta\right)}$.
+\end{enumerate}
 
 \subsubsection{Normal Flow}\label{subsubsec:normal-flow}
+Protocol is running by manually selected opening consensus group $V_0$.
+Stakeholders interact with each other and with the ideal functionalities ${\mathcal_{F}}_{RLB}$,\
+${\mathcal_{F}}_{VRF}$, ${\mathcal_{F}}_{KES}$, ${\mathcal_{F}}_{DSIG}$ over a sequence of $L = E \cdot R$ slots\
+${S=\{sl_1,...,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
 
 \begin{enumerate}
-    \item Registration.
+    \item \textbf{Registration}.
     All Spectrum stakeholders can register for becoming a committee member.
     To get a chance of becoming a member of $V_n$ in the epoch $e_n$ they register in a lottery during the $e_{n-2}$
     epoch by publishing their verification tuples ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$.
-    \item Lottery.
-    Once registration is done and epoch $e_{n-1}$ comes to the end, all registered participants evaluates
-    ${\mathcal_{F}}_{VRF}$ locally and compare the generated random $y$ with their corresponding consensus threshold
-    ${T_i^j}^*$ for this epoch.
+    \item \textbf{Consensus Lottery}.
+    At the end of the epoch ${e_j \geqslant 1}$ every verified $PK_i$ sends\
+    ${(\textbf{epochrnd\_req}, sid, PK_i, e_j)}$ to ${\mathcal_{F}}_{RLB}$ and receives\
+    $({\textbf{epochrnd}, sid, \eta_j)}$.
+    When every $PK_i$ evaluates ${\mathcal_{F}}_{VRF}$ with a query\
+    ${(\textbf{EvalProve}, sid, \eta_j || e_j || \textbf{test*})}$\
+    and pass the received random $y$ value to the ${\mathcal_{F}}_{L}$.
     If successful, then publish $y$ and the associated proofs to form an approved consensus members table.
-    \item Committee key aggregation.
+
+    \item \textbf{Committee key aggregation}.
     Once new committee is selected, nodes in $V_n$ aggregate their individual public keys $\{PK_i\}$ into
     a joint one $aPK_n$.
-    \item Committee transition.
+    \item \textbf{Committee transition}.
     Nodes in $V_{n-1}$ publish cross-chain message ${M_n : (aPK_n, \sigma_{n-1})}$ , where $aPK_n$ is
     an aggregated public key of the new committee $V_n$ , $\sigma_{n-1}$ is an aggregated signature of
     $M_n$ such that ${Verify(\sigma_{n-1}, aPK_{n-1}, Mn) = 1}$.
     Vaults are updated such that ${Vault\{(E_{n-1}, aPK_{n-1})\} \coloneqq (e_n, aPK_n)}$.
-    \item Decentralized Asset Management (Custodial).
-    Nodes in $V_n$ observe events on supported L1 chains, agree on the set of updates
-    and compute state outbound state transitions accordingly.
-    \item Notarisation (Non-custodial).
-    Nodes in $V_n$ observe events on supported L1 chains.
-    Committee leader batch an updates and batch is collectively notarized.
-    All notarized batches are syncing and one of the committee leaders publish resulted block on-chain.
-\end{enumerate}
+    \item \textbf{Chain extension}.
+    Every online consensus group member collects en existed chains and verifying that for every chain every block, produced up to $Z$ blocks before contains correct data about slot $sl'$ leader $PK'$.
+    To verify a valid slot leader, response from the ${\mathcal_{F}}_{VRF}$ to query ${(\textbf{Verify}, sid, \eta' || sl' || \textbf{test}, y', \pi', v^{vrf'})}$ should be ${(\textbf{Verified}, sid, \eta' || sl' || \textbf{test}, y', \pi', 1)}$ and $y'<T_j'$ as well.
+    String \textbf{test} is an arbitrary and value $T_j'$ is a threshold for the stakeholder $PK'$ for the slot $sl'$.
 
-\item The ${\mathcal_{F}}_{VRF}$ is designed in such a way that not every slot has a leader, moreover, most of the slots remain empty to serve protocol synchronization.
-If there are $P$ several elected leaders for this slot, they all propose a new batches of updates $\{B_p\}_{p=0}^P$ with included proofs of the leadership ${(v_i^{vrf}, y, \pi)}$ and
-${(\pi, \rho_\pi)}$.
+    Then every lottery participant separately evaluates ${\mathcal_{F}}_{VRF}$ with his own inputs ${(\textbf{EvalProve}, sid, \eta_j || sl || \textbf{nonce})}$ and ${(\textbf{EvalProve}, sid, \eta_j || sl || \textbf{test})}$, where \textbf{nonce} is an arbitrary string.
+    Received outputs ${(\textbf{Evaluated}, sid, y, \pi)}$ and ${(\textbf{Evaluated}, sid, \rho_y, \rho_\pi)}$ respectively includes generated random numbers ${y, \rho_y}$ and the associated proofs ${\pi, \rho_\pi}$.
+    If ${y < T_i^j}$ then $PK_i$ is a slot leader and he can propose a batch which should be notarized by all committee members.
+    Random number $\rho_y$ will be used to sample a random seed for the next epoch.
+
+    \textbf{Note:} The ${\mathcal_{F}}_{VRF}$ is designed in such a way that not every slot has a leader, moreover, most of the slots remain empty to serve protocol synchronization.
+    If there are $P$ several elected leaders for this slot, they all propose a new batches of updates $\{B_p\}_{p=0}^P$ with included proofs of the leadership ${(v_i^{vrf}, y, \pi)}$ and
+    ${(\pi, \rho_\pi)}$.
+
+    After notarization batch is shared with over committees via syncing shards mechanism.
+    After syncing any of the separate committee leaders can propose a block consisted of notarized batches and sign it with ${\mathcal_{F}}_{KES}$ by sending the request ${(\textbf{sign\_req}, sid, PK_i, B_p, sl)}$.
+    Received from ${\mathcal_{F}}_{KES}$ response signature $\sigma_p$ is included in the proposed block.
+
+\end{enumerate}
