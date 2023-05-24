@@ -1,10 +1,21 @@
-use spectrum_crypto::digest::Blake2bDigest256;
+use spectrum_crypto::digest::{Blake2bDigest256, Digest};
 
 use crate::transaction::Transaction;
-use crate::Height;
+use crate::SlotNo;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BlockId(Blake2bDigest256);
+
+impl BlockId {
+    pub const ORIGIN: BlockId = BlockId(Digest::zero());
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+pub struct BlockVer(u16);
+
+impl BlockVer {
+    pub const INITIAL: BlockVer = BlockVer(1);
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum BlockSectionId {
@@ -12,16 +23,19 @@ pub enum BlockSectionId {
     Payload(BlockId),
 }
 
-// #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
-// pub struct BlockHeaderV1 {
-//     pub id: BlockId,
-//     pub height: Height,
-// }
-
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BlockHeader {
     pub id: BlockId,
-    pub height: Height,
+    pub slot: SlotNo,
+    pub version: BlockVer,
+}
+
+impl BlockHeader {
+    pub const ORIGIN: BlockHeader = BlockHeader {
+        id: BlockId::ORIGIN,
+        slot: SlotNo::ORIGIN,
+        version: BlockVer::INITIAL,
+    };
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]

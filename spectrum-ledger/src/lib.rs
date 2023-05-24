@@ -24,7 +24,29 @@ pub mod validation;
     serde::Deserialize,
     Debug,
 )]
-pub struct Height(u64);
+pub struct SlotNo(u64);
+
+impl SlotNo {
+    pub const ORIGIN: SlotNo = SlotNo(0);
+}
+
+#[derive(
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Copy,
+    Clone,
+    Hash,
+    derive_more::Add,
+    derive_more::Sub,
+    derive_more::From,
+    derive_more::Into,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+)]
+pub struct EpochNo(u64);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ChainId(u16);

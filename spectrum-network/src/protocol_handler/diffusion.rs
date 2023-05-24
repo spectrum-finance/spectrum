@@ -1,9 +1,9 @@
 use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use async_std::sync::RwLock;
 use futures::Stream;
 use libp2p_identity::PeerId;
 use log::error;
@@ -32,7 +32,7 @@ pub enum DiffusionBehaviorError {
 pub struct DiffusionBehaviour<THistory> {
     outbox: VecDeque<DiffusionBehaviourOut>,
     tasks: TaskPool<DiffusionBehaviourOut, DiffusionBehaviorError>,
-    peers: HashMap<PeerId, SyncState>,
+    peers: Arc<RwLock<HashMap<PeerId, SyncState>>>, // todo: maybe it's better to mutate via messaging rather than locks?
     service: Arc<DiffusionService<THistory>>,
 }
 
@@ -45,8 +45,10 @@ where
     fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<DiffusionHandshake>) {
         if let Some(DiffusionHandshake::HandshakeV1(HandshakeV1(status))) = handshake {
             let service = self.service.clone();
+            let peers = self.peers.clone();
             self.tasks.spawn(async move {
                 let peer_state = service.remote_state(status).await;
+                peers.write().await.insert(peer_id, peer_state);
                 Ok(DiffusionBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
                     peer_id,
                     handshakes: service.make_poly_handshake().await,

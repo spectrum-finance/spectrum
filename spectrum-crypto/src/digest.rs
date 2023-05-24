@@ -46,8 +46,8 @@ impl<const N: usize, H> Digest<N, H> {
     pub const SIZE: usize = N;
 
     /// All zeros
-    pub fn zero() -> Digest<N, H> {
-        Digest([0u8; N], PhantomData::default())
+    pub const fn zero() -> Digest<N, H> {
+        Digest([0u8; N], PhantomData)
     }
 
     pub fn from_base16(s: &str) -> Result<Digest<N, H>, DigestNError> {

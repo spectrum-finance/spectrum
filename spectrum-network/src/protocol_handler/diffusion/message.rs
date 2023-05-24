@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use spectrum_ledger::{Height, ModifierId, ModifierType};
+use spectrum_ledger::{SlotNo, ModifierId, ModifierType};
 use spectrum_ledger::block::BlockId;
 
 use crate::protocol_handler::diffusion::types::SerializedModifier;
@@ -38,7 +38,9 @@ pub struct Modifiers<T> {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SyncStatus {
-    pub height: Height,
+    /// Slot number of best available block.
+    pub height: SlotNo,
+    /// Tail of the peer's chain (in reverse order, newer blocks first).
     pub last_blocks: Vec<BlockId>,
 }
 

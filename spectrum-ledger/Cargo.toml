@@ -15,5 +15,6 @@ async-trait = "0.1.68"
 rocksdb = "0.21.0"
 bincode = "1.3.3"
 async-std = "1.12.0"
+nonempty = "0.8.1"
 
 move-core-types.workspace = true
