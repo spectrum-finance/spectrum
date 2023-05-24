@@ -13,14 +13,12 @@
 \usepackage{csquotes}
 \usepackage{textcomp}
 \usepackage{amsfonts}
-\usepackage{amssymb}
 \usepackage{amsmath}
 \usepackage{enumitem}
+\addbibresource{references.bib}
 
 \newlist{legal}{enumerate}{10}
 \setlist[legal]{label*=\arabic*.}
-
-\addbibresource{references.bib}
 
 \title{Spectrum: Cross-chain interoperability at scale}
 \author{Spectrum Labs}
@@ -30,20 +28,26 @@
     \begin{sloppypar}
         \maketitle
 
+
         \section{Introduction}\label{sec:introduction}
         \input{introduction}
+
 
         \section{Related Work}\label{sec:related-work}
         todo
 
+
         \section{Goals}\label{sec:goals}
         \input{goals}
+
 
         \section{System Model}\label{sec:system-model}
         \input{system-model}
 
+
         \section{System Design}\label{sec:system-design}
         \input{system-design}
+
 
         \section{Applications}\label{sec:applications}
         \input{applications}
@@ -51,5 +55,4 @@
         \newpage
         \printbibliography
     \end{sloppypar}
-
 \end{document}
