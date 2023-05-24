@@ -8,6 +8,9 @@ pub struct BlockId(Blake2bDigest256);
 
 impl BlockId {
     pub const ORIGIN: BlockId = BlockId(Digest::zero());
+    pub fn random() -> BlockId {
+        BlockId(Digest::random())
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]

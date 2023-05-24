@@ -191,13 +191,13 @@ mod tests {
     use rand::Rng;
 
     use spectrum_crypto::digest::blake2b256_hash;
+    use spectrum_crypto::pubkey::PublicKey;
 
     use crate::protocol_handler::handel::Threshold;
     use crate::protocol_handler::sigma_aggregation::crypto::{
         aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
         response, schnorr_commitment_pair, verify, verify_response,
     };
-    use crate::protocol_handler::sigma_aggregation::types::{Commitment, PublicKey};
 
     #[test]
     fn uniqie_individual_inputs() {

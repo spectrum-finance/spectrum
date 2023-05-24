@@ -4,6 +4,7 @@ use std::convert::TryInto;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
+use rand::{thread_rng, RngCore};
 use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
 
@@ -53,7 +54,13 @@ impl<const N: usize, H> Digest<N, H> {
     pub fn from_base16(s: &str) -> Result<Digest<N, H>, DigestNError> {
         let bytes = base16::decode(s)?;
         let arr: [u8; N] = bytes.as_slice().try_into()?;
-        Ok(Digest(arr, PhantomData::default()))
+        Ok(Digest(arr, PhantomData))
+    }
+
+    pub fn random() -> Digest<N, H> {
+        let mut bf = [0u8; N];
+        thread_rng().fill_bytes(&mut bf);
+        Digest(bf, PhantomData)
     }
 }
 

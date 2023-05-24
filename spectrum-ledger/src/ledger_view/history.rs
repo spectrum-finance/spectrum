@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
@@ -40,58 +41,5 @@ impl HistoryReadAsync for HistoryRocksDB {
 
     async fn get_tail(&self, n: usize) -> NonEmpty<BlockHeader> {
         todo!()
-    }
-}
-
-#[cfg(test)]
-pub mod test {
-    use std::collections::HashMap;
-
-    use nonempty::NonEmpty;
-
-    use crate::block::{BlockHeader, BlockId, BlockSection, BlockSectionId};
-    use crate::ledger_view::history::HistoryReadAsync;
-
-    pub struct EphemeralHistory {
-        pub db: HashMap<BlockId, BlockSection>,
-    }
-
-    #[async_trait::async_trait]
-    impl HistoryReadAsync for EphemeralHistory {
-        async fn member(&self, id: &BlockId) -> bool {
-            self.db.contains_key(id)
-        }
-
-        async fn get_section(&self, id: &BlockSectionId) -> Option<BlockSection> {
-            match id {
-                BlockSectionId::Header(id) | BlockSectionId::Payload(id) => self.db.get(id).cloned(),
-            }
-        }
-
-        async fn get_tip(&self) -> BlockHeader {
-            self.db
-                .values()
-                .filter_map(|s| match s {
-                    BlockSection::Header(bh) => Some(bh),
-                    _ => None,
-                })
-                .max_by_key(|hd| hd.slot)
-                .cloned()
-                .unwrap_or(BlockHeader::ORIGIN)
-        }
-
-        async fn get_tail(&self, n: usize) -> NonEmpty<BlockHeader> {
-            let mut headers = self
-                .db
-                .values()
-                .filter_map(|s| match s {
-                    BlockSection::Header(bh) => Some(bh),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            headers.sort_by_key(|hd| hd.slot);
-            NonEmpty::collect(headers[headers.len() - n..].into_iter().map(|&hd| hd.clone()))
-                .unwrap_or(NonEmpty::singleton(BlockHeader::ORIGIN))
-        }
     }
 }
