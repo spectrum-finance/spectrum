@@ -35,8 +35,11 @@ where
 {
     pub async fn local_status(&self) -> SyncStatus {
         let tail = self.history.get_tail(SYNC_HEADERS).await;
+        let height = tail.last().slot;
+        let mut tail = Vec::from(self.history.get_tail(SYNC_HEADERS).await);
+        tail.reverse(); // newer blocks first
         SyncStatus {
-            height: tail.last().slot,
+            height,
             last_blocks: tail.into_iter().map(|h| h.id).collect(),
         }
     }

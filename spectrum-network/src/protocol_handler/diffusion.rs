@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use async_std::sync::RwLock;
+use async_std::channel::Receiver;
 use futures::Stream;
 use libp2p_identity::PeerId;
 use log::error;
@@ -14,12 +14,16 @@ use crate::protocol_handler::diffusion::message::{
     DiffusionHandshake, DiffusionMessage, DiffusionSpec, HandshakeV1,
 };
 use crate::protocol_handler::diffusion::service::{DiffusionService, SyncState};
-use crate::protocol_handler::pool::TaskPool;
+use crate::protocol_handler::pool::{FromTask, TaskPool};
 use crate::protocol_handler::{NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut};
 
 pub mod message;
 mod service;
 pub(super) mod types;
+
+enum DiffusionBehaviourIn {
+    UpdatePeer { peer_id: PeerId, peer_state: SyncState },
+}
 
 type DiffusionBehaviourOut = ProtocolBehaviourOut<DiffusionHandshake, DiffusionMessage>;
 
@@ -30,10 +34,21 @@ pub enum DiffusionBehaviorError {
 }
 
 pub struct DiffusionBehaviour<THistory> {
+    from_tasks: Receiver<FromTask<DiffusionBehaviourIn, DiffusionBehaviourOut>>,
     outbox: VecDeque<DiffusionBehaviourOut>,
-    tasks: TaskPool<DiffusionBehaviourOut, DiffusionBehaviorError>,
-    peers: Arc<RwLock<HashMap<PeerId, SyncState>>>, // todo: maybe it's better to mutate via messaging rather than locks?
+    tasks: TaskPool<DiffusionBehaviourIn, DiffusionBehaviourOut, DiffusionBehaviorError>,
+    peers: HashMap<PeerId, SyncState>,
     service: Arc<DiffusionService<THistory>>,
+}
+
+impl<THistory> DiffusionBehaviour<THistory> {
+    fn on_event(&mut self, event: DiffusionBehaviourIn) {
+        match event {
+            DiffusionBehaviourIn::UpdatePeer { peer_id, peer_state } => {
+                self.peers.insert(peer_id, peer_state);
+            }
+        }
+    }
 }
 
 impl<'de, THistory> ProtocolBehaviour<'de> for DiffusionBehaviour<THistory>
@@ -45,25 +60,42 @@ where
     fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<DiffusionHandshake>) {
         if let Some(DiffusionHandshake::HandshakeV1(HandshakeV1(status))) = handshake {
             let service = self.service.clone();
-            let peers = self.peers.clone();
-            self.tasks.spawn(async move {
+            self.tasks.spawn(|channel| async move {
                 let peer_state = service.remote_state(status).await;
-                peers.write().await.insert(peer_id, peer_state);
-                Ok(DiffusionBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
-                    peer_id,
-                    handshakes: service.make_poly_handshake().await,
-                }))
+                channel
+                    .send(FromTask::ToBehaviour(DiffusionBehaviourIn::UpdatePeer {
+                        peer_id,
+                        peer_state,
+                    }))
+                    .await
+                    .unwrap();
+                channel
+                    .send(FromTask::ToHandler(DiffusionBehaviourOut::NetworkAction(
+                        NetworkAction::EnablePeer {
+                            peer_id,
+                            handshakes: service.make_poly_handshake().await,
+                        },
+                    )))
+                    .await
+                    .unwrap();
+                Ok(())
             })
         }
     }
 
     fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {
         let service = self.service.clone();
-        self.tasks.spawn(async move {
-            Ok(DiffusionBehaviourOut::NetworkAction(NetworkAction::EnablePeer {
-                peer_id,
-                handshakes: service.make_poly_handshake().await,
-            }))
+        self.tasks.spawn(|channel| async move {
+            channel
+                .send(FromTask::ToHandler(DiffusionBehaviourOut::NetworkAction(
+                    NetworkAction::EnablePeer {
+                        peer_id,
+                        handshakes: service.make_poly_handshake().await,
+                    },
+                )))
+                .await
+                .unwrap();
+            Ok(())
         })
     }
 
@@ -72,15 +104,23 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Option<ProtocolBehaviourOut<DiffusionHandshake, DiffusionMessage>>> {
         loop {
+            // First, let the tasks progress
             match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
-                Poll::Ready(Some(Ok(out))) => {
-                    self.outbox.push_back(out);
-                    continue;
-                }
+                Poll::Ready(Some(Ok(_))) => {}
                 Poll::Ready(Some(Err(err))) => {
                     error!("An error occured: {}", err);
-                    continue;
                 }
+                Poll::Pending | Poll::Ready(None) => break,
+            }
+            // Then, process their outputs
+            match Stream::poll_next(Pin::new(&mut self.from_tasks), cx) {
+                Poll::Ready(Some(out)) => match out {
+                    FromTask::ToBehaviour(input) => self.on_event(input),
+                    FromTask::ToHandler(out) => {
+                        self.outbox.push_back(out);
+                        break;
+                    }
+                },
                 Poll::Pending | Poll::Ready(None) => break,
             }
         }
