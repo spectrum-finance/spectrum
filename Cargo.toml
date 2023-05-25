@@ -5,7 +5,8 @@ members = [
     "spectrum-ledger",
     "spectrum-crypto",
     "spectrum-move",
-    "algebra-core"
+    "algebra-core",
+    "futures-util"
 ]
 
 exclude = [

@@ -6,7 +6,6 @@ use std::task::{Context, Poll};
 use async_std::channel::Receiver;
 use futures::Stream;
 use libp2p_identity::PeerId;
-use log::error;
 
 use spectrum_ledger::ledger_view::history::HistoryReadAsync;
 
@@ -27,16 +26,10 @@ enum DiffusionBehaviourIn {
 
 type DiffusionBehaviourOut = ProtocolBehaviourOut<DiffusionHandshake, DiffusionMessage>;
 
-#[derive(Debug, derive_more::Display)]
-pub enum DiffusionBehaviorError {
-    ModifierNotFound,
-    OperationCancelled,
-}
-
 pub struct DiffusionBehaviour<THistory> {
     from_tasks: Receiver<FromTask<DiffusionBehaviourIn, DiffusionBehaviourOut>>,
     outbox: VecDeque<DiffusionBehaviourOut>,
-    tasks: TaskPool<DiffusionBehaviourIn, DiffusionBehaviourOut, DiffusionBehaviorError>,
+    tasks: TaskPool<DiffusionBehaviourIn, DiffusionBehaviourOut, ()>,
     peers: HashMap<PeerId, SyncState>,
     service: Arc<DiffusionService<THistory>>,
 }
@@ -78,7 +71,6 @@ where
                     )))
                     .await
                     .unwrap();
-                Ok(())
             })
         }
     }
@@ -95,7 +87,6 @@ where
                 )))
                 .await
                 .unwrap();
-            Ok(())
         })
     }
 
@@ -106,11 +97,8 @@ where
         loop {
             // First, let the tasks progress
             match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
-                Poll::Ready(Some(Ok(_))) => {}
-                Poll::Ready(Some(Err(err))) => {
-                    error!("An error occured: {}", err);
-                }
-                Poll::Pending | Poll::Ready(None) => break,
+                Poll::Ready(Some(_)) => {}
+                Poll::Pending | Poll::Ready(None) => {}
             }
             // Then, process their outputs
             match Stream::poll_next(Pin::new(&mut self.from_tasks), cx) {

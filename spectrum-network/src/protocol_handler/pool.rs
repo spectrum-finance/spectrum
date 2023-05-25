@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use async_std::channel::Sender;
 use async_std::future::{timeout, TimeoutError};
-use futures::stream::FuturesOrdered;
+use futures::stream::FuturesUnordered;
 use futures::{FutureExt, Stream};
 use log::warn;
 
@@ -17,34 +17,32 @@ pub enum FromTask<TIn, TOut> {
     ToHandler(TOut),
 }
 
-pub struct TaskPool<TIn, TOut, TErr> {
+pub struct TaskPool<TIn, TOut, R> {
     /// Name of the pool.
     name: String,
     /// Timeout for each task.
     timeout: Duration,
     /// Communication channel with parental behaviour.
     channel: Sender<FromTask<TIn, TOut>>,
-    tasks: FuturesOrdered<
-        Pin<Box<dyn Future<Output = Result<Result<(), TErr>, TimeoutError>> + Send + 'static>>,
-    >,
+    tasks: FuturesUnordered<Pin<Box<dyn Future<Output = Result<R, TimeoutError>> + Send + 'static>>>,
 }
 
-impl<TIn, TOut, TErr> TaskPool<TIn, TOut, TErr> {
-    pub fn spawn<F, R>(&mut self, task: F)
+impl<TIn, TOut, R> TaskPool<TIn, TOut, R> {
+    pub fn spawn<F, T>(&mut self, task: F)
     where
-        F: FnOnce(Sender<FromTask<TIn, TOut>>) -> R,
-        R: Future<Output = Result<(), TErr>> + Send + 'static,
-        TErr: 'static,
+        F: FnOnce(Sender<FromTask<TIn, TOut>>) -> T,
+        T: Future<Output = R> + Send + 'static,
+        R: 'static,
     {
         self.tasks
-            .push_back(timeout(self.timeout, task(self.channel.clone())).boxed())
+            .push(timeout(self.timeout, task(self.channel.clone())).boxed())
     }
 }
 
-impl<TIn, TOut, TErr> Stream for TaskPool<TIn, TOut, TErr> {
-    type Item = Result<(), TErr>;
+impl<TIn, TOut, R> Stream for TaskPool<TIn, TOut, R> {
+    type Item = R;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<(), TErr>>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<R>> {
         loop {
             match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
                 Poll::Ready(Some(Ok(res))) => {
@@ -54,8 +52,7 @@ impl<TIn, TOut, TErr> Stream for TaskPool<TIn, TOut, TErr> {
                     warn!("[{}] Operation timeout", self.name);
                     continue;
                 }
-                Poll::Pending => {}
-                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending | Poll::Ready(None) => {}
             }
             return Poll::Pending;
         }
