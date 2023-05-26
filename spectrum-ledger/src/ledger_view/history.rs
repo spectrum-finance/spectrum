@@ -6,17 +6,23 @@ use async_trait::async_trait;
 use nonempty::NonEmpty;
 
 use crate::block::{BlockHeader, BlockId, BlockSection, BlockSectionId};
+use crate::ModifierId;
 
 /// Read-only async API to ledger history.
 #[async_trait]
 pub trait HistoryReadAsync: Send + Sync {
     /// Check if the given block is in the best chain.
     async fn member(&self, id: &BlockId) -> bool;
+    /// Check if the given modifier exists in history.
+    async fn contains(&self, id: &ModifierId) -> bool;
     async fn get_section(&self, id: &BlockSectionId) -> Option<BlockSection>;
     /// Get chain tip header (best block header).
     async fn get_tip(&self) -> BlockHeader;
     /// Get tail of the chain. Chain always has at least origin block.
     async fn get_tail(&self, n: usize) -> NonEmpty<BlockHeader>;
+    /// Follow best chain starting from `pre_start` until either the local tip
+    /// is reached or `n` blocks are collected..
+    async fn follow(&self, pre_start: BlockId, cap: usize) -> Vec<BlockId>;
 }
 
 pub struct HistoryRocksDB {
@@ -26,6 +32,10 @@ pub struct HistoryRocksDB {
 #[async_trait]
 impl HistoryReadAsync for HistoryRocksDB {
     async fn member(&self, id: &BlockId) -> bool {
+        todo!()
+    }
+
+    async fn contains(&self, id: &ModifierId) -> bool {
         todo!()
     }
 
@@ -40,6 +50,10 @@ impl HistoryReadAsync for HistoryRocksDB {
     }
 
     async fn get_tail(&self, n: usize) -> NonEmpty<BlockHeader> {
+        todo!()
+    }
+
+    async fn follow(&self, pre_start: BlockId, n: usize) -> Vec<BlockId> {
         todo!()
     }
 }

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use spectrum_ledger::{SlotNo, ModifierId, ModifierType};
 use spectrum_ledger::block::BlockId;
+use spectrum_ledger::{ModifierId, ModifierType, SlotNo};
 
 use crate::protocol_handler::diffusion::types::SerializedModifier;
 use crate::protocol_handler::versioning::Versioned;
@@ -28,6 +28,23 @@ impl Versioned for DiffusionHandshake {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum DiffusionMessage {
     DiffusionMessageV1(DiffusionMessageV1),
+}
+
+impl DiffusionMessage {
+    pub fn inv_v1(mod_type: ModifierType, modifiers: Vec<ModifierId>) -> DiffusionMessage {
+        DiffusionMessage::DiffusionMessageV1(DiffusionMessageV1::Inv(Modifiers { mod_type, modifiers }))
+    }
+
+    pub fn request_modifiers_v1(mod_type: ModifierType, modifiers: Vec<ModifierId>) -> DiffusionMessage {
+        DiffusionMessage::DiffusionMessageV1(DiffusionMessageV1::RequestModifiers(Modifiers {
+            mod_type,
+            modifiers,
+        }))
+    }
+
+    pub fn sync_status_v1(status: SyncStatus) -> DiffusionMessage {
+        DiffusionMessage::DiffusionMessageV1(DiffusionMessageV1::SyncStatus(status))
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

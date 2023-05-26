@@ -3,7 +3,18 @@ use spectrum_crypto::digest::{Blake2bDigest256, Digest};
 use crate::transaction::Transaction;
 use crate::SlotNo;
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Hash,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    derive_more::From,
+    derive_more::Into,
+)]
 pub struct BlockId(Blake2bDigest256);
 
 impl BlockId {

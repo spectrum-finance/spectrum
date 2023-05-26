@@ -1,7 +1,10 @@
+use futures::{stream, StreamExt};
+
 use spectrum_ledger::block::BlockId;
 use spectrum_ledger::ledger_view::history::HistoryReadAsync;
-use spectrum_ledger::SlotNo;
+use spectrum_ledger::{ModifierId, SlotNo};
 
+use crate::protocol_handler::diffusion::delivery::{DeliveryStore, ModifierStatus};
 use crate::protocol_handler::diffusion::message::{
     DiffusionHandshake, DiffusionSpec, HandshakeV1, SyncStatus,
 };
@@ -17,6 +20,7 @@ pub(super) enum RemoteChainCmp {
     Nonsense,
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub(super) struct SyncState {
     /// Max slot in remote's chain
     pub height: SlotNo,
@@ -25,6 +29,7 @@ pub(super) struct SyncState {
 
 pub(super) struct DiffusionService<THistory> {
     history: THistory,
+    delivery: DeliveryStore,
 }
 
 const SYNC_HEADERS: usize = 256;
@@ -58,6 +63,19 @@ where
             height: peer_status.height,
             cmp: self.compare_remote(peer_status).await,
         }
+    }
+
+    pub async fn extension(&self, remote_tip: BlockId, cap: usize) -> Vec<BlockId> {
+        self.history.follow(remote_tip, cap).await
+    }
+
+    pub async fn select_wanted(&self, proposed_modifiers: Vec<ModifierId>) -> Vec<ModifierId> {
+        stream::iter(proposed_modifiers)
+            .filter(|&mid| async move {
+                self.delivery.status(&mid) != ModifierStatus::Requested && !self.history.contains(&mid).await
+            })
+            .collect::<Vec<_>>()
+            .await
     }
 
     /// Compare remote chain with the local one.

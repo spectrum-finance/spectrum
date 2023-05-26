@@ -1,5 +1,7 @@
 use spectrum_crypto::digest::{Blake2b, Blake2bDigest256, Digest256};
 
+use crate::block::BlockId;
+
 pub mod block;
 pub mod eval;
 pub mod ledger_view;
@@ -65,7 +67,13 @@ pub struct ChainId(u16);
     derive_more::From,
     derive_more::Into,
 )]
-pub struct ModifierId(Digest256<Blake2b>);
+pub struct ModifierId(Blake2bDigest256);
+
+impl From<BlockId> for ModifierId {
+    fn from(blk: BlockId) -> Self {
+        Self(Blake2bDigest256::from(blk))
+    }
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ModifierType {
