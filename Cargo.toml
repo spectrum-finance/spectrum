@@ -3,6 +3,7 @@ members = [
     "spectrum-node",
     "spectrum-network",
     "spectrum-crypto",
+    "spectrum-vrf",
     "algebra-core"
 ]
 
