@@ -1,41 +1,50 @@
+//! # Elliptic Curve Verifiable Random Function (ECVRF)
+//!
+//! The Elliptic Curve Verifiable Random Function is a Verifiable Random Function (VRF) that
+//!  satisfies the trusted uniqueness, trusted collision resistance, and
+//!  full pseudorandomness properties. The security
+//!  of this ECVRF follows from the decisional Diffie-Hellman (DDH)
+//!  assumption in the random oracle model.
+//!
+//! This crate defines the generic contract that must be followed by ECVRF\
+//! implementations ([`ECVRF`](trait.ECVRF.html) trait).
+//!
+//! It follows the algorithms described in:
+//!
+//! * [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05)
+//! * [RFC6979](https://tools.ietf.org/html/rfc6979)
+//!
+//! Current implementation is based on the secp256k1 (K-256) curve.
+
 use elliptic_curve::{AffinePoint, CurveArithmetic, PublicKey, Scalar, SecretKey};
 use k256::Secp256k1;
 
-pub struct VRFProof<TCurve: CurveArithmetic>(pub AffinePoint<TCurve>, pub Scalar<TCurve>, pub Scalar<TCurve>);
+use spectrum_crypto::digest::Sha2Digest256;
 
-pub trait VRF<TCurve>
-where
-    TCurve: CurveArithmetic,
+pub mod spectrum_vrf;
+
+pub struct ECVRFProof<TCurve: CurveArithmetic>(pub AffinePoint<TCurve>,
+                                               pub Scalar<TCurve>,
+                                               pub Scalar<TCurve>);
+
+pub trait ECVRF<TCurve>
+    where
+        TCurve: CurveArithmetic,
 {
     type Error;
 
-    /// Generates random value and it's VRF proof from a secret key `sk` and a message `m`.
-    fn eval_prove(&self, sk: SecretKey<TCurve>, m: &[u8]) -> Result<VRFProof<TCurve>, Self::Error>;
+    /// Generates an ECVRF key-pair `(ec_vrf_secret_key, ec_vrf_public_key)`
+    fn gen(&self) -> Result<(SecretKey<TCurve>, PublicKey<TCurve>), Self::Error>;
+
+    /// Generates random value and it's ECVRF proof from a secret key `sk` and a message `m`.
+    fn prove(&self, sk: SecretKey<TCurve>, message_hash: Sha2Digest256)
+             -> Result<ECVRFProof<TCurve>, Self::Error>;
 
     /// Verifies the provided random value `y` and it's VRF proof `pi`.
     fn verify(
         &self,
         pk: PublicKey<TCurve>,
-        m: &[u8],
-        proof: VRFProof<TCurve>,
-    ) -> Result<Scalar<TCurve>, Self::Error>;
-}
-
-pub struct SpectrumVRF;
-
-impl VRF<Secp256k1> for SpectrumVRF {
-    type Error = ();
-
-    fn eval_prove(&self, sk: SecretKey<Secp256k1>, m: &[u8]) -> Result<VRFProof<Secp256k1>, Self::Error> {
-        todo!()
-    }
-
-    fn verify(
-        &self,
-        pk: PublicKey<Secp256k1>,
-        m: &[u8],
-        proof: VRFProof<Secp256k1>,
-    ) -> Result<Scalar<Secp256k1>, Self::Error> {
-        todo!()
-    }
+        message_hash: Sha2Digest256,
+        proof: ECVRFProof<TCurve>,
+    ) -> Result<AffinePoint<TCurve>, Self::Error>;
 }
