@@ -53,16 +53,16 @@ where
     fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<DiffusionHandshake>) {
         if let Some(DiffusionHandshake::HandshakeV1(HandshakeV1(status))) = handshake {
             let service = self.service.clone();
-            self.tasks.spawn(|channel| async move {
+            self.tasks.spawn(|to_behaviour| async move {
                 let peer_state = service.remote_state(status).await;
-                channel
+                to_behaviour
                     .send(FromTask::ToBehaviour(DiffusionBehaviourIn::UpdatePeer {
                         peer_id,
                         peer_state,
                     }))
                     .await
                     .unwrap();
-                channel
+                to_behaviour
                     .send(FromTask::ToHandler(DiffusionBehaviourOut::NetworkAction(
                         NetworkAction::EnablePeer {
                             peer_id,
@@ -77,8 +77,8 @@ where
 
     fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {
         let service = self.service.clone();
-        self.tasks.spawn(|channel| async move {
-            channel
+        self.tasks.spawn(|to_behaviour| async move {
+            to_behaviour
                 .send(FromTask::ToHandler(DiffusionBehaviourOut::NetworkAction(
                     NetworkAction::EnablePeer {
                         peer_id,
