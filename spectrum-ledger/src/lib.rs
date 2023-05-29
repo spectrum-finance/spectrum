@@ -1,6 +1,7 @@
 use spectrum_crypto::digest::{Blake2b, Blake2bDigest256, Digest256};
 
-use crate::block::BlockId;
+use crate::block::{BlockHeader, BlockId, BlockPayload};
+use crate::transaction::Transaction;
 
 pub mod block;
 pub mod eval;
@@ -75,6 +76,23 @@ impl From<BlockId> for ModifierId {
     }
 }
 
+#[derive(Clone, Eq, PartialEq, Debug, derive_more::From)]
+pub enum Modifier {
+    BlockHeader(BlockHeader),
+    BlockBody(BlockPayload),
+    Transaction(Transaction),
+}
+
+impl Modifier {
+    pub fn id(&self) -> ModifierId {
+        match self {
+            Modifier::BlockHeader(bh) => ModifierId::from(bh.id),
+            Modifier::BlockBody(bb) => ModifierId::from(bb.id),
+            Modifier::Transaction(tx) => tx.id(),
+        }
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ModifierType {
     BlockHeader,
@@ -86,3 +104,8 @@ pub enum ModifierType {
 pub trait SystemDigest {
     fn digest(&self) -> Blake2bDigest256;
 }
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
+)]
+pub struct SerializedModifier(pub Vec<u8>);

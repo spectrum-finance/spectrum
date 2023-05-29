@@ -7,12 +7,24 @@ use spectrum_ledger::ModifierId;
 pub enum ModifierStatus {
     Wanted,
     Requested,
+    Received,
     Unknown,
 }
 
 pub struct DeliveryStore {
     wanted: HashSet<ModifierId>,
     requested: HashMap<ModifierId, Instant>,
+    received: HashSet<ModifierId>,
+}
+
+impl DeliveryStore {
+    pub fn new() -> Self {
+        Self {
+            wanted: HashSet::new(),
+            requested: HashMap::new(),
+            received: HashSet::new(),
+        }
+    }
 }
 
 impl DeliveryStore {
@@ -25,14 +37,17 @@ impl DeliveryStore {
         self.requested.insert(mid, Instant::now());
     }
 
-    pub fn received(&mut self, mid: &ModifierId) {
+    pub fn received(&mut self, mid: ModifierId) {
         self.requested.remove(&mid);
-        self.requested.remove(mid);
+        self.requested.remove(&mid);
+        self.received.insert(mid);
     }
 
     pub fn status(&self, mid: &ModifierId) -> ModifierStatus {
         if self.wanted.contains(mid) {
             ModifierStatus::Wanted
+        } else if self.received.contains(mid) {
+            ModifierStatus::Received
         } else if self.requested.contains_key(mid) {
             ModifierStatus::Requested
         } else {

@@ -6,7 +6,7 @@ use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_move::{SerializedModule, SerializedValue};
 
 use crate::sbox::{BoxPointer, DatumRef, SBox, ScriptRef};
-use crate::SystemDigest;
+use crate::{ModifierId, SystemDigest};
 
 /// Transaction processing pipeline:
 /// `Transaction`          (linking   )-> `LinkedTransaction`
@@ -29,6 +29,12 @@ pub struct Transaction {
     pub evaluated_outputs: Vec<SBox>,
     /// Aux data requred for transaction execution (e.g. scripts, data ..).
     pub witness: Witness,
+}
+
+impl Transaction {
+    pub fn id(&self) -> ModifierId {
+        todo!()
+    }
 }
 
 impl SystemDigest for Transaction {

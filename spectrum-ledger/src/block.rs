@@ -53,10 +53,19 @@ impl BlockHeader {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct BlockPayload(Vec<Transaction>);
+pub struct BlockPayload {
+    pub id: BlockId,
+    pub payload: Vec<Transaction>,
+}
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum BlockSection {
     Header(BlockHeader),
     //Payload(Vec<Transaction>),
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+pub enum BlockSectionType {
+    Header,
+    Body,
 }

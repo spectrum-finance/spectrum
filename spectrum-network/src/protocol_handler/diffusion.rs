@@ -2,15 +2,19 @@ use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Instant;
 
 use async_std::channel::{Receiver, Sender};
-use futures::Stream;
+use futures::{stream, Stream, StreamExt};
 use libp2p_identity::PeerId;
 
+use spectrum_ledger::block::BlockHeader;
 use spectrum_ledger::ledger_view::history::HistoryReadAsync;
-use spectrum_ledger::{ModifierId, ModifierType};
+use spectrum_ledger::ledger_view::LedgerViewWriteAsync;
+use spectrum_ledger::{Modifier, ModifierId, ModifierType, SerializedModifier};
 
-use crate::protocol_handler::diffusion::delivery::{DeliveryStore, ModifierStatus};
+use crate::protocol_handler::codec::decode;
+use crate::protocol_handler::diffusion::delivery::DeliveryStore;
 use crate::protocol_handler::diffusion::message::{
     DiffusionHandshake, DiffusionMessage, DiffusionMessageV1, DiffusionSpec, HandshakeV1, Modifiers,
     SyncStatus,
@@ -22,10 +26,24 @@ use crate::protocol_handler::{NetworkAction, ProtocolBehaviour, ProtocolBehaviou
 mod delivery;
 pub mod message;
 mod service;
-pub(super) mod types;
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum ModifierStatus {
+    Wanted,
+    Requested(Instant),
+    Received,
+    Unknown,
+}
 
 enum DiffusionBehaviourIn {
-    UpdatePeer { peer_id: PeerId, peer_state: SyncState },
+    UpdatePeer {
+        peer_id: PeerId,
+        peer_state: SyncState,
+    },
+    UpdateModifier {
+        modifier: ModifierId,
+        status: ModifierStatus,
+    },
 }
 
 type DiffusionBehaviourOut = ProtocolBehaviourOut<DiffusionHandshake, DiffusionMessage>;
@@ -35,23 +53,29 @@ pub struct DiffusionConfig {
     max_inv_size: usize,
 }
 
-pub struct DiffusionBehaviour<THistory> {
+pub struct DiffusionBehaviour<THistory, TLedgerView> {
     conf: DiffusionConfig,
     from_tasks: Receiver<FromTask<DiffusionBehaviourIn, DiffusionBehaviourOut>>,
     outbox: VecDeque<DiffusionBehaviourOut>,
     tasks: TaskPool<DiffusionBehaviourIn, DiffusionBehaviourOut, ()>,
     peers: HashMap<PeerId, SyncState>,
-    service: Arc<DiffusionService<THistory>>,
+    delivery: HashMap<ModifierId, ModifierStatus>,
+    service: Arc<DiffusionService<THistory, TLedgerView>>,
+    ledger_view: TLedgerView,
 }
 
-impl<THistory> DiffusionBehaviour<THistory>
+impl<THistory, TLedgerView> DiffusionBehaviour<THistory, TLedgerView>
 where
     THistory: HistoryReadAsync + 'static,
+    TLedgerView: LedgerViewWriteAsync + 'static,
 {
     fn on_event(&mut self, event: DiffusionBehaviourIn) {
         match event {
             DiffusionBehaviourIn::UpdatePeer { peer_id, peer_state } => {
                 self.peers.insert(peer_id, peer_state);
+            }
+            DiffusionBehaviourIn::UpdateModifier { modifier, status } => {
+                self.delivery.insert(modifier, status);
             }
         }
     }
@@ -121,34 +145,85 @@ where
             }
         })
     }
-}
 
-impl<'de, THistory> ProtocolBehaviour<'de> for DiffusionBehaviour<THistory>
-where
-    THistory: HistoryReadAsync + 'static,
-{
-    type TProto = DiffusionSpec;
-
-    fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<DiffusionHandshake>) {
-        if let Some(DiffusionHandshake::HandshakeV1(HandshakeV1(status))) = handshake {
-            self.on_sync(peer_id, status, true)
-        }
-    }
-
-    fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {
+    fn on_modifiers_request(&mut self, peer_id: PeerId, mod_type: ModifierType, modifiers: Vec<ModifierId>) {
         let service = self.service.clone();
         self.tasks.spawn(|to_behaviour| async move {
+            let raw_modifiers = service.get_modifiers(mod_type, modifiers).await;
             to_behaviour
-                .send(FromTask::ToHandler(DiffusionBehaviourOut::NetworkAction(
-                    NetworkAction::EnablePeer {
-                        peer_id,
-                        handshakes: service.make_poly_handshake().await,
-                    },
-                )))
+                .send(FromTask::ToHandler(ProtocolBehaviourOut::Send {
+                    peer_id,
+                    message: DiffusionMessage::modifiers_v1(mod_type, raw_modifiers),
+                }))
                 .await
                 .unwrap();
         })
     }
+
+    fn on_modifiers(
+        &mut self,
+        peer_id: PeerId,
+        mod_type: ModifierType,
+        raw_modifiers: Vec<SerializedModifier>,
+    ) {
+        let ledger_view = self.ledger_view.clone();
+        self.tasks.spawn(|to_behaviour| async move {
+            let mut modifiers = vec![];
+            for m in raw_modifiers {
+                if let Ok(md) = decode_modifier(mod_type, &m) {
+                    to_behaviour
+                        .send(FromTask::ToBehaviour(DiffusionBehaviourIn::UpdateModifier {
+                            modifier: md.id(),
+                            status: ModifierStatus::Received,
+                        }))
+                        .await
+                        .unwrap();
+                    modifiers.push(md)
+                } else {
+                    to_behaviour
+                        .send(FromTask::ToHandler(ProtocolBehaviourOut::NetworkAction(
+                            NetworkAction::BanPeer(peer_id),
+                        )))
+                        .await
+                        .unwrap();
+                    break;
+                }
+            }
+            stream::iter(modifiers)
+                .then(|md| {
+                    let mut ledger = ledger_view.clone();
+                    async move { ledger.apply_modifier(md).await }
+                })
+                .collect::<Vec<_>>()
+                .await;
+        })
+    }
+}
+
+fn decode_modifier(
+    mod_type: ModifierType,
+    SerializedModifier(bf): &SerializedModifier,
+) -> Result<Modifier, ()> {
+    let res = match mod_type {
+        ModifierType::BlockHeader => {
+            ciborium::de::from_reader::<BlockHeader, _>(&bf[..]).map(|h| Modifier::from(h))
+        }
+        ModifierType::BlockBody => {
+            todo!()
+        }
+        ModifierType::Transaction => {
+            todo!()
+        }
+    };
+    res.map_err(|_| ())
+}
+
+impl<'de, THistory, TLedgerView> ProtocolBehaviour<'de> for DiffusionBehaviour<THistory, TLedgerView>
+where
+    THistory: HistoryReadAsync + 'static,
+    TLedgerView: LedgerViewWriteAsync + 'static,
+{
+    type TProto = DiffusionSpec;
 
     fn inject_message(
         &mut self,
@@ -169,10 +244,35 @@ where
                         .unwrap();
                 })
             }
-            DiffusionMessageV1::RequestModifiers(_) => {}
-            DiffusionMessageV1::Modifiers(_) => {}
-            DiffusionMessageV1::SyncStatus(_) => {}
+            DiffusionMessageV1::RequestModifiers(Modifiers { mod_type, modifiers }) => {
+                self.on_modifiers_request(peer_id, mod_type, modifiers)
+            }
+            DiffusionMessageV1::Modifiers(Modifiers { mod_type, modifiers }) => {
+                self.on_modifiers(peer_id, mod_type, modifiers)
+            }
+            DiffusionMessageV1::SyncStatus(status) => self.on_sync(peer_id, status, false),
         }
+    }
+
+    fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<DiffusionHandshake>) {
+        if let Some(DiffusionHandshake::HandshakeV1(HandshakeV1(status))) = handshake {
+            self.on_sync(peer_id, status, true)
+        }
+    }
+
+    fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {
+        let service = self.service.clone();
+        self.tasks.spawn(|to_behaviour| async move {
+            to_behaviour
+                .send(FromTask::ToHandler(DiffusionBehaviourOut::NetworkAction(
+                    NetworkAction::EnablePeer {
+                        peer_id,
+                        handshakes: service.make_poly_handshake().await,
+                    },
+                )))
+                .await
+                .unwrap();
+        })
     }
 
     fn poll(

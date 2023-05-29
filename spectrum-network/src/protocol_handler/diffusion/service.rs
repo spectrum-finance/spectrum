@@ -1,8 +1,10 @@
 use futures::{stream, StreamExt};
+use serde::Serialize;
 
-use spectrum_ledger::block::BlockId;
+use spectrum_ledger::block::{BlockHeader, BlockId, BlockSectionType};
 use spectrum_ledger::ledger_view::history::HistoryReadAsync;
-use spectrum_ledger::{ModifierId, SlotNo};
+use spectrum_ledger::ledger_view::LedgerViewWriteAsync;
+use spectrum_ledger::{Modifier, ModifierId, ModifierType, SerializedModifier, SlotNo};
 
 use crate::protocol_handler::diffusion::delivery::{DeliveryStore, ModifierStatus};
 use crate::protocol_handler::diffusion::message::{
@@ -27,16 +29,18 @@ pub(super) struct SyncState {
     pub cmp: RemoteChainCmp,
 }
 
-pub(super) struct DiffusionService<THistory> {
+pub(super) struct DiffusionService<THistory, TLedgerView> {
     history: THistory,
+    ledger_view: TLedgerView,
     delivery: DeliveryStore,
 }
 
 const SYNC_HEADERS: usize = 256;
 
-impl<THistory> DiffusionService<THistory>
+impl<THistory, TLedgerView> DiffusionService<THistory, TLedgerView>
 where
     THistory: HistoryReadAsync,
+    TLedgerView: LedgerViewWriteAsync,
 {
     pub async fn local_status(&self) -> SyncStatus {
         let tail = self.history.get_tail(SYNC_HEADERS).await;
@@ -76,6 +80,42 @@ where
             })
             .collect::<Vec<_>>()
             .await
+    }
+
+    pub async fn get_modifiers(
+        &self,
+        mod_type: ModifierType,
+        modifiers: Vec<ModifierId>,
+    ) -> Vec<SerializedModifier> {
+        match mod_type {
+            ModifierType::BlockHeader => {
+                self.history
+                    .multi_get_raw(BlockSectionType::Header, modifiers)
+                    .await
+            }
+            ModifierType::BlockBody => {
+                self.history
+                    .multi_get_raw(BlockSectionType::Body, modifiers)
+                    .await
+            }
+            ModifierType::Transaction => {
+                todo!()
+            }
+        }
+    }
+
+    pub async fn process_modifiers<T>(&mut self, modifiers: Vec<T>)
+    where
+        Modifier: From<T>,
+    {
+        stream::iter(modifiers.into_iter().map(|m| Modifier::from(m)))
+            .then(|md| {
+                let mut ledger = self.ledger_view.clone();
+                self.delivery.received(md.id());
+                async move { ledger.apply_modifier(md).await }
+            })
+            .collect::<Vec<_>>()
+            .await;
     }
 
     /// Compare remote chain with the local one.
@@ -154,10 +194,13 @@ mod tests {
 
     use nonempty::NonEmpty;
 
-    use spectrum_ledger::block::{BlockHeader, BlockId, BlockSection, BlockSectionId, BlockVer};
+    use spectrum_ledger::block::{
+        BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType, BlockVer,
+    };
     use spectrum_ledger::ledger_view::history::HistoryReadAsync;
-    use spectrum_ledger::SlotNo;
+    use spectrum_ledger::{ModifierId, SerializedModifier, SlotNo};
 
+    use crate::protocol_handler::diffusion::delivery::DeliveryStore;
     use crate::protocol_handler::diffusion::message::SyncStatus;
     use crate::protocol_handler::diffusion::service::{DiffusionService, RemoteChainCmp};
 
@@ -169,6 +212,10 @@ mod tests {
     impl HistoryReadAsync for EphemeralHistory {
         async fn member(&self, id: &BlockId) -> bool {
             self.db.contains_key(id)
+        }
+
+        async fn contains(&self, id: &ModifierId) -> bool {
+            todo!()
         }
 
         async fn get_section(&self, id: &BlockSectionId) -> Option<BlockSection> {
@@ -202,6 +249,18 @@ mod tests {
             NonEmpty::collect(headers[headers.len() - n..].into_iter().map(|&hd| hd.clone()))
                 .unwrap_or(NonEmpty::singleton(BlockHeader::ORIGIN))
         }
+
+        async fn follow(&self, pre_start: BlockId, cap: usize) -> Vec<BlockId> {
+            todo!()
+        }
+
+        async fn multi_get_raw(
+            &self,
+            sec_type: BlockSectionType,
+            ids: Vec<ModifierId>,
+        ) -> Vec<SerializedModifier> {
+            todo!()
+        }
     }
 
     #[async_std::test]
@@ -229,7 +288,10 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService { history };
+        let service = DiffusionService {
+            history,
+            delivery: DeliveryStore::new(),
+        };
         assert_eq!(service.compare_remote(remote_ss).await, RemoteChainCmp::Equal);
     }
 
@@ -257,7 +319,10 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService { history };
+        let service = DiffusionService {
+            history,
+            delivery: DeliveryStore::new(),
+        };
         assert_eq!(
             service.compare_remote(remote_ss).await,
             RemoteChainCmp::Shorter(remote_chain[0])
@@ -289,7 +354,10 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService { history };
+        let service = DiffusionService {
+            history,
+            delivery: DeliveryStore::new(),
+        };
         assert_eq!(service.compare_remote(remote_ss).await, RemoteChainCmp::Nonsense);
     }
 
@@ -314,7 +382,10 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService { history };
+        let service = DiffusionService {
+            history,
+            delivery: DeliveryStore::new(),
+        };
         assert_eq!(
             service.compare_remote(remote_ss).await,
             RemoteChainCmp::Fork(None)
@@ -362,7 +433,10 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService { history };
+        let service = DiffusionService {
+            history,
+            delivery: DeliveryStore::new(),
+        };
         assert_eq!(
             service.compare_remote(remote_ss).await,
             RemoteChainCmp::Fork(Some(pre_fork_hdr))
@@ -390,7 +464,10 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService { history };
+        let service = DiffusionService {
+            history,
+            delivery: DeliveryStore::new(),
+        };
         assert_eq!(
             service.compare_remote(remote_ss).await,
             RemoteChainCmp::Longer(None)
@@ -431,7 +508,10 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService { history };
+        let service = DiffusionService {
+            history,
+            delivery: DeliveryStore::new(),
+        };
         assert_eq!(
             service.compare_remote(remote_ss).await,
             RemoteChainCmp::Longer(Some(

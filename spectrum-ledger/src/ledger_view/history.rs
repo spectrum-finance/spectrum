@@ -5,8 +5,8 @@ use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use nonempty::NonEmpty;
 
-use crate::block::{BlockHeader, BlockId, BlockSection, BlockSectionId};
-use crate::ModifierId;
+use crate::block::{BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType};
+use crate::{ModifierId, SerializedModifier};
 
 /// Read-only async API to ledger history.
 #[async_trait]
@@ -23,6 +23,13 @@ pub trait HistoryReadAsync: Send + Sync {
     /// Follow best chain starting from `pre_start` until either the local tip
     /// is reached or `n` blocks are collected..
     async fn follow(&self, pre_start: BlockId, cap: usize) -> Vec<BlockId>;
+    /// Bulk select block sections of the specified type.
+    /// The modifiers are returned in serialized form.
+    async fn multi_get_raw(
+        &self,
+        sec_type: BlockSectionType,
+        ids: Vec<ModifierId>,
+    ) -> Vec<SerializedModifier>;
 }
 
 pub struct HistoryRocksDB {
@@ -54,6 +61,14 @@ impl HistoryReadAsync for HistoryRocksDB {
     }
 
     async fn follow(&self, pre_start: BlockId, n: usize) -> Vec<BlockId> {
+        todo!()
+    }
+
+    async fn multi_get_raw(
+        &self,
+        sec_type: BlockSectionType,
+        ids: Vec<ModifierId>,
+    ) -> Vec<SerializedModifier> {
         todo!()
     }
 }

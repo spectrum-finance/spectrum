@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use spectrum_ledger::block::BlockId;
-use spectrum_ledger::{ModifierId, ModifierType, SlotNo};
+use spectrum_ledger::{ModifierId, ModifierType, SerializedModifier, SlotNo};
 
-use crate::protocol_handler::diffusion::types::SerializedModifier;
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_handler::ProtocolSpec;
 use crate::types::ProtocolVer;
@@ -40,6 +39,10 @@ impl DiffusionMessage {
             mod_type,
             modifiers,
         }))
+    }
+
+    pub fn modifiers_v1(mod_type: ModifierType, modifiers: Vec<SerializedModifier>) -> DiffusionMessage {
+        DiffusionMessage::DiffusionMessageV1(DiffusionMessageV1::Modifiers(Modifiers { mod_type, modifiers }))
     }
 
     pub fn sync_status_v1(status: SyncStatus) -> DiffusionMessage {
