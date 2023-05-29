@@ -17,29 +17,29 @@ pub enum FromTask<TIn, TOut> {
     ToHandler(TOut),
 }
 
-pub struct TaskPool<TIn, TOut, R> {
+pub struct TaskPool<'a, TIn, TOut, R> {
     /// Name of the pool.
     name: String,
     /// Timeout for each task.
     timeout: Duration,
     /// Communication channel with parental behaviour.
     channel: Sender<FromTask<TIn, TOut>>,
-    tasks: FuturesUnordered<Pin<Box<dyn Future<Output = Result<R, TimeoutError>> + Send + 'static>>>,
+    tasks: FuturesUnordered<Pin<Box<dyn Future<Output = Result<R, TimeoutError>> + Send + 'a>>>,
 }
 
-impl<TIn, TOut, R> TaskPool<TIn, TOut, R> {
+impl<'a, TIn, TOut, R> TaskPool<'a, TIn, TOut, R> {
     pub fn spawn<F, T>(&mut self, task: F)
     where
         F: FnOnce(Sender<FromTask<TIn, TOut>>) -> T,
-        T: Future<Output = R> + Send + 'static,
-        R: 'static,
+        T: Future<Output = R> + Send + 'a,
+        R: 'a,
     {
         self.tasks
             .push(timeout(self.timeout, task(self.channel.clone())).boxed())
     }
 }
 
-impl<TIn, TOut, R> Stream for TaskPool<TIn, TOut, R> {
+impl<'a, TIn, TOut, R> Stream for TaskPool<'a, TIn, TOut, R> {
     type Item = R;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<R>> {

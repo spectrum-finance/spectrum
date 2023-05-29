@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use async_trait::async_trait;
 use futures::{stream, StreamExt};
 use serde::Serialize;
 
@@ -29,18 +32,21 @@ pub(super) struct SyncState {
     pub cmp: RemoteChainCmp,
 }
 
-pub(super) struct DiffusionService<THistory, TLedgerView> {
-    history: THistory,
-    ledger_view: TLedgerView,
-    delivery: DeliveryStore,
+pub(super) struct RemoteSync<THistory> {
+    history: Arc<THistory>,
 }
 
-const SYNC_HEADERS: usize = 256;
+impl<THistory> Clone for RemoteSync<THistory> {
+    fn clone(&self) -> Self {
+        Self {
+            history: self.history.clone(),
+        }
+    }
+}
 
-impl<THistory, TLedgerView> DiffusionService<THistory, TLedgerView>
+impl<THistory> RemoteSync<THistory>
 where
     THistory: HistoryReadAsync,
-    TLedgerView: LedgerViewWriteAsync,
 {
     pub async fn local_status(&self) -> SyncStatus {
         let tail = self.history.get_tail(SYNC_HEADERS).await;
@@ -73,15 +79,6 @@ where
         self.history.follow(remote_tip, cap).await
     }
 
-    pub async fn select_wanted(&self, proposed_modifiers: Vec<ModifierId>) -> Vec<ModifierId> {
-        stream::iter(proposed_modifiers)
-            .filter(|&mid| async move {
-                self.delivery.status(&mid) != ModifierStatus::Requested && !self.history.contains(&mid).await
-            })
-            .collect::<Vec<_>>()
-            .await
-    }
-
     pub async fn get_modifiers(
         &self,
         mod_type: ModifierType,
@@ -102,20 +99,6 @@ where
                 todo!()
             }
         }
-    }
-
-    pub async fn process_modifiers<T>(&mut self, modifiers: Vec<T>)
-    where
-        Modifier: From<T>,
-    {
-        stream::iter(modifiers.into_iter().map(|m| Modifier::from(m)))
-            .then(|md| {
-                let mut ledger = self.ledger_view.clone();
-                self.delivery.received(md.id());
-                async move { ledger.apply_modifier(md).await }
-            })
-            .collect::<Vec<_>>()
-            .await;
     }
 
     /// Compare remote chain with the local one.
@@ -188,9 +171,12 @@ where
     }
 }
 
+const SYNC_HEADERS: usize = 256;
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     use nonempty::NonEmpty;
 
@@ -202,7 +188,7 @@ mod tests {
 
     use crate::protocol_handler::diffusion::delivery::DeliveryStore;
     use crate::protocol_handler::diffusion::message::SyncStatus;
-    use crate::protocol_handler::diffusion::service::{DiffusionService, RemoteChainCmp};
+    use crate::protocol_handler::diffusion::service::{RemoteChainCmp, RemoteSync};
 
     pub struct EphemeralHistory {
         pub db: HashMap<BlockId, BlockSection>,
@@ -288,9 +274,8 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService {
-            history,
-            delivery: DeliveryStore::new(),
+        let service = RemoteSync {
+            history: Arc::new(history),
         };
         assert_eq!(service.compare_remote(remote_ss).await, RemoteChainCmp::Equal);
     }
@@ -319,9 +304,8 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService {
-            history,
-            delivery: DeliveryStore::new(),
+        let service = RemoteSync {
+            history: Arc::new(history),
         };
         assert_eq!(
             service.compare_remote(remote_ss).await,
@@ -354,9 +338,8 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService {
-            history,
-            delivery: DeliveryStore::new(),
+        let service = RemoteSync {
+            history: Arc::new(history),
         };
         assert_eq!(service.compare_remote(remote_ss).await, RemoteChainCmp::Nonsense);
     }
@@ -382,9 +365,8 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService {
-            history,
-            delivery: DeliveryStore::new(),
+        let service = RemoteSync {
+            history: Arc::new(history),
         };
         assert_eq!(
             service.compare_remote(remote_ss).await,
@@ -433,9 +415,8 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService {
-            history,
-            delivery: DeliveryStore::new(),
+        let service = RemoteSync {
+            history: Arc::new(history),
         };
         assert_eq!(
             service.compare_remote(remote_ss).await,
@@ -464,9 +445,8 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService {
-            history,
-            delivery: DeliveryStore::new(),
+        let service = RemoteSync {
+            history: Arc::new(history),
         };
         assert_eq!(
             service.compare_remote(remote_ss).await,
@@ -508,9 +488,8 @@ mod tests {
                 .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
                 .collect(),
         };
-        let service = DiffusionService {
-            history,
-            delivery: DeliveryStore::new(),
+        let service = RemoteSync {
+            history: Arc::new(history),
         };
         assert_eq!(
             service.compare_remote(remote_ss).await,

@@ -5,6 +5,7 @@ use std::task::{Context, Poll};
 use std::time::Instant;
 
 use async_std::channel::{Receiver, Sender};
+use futures::channel::oneshot;
 use futures::{stream, Stream, StreamExt};
 use libp2p_identity::PeerId;
 
@@ -13,15 +14,14 @@ use spectrum_ledger::ledger_view::history::HistoryReadAsync;
 use spectrum_ledger::ledger_view::LedgerViewWriteAsync;
 use spectrum_ledger::{Modifier, ModifierId, ModifierType, SerializedModifier};
 
-use crate::protocol_handler::codec::decode;
-use crate::protocol_handler::diffusion::delivery::DeliveryStore;
 use crate::protocol_handler::diffusion::message::{
     DiffusionHandshake, DiffusionMessage, DiffusionMessageV1, DiffusionSpec, HandshakeV1, Modifiers,
     SyncStatus,
 };
-use crate::protocol_handler::diffusion::service::{DiffusionService, RemoteChainCmp, SyncState};
+use crate::protocol_handler::diffusion::service::{RemoteChainCmp, RemoteSync, SyncState};
 use crate::protocol_handler::pool::{FromTask, TaskPool};
 use crate::protocol_handler::{NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec};
+use crate::types::ProtocolVer;
 
 mod delivery;
 pub mod message;
@@ -35,6 +35,24 @@ pub enum ModifierStatus {
     Unknown,
 }
 
+trait ModifierTracker {
+    fn status(&self, mid: &ModifierId) -> ModifierStatus;
+    fn set_status(&mut self, mid: ModifierId, status: ModifierStatus);
+}
+
+impl ModifierTracker for HashMap<ModifierId, ModifierStatus> {
+    fn status(&self, mid: &ModifierId) -> ModifierStatus {
+        self.get(mid).copied().unwrap_or(ModifierStatus::Unknown)
+    }
+    fn set_status(&mut self, mid: ModifierId, status: ModifierStatus) {
+        if let ModifierStatus::Unknown = status {
+            self.remove(&mid);
+        } else {
+            self.insert(mid, status);
+        }
+    }
+}
+
 enum DiffusionBehaviourIn {
     UpdatePeer {
         peer_id: PeerId,
@@ -44,6 +62,29 @@ enum DiffusionBehaviourIn {
         modifier: ModifierId,
         status: ModifierStatus,
     },
+    GetModifierStatus {
+        modifier: ModifierId,
+        status_future: oneshot::Sender<ModifierStatus>,
+    },
+}
+
+#[async_trait::async_trait]
+trait DiffusionStateRead {
+    async fn modifier_status(&self, mid: ModifierId) -> ModifierStatus;
+}
+
+#[async_trait::async_trait]
+impl DiffusionStateRead for Sender<FromTask<DiffusionBehaviourIn, DiffusionBehaviourOut>> {
+    async fn modifier_status(&self, modifier: ModifierId) -> ModifierStatus {
+        let (snd, recv) = oneshot::channel();
+        self.send(FromTask::ToBehaviour(DiffusionBehaviourIn::GetModifierStatus {
+            modifier,
+            status_future: snd,
+        }))
+        .await
+        .unwrap();
+        recv.await.unwrap()
+    }
 }
 
 type DiffusionBehaviourOut = ProtocolBehaviourOut<DiffusionHandshake, DiffusionMessage>;
@@ -53,21 +94,22 @@ pub struct DiffusionConfig {
     max_inv_size: usize,
 }
 
-pub struct DiffusionBehaviour<THistory, TLedgerView> {
+pub struct DiffusionBehaviour<'a, THistory, TLedgerView> {
     conf: DiffusionConfig,
     from_tasks: Receiver<FromTask<DiffusionBehaviourIn, DiffusionBehaviourOut>>,
     outbox: VecDeque<DiffusionBehaviourOut>,
-    tasks: TaskPool<DiffusionBehaviourIn, DiffusionBehaviourOut, ()>,
+    tasks: TaskPool<'a, DiffusionBehaviourIn, DiffusionBehaviourOut, ()>,
     peers: HashMap<PeerId, SyncState>,
     delivery: HashMap<ModifierId, ModifierStatus>,
-    service: Arc<DiffusionService<THistory, TLedgerView>>,
+    remote_sync: RemoteSync<THistory>,
+    history: Arc<THistory>,
     ledger_view: TLedgerView,
 }
 
-impl<THistory, TLedgerView> DiffusionBehaviour<THistory, TLedgerView>
+impl<'a, THistory, TLedgerView> DiffusionBehaviour<'a, THistory, TLedgerView>
 where
-    THistory: HistoryReadAsync + 'static,
-    TLedgerView: LedgerViewWriteAsync + 'static,
+    THistory: HistoryReadAsync + 'a,
+    TLedgerView: LedgerViewWriteAsync + 'a,
 {
     fn on_event(&mut self, event: DiffusionBehaviourIn) {
         match event {
@@ -75,13 +117,20 @@ where
                 self.peers.insert(peer_id, peer_state);
             }
             DiffusionBehaviourIn::UpdateModifier { modifier, status } => {
-                self.delivery.insert(modifier, status);
+                self.delivery.set_status(modifier, status);
+            }
+
+            DiffusionBehaviourIn::GetModifierStatus {
+                modifier,
+                status_future,
+            } => {
+                status_future.send(self.delivery.status(&modifier)).unwrap();
             }
         }
     }
 
     fn on_sync(&mut self, peer_id: PeerId, peer_status: SyncStatus, initial: bool) {
-        let service = self.service.clone();
+        let service = self.remote_sync.clone();
         let conf = self.conf;
         self.tasks.spawn(|to_behaviour| async move {
             let peer_state = service.remote_state(peer_status).await;
@@ -147,7 +196,7 @@ where
     }
 
     fn on_modifiers_request(&mut self, peer_id: PeerId, mod_type: ModifierType, modifiers: Vec<ModifierId>) {
-        let service = self.service.clone();
+        let service = self.remote_sync.clone();
         self.tasks.spawn(|to_behaviour| async move {
             let raw_modifiers = service.get_modifiers(mod_type, modifiers).await;
             to_behaviour
@@ -200,6 +249,21 @@ where
     }
 }
 
+/// Select desired modifiers from the given list of proposed modifiers.
+async fn select_wanted<THistory: HistoryReadAsync, TDiffusion: DiffusionStateRead>(
+    history: &Arc<THistory>,
+    diffusion: &TDiffusion,
+    proposed_modifiers: Vec<ModifierId>,
+) -> Vec<ModifierId> {
+    stream::iter(proposed_modifiers)
+        .filter(|&mid| async move {
+            matches!(diffusion.modifier_status(mid).await, ModifierStatus::Requested(_))
+                && !history.contains(&mid).await
+        })
+        .collect::<Vec<_>>()
+        .await
+}
+
 fn decode_modifier(
     mod_type: ModifierType,
     SerializedModifier(bf): &SerializedModifier,
@@ -218,10 +282,10 @@ fn decode_modifier(
     res.map_err(|_| ())
 }
 
-impl<'de, THistory, TLedgerView> ProtocolBehaviour<'de> for DiffusionBehaviour<THistory, TLedgerView>
+impl<'a, 'de, THistory, TLedgerView> ProtocolBehaviour<'de> for DiffusionBehaviour<'a, THistory, TLedgerView>
 where
-    THistory: HistoryReadAsync + 'static,
-    TLedgerView: LedgerViewWriteAsync + 'static,
+    THistory: HistoryReadAsync + 'a,
+    TLedgerView: LedgerViewWriteAsync + 'a,
 {
     type TProto = DiffusionSpec;
 
@@ -232,9 +296,9 @@ where
     ) {
         match msg {
             DiffusionMessageV1::Inv(Modifiers { mod_type, modifiers }) => {
-                let service = self.service.clone();
+                let history = self.history.clone();
                 self.tasks.spawn(|to_behaviour| async move {
-                    let wanted = service.select_wanted(modifiers).await;
+                    let wanted = select_wanted(&history, &to_behaviour, modifiers).await;
                     to_behaviour
                         .send(FromTask::ToHandler(DiffusionBehaviourOut::Send {
                             peer_id,
@@ -261,7 +325,7 @@ where
     }
 
     fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {
-        let service = self.service.clone();
+        let service = self.remote_sync.clone();
         self.tasks.spawn(|to_behaviour| async move {
             to_behaviour
                 .send(FromTask::ToHandler(DiffusionBehaviourOut::NetworkAction(
