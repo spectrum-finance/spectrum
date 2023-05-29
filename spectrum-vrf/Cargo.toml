@@ -6,5 +6,6 @@ rust-version = "1.65.0"
 
 [dependencies]
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
+blake2 = "0.10.6"
 elliptic-curve = "0.13.*"
 k256 = "0.13.*"

@@ -17,28 +17,34 @@
 //! Current implementation is based on the secp256k1 (K-256) curve.
 
 use elliptic_curve::{AffinePoint, CurveArithmetic, PublicKey, Scalar, SecretKey};
-use k256::Secp256k1;
+use elliptic_curve::point::PointCompression;
+use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
+use elliptic_curve::weierstrass::ProjectivePoint;
 
 use spectrum_crypto::digest::Sha2Digest256;
 
 pub mod spectrum_vrf;
 
-pub struct ECVRFProof<TCurve: CurveArithmetic>(pub AffinePoint<TCurve>,
-                                               pub Scalar<TCurve>,
-                                               pub Scalar<TCurve>);
+pub struct ECVRFProof<TCurve: CurveArithmetic> {
+    gamma: AffinePoint<TCurve>,
+    c: Scalar<TCurve>,
+    s: Scalar<TCurve>,
+}
 
 pub trait ECVRF<TCurve>
     where
-        TCurve: CurveArithmetic,
+        TCurve: CurveArithmetic + PointCompression,
 {
     type Error;
-
     /// Generates an ECVRF key-pair `(ec_vrf_secret_key, ec_vrf_public_key)`
     fn gen(&self) -> Result<(SecretKey<TCurve>, PublicKey<TCurve>), Self::Error>;
 
     /// Generates random value and it's ECVRF proof from a secret key `sk` and a message `m`.
     fn prove(&self, sk: SecretKey<TCurve>, message_hash: Sha2Digest256)
-             -> Result<ECVRFProof<TCurve>, Self::Error>;
+             -> Result<ECVRFProof<TCurve>, Self::Error> where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>;
 
     /// Verifies the provided random value `y` and it's VRF proof `pi`.
     fn verify(
