@@ -1,15 +1,9 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use futures::{stream, StreamExt};
-use serde::Serialize;
-
-use spectrum_ledger::block::{BlockHeader, BlockId, BlockSectionType};
+use spectrum_ledger::block::{BlockId, BlockSectionType};
 use spectrum_ledger::ledger_view::history::HistoryReadAsync;
-use spectrum_ledger::ledger_view::LedgerViewWriteAsync;
 use spectrum_ledger::{Modifier, ModifierId, ModifierType, SerializedModifier, SlotNo};
 
-use crate::protocol_handler::diffusion::delivery::{DeliveryStore, ModifierStatus};
 use crate::protocol_handler::diffusion::message::{
     DiffusionHandshake, DiffusionSpec, HandshakeV1, SyncStatus,
 };
@@ -186,7 +180,6 @@ mod tests {
     use spectrum_ledger::ledger_view::history::HistoryReadAsync;
     use spectrum_ledger::{ModifierId, SerializedModifier, SlotNo};
 
-    use crate::protocol_handler::diffusion::delivery::DeliveryStore;
     use crate::protocol_handler::diffusion::message::SyncStatus;
     use crate::protocol_handler::diffusion::service::{RemoteChainCmp, RemoteSync};
 

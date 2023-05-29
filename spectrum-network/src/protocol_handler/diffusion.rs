@@ -21,9 +21,7 @@ use crate::protocol_handler::diffusion::message::{
 use crate::protocol_handler::diffusion::service::{RemoteChainCmp, RemoteSync, SyncState};
 use crate::protocol_handler::pool::{FromTask, TaskPool};
 use crate::protocol_handler::{NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec};
-use crate::types::ProtocolVer;
 
-mod delivery;
 pub mod message;
 mod service;
 
