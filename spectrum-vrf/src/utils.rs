@@ -1,11 +1,11 @@
-use elliptic_curve::{CurveArithmetic, NonZeroScalar, ProjectivePoint, PublicKey, Scalar, ScalarPrimitive};
+use elliptic_curve::{CurveArithmetic, NonZeroScalar, ProjectivePoint, PublicKey, Scalar,
+                     ScalarPrimitive};
 use elliptic_curve::generic_array::GenericArray;
 use elliptic_curve::group::Curve;
 use elliptic_curve::point::PointCompression;
-
-use spectrum_crypto::digest::Sha2Digest256;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
 
+use spectrum_crypto::digest::Sha2Digest256;
 
 pub fn hash_to_projective_point<TCurve: CurveArithmetic>(hash: Sha2Digest256)
                                                          -> ProjectivePoint<TCurve>
