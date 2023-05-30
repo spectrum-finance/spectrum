@@ -24,6 +24,7 @@ use elliptic_curve::weierstrass::ProjectivePoint;
 use spectrum_crypto::digest::Sha2Digest256;
 
 pub mod spectrum_vrf;
+pub mod utils;
 
 pub struct ECVRFProof<TCurve: CurveArithmetic> {
     gamma: AffinePoint<TCurve>,

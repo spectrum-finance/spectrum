@@ -10,6 +10,7 @@ use elliptic_curve::rand_core::OsRng;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
 
 use crate::{AffinePoint, ECVRF, ECVRFProof, PublicKey, Scalar, SecretKey, Sha2Digest256};
+use crate::utils::{hash_to_projective_point, projective_point_to_bytes};
 
 type Blake2b256 = Blake2b<U32>;
 // use k256::ProjectivePoint;
@@ -33,16 +34,7 @@ impl<TCurve> ECVRF<TCurve> for SpectrumVRF<TCurve>
         <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
         <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
         <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve> {
-        /// Message hash to Scalar:
-        let message_hash_bytes: [u8; 32] = message_hash.into();
-
-        let message_scalar: Scalar<TCurve> = ScalarPrimitive::<TCurve>::from_bytes(
-            GenericArray::from_slice(&message_hash_bytes)).unwrap().into();
-        let message_non_zero_scalar = NonZeroScalar::<TCurve>::new(
-            message_scalar).unwrap();
-
-        let message_point: ProjectivePoint<TCurve> = PublicKey::<TCurve>::from_secret_scalar(
-            &message_non_zero_scalar).to_projective();
+        let message_point: ProjectivePoint<TCurve> = hash_to_projective_point::<TCurve>(message_hash);
 
         /// Base point of the curve:
         let base_point = ProjectivePoint::<TCurve>::default();
@@ -54,18 +46,12 @@ impl<TCurve> ECVRF<TCurve> for SpectrumVRF<TCurve>
         let random_scalar: Scalar<TCurve> = *NonZeroScalar::<TCurve>::random(&mut OsRng);
 
         let mut hasher = Blake2b256::new();
-        hasher.update(PublicKey::<TCurve>::from_affine(
-            base_point.to_affine()).unwrap().to_sec1_bytes().as_ref());
-        hasher.update(PublicKey::<TCurve>::from_affine(
-            message_point.to_affine()).unwrap().to_sec1_bytes().as_ref());
-        hasher.update(PublicKey::<TCurve>::from_affine(
-            (base_point * sk_scalar).to_affine()).unwrap().to_sec1_bytes().as_ref());
-        hasher.update(PublicKey::<TCurve>::from_affine(
-            (message_point * sk_scalar).to_affine()).unwrap().to_sec1_bytes().as_ref());
-        hasher.update(PublicKey::<TCurve>::from_affine(
-            (base_point * random_scalar).to_affine()).unwrap().to_sec1_bytes().as_ref());
-        hasher.update(PublicKey::<TCurve>::from_affine(
-            (message_point * random_scalar).to_affine()).unwrap().to_sec1_bytes().as_ref());
+        hasher.update(projective_point_to_bytes::<TCurve>(base_point));
+        hasher.update(projective_point_to_bytes::<TCurve>(message_point));
+        hasher.update(projective_point_to_bytes::<TCurve>(base_point * sk_scalar));
+        hasher.update(projective_point_to_bytes::<TCurve>(message_point * sk_scalar));
+        hasher.update(projective_point_to_bytes::<TCurve>(base_point * random_scalar));
+        hasher.update(projective_point_to_bytes::<TCurve>(message_point * random_scalar));
 
         let mut c = [0 as u8; 32];
         let h_res = hasher.finalize();
