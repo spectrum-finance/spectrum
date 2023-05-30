@@ -76,6 +76,12 @@ impl From<BlockId> for ModifierId {
     }
 }
 
+impl Into<BlockId> for ModifierId {
+    fn into(self) -> BlockId {
+        BlockId::from(self.0)
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug, derive_more::From)]
 pub enum Modifier {
     BlockHeader(BlockHeader),

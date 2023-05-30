@@ -27,9 +27,9 @@ pub mod cosi;
 pub mod diffusion;
 pub mod discovery;
 pub mod handel;
+mod pool;
 pub mod sigma_aggregation;
 pub mod versioning;
-mod pool;
 
 #[derive(Debug)]
 pub enum NetworkAction<THandshake, TMessage> {
@@ -156,6 +156,45 @@ pub trait ProtocolBehaviour<'de> {
             >,
         >,
     >;
+}
+
+pub struct BehaviourStream<'de, T, P>(T, PhantomData<&'de P>);
+
+impl<'de, T, P> BehaviourStream<'de, T, P> {
+    pub fn new(behaviour: T) -> Self {
+        Self(behaviour, PhantomData)
+    }
+}
+
+impl<'de, T, P> Unpin for BehaviourStream<'de, T, P>
+where
+    P: ProtocolSpec<'de>,
+    T: ProtocolBehaviour<'de, TProto = P>,
+{
+}
+
+impl<'de, T, P> Stream for BehaviourStream<'de, T, P>
+where
+    P: ProtocolSpec<'de>,
+    T: ProtocolBehaviour<'de, TProto = P>,
+{
+    type Item =
+        ProtocolBehaviourOut<<P as ProtocolSpec<'de>>::THandshake, <P as ProtocolSpec<'de>>::TMessage>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = &mut *self;
+        this.0.poll(cx)
+    }
+}
+
+impl<'de, T, P> FusedStream for BehaviourStream<'de, T, P>
+where
+    P: ProtocolSpec<'de>,
+    T: ProtocolBehaviour<'de, TProto = P>,
+{
+    fn is_terminated(&self) -> bool {
+        false
+    }
 }
 
 /// A layer that facilitate massage transmission from protocol handlers to peers.

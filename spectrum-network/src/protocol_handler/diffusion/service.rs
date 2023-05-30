@@ -42,6 +42,10 @@ impl<THistory> RemoteSync<THistory>
 where
     THistory: HistoryReadAsync,
 {
+    pub fn new(history: Arc<THistory>) -> Self {
+        Self { history }
+    }
+
     pub async fn local_status(&self) -> SyncStatus {
         let tail = self.history.get_tail(SYNC_HEADERS).await;
         let height = tail.last().slot;
@@ -83,15 +87,14 @@ where
                 self.history
                     .multi_get_raw(BlockSectionType::Header, modifiers)
                     .await
-            }
-            ModifierType::BlockBody => {
-                self.history
-                    .multi_get_raw(BlockSectionType::Body, modifiers)
-                    .await
-            }
-            ModifierType::Transaction => {
-                todo!()
-            }
+            } // ModifierType::BlockBody => {
+              //     self.history
+              //         .multi_get_raw(BlockSectionType::Body, modifiers)
+              //         .await
+              // }
+              // ModifierType::Transaction => {
+              //     todo!("Go to mempool")
+              // }
         }
     }
 
@@ -168,7 +171,7 @@ where
 const SYNC_HEADERS: usize = 256;
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -194,7 +197,7 @@ mod tests {
         }
 
         async fn contains(&self, id: &ModifierId) -> bool {
-            todo!()
+            self.db.contains_key(&<ModifierId as Into<BlockId>>::into(*id))
         }
 
         async fn get_section(&self, id: &BlockSectionId) -> Option<BlockSection> {
@@ -225,12 +228,27 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             headers.sort_by_key(|hd| hd.slot);
-            NonEmpty::collect(headers[headers.len() - n..].into_iter().map(|&hd| hd.clone()))
-                .unwrap_or(NonEmpty::singleton(BlockHeader::ORIGIN))
+            NonEmpty::collect(
+                headers[headers.len().saturating_sub(n)..]
+                    .into_iter()
+                    .map(|&hd| hd.clone()),
+            )
+            .unwrap_or(NonEmpty::singleton(BlockHeader::ORIGIN))
         }
 
         async fn follow(&self, pre_start: BlockId, cap: usize) -> Vec<BlockId> {
-            todo!()
+            let mut headers = self
+                .db
+                .values()
+                .filter_map(|s| match s {
+                    BlockSection::Header(bh) => Some(bh),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            headers.sort_by_key(|hd| hd.slot);
+            let blocks = headers.into_iter().map(|hd| hd.id).collect::<Vec<_>>();
+            let pos = blocks.iter().position(|blk| *blk == pre_start).unwrap();
+            blocks[pos + 1..].to_vec()
         }
 
         async fn multi_get_raw(

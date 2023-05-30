@@ -28,6 +28,15 @@ pub struct TaskPool<'a, TIn, TOut, R> {
 }
 
 impl<'a, TIn, TOut, R> TaskPool<'a, TIn, TOut, R> {
+    pub fn new(name: String, timeout: Duration, channel: Sender<FromTask<TIn, TOut>>) -> Self {
+        Self {
+            name,
+            timeout,
+            channel,
+            tasks: FuturesUnordered::new(),
+        }
+    }
+
     pub fn spawn<F, T>(&mut self, task: F)
     where
         F: FnOnce(Sender<FromTask<TIn, TOut>>) -> T,
@@ -44,15 +53,17 @@ impl<'a, TIn, TOut, R> Stream for TaskPool<'a, TIn, TOut, R> {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<R>> {
         loop {
-            match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
-                Poll::Ready(Some(Ok(res))) => {
-                    return Poll::Ready(Some(res));
+            if !self.tasks.is_empty() {
+                match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
+                    Poll::Ready(Some(Ok(res))) => {
+                        return Poll::Ready(Some(res));
+                    }
+                    Poll::Ready(Some(Err(_timeout))) => {
+                        warn!("[{}] Operation timeout", self.name);
+                        continue;
+                    }
+                    Poll::Pending | Poll::Ready(None) => {}
                 }
-                Poll::Ready(Some(Err(_timeout))) => {
-                    warn!("[{}] Operation timeout", self.name);
-                    continue;
-                }
-                Poll::Pending | Poll::Ready(None) => {}
             }
             return Poll::Pending;
         }

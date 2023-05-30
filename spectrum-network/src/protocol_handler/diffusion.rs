@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_std::channel::{Receiver, Sender};
 use futures::channel::oneshot;
@@ -118,6 +118,7 @@ type DiffusionBehaviourOut = ProtocolBehaviourOut<DiffusionHandshake, DiffusionM
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct DiffusionConfig {
     max_inv_size: usize,
+    task_timeout: Duration,
 }
 
 pub struct DiffusionBehaviour<'a, THistory, TLedgerView> {
@@ -132,11 +133,28 @@ pub struct DiffusionBehaviour<'a, THistory, TLedgerView> {
     ledger_view: TLedgerView,
 }
 
+const FROM_TASK_BUFFER_SIZE: usize = 1000;
+
 impl<'a, THistory, TLedgerView> DiffusionBehaviour<'a, THistory, TLedgerView>
 where
     THistory: HistoryReadAsync + 'a,
     TLedgerView: LedgerViewWriteAsync + 'a,
 {
+    pub fn new(conf: DiffusionConfig, history: Arc<THistory>, ledger_view: TLedgerView) -> Self {
+        let (snd, recv) = async_std::channel::bounded(FROM_TASK_BUFFER_SIZE);
+        Self {
+            conf,
+            from_tasks: recv,
+            outbox: VecDeque::new(),
+            tasks: TaskPool::new(String::from("Diffusion"), conf.task_timeout, snd),
+            peers: HashMap::new(),
+            delivery: HashMap::new(),
+            remote_sync: RemoteSync::new(Arc::clone(&history)),
+            history,
+            ledger_view,
+        }
+    }
+
     fn on_event(&mut self, event: DiffusionBehaviourIn) {
         match event {
             DiffusionBehaviourIn::UpdatePeer { peer_id, peer_state } => {
@@ -276,7 +294,8 @@ async fn select_wanted<THistory: HistoryReadAsync, TDiffusion: DiffusionStateRea
 ) -> Vec<ModifierId> {
     stream::iter(proposed_modifiers)
         .filter(|&mid| async move {
-            matches!(diffusion.modifier_status(mid).await, ModifierStatus::Requested(_))
+            (matches!(diffusion.modifier_status(mid).await, ModifierStatus::Wanted)
+                || matches!(diffusion.modifier_status(mid).await, ModifierStatus::Unknown))
                 && !history.contains(&mid).await
         })
         .collect::<Vec<_>>()
@@ -312,13 +331,15 @@ where
                 let history = self.history.clone();
                 self.tasks.spawn(|to_behaviour| async move {
                     let wanted = select_wanted(&history, &to_behaviour, modifiers).await;
-                    to_behaviour
-                        .send(FromTask::ToHandler(DiffusionBehaviourOut::Send {
-                            peer_id,
-                            message: DiffusionMessage::request_modifiers_v1(mod_type, wanted),
-                        }))
-                        .await
-                        .unwrap();
+                    if !wanted.is_empty() {
+                        to_behaviour
+                            .send(FromTask::ToHandler(DiffusionBehaviourOut::Send {
+                                peer_id,
+                                message: DiffusionMessage::request_modifiers_v1(mod_type, wanted),
+                            }))
+                            .await
+                            .unwrap();
+                    }
                 })
             }
             DiffusionMessageV1::RequestModifiers(Modifiers { mod_type, modifiers }) => {
@@ -378,5 +399,133 @@ where
             return Poll::Ready(Some(out));
         }
         Poll::Pending
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use async_std::{future, task};
+    use futures::channel::mpsc;
+    use futures::StreamExt;
+    use libp2p_identity::PeerId;
+
+    use spectrum_ledger::block::{BlockHeader, BlockId, BlockSection, BlockVer};
+    use spectrum_ledger::ledger_view::LedgerViewMailbox;
+    use spectrum_ledger::{ModifierId, ModifierType, SlotNo};
+
+    use crate::protocol_handler::diffusion::message::{
+        DiffusionHandshake, DiffusionMessage, HandshakeV1, SyncStatus,
+    };
+    use crate::protocol_handler::diffusion::service::tests::EphemeralHistory;
+    use crate::protocol_handler::diffusion::{DiffusionBehaviour, DiffusionConfig};
+    use crate::protocol_handler::{BehaviourStream, ProtocolBehaviour, ProtocolBehaviourOut};
+
+    #[async_std::test]
+    async fn process_inv() {
+        let local_chain = make_chain(16);
+        let mut beh = make_behaviour(local_chain.clone());
+        let unknown_modifiers = (0..4)
+            .map(|_| ModifierId::from(BlockId::random()))
+            .collect::<Vec<_>>();
+        let inv_modifiers = unknown_modifiers
+            .clone()
+            .into_iter()
+            .chain(vec![ModifierId::from(local_chain[0].id)])
+            .collect();
+        let inv = DiffusionMessage::inv_v1(ModifierType::BlockHeader, inv_modifiers);
+        let remote_pid = PeerId::random();
+        beh.inject_message(remote_pid, inv);
+        let handle = task::spawn(async move {
+            let mut stream = BehaviourStream::new(beh);
+            loop {
+                match stream.select_next_some().await {
+                    ProtocolBehaviourOut::Send { peer_id, message } => {
+                        return (peer_id, message);
+                    }
+                    ProtocolBehaviourOut::NetworkAction(_) => {}
+                }
+            }
+        });
+        let (peer, msg) = future::timeout(Duration::from_secs(5), handle).await.unwrap();
+        assert_eq!(peer, remote_pid);
+        let expected_msg =
+            DiffusionMessage::request_modifiers_v1(ModifierType::BlockHeader, unknown_modifiers);
+        assert_eq!(msg, expected_msg);
+    }
+
+    #[async_std::test]
+    async fn handsake_with_younger_peer() {
+        let local_chain = make_chain(16);
+        let mut remote_chain = local_chain.clone()[..14]
+            .into_iter()
+            .map(|blk| blk.id)
+            .collect::<Vec<_>>();
+        remote_chain.reverse();
+        let remote_ss = SyncStatus {
+            height: SlotNo::from(13),
+            last_blocks: remote_chain.clone(),
+        };
+        let mut beh = make_behaviour(local_chain.clone());
+
+        let remote_pid = PeerId::random();
+        let remote_hs = DiffusionHandshake::HandshakeV1(HandshakeV1(remote_ss));
+
+        beh.inject_protocol_requested(remote_pid, Some(remote_hs));
+
+        let handle = task::spawn(async move {
+            let mut stream = BehaviourStream::new(beh);
+            loop {
+                match stream.select_next_some().await {
+                    ProtocolBehaviourOut::Send { peer_id, message } => {
+                        return (peer_id, message);
+                    }
+                    ProtocolBehaviourOut::NetworkAction(_) => {}
+                }
+            }
+        });
+
+        let (peer, msg) = future::timeout(Duration::from_secs(5), handle).await.unwrap();
+        assert_eq!(peer, remote_pid);
+
+        let expected_msg = DiffusionMessage::inv_v1(
+            ModifierType::BlockHeader,
+            local_chain[14..]
+                .into_iter()
+                .map(|blk| ModifierId::from(blk.id))
+                .collect(),
+        );
+        assert_eq!(msg, expected_msg);
+    }
+
+    fn make_behaviour(
+        chain: Vec<BlockHeader>,
+    ) -> DiffusionBehaviour<'static, EphemeralHistory, LedgerViewMailbox> {
+        let history = Arc::new(EphemeralHistory {
+            db: chain
+                .into_iter()
+                .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
+                .collect(),
+        });
+
+        let conf = DiffusionConfig {
+            max_inv_size: 9182,
+            task_timeout: Duration::from_secs(5),
+        };
+        let (snd, recv) = mpsc::channel(100);
+        let lv = LedgerViewMailbox::new(snd);
+        DiffusionBehaviour::new(conf, history, lv)
+    }
+
+    fn make_chain(n: usize) -> Vec<BlockHeader> {
+        (0..n)
+            .map(|i| BlockHeader {
+                id: BlockId::random(),
+                slot: SlotNo::from(i as u64),
+                version: BlockVer::INITIAL,
+            })
+            .collect::<Vec<_>>()
     }
 }
