@@ -51,6 +51,7 @@ impl ModifierTracker for HashMap<ModifierId, ModifierStatus> {
     }
 }
 
+#[derive(Debug)]
 enum DiffusionBehaviourIn {
     UpdatePeer {
         peer_id: PeerId,
@@ -289,12 +290,6 @@ fn decode_modifier(
     let res = match mod_type {
         ModifierType::BlockHeader => {
             ciborium::de::from_reader::<BlockHeader, _>(&bf[..]).map(|h| Modifier::from(h))
-        }
-        ModifierType::BlockBody => {
-            todo!()
-        }
-        ModifierType::Transaction => {
-            todo!()
         }
     };
     res.map_err(|_| ())

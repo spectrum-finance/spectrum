@@ -79,16 +79,16 @@ impl From<BlockId> for ModifierId {
 #[derive(Clone, Eq, PartialEq, Debug, derive_more::From)]
 pub enum Modifier {
     BlockHeader(BlockHeader),
-    BlockBody(BlockPayload),
-    Transaction(Transaction),
+    // BlockBody(BlockPayload),
+    // Transaction(Transaction),
 }
 
 impl Modifier {
     pub fn id(&self) -> ModifierId {
         match self {
             Modifier::BlockHeader(bh) => ModifierId::from(bh.id),
-            Modifier::BlockBody(bb) => ModifierId::from(bb.id),
-            Modifier::Transaction(tx) => tx.id(),
+            // Modifier::BlockBody(bb) => ModifierId::from(bb.id),
+            // Modifier::Transaction(tx) => tx.id(),
         }
     }
 }
@@ -96,8 +96,8 @@ impl Modifier {
 #[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ModifierType {
     BlockHeader,
-    BlockBody,
-    Transaction,
+    // BlockBody,
+    // Transaction,
 }
 
 /// Provides digest used across the system for authentication.
