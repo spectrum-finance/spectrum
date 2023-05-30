@@ -57,13 +57,40 @@ enum DiffusionBehaviourIn {
         peer_state: SyncState,
     },
     UpdateModifier {
-        modifier: ModifierId,
+        modifier_id: ModifierId,
         status: ModifierStatus,
     },
     GetModifierStatus {
         modifier: ModifierId,
         status_future: oneshot::Sender<ModifierStatus>,
     },
+}
+
+#[async_trait::async_trait]
+trait DiffusionStateWrite {
+    async fn update_peer(&self, peer_id: PeerId, peer_state: SyncState);
+    async fn update_modifier(&self, modifier_id: ModifierId, status: ModifierStatus);
+}
+
+#[async_trait::async_trait]
+impl DiffusionStateWrite for Sender<FromTask<DiffusionBehaviourIn, DiffusionBehaviourOut>> {
+    async fn update_peer(&self, peer_id: PeerId, peer_state: SyncState) {
+        self.send(FromTask::ToBehaviour(DiffusionBehaviourIn::UpdatePeer {
+            peer_id,
+            peer_state,
+        }))
+        .await
+        .unwrap();
+    }
+
+    async fn update_modifier(&self, modifier_id: ModifierId, status: ModifierStatus) {
+        self.send(FromTask::ToBehaviour(DiffusionBehaviourIn::UpdateModifier {
+            modifier_id,
+            status,
+        }))
+        .await
+        .unwrap();
+    }
 }
 
 #[async_trait::async_trait]
@@ -114,7 +141,10 @@ where
             DiffusionBehaviourIn::UpdatePeer { peer_id, peer_state } => {
                 self.peers.insert(peer_id, peer_state);
             }
-            DiffusionBehaviourIn::UpdateModifier { modifier, status } => {
+            DiffusionBehaviourIn::UpdateModifier {
+                modifier_id: modifier,
+                status,
+            } => {
                 self.delivery.set_status(modifier, status);
             }
 
@@ -132,13 +162,7 @@ where
         let conf = self.conf;
         self.tasks.spawn(|to_behaviour| async move {
             let peer_state = service.remote_state(peer_status).await;
-            to_behaviour
-                .send(FromTask::ToBehaviour(DiffusionBehaviourIn::UpdatePeer {
-                    peer_id,
-                    peer_state: peer_state.clone(),
-                }))
-                .await
-                .unwrap();
+            to_behaviour.update_peer(peer_id, peer_state.clone()).await;
             if initial {
                 to_behaviour
                     .send(FromTask::ToHandler(DiffusionBehaviourOut::NetworkAction(
@@ -219,12 +243,8 @@ where
             for m in raw_modifiers {
                 if let Ok(md) = decode_modifier(mod_type, &m) {
                     to_behaviour
-                        .send(FromTask::ToBehaviour(DiffusionBehaviourIn::UpdateModifier {
-                            modifier: md.id(),
-                            status: ModifierStatus::Received,
-                        }))
-                        .await
-                        .unwrap();
+                        .update_modifier(md.id(), ModifierStatus::Received)
+                        .await;
                     modifiers.push(md)
                 } else {
                     to_behaviour
