@@ -21,15 +21,15 @@ impl<TCurve> ECVRF<TCurve> for SpectrumVRF<TCurve>
     where TCurve: CurveArithmetic + PointCompression {
     type Error = ();
 
-    fn gen(&self)
-           -> Result<(SecretKey<TCurve>, PublicKey<TCurve>), Self::Error> {
+    fn gen()
+        -> Result<(SecretKey<TCurve>, PublicKey<TCurve>), Self::Error> {
         let spectrum_vrf_sk = SecretKey::<TCurve>::random(&mut OsRng);
         let spectrum_vrf_pk = PublicKey::<TCurve>::from_secret_scalar(
             &spectrum_vrf_sk.to_nonzero_scalar());
         Ok((spectrum_vrf_sk, spectrum_vrf_pk))
     }
 
-    fn prove(&self, sk: SecretKey<TCurve>, message_hash: Sha2Digest256)
+    fn prove(sk: SecretKey<TCurve>, message_hash: Sha2Digest256)
              -> Result<ECVRFProof<TCurve>, Self::Error> where
         <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
         <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
@@ -63,7 +63,6 @@ impl<TCurve> ECVRF<TCurve> for SpectrumVRF<TCurve>
     }
 
     fn verify(
-        &self,
         pk: PublicKey<TCurve>,
         message_hash: Sha2Digest256,
         proof: ECVRFProof<TCurve>,

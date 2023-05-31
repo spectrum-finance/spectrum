@@ -22,8 +22,9 @@ use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
 
 use spectrum_crypto::digest::Sha2Digest256;
 
-pub mod spectrum_vrf;
+pub mod vrf;
 pub mod utils;
+mod tests;
 
 pub struct ECVRFProof<TCurve: CurveArithmetic> {
     gamma: ProjectivePoint<TCurve>,
@@ -37,10 +38,10 @@ pub trait ECVRF<TCurve>
 {
     type Error;
     /// Generates an ECVRF key-pair `(ec_vrf_secret_key, ec_vrf_public_key)`
-    fn gen(&self) -> Result<(SecretKey<TCurve>, PublicKey<TCurve>), Self::Error>;
+    fn gen() -> Result<(SecretKey<TCurve>, PublicKey<TCurve>), Self::Error>;
 
     /// Generates random value and it's ECVRF proof from a secret key `sk` and a message `m`.
-    fn prove(&self, sk: SecretKey<TCurve>, message_hash: Sha2Digest256)
+    fn prove(sk: SecretKey<TCurve>, message_hash: Sha2Digest256)
              -> Result<ECVRFProof<TCurve>, Self::Error> where
         <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
         <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
@@ -48,7 +49,6 @@ pub trait ECVRF<TCurve>
 
     /// Verifies the provided random value `y` and it's VRF proof `pi`.
     fn verify(
-        &self,
         pk: PublicKey<TCurve>,
         message_hash: Sha2Digest256,
         proof: ECVRFProof<TCurve>,

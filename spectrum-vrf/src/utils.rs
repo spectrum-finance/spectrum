@@ -28,3 +28,42 @@ pub fn projective_point_to_bytes<TCurve: CurveArithmetic + PointCompression>
     PublicKey::<TCurve>::from_affine(
         (point).to_affine()).unwrap().to_sec1_bytes().to_vec()
 }
+
+#[cfg(test)]
+mod test {
+    use elliptic_curve::group::GroupEncoding;
+    use k256::{ProjectivePoint, Secp256k1};
+
+    use spectrum_crypto::digest::sha256_hash;
+    use spectrum_crypto::digest::Sha2Digest256;
+
+    #[test]
+    fn hash_to_projective_point_test() {
+        let m_hash_0: Sha2Digest256 = sha256_hash("fair".as_bytes());
+        let point_0 = super::hash_to_projective_point::<Secp256k1>(m_hash_0);
+
+        let m_hash_1: Sha2Digest256 = sha256_hash("malicious".as_bytes());
+        let point_1 = super::hash_to_projective_point::<Secp256k1>(m_hash_1);
+
+        assert_ne!(point_0.to_bytes(), point_1.to_bytes());
+    }
+
+    #[test]
+    fn projective_point_to_bytes_test() {
+        let m_hash_0: Sha2Digest256 = sha256_hash("fair".as_bytes());
+        let point_0 = super::hash_to_projective_point::<Secp256k1>(m_hash_0);
+
+        let m_hash_1: Sha2Digest256 = sha256_hash("malicious".as_bytes());
+        let point_1 = super::hash_to_projective_point::<Secp256k1>(m_hash_1);
+
+        let point_0_hash = sha256_hash(point_0.to_bytes().as_slice());
+        let point_1_hash = sha256_hash(point_1.to_bytes().as_slice());
+
+        let bytes_0 = super::projective_point_to_bytes::<Secp256k1>(point_0);
+        let bytes_1 = super::projective_point_to_bytes::<Secp256k1>(point_1);
+
+        assert_eq!(point_0_hash, sha256_hash(bytes_0.as_slice()));
+        assert_eq!(point_1_hash, sha256_hash(bytes_1.as_slice()));
+        assert_ne!(bytes_0, bytes_1)
+    }
+}
