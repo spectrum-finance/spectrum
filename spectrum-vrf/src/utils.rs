@@ -32,7 +32,7 @@ pub fn projective_point_to_bytes<TCurve: CurveArithmetic + PointCompression>
 #[cfg(test)]
 mod test {
     use elliptic_curve::group::GroupEncoding;
-    use k256::{ProjectivePoint, Secp256k1};
+    use k256::Secp256k1;
 
     use spectrum_crypto::digest::sha256_hash;
     use spectrum_crypto::digest::Sha2Digest256;
@@ -50,10 +50,10 @@ mod test {
 
     #[test]
     fn projective_point_to_bytes_test() {
-        let m_hash_0: Sha2Digest256 = sha256_hash("fair".as_bytes());
+        let m_hash_0: Sha2Digest256 = sha256_hash("Alice_tx".as_bytes());
         let point_0 = super::hash_to_projective_point::<Secp256k1>(m_hash_0);
 
-        let m_hash_1: Sha2Digest256 = sha256_hash("malicious".as_bytes());
+        let m_hash_1: Sha2Digest256 = sha256_hash("Bob_tx".as_bytes());
         let point_1 = super::hash_to_projective_point::<Secp256k1>(m_hash_1);
 
         let point_0_hash = sha256_hash(point_0.to_bytes().as_slice());
