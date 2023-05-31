@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::protocol_handler::handel::message::HandelMessage;
-use crate::protocol_handler::sigma_aggregation::types::{CommitmentsWithProofs, Responses, PreCommitments};
+use crate::protocol_handler::sigma_aggregation::types::{CommitmentsWithProofs, PreCommitments, Responses};
 use crate::protocol_handler::versioning::Versioned;
 use crate::protocol_handler::ProtocolSpec;
 use crate::types::ProtocolVer;
@@ -30,7 +30,7 @@ impl Versioned for SigmaAggrMessage {
 
 pub struct SigmaAggrSpec;
 
-impl ProtocolSpec for SigmaAggrSpec {
+impl<'de> ProtocolSpec<'de> for SigmaAggrSpec {
     type THandshake = SigmaAggrMessage;
     type TMessage = SigmaAggrMessage;
 }

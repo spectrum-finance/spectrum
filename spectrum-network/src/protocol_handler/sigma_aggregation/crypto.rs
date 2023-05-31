@@ -10,10 +10,11 @@ use k256::schnorr::{SigningKey, VerifyingKey};
 use k256::{ProjectivePoint, Scalar, SecretKey};
 
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest256};
+use spectrum_crypto::pubkey::PublicKey;
 
 use crate::protocol_handler::handel::Threshold;
 use crate::protocol_handler::sigma_aggregation::types::{
-    AggregateCommitment, Commitment, CommitmentSecret, PublicKey, Signature,
+    AggregateCommitment, Commitment, CommitmentSecret, Signature,
 };
 
 type Blake2b256 = Blake2b<U32>;
@@ -190,13 +191,13 @@ mod tests {
     use rand::Rng;
 
     use spectrum_crypto::digest::blake2b256_hash;
+    use spectrum_crypto::pubkey::PublicKey;
 
     use crate::protocol_handler::handel::Threshold;
     use crate::protocol_handler::sigma_aggregation::crypto::{
         aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
         response, schnorr_commitment_pair, verify, verify_response,
     };
-    use crate::protocol_handler::sigma_aggregation::types::{Commitment, PublicKey};
 
     #[test]
     fn uniqie_individual_inputs() {

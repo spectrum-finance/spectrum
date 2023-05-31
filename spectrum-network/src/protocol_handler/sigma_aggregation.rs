@@ -11,6 +11,7 @@ use k256::{Scalar, SecretKey};
 use libp2p::PeerId;
 
 use spectrum_crypto::digest::Digest256;
+use spectrum_crypto::pubkey::PublicKey;
 
 use crate::protocol::SIGMA_AGGR_PROTOCOL_ID;
 use crate::protocol_handler::aggregation::AggregationAction;
@@ -25,7 +26,7 @@ use crate::protocol_handler::sigma_aggregation::message::{
 };
 use crate::protocol_handler::sigma_aggregation::types::{
     AggregateCommitment, Commitment, CommitmentSecret, CommitmentsVerifInput, CommitmentsWithProofs,
-    Contributions, PreCommitments, PublicKey, Responses, ResponsesVerifInput, Signature,
+    Contributions, PreCommitments, Responses, ResponsesVerifInput, Signature,
 };
 use crate::protocol_handler::NetworkAction;
 use crate::protocol_handler::ProtocolBehaviour;
@@ -284,17 +285,13 @@ where
     outbox: VecDeque<ProtocolBehaviourOut<SigmaAggrMessage, SigmaAggrMessage>>,
 }
 
-impl<'a, H, MPP> ProtocolBehaviour for SigmaAggregation<'a, H, MPP>
+impl<'a, 'de, H, MPP> ProtocolBehaviour<'de> for SigmaAggregation<'a, H, MPP>
 where
     H: Debug,
     MPP: MakePeerPartitions + Clone,
     MPP::PP: 'a,
 {
     type TProto = SigmaAggrSpec;
-
-    fn get_protocol_id(&self) -> ProtocolId {
-        SIGMA_AGGR_PROTOCOL_ID
-    }
 
     fn inject_message(
         &mut self,

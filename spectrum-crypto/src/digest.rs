@@ -4,13 +4,14 @@ use std::convert::TryInto;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
+use rand::{thread_rng, RngCore};
 use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
 
-#[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd)]
+#[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd, Hash)]
 pub struct Blake2b;
 
-#[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd)]
+#[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd, Hash)]
 pub struct Sha2;
 
 /// N-bytes array in a box. Usually a hash.`Digest32` is most type synonym.
@@ -46,14 +47,20 @@ impl<const N: usize, H> Digest<N, H> {
     pub const SIZE: usize = N;
 
     /// All zeros
-    pub fn zero() -> Digest<N, H> {
-        Digest([0u8; N], PhantomData::default())
+    pub const fn zero() -> Digest<N, H> {
+        Digest([0u8; N], PhantomData)
     }
 
     pub fn from_base16(s: &str) -> Result<Digest<N, H>, DigestNError> {
         let bytes = base16::decode(s)?;
         let arr: [u8; N] = bytes.as_slice().try_into()?;
-        Ok(Digest(arr, PhantomData::default()))
+        Ok(Digest(arr, PhantomData))
+    }
+
+    pub fn random() -> Digest<N, H> {
+        let mut bf = [0u8; N];
+        thread_rng().fill_bytes(&mut bf);
+        Digest(bf, PhantomData)
     }
 }
 

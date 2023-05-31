@@ -15,11 +15,11 @@ use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::data::PeerDestination;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
 use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerConfig};
-use spectrum_network::protocol::{
-    ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID,
+use spectrum_network::protocol::{DIFFUSION_PROTOCOL_ID, ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec};
+use spectrum_network::protocol_handler::discovery::message::{
+    DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec,
 };
-use spectrum_network::protocol_handler::sync::message::{SyncMessage, SyncMessageV1, SyncSpec};
-use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
+use spectrum_network::protocol_handler::discovery::{DiscoveryBehaviour, NodeStatus};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
 
@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
     let sync_conf = StatefulProtocolConfig {
         supported_versions: vec![(
-            SyncSpec::v1(),
+            DiscoverySpec::v1(),
             StatefulProtocolSpec {
                 max_message_size: 100,
                 approve_required: true,
@@ -88,10 +88,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let local_status = NodeStatus {
-        supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
+        supported_protocols: Vec::from([DIFFUSION_PROTOCOL_ID]),
         height: 0,
     };
-    let sync_behaviour = SyncBehaviour::new(peers.clone(), local_status);
+    let sync_behaviour = DiscoveryBehaviour::new(peers.clone(), local_status);
     const NC_MSG_BUFFER_SIZE: usize = 10;
     let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(NC_MSG_BUFFER_SIZE);
     let network_api = NetworkMailbox {
@@ -99,11 +99,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     const PH_MSG_BUFFER_SIZE: usize = 10;
     let (mut sync_handler, sync_mailbox) =
-        ProtocolHandler::new(sync_behaviour, network_api, PH_MSG_BUFFER_SIZE);
+        ProtocolHandler::new(sync_behaviour, network_api, DIFFUSION_PROTOCOL_ID, PH_MSG_BUFFER_SIZE);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(
-            SYNC_PROTOCOL_ID,
+            sync_handler.protocol,
             (ProtocolConfig::Stateful(sync_conf), sync_mailbox),
         )]),
         peers,
