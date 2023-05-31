@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use spectrum_ledger::block::{BlockId, BlockSectionType};
 use spectrum_ledger::ledger_view::history::HistoryReadAsync;
-use spectrum_ledger::{Modifier, ModifierId, ModifierType, SerializedModifier, SlotNo};
+use spectrum_ledger::{ModifierId, ModifierType, SerializedModifier, SlotNo};
 
 use crate::protocol_handler::diffusion::message::{
     DiffusionHandshake, DiffusionSpec, HandshakeV1, SyncStatus,
@@ -13,9 +13,16 @@ use crate::types::ProtocolVer;
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(super) enum RemoteChainCmp {
     Equal,
+    /// Remote chain is longer than local one.
+    /// `Some(wanted_suffix)` when we can immediately determine the diff.
     Longer(/*wanted_suffix*/ Option<Vec<BlockId>>),
-    Shorter(/*remote_best_slot*/ BlockId),
+    /// Remote chain is shorter than local one.
+    /// We also determine best block on remote.
+    Shorter(/*remote_best_block*/ BlockId),
+    /// Remote is on fork relatevely to the local chain.
+    /// `Some(BlockId)` when we are able to determine branching point.
     Fork(/*intersection_at*/ Option<BlockId>),
+    /// We can't compare local chain to the remote one. Most likely remote is byzantine.
     Nonsense,
 }
 
