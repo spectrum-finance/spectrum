@@ -107,10 +107,10 @@ mod tests {
             vrf_verify::<Secp256k1>(vrf_pk, m_hash.clone(),
                                     proof_gamma_wrong).unwrap();
         let valid_c =
-            vrf_verify::<Secp256k1>(vrf_pk, m_hash.clone(),
+            vrf_verify::<Secp256k1>(vrf_pk.clone(), m_hash.clone(),
                                     proof_c_wrong).unwrap();
         let valid_s =
-            vrf_verify::<Secp256k1>(vrf_pk, m_hash.clone(),
+            vrf_verify::<Secp256k1>(vrf_pk.clone(), m_hash.clone(),
                                     proof_s_wrong).unwrap();
 
         assert_eq!(valid_gamma, false);
