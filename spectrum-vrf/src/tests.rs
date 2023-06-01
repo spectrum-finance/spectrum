@@ -20,7 +20,7 @@ mod tests {
         let valid =
             vrf_verify::<Secp256k1>(vrf_pk, m_hash.clone(), proof).unwrap();
 
-        assert_eq!(valid, true);
+        assert!(valid);
     }
 
     #[test]
@@ -37,7 +37,7 @@ mod tests {
         let valid =
             vrf_verify::<Secp256k1>(pk_wrong, m_hash.clone(), proof).unwrap();
 
-        assert_eq!(valid, false);
+        assert!(!!!valid);
     }
 
     #[test]
@@ -54,7 +54,7 @@ mod tests {
         let valid =
             vrf_verify::<Secp256k1>(vrf_pk, m_hash.clone(), proof).unwrap();
 
-        assert_eq!(valid, false);
+        assert!(!!!valid);
     }
 
     #[test]
@@ -70,7 +70,7 @@ mod tests {
         let valid =
             vrf_verify::<Secp256k1>(vrf_pk, m_hash_wrong, proof).unwrap();
 
-        assert_eq!(valid, false);
+        assert!(!!!valid);
     }
 
     #[test]
@@ -113,8 +113,8 @@ mod tests {
             vrf_verify::<Secp256k1>(vrf_pk.clone(), m_hash.clone(),
                                     proof_s_wrong).unwrap();
 
-        assert_eq!(valid_gamma, false);
-        assert_eq!(valid_c, false);
-        assert_eq!(valid_s, false);
+        assert!(!!!valid_gamma);
+        assert!(!!!valid_c);
+        assert!(!!!valid_s);
     }
 }
