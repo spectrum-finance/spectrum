@@ -5,7 +5,7 @@ use move_core_types::language_storage::TypeTag;
 use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_move::{SerializedModule, SerializedValue};
 
-use crate::sbox::{BoxPointer, DatumRef, SBox, ScriptRef};
+use crate::sbox::{BoxPtr, DatumRef, SBox, ScriptRef};
 use crate::{ModifierId, SystemDigest};
 
 /// Transaction processing pipeline:
@@ -20,9 +20,9 @@ use crate::{ModifierId, SystemDigest};
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Transaction {
     /// Consumed boxes.
-    pub inputs: Vec<(BoxPointer, Option<u16>)>,
+    pub inputs: Vec<(BoxPtr, Option<u16>)>,
     /// Read-only inputs.
-    pub reference_inputs: Vec<BoxPointer>,
+    pub reference_inputs: Vec<BoxPtr>,
     /// Script invokations.
     pub invokations: Vec<ScriptInv>,
     /// Statically evaluated outputs.

@@ -58,7 +58,7 @@ pub struct BlockPayload {
     pub payload: Vec<Transaction>,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize, derive_more::From)]
 pub enum BlockSection {
     Header(BlockHeader),
     //Payload(Vec<Transaction>),

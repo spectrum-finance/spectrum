@@ -1,16 +1,30 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use nonempty::NonEmpty;
 
-use crate::block::{BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType};
-use crate::{ModifierId, SerializedModifier};
+use spectrum_ledger::block::{BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType};
+use spectrum_ledger::{ModifierId, SerializedModifier};
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct InvalidBlockSection;
+
+#[derive(Eq, PartialEq, Debug, thiserror::Error)]
+pub enum LedgerHistoryError {
+    #[error("Invalid block section")]
+    InvalidBlockSection,
+}
+
+/// Sync API to ledger history.
+pub trait LedgerHistory {
+    /// Apply block section
+    fn apply_section(&self, section: BlockSection) -> Result<(), InvalidBlockSection>;
+}
 
 /// Read-only async API to ledger history.
 #[async_trait]
-pub trait HistoryReadAsync: Send + Sync {
+pub trait LedgerHistoryReadAsync: Send + Sync {
     /// Check if the given block is in the best chain.
     async fn member(&self, id: &BlockId) -> bool;
     /// Check if the given modifier exists in history.
@@ -32,12 +46,12 @@ pub trait HistoryReadAsync: Send + Sync {
     ) -> Vec<SerializedModifier>;
 }
 
-pub struct HistoryRocksDB {
+pub struct LedgerHistoryRocksDB {
     pub db: Arc<rocksdb::OptimisticTransactionDB>,
 }
 
 #[async_trait]
-impl HistoryReadAsync for HistoryRocksDB {
+impl LedgerHistoryReadAsync for LedgerHistoryRocksDB {
     async fn member(&self, id: &BlockId) -> bool {
         todo!()
     }
