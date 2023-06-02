@@ -7,6 +7,8 @@ use nonempty::NonEmpty;
 use spectrum_ledger::block::{BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType};
 use spectrum_ledger::{ModifierId, SerializedModifier};
 
+use crate::validation::ValidModifier;
+
 #[derive(Eq, PartialEq, Debug)]
 pub struct InvalidBlockSection;
 
@@ -48,6 +50,16 @@ pub trait LedgerHistoryReadAsync: Send + Sync {
 
 pub struct LedgerHistoryRocksDB {
     pub db: Arc<rocksdb::OptimisticTransactionDB>,
+}
+
+impl LedgerHistoryRocksDB {
+    pub fn apply_header(&self, hdr: ValidModifier<BlockHeader>) {}
+}
+
+impl LedgerHistory for LedgerHistoryRocksDB {
+    fn apply_section(&self, section: BlockSection) -> Result<(), InvalidBlockSection> {
+        todo!()
+    }
 }
 
 #[async_trait]
