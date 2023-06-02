@@ -17,7 +17,7 @@ pub struct BoxVer(u32);
 pub struct BoxRef(pub BoxId, pub BoxVer);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub enum BoxPointer {
+pub enum BoxPtr {
     Id(BoxId),
     Ref(BoxRef),
 }

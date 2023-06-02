@@ -2,6 +2,7 @@
 members = [
     "spectrum-node",
     "spectrum-network",
+    "spectrum-view",
     "spectrum-ledger",
     "spectrum-crypto",
     "spectrum-vrf",

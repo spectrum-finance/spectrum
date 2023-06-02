@@ -5,8 +5,8 @@ use k256::schnorr::VerifyingKey;
 
 use spectrum_move::{GasUnits, SerializedModule};
 
-use crate::sbox::{Owner, SBox, ScriptHash};
-use crate::transaction::{EvaluatedTransaction, LinkedTransaction};
+use spectrum_ledger::sbox::{Owner, SBox, ScriptHash};
+use spectrum_ledger::transaction::{EvaluatedTransaction, LinkedTransaction};
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub struct EvaluationError {
