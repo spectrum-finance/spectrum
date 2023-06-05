@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 use futures::channel::mpsc::{Receiver, Sender};
 use futures::{SinkExt, Stream, StreamExt};
 
-use spectrum_ledger::block::BlockSection;
+use spectrum_ledger::block::{BlockBody, BlockSection};
 use spectrum_ledger::Modifier;
 
 use crate::history::{InvalidBlockSection, LedgerHistory};
@@ -42,18 +42,30 @@ where
     fn on_event(&self, event: NodeViewIn) {
         match event {
             NodeViewIn::ApplyModifier(md) => {
-                self.apply_modifier(md)
+                self.apply_modifier(&md)
                     .unwrap_or_else(|e| self.err_handler.on_invalid_modifier(e));
             }
         }
     }
 
-    fn apply_modifier(&self, modifier: Modifier) -> Result<(), InvalidModifier> {
+    fn apply_modifier(&self, modifier: &Modifier) -> Result<(), InvalidModifier> {
         match modifier {
             Modifier::BlockHeader(hd) => self
                 .history
-                .apply_section(BlockSection::from(hd))
-                .map_err(|err| InvalidModifier::InvalidSection(err)),
+                .apply_header(hd)
+                .map_err(|err| InvalidModifier::InvalidSection(InvalidBlockSection::InvalidHeader(err))),
+            Modifier::BlockBody(blk) => self
+                .history
+                .apply_body(blk)
+                .map_err(|err| InvalidModifier::InvalidSection(InvalidBlockSection::InvalidBody(err)))
+                .and_then(|_| {
+                    self.state.apply_transactions(&blk.payload).map_err(|err| {
+                        InvalidModifier::InvalidSection(InvalidBlockSection::InvalidBlock(err))
+                    })
+                }),
+            Modifier::Transaction(_) => {
+                todo!()
+            }
         }
     }
 }

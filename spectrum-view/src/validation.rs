@@ -1,7 +1,7 @@
 use nonempty::NonEmpty;
 
 pub trait CanValidate<M, FE, NFE> {
-    fn try_validate(&self, md: M) -> ValidationResult<M, FE, NFE>;
+    fn try_validate(&self, md: &M) -> ValidationResult<&M, FE, NFE>;
 }
 
 #[derive(Clone, Debug)]
