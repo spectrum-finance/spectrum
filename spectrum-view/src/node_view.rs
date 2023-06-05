@@ -2,7 +2,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures::channel::mpsc::{Receiver, Sender};
-use futures::{SinkExt, Stream};
+use futures::{SinkExt, Stream, StreamExt};
 
 use spectrum_ledger::block::BlockSection;
 use spectrum_ledger::Modifier;
@@ -15,28 +15,35 @@ pub enum NodeViewIn {
     ApplyModifier(Modifier),
 }
 
+pub trait ErrorHandler {
+    fn on_invalid_modifier(&self, err: InvalidModifier);
+}
+
 #[derive(Eq, PartialEq, Debug, thiserror::Error)]
 pub enum InvalidModifier {
     #[error("Modifier is invalid")]
     InvalidSection(InvalidBlockSection),
 }
 
-pub struct NodeView<TState, THistory, TMempool> {
+pub struct NodeView<TState, THistory, TMempool, TErrh> {
     state: TState,
     history: THistory,
     mempool: TMempool,
+    err_handler: TErrh,
     inbox: Receiver<NodeViewIn>,
 }
 
-impl<TState, THistory, TMempool> NodeView<TState, THistory, TMempool>
+impl<TState, THistory, TMempool, TErrh> NodeView<TState, THistory, TMempool, TErrh>
 where
     TState: LedgerState,
     THistory: LedgerHistory,
+    TErrh: ErrorHandler,
 {
     fn on_event(&self, event: NodeViewIn) {
         match event {
             NodeViewIn::ApplyModifier(md) => {
-                self.apply_modifier(md);
+                self.apply_modifier(md)
+                    .unwrap_or_else(|e| self.err_handler.on_invalid_modifier(e));
             }
         }
     }
@@ -51,17 +58,18 @@ where
     }
 }
 
-impl<TState, THistory, TMempool> Stream for NodeView<TState, THistory, TMempool>
+impl<TState, THistory, TMempool, TErrh> Stream for NodeView<TState, THistory, TMempool, TErrh>
 where
     TState: LedgerState + Unpin,
     THistory: LedgerHistory + Unpin,
     TMempool: Unpin,
+    TErrh: ErrorHandler + Unpin,
 {
     type Item = ();
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
-            match Stream::poll_next(Pin::new(&mut self.inbox), cx) {
+            match self.inbox.poll_next_unpin(cx) {
                 Poll::Ready(Some(event)) => {
                     self.on_event(event);
                     continue;
