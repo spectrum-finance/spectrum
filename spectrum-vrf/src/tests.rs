@@ -2,6 +2,7 @@ mod tests {
     use elliptic_curve::{Group, NonZeroScalar, ProjectivePoint, Scalar};
     use elliptic_curve::rand_core::OsRng;
     use k256::Secp256k1;
+    use bigint::U256;
 
     use spectrum_crypto::digest::sha256_hash;
     use spectrum_crypto::digest::Sha2Digest256;
@@ -160,7 +161,7 @@ mod tests {
                                           selection_fraction_num.clone(),
                                           selection_fraction_denom.clone());
 
-        let mult = u64::try_from(2_i32.pow(vrf_range) as u64).unwrap();
+        let mult = U256::try_from(2_i32.pow(vrf_range) as u64).unwrap();
 
         assert_eq!(thr_0, thr_1);
         assert_eq!(thr_0, mult)
@@ -195,5 +196,9 @@ mod tests {
                                           selection_fraction_denom.clone());
         assert!(r < thr_0);
         assert!(r > thr_1);
+        println!("{:?}", r);
+        println!("{:?}", thr_0);
+        println!("{:?}", thr_1);
+
     }
 }
