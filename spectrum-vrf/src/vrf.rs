@@ -16,7 +16,8 @@
 use blake2::Blake2b;
 use blake2::Digest;
 use blake2::digest::typenum::U32;
-use elliptic_curve::{CurveArithmetic, Group, NonZeroScalar, ProjectivePoint, PublicKey, Scalar, ScalarPrimitive, SecretKey};
+use elliptic_curve::{CurveArithmetic, Group, NonZeroScalar, ProjectivePoint, PublicKey,
+                     Scalar, ScalarPrimitive, SecretKey};
 use elliptic_curve::generic_array::GenericArray;
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::rand_core::OsRng;
