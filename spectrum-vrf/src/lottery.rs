@@ -23,10 +23,11 @@ pub fn proof_to_random_number<TCurve: CurveArithmetic + PointCompression>(
     let proof_hash_bytes: [u8; 32] = proof_hash.into();
 
     let proof_num = U512::from(U256::from(proof_hash_bytes));
-    let mult = U512::try_from(2_u32.pow(vrf_range) as u64).unwrap();
+    let mult = U512::from(U256::from(2).pow(U256::from(vrf_range)));
 
     U256::from(proof_num * mult / U512::from(U256::MAX))
 }
+
 
 pub fn get_lottery_threshold(
     vrf_range: u32,
@@ -36,10 +37,36 @@ pub fn get_lottery_threshold(
     selection_fraction_denom: u32,
 ) -> U256
 {
-    let selection_fraction = selection_fraction_num as f32 / selection_fraction_denom as f32;
-    let relative_stake = (stake as f64 / total_stake as f64) as f32;
-    let phi_value = 1_f64 - (1_f32 - selection_fraction).powf(relative_stake) as f64;
-    let mult = u64::try_from(2_u32.pow(vrf_range)).unwrap();
+    let selection_fraction = selection_fraction_num as f64 / selection_fraction_denom as f64;
+    let relative_stake = stake as f64 / total_stake as f64;
 
-    U256::from((phi_value * mult as f64) as u64)
+    let phi_value = 1_f64 - (1_f64 - selection_fraction).powf(relative_stake);
+    let (phi_num, phi_denom) = to_rational(phi_value);
+
+    let mult = U512::from(U256::from(2).pow(U256::from(vrf_range)));
+
+    U256::from((U512::from(phi_num) * mult) / U512::from(phi_denom))
 }
+
+fn gcd(mut x: u64, mut y: u64) -> u64 {
+    while y > 0 {
+        let rem = x % y;
+        x = y;
+        y = rem;
+    }
+    x
+}
+
+fn to_rational(x: f64) -> (u64, u64) {
+    let log = x.log2().floor();
+    if log >= 0.0 {
+        (x as u64, 1)
+    } else {
+        let num: u64 = (x / f64::EPSILON) as _;
+        let denom: u64 = (1.0 / f64::EPSILON) as _;
+        let gcd = gcd(num as u64, denom);
+        (num / gcd as u64, denom / gcd)
+    }
+}
+
+

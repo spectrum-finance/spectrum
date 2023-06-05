@@ -1,13 +1,13 @@
 mod tests {
+    use bigint::U256;
     use elliptic_curve::{Group, NonZeroScalar, ProjectivePoint, Scalar};
     use elliptic_curve::rand_core::OsRng;
     use k256::Secp256k1;
-    use bigint::U256;
 
     use spectrum_crypto::digest::sha256_hash;
     use spectrum_crypto::digest::Sha2Digest256;
 
-    use crate::lottery::{proof_to_random_number, get_lottery_threshold};
+    use crate::lottery::{get_lottery_threshold, proof_to_random_number};
     use crate::vrf::{ECVRFProof, vrf_gen, vrf_prove, vrf_verify};
 
     #[test]
@@ -122,8 +122,8 @@ mod tests {
 
     #[test]
     fn proof_to_random_number_test() {
-        let base_vrf_range = 10;
-        let option_vrf_range = 16;
+        let base_vrf_range = 64;
+        let option_vrf_range = 128;
 
         let (vrf_sk, _) =
             vrf_gen::<Secp256k1>().unwrap();
@@ -144,11 +144,43 @@ mod tests {
     }
 
     #[test]
-    fn get_lottery_threshold_test() {
+    fn random_distribution_test() {
         let vrf_range: u32 = 16;
-        let stake: u64 = 100000000;
-        let stake_1: u64 = 50000000;
-        let total_stake: u64 = 100000000;
+
+        let m_hash: Sha2Digest256 = sha256_hash("Lottery".as_bytes());
+
+        let mut r_array = Vec::new();
+        let n_iters = 1000;
+        for _ in 0..n_iters {
+            let (vrf_sk, _) =
+                vrf_gen::<Secp256k1>().unwrap();
+
+            let proof =
+                vrf_prove::<Secp256k1>(vrf_sk, m_hash.clone()).unwrap();
+
+            let r = proof_to_random_number(&proof, vrf_range);
+
+            r_array.push(r.as_u64());
+        }
+        r_array.sort();
+
+        let total_average = (r_array.iter().sum::<u64>() as i64) / n_iters as i64;
+        let first_half_avg: i64 = r_array[0..n_iters / 2].iter().sum::<u64>()
+            as i64 / (n_iters / 2) as i64;
+        let second_half_avg: i64 = r_array[n_iters / 2..n_iters].iter().sum::<u64>()
+            as i64 / (n_iters / 2) as i64;
+
+        assert!((total_average / 2 - first_half_avg).abs() as f64 / total_average as f64 <= 0.05);
+        assert!((total_average * 3 / 2 - second_half_avg).abs() as f64
+            / total_average as f64 <= 0.05);
+    }
+
+    #[test]
+    fn get_lottery_threshold_test() {
+        let vrf_range: u32 = 128;
+        let stake: u64 = 10e12 as u64;
+        let stake_1: u64 = 5e12 as u64;
+        let total_stake: u64 = 10e12 as u64;
         let selection_fraction_num: u32 = 100;
         let selection_fraction_denom: u32 = 100;
 
@@ -161,17 +193,38 @@ mod tests {
                                           selection_fraction_num.clone(),
                                           selection_fraction_denom.clone());
 
-        let mult = U256::try_from(2_i32.pow(vrf_range) as u64).unwrap();
+        let mult = U256::from(2).pow(U256::from(vrf_range));
 
         assert_eq!(thr_0, thr_1);
         assert_eq!(thr_0, mult)
     }
 
     #[test]
+    fn lottery_threshold_rounding_test() {
+        let vrf_range: u32 = 255;
+        let stake_0: u64 = 10e16 as u64;
+        let stake_1: u64 = 11e16 as u64;
+        let total_stake: u64 = stake_0 + stake_1;
+        let selection_fraction_num: u32 = 10;
+        let selection_fraction_denom: u32 = 100;
+
+        let thr_0 = get_lottery_threshold(vrf_range, stake_0, total_stake,
+                                          selection_fraction_num,
+                                          selection_fraction_denom);
+
+        let thr_1 = get_lottery_threshold(vrf_range.clone(), stake_1,
+                                          total_stake.clone(),
+                                          selection_fraction_num.clone(),
+                                          selection_fraction_denom.clone());
+
+        assert!(thr_0 < thr_1);
+    }
+
+    #[test]
     fn lottery_bounds_test() {
-        let vrf_range: u32 = 16;
-        let stake: u64 = 100000000;
-        let total_stake: u64 = 100000000;
+        let vrf_range: u32 = 255;
+        let stake: u64 = 10e12 as u64;
+        let total_stake: u64 = stake.clone();
         let selection_fraction_num_0: u32 = 100;
         let selection_fraction_num_1: u32 = 0;
         let selection_fraction_denom: u32 = 100;
@@ -194,11 +247,40 @@ mod tests {
                                           total_stake.clone(),
                                           selection_fraction_num_1,
                                           selection_fraction_denom.clone());
+
         assert!(r < thr_0);
         assert!(r > thr_1);
-        println!("{:?}", r);
-        println!("{:?}", thr_0);
-        println!("{:?}", thr_1);
+    }
 
+    #[test]
+    fn lottery_fraction_count_test() {
+        let vrf_range: u32 = 255;
+        let stake: u64 = 10e12 as u64;
+        let total_stake: u64 = 10e12 as u64;
+        let selection_fraction_num: u32 = 23;
+        let selection_fraction_denom: u32 = 100;
+
+        let m_hash: Sha2Digest256 = sha256_hash("Lottery".as_bytes());
+
+        let mut wins = 0;
+        let n_iters = 1000;
+        for _ in 0..n_iters {
+            let (vrf_sk, _) =
+                vrf_gen::<Secp256k1>().unwrap();
+
+            let proof =
+                vrf_prove::<Secp256k1>(vrf_sk, m_hash.clone()).unwrap();
+
+            let r = proof_to_random_number(&proof, vrf_range);
+
+            let thr = get_lottery_threshold(vrf_range, stake, total_stake,
+                                            selection_fraction_num,
+                                            selection_fraction_denom);
+
+            if r < thr { wins += 1 }
+        }
+
+        assert!((wins as f32 / n_iters as f32 -
+            selection_fraction_num as f32 / selection_fraction_denom as f32).abs() <= 0.05)
     }
 }
