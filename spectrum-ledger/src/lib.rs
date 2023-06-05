@@ -1,6 +1,7 @@
 use spectrum_crypto::digest::Blake2bDigest256;
 
-use crate::block::{BlockHeader, BlockId};
+use crate::block::{BlockHeader, BlockId, BlockBody};
+use crate::transaction::Transaction;
 
 pub mod block;
 pub mod sbox;
@@ -80,16 +81,16 @@ impl Into<BlockId> for ModifierId {
 #[derive(Clone, Eq, PartialEq, Debug, derive_more::From)]
 pub enum Modifier {
     BlockHeader(BlockHeader),
-    // BlockBody(BlockPayload),
-    // Transaction(Transaction),
+    BlockBody(BlockBody),
+    Transaction(Transaction),
 }
 
 impl Modifier {
     pub fn id(&self) -> ModifierId {
         match self {
             Modifier::BlockHeader(bh) => ModifierId::from(bh.id),
-            // Modifier::BlockBody(bb) => ModifierId::from(bb.id),
-            // Modifier::Transaction(tx) => tx.id(),
+            Modifier::BlockBody(bb) => ModifierId::from(bb.id),
+            Modifier::Transaction(tx) => tx.id(),
         }
     }
 }

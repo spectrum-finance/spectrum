@@ -1,8 +1,7 @@
-use k256::schnorr::Signature;
-
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::TypeTag;
 use spectrum_crypto::digest::Blake2bDigest256;
+use spectrum_crypto::signature::Signature;
 use spectrum_move::{SerializedModule, SerializedValue};
 
 use crate::sbox::{BoxPtr, DatumRef, SBox, ScriptRef};
@@ -17,7 +16,7 @@ use crate::{ModifierId, SystemDigest};
 /// Unverified transaction possibly containing yet unresolved inputs.
 /// This is the only form of transaction that travels over the wire and goes on-chain,
 /// that's why the size of this representation is optimized.
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Transaction {
     /// Consumed boxes.
     pub inputs: Vec<(BoxPtr, Option<u16>)>,
@@ -86,7 +85,7 @@ pub enum DatumWitness {
 }
 
 /// Auxilary data that don't have to be included into transaction hash.
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Witness {
     pub scripts: Vec<ScriptWitness>,
     pub data: Vec<DatumWitness>,

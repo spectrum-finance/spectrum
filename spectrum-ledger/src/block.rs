@@ -1,3 +1,5 @@
+use nonempty::NonEmpty;
+
 use spectrum_crypto::digest::{Blake2bDigest256, Digest};
 
 use crate::transaction::Transaction;
@@ -52,16 +54,16 @@ impl BlockHeader {
     };
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub struct BlockPayload {
+#[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct BlockBody {
     pub id: BlockId,
-    pub payload: Vec<Transaction>,
+    pub payload: NonEmpty<Transaction>,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize, derive_more::From)]
 pub enum BlockSection {
     Header(BlockHeader),
-    //Payload(Vec<Transaction>),
+    Body(BlockBody),
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]

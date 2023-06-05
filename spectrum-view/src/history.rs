@@ -4,20 +4,31 @@ use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use nonempty::NonEmpty;
 
-use spectrum_ledger::block::{BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType};
+use spectrum_ledger::block::{
+    BlockBody, BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType,
+};
 use spectrum_ledger::{ModifierId, SerializedModifier};
 
+use crate::state::LedgerStateError;
 use crate::validation::{CanValidate, RecoverableModifier, ValidModifier, ValidationResult};
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum InvalidBlockSection {
     InvalidHeader(FatalHeaderError),
+    InvalidBody(FatalBlockBodyError),
+    InvalidBlock(LedgerStateError),
 }
 
 /// Sync API to ledger history.
 pub trait LedgerHistory {
-    /// Apply block section
-    fn apply_section(&self, section: BlockSection) -> Result<(), InvalidBlockSection>;
+    /// Apply block header.
+    fn apply_header(&self, hdr: &BlockHeader) -> Result<(), FatalHeaderError>;
+    /// Apply block body.
+    fn apply_body(&self, body: &BlockBody) -> Result<(), FatalBlockBodyError>;
+}
+
+pub trait LedgerHistoryReadSync {
+    fn get_section(&self, id: &BlockSectionId) -> Option<BlockSection>;
 }
 
 /// Read-only async API to ledger history.
@@ -49,19 +60,21 @@ pub struct LedgerHistoryRocksDB {
 }
 
 impl LedgerHistoryRocksDB {
-    pub fn apply_header(&self, hdr: ValidModifier<BlockHeader>) {}
-    pub fn apply_recoverable_header(&self, hdr: RecoverableModifier<BlockHeader>) {}
+    pub fn apply_header(&self, hdr: ValidModifier<&BlockHeader>) {}
+    pub fn apply_recoverable_header(&self, hdr: RecoverableModifier<&BlockHeader>) {}
 }
 
 impl LedgerHistory for LedgerHistoryRocksDB {
-    fn apply_section(&self, section: BlockSection) -> Result<(), InvalidBlockSection> {
-        match section {
-            BlockSection::Header(hdr) => match self.try_validate(hdr) {
-                ValidationResult::NonFatal(recov, _) => Ok(self.apply_recoverable_header(recov)),
-                ValidationResult::Fatal(err) => Err(InvalidBlockSection::InvalidHeader(err)),
-                ValidationResult::Valid(hdr) => Ok(self.apply_header(hdr)),
-            },
+    fn apply_header(&self, hdr: &BlockHeader) -> Result<(), FatalHeaderError> {
+        match self.try_validate(hdr) {
+            ValidationResult::Fatal(err) => Err(err),
+            ValidationResult::NonFatal(recov, _) => Ok(self.apply_recoverable_header(recov)),
+            ValidationResult::Valid(hdr) => Ok(self.apply_header(hdr)),
         }
+    }
+
+    fn apply_body(&self, section: &BlockBody) -> Result<(), FatalBlockBodyError> {
+        todo!()
     }
 }
 
@@ -71,11 +84,32 @@ pub struct FatalHeaderError {}
 #[derive(Eq, PartialEq, Debug)]
 pub struct RecovHeaderError {}
 
-impl CanValidate<BlockHeader, FatalHeaderError, RecovHeaderError> for LedgerHistoryRocksDB {
+impl<T: LedgerHistoryReadSync> CanValidate<BlockHeader, FatalHeaderError, RecovHeaderError> for T {
     fn try_validate(
         &self,
-        md: BlockHeader,
-    ) -> ValidationResult<BlockHeader, FatalHeaderError, RecovHeaderError> {
+        md: &BlockHeader,
+    ) -> ValidationResult<&BlockHeader, FatalHeaderError, RecovHeaderError> {
+        todo!()
+    }
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct FatalBlockBodyError {}
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct RecovBlockBodyError {}
+
+impl<T: LedgerHistoryReadSync> CanValidate<BlockBody, FatalBlockBodyError, RecovBlockBodyError> for T {
+    fn try_validate(
+        &self,
+        md: &BlockBody,
+    ) -> ValidationResult<&BlockBody, FatalBlockBodyError, RecovBlockBodyError> {
+        todo!()
+    }
+}
+
+impl LedgerHistoryReadSync for LedgerHistoryRocksDB {
+    fn get_section(&self, id: &BlockSectionId) -> Option<BlockSection> {
         todo!()
     }
 }
