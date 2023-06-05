@@ -7,15 +7,11 @@ use nonempty::NonEmpty;
 use spectrum_ledger::block::{BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType};
 use spectrum_ledger::{ModifierId, SerializedModifier};
 
-use crate::validation::ValidModifier;
+use crate::validation::{CanValidate, RecoverableModifier, ValidModifier, ValidationResult};
 
 #[derive(Eq, PartialEq, Debug)]
-pub struct InvalidBlockSection;
-
-#[derive(Eq, PartialEq, Debug, thiserror::Error)]
-pub enum LedgerHistoryError {
-    #[error("Invalid block section")]
-    InvalidBlockSection,
+pub enum InvalidBlockSection {
+    InvalidHeader(FatalHeaderError),
 }
 
 /// Sync API to ledger history.
@@ -54,10 +50,32 @@ pub struct LedgerHistoryRocksDB {
 
 impl LedgerHistoryRocksDB {
     pub fn apply_header(&self, hdr: ValidModifier<BlockHeader>) {}
+    pub fn apply_recoverable_header(&self, hdr: RecoverableModifier<BlockHeader>) {}
 }
 
 impl LedgerHistory for LedgerHistoryRocksDB {
     fn apply_section(&self, section: BlockSection) -> Result<(), InvalidBlockSection> {
+        match section {
+            BlockSection::Header(hdr) => match self.try_validate(hdr) {
+                ValidationResult::NonFatal(recov, _) => Ok(self.apply_recoverable_header(recov)),
+                ValidationResult::Fatal(err) => Err(InvalidBlockSection::InvalidHeader(err)),
+                ValidationResult::Valid(hdr) => Ok(self.apply_header(hdr)),
+            },
+        }
+    }
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct FatalHeaderError {}
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct RecovHeaderError {}
+
+impl CanValidate<BlockHeader, FatalHeaderError, RecovHeaderError> for LedgerHistoryRocksDB {
+    fn try_validate(
+        &self,
+        md: BlockHeader,
+    ) -> ValidationResult<BlockHeader, FatalHeaderError, RecovHeaderError> {
         todo!()
     }
 }

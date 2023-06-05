@@ -1,7 +1,7 @@
 use nonempty::NonEmpty;
 
-pub trait CanValidate<M, E> {
-    fn try_validate(&self, md: M) -> ValidationResult<ValidModifier<M>, E>;
+pub trait CanValidate<M, FE, NFE> {
+    fn try_validate(&self, md: M) -> ValidationResult<M, FE, NFE>;
 }
 
 #[derive(Clone, Debug)]
@@ -13,53 +13,35 @@ impl<T> ValidModifier<T> {
     }
 }
 
-pub struct ModifierValidation<T, E> {
+#[derive(Clone, Debug)]
+pub struct RecoverableModifier<T>(T);
+
+impl<T> RecoverableModifier<T> {
+    pub(crate) fn unsafe_make(md: T) -> Self {
+        Self(md)
+    }
+}
+
+pub struct ModifierValidation<T, FE, NFE> {
     pub fail_fast: bool,
-    pub result: ValidationResult<T, E>,
+    pub result: ValidationResult<T, FE, NFE>,
 }
 
-pub struct ValidationResultValid<T> {
-    payload: T,
-}
-
-pub struct ValidationResultInvalid<E> {
+pub struct NonFatal<E> {
     erros: NonEmpty<E>,
 }
 
-impl<E> ValidationResultInvalid<E>
-where
-    E: ValidationError,
-{
-    pub fn is_fatal(&self) -> bool {
-        self.erros.iter().find(|e| e.is_fatal()).is_some()
-    }
-
-    pub fn accumulate_err<T>(mut self, next: ValidationResult<T, E>) -> ValidationResultInvalid<E> {
-        match next {
-            ValidationResult::Valid(_) => self,
-            ValidationResult::Invalid(r) => {
-                for err in r.erros {
-                    self.erros.push(err)
-                }
-                self
-            }
-        }
-    }
+pub enum ValidationResult<T, FE, NFE> {
+    Fatal(FE),
+    NonFatal(RecoverableModifier<T>, NonFatal<NFE>),
+    Valid(ValidModifier<T>),
 }
 
-pub enum ValidationResult<T, E> {
-    Valid(ValidationResultValid<T>),
-    Invalid(ValidationResultInvalid<E>),
-}
-
-impl<T, E> ValidationResult<T, E>
-where
-    E: ValidationError,
-{
+impl<T, FE, NFE> ValidationResult<T, FE, NFE> {
     pub fn is_valid(&self) -> bool {
         match self {
+            ValidationResult::Fatal(_) | ValidationResult::NonFatal(_, _) => false,
             ValidationResult::Valid(_) => true,
-            ValidationResult::Invalid(_) => false,
         }
     }
 }
