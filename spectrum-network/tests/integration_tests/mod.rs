@@ -8,8 +8,15 @@ use futures::{
     SinkExt, StreamExt,
 };
 use libp2p::swarm::SwarmBuilder;
-use libp2p::{identity, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
+use libp2p::{
+    core::{transport::Transport, upgrade::Version},
+    identity, noise,
+    swarm::SwarmEvent,
+    tcp, yamux, Multiaddr, PeerId,
+};
 
+use log::{warn, LevelFilter};
+use log4rs_test_utils::test_logging::init_logging_once_for;
 use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_network::protocol::{OneShotProtocolConfig, OneShotProtocolSpec, ProtocolConfig};
 use spectrum_network::protocol_api::ProtocolEvent;
@@ -36,7 +43,6 @@ use spectrum_network::{
     types::{ProtocolId, ProtocolVer, Reputation},
 };
 
-use crate::integration_tests::aggregation::{create_swarm, setup_nodes};
 use crate::integration_tests::fake_sync_behaviour::{FakeSyncBehaviour, FakeSyncMessage, FakeSyncMessageV1};
 
 mod aggregation;
@@ -110,8 +116,10 @@ async fn one_shot_messaging() {
     let protocol = ProtocolTag::new(pid, ver);
     let message = RawMessage::from(vec![0, 0, 0]);
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0, 1));
-    let (abortable_peer_1, handle_1) = futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, 2));
+    let (abortable_peer_0, handle_0) =
+        futures::future::abortable(aggregation::create_swarm(local_key_0, nc_0, addr_0, 1));
+    let (abortable_peer_1, handle_1) =
+        futures::future::abortable(aggregation::create_swarm(local_key_1, nc_1, addr_1, 2));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -233,8 +241,12 @@ async fn integration_test_0() {
         }
     });
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0, 1));
-    let (abortable_peer_1, handle_1) = futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, 2));
+    let (abortable_peer_0, handle_0) = futures::future::abortable(
+        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx.clone()),
+    );
+    let (abortable_peer_1, handle_1) = futures::future::abortable(
+        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_1, nc_1, addr_1, Peer::Second, msg_tx),
+    );
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -397,8 +409,17 @@ async fn integration_test_1() {
         }
     });
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0, 1));
-    let (abortable_peer_1, handle_1) = futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, 2));
+    let (abortable_peer_0, handle_0) = futures::future::abortable(
+        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_0, nc_0, addr_0, Peer::First, msg_tx),
+    );
+    let (abortable_peer_1, handle_1) =
+        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
+            local_key_1,
+            nc_1,
+            addr_1,
+            Peer::Second,
+            fake_msg_tx,
+        ));
 
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
@@ -579,8 +600,22 @@ async fn integration_test_peer_punish_too_slow() {
         }
     });
 
-    let (abortable_peer_0, handle_0) = futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0, 1));
-    let (abortable_peer_1, handle_1) = futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1, 2));
+    let (abortable_peer_0, handle_0) =
+        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
+            local_key_0,
+            nc_0,
+            addr_0,
+            Peer::First,
+            msg_tx.clone(),
+        ));
+    let (abortable_peer_1, handle_1) =
+        futures::future::abortable(create_swarm::<FakeSyncBehaviour<PeersMailbox>>(
+            local_key_1,
+            nc_1,
+            addr_1,
+            Peer::Second,
+            msg_tx,
+        ));
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
 
@@ -755,11 +790,24 @@ async fn integration_test_2() {
     });
 
     let (abortable_peer_0, handle_0) =
-        futures::future::abortable(create_swarm(local_key_0, nc_0, addr_0.clone(), 1));
+        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>>(
+            local_key_0,
+            nc_0,
+            addr_0.clone(),
+            Peer::First,
+            msg_tx.clone(),
+        ));
     let (abortable_peer_1, handle_1) =
-        futures::future::abortable(create_swarm(local_key_1, nc_1, addr_1.clone(), 2));
-    let (abortable_peer_2, handle_2) =
-        futures::future::abortable(create_swarm(local_key_2, nc_2, addr_2.clone(), 3));
+        futures::future::abortable(create_swarm::<SyncBehaviour<PeersMailbox>>(
+            local_key_1,
+            nc_1,
+            addr_1.clone(),
+            Peer::Second,
+            msg_tx.clone(),
+        ));
+    let (abortable_peer_2, handle_2) = futures::future::abortable(
+        create_swarm::<SyncBehaviour<PeersMailbox>>(local_key_2, nc_2, addr_2.clone(), Peer::Third, msg_tx),
+    );
     let (cancel_tx_0, cancel_rx_0) = oneshot::channel::<()>();
     let (cancel_tx_1, cancel_rx_1) = oneshot::channel::<()>();
     let (cancel_tx_2, cancel_rx_2) = oneshot::channel::<()>();
@@ -869,21 +917,56 @@ async fn integration_test_2() {
     );
 }
 
+async fn create_swarm<P>(
+    local_key: identity::Keypair,
+    nc: NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>,
+    addr: Multiaddr,
+    peer: Peer,
+    mut tx: mpsc::Sender<(
+        Peer,
+        Msg<<<P as ProtocolBehaviour>::TProto as spectrum_network::protocol_handler::ProtocolSpec>::TMessage>,
+    )>,
+) where
+    P: ProtocolBehaviour + Unpin + Send + 'static,
+{
+    let transport = tcp::async_io::Transport::default()
+        .upgrade(Version::V1Lazy)
+        .authenticate(noise::Config::new(&local_key).unwrap()) // todo: avoid auth
+        .multiplex(yamux::Config::default())
+        .boxed();
+    let local_peer_id = PeerId::from(local_key.public());
+    let mut swarm = SwarmBuilder::with_async_std_executor(transport, nc, local_peer_id).build();
+
+    swarm.listen_on(addr).unwrap();
+
+    loop {
+        match swarm.select_next_some().await {
+            SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {:?}", address),
+            SwarmEvent::Behaviour(event) => tx.try_send((peer, Msg::NetworkController(event))).unwrap(),
+            ce => {
+                //println!("{:?} :: Recv event :: {:?}", peer, ce);
+            }
+        }
+    }
+}
+
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
-#[async_std::test]
+#[tokio::test]
 async fn sigma_aggregation_normal() {
-    let mut peers = setup_nodes(8);
+    //init_logging_once_for(vec![], LevelFilter::Debug, None);
+    let mut peers = aggregation::setup_nodes(8);
     let md = blake2b256_hash(b"foo");
     let committee: HashMap<PublicKey, Option<Multiaddr>> = peers
         .iter()
         .map(
             |aggregation::Peer {
                  peer_addr, peer_pk, ..
-             }| (peer_pk.clone().into(), Some(peer_addr.clone())),
+             }| ((*peer_pk).into(), Some(peer_addr.clone())),
         )
         .collect();
+
+    wasm_timer::Delay::new(Duration::from_millis(100)).await.unwrap();
     let mut result_futures = Vec::new();
-    wasm_timer::Delay::new(Duration::from_secs(2)).await.unwrap();
     for peer in peers.iter_mut() {
         let (snd, recv) = oneshot::channel();
         result_futures.push(recv);

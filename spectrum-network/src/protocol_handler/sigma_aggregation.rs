@@ -11,6 +11,7 @@ use higher::Bifunctor;
 use k256::{Scalar, SecretKey};
 use libp2p::{Multiaddr, PeerId};
 
+use log::trace;
 use spectrum_crypto::digest::Digest256;
 
 use crate::protocol::SIGMA_AGGR_PROTOCOL_ID;
@@ -83,7 +84,12 @@ where
                 (pix, pk.clone())
             })
             .collect::<HashMap<_, _>>();
-        let committee_keys = committee.iter().map(|(pk, _)| pk.clone()).collect::<Vec<_>>();
+
+        // Sort keys by their PeerIx.
+        let mut committee_keys = committee_indexed.clone().into_iter().collect::<Vec<_>>();
+        committee_keys.sort_by_key(|k| k.0);
+        let committee_keys = committee_keys.into_iter().map(|(_, key)| key).collect::<Vec<_>>();
+
         let ais = committee_indexed
             .iter()
             .map(|(pix, pk)| (*pix, individual_input(committee_keys.clone(), pk.clone())))
@@ -91,6 +97,7 @@ where
         let (host_secret, host_commitment) = schnorr_commitment_pair();
         let host_pre_commitment = pre_commitment(host_commitment.clone());
         let host_ix = partitions.try_index_peer(host_pid).unwrap();
+        trace!("[SA] {:?} <-> {:?}", host_pid, host_ix);
         AggregatePreCommitments {
             host_sk,
             host_ix,
@@ -105,6 +112,7 @@ where
                 Contributions::unit(host_ix, host_pre_commitment),
                 (),
                 partitions,
+                host_ix,
             )),
         }
     }
@@ -132,6 +140,7 @@ where
                 Contributions::unit(self.host_ix, (self.host_commitment, self.host_explusion_proof)),
                 verif_input,
                 self.handel.narrow(),
+                self.host_ix,
             )),
         }
     }
@@ -166,10 +175,16 @@ where
         commitments_with_proofs: CommitmentsWithProofs,
         handel_conf: HandelConfig,
     ) -> AggregateResponses<'a, H, PP> {
-        let aggr_pk = aggregate_pk(
-            self.committee.values().cloned().collect(),
-            self.individual_inputs.values().cloned().collect(),
-        );
+        // Need to ensure stable ordering for committee and individual inputs. Just sort by PeerIx.
+        let mut committee = self.committee.clone().into_iter().collect::<Vec<_>>();
+        committee.sort_by_key(|k| k.0);
+        let committee = committee.into_iter().map(|(_, key)| key).collect();
+
+        let mut individual_inputs = self.individual_inputs.clone().into_iter().collect::<Vec<_>>();
+        individual_inputs.sort_by_key(|k| k.0);
+        let individual_inputs = individual_inputs.into_iter().map(|(_, scalar)| scalar).collect();
+
+        let aggr_pk = aggregate_pk(committee, individual_inputs);
         let aggr_commitment = aggregate_commitment(
             commitments_with_proofs
                 .values()
@@ -178,7 +193,7 @@ where
                 .collect(),
         );
         let challenge = challenge(aggr_pk, aggr_commitment.clone(), self.message_digest);
-        let individual_input = self.individual_inputs.get(&self.host_ix).unwrap().clone();
+        let individual_input = *self.individual_inputs.get(&self.host_ix).unwrap();
         let host_response = response(
             self.host_secret.clone(),
             self.host_sk.clone(),
@@ -207,6 +222,7 @@ where
                 Contributions::unit(self.host_ix, host_response),
                 verif_inputs,
                 self.handel.narrow(),
+                self.host_ix,
             )),
         }
     }
@@ -322,14 +338,16 @@ where
         peer_id: PeerId,
         SigmaAggrMessage::SigmaAggrMessageV1(msg): SigmaAggrMessage,
     ) {
-        //println!("Recv message {:?} from {}", msg, peer_id);
         match &mut self.task {
             Some(AggregationTask {
                 state: AggregationState::AggregatePreCommitments(ref mut pre_commitment),
                 ..
             }) => {
-                //println!("SigmaAggrMessageV1::PreCommitments");
                 if let SigmaAggrMessageV1::PreCommitments(pre_commits) = msg {
+                    trace!(
+                        "SigmaAggrMessageV1::PreCommitments (host_ix: {:?})",
+                        pre_commitment.host_ix,
+                    );
                     pre_commitment.handel.inject_message(peer_id, pre_commits);
                 }
             }
@@ -338,17 +356,21 @@ where
                 ..
             }) => {
                 if let SigmaAggrMessageV1::Commitments(commits) = msg {
-                    println!("SigmaAggrMessageV1::Commitments: {:?}", commits);
+                    trace!("SigmaAggrMessageV1::Commitments: {:?}", commits);
                     commitment.handel.inject_message(peer_id, commits);
+                } else {
+                    trace!("SigmaAggrMessageV1 expected Commitments, got {:?}", msg);
                 }
             }
             Some(AggregationTask {
                 state: AggregationState::AggregateResponses(ref mut response),
                 ..
             }) => {
-                println!("SigmaAggrMessageV1::Responses");
                 if let SigmaAggrMessageV1::Responses(resps) = msg {
+                    trace!("SigmaAggrMessageV1::Responses {:?}", resps);
                     response.handel.inject_message(peer_id, resps);
+                } else {
+                    trace!("SigmaAggrMessageV1 expected Responses, got {:?}", msg);
                 }
             }
             None => {}
@@ -394,6 +416,7 @@ where
                         Poll::Ready(out) => match out {
                             Either::Left(cmd) => {
                                 self.outbox.push_back(cmd.rmap(|m| {
+                                    let host_pk = PublicKey::from(st.host_sk.clone());
                                     SigmaAggrMessage::SigmaAggrMessageV1(SigmaAggrMessageV1::PreCommitments(
                                         m,
                                     ))
@@ -412,7 +435,7 @@ where
                                     ),
                                     channel,
                                 });
-                                println!("[SA] host_ix: {:?} Got precommitments", host_ix);
+                                trace!("[SA] host_ix: {:?} Got precommitment", host_ix);
                                 continue;
                             }
                         },
@@ -429,7 +452,6 @@ where
                     } => match st.handel.poll(cx) {
                         Poll::Ready(out) => match out {
                             Either::Left(cmd) => {
-                                //println!("[SA] Handel LEFT");
                                 self.outbox.push_back(cmd.rmap(|m| {
                                     SigmaAggrMessage::SigmaAggrMessageV1(SigmaAggrMessageV1::Commitments(m))
                                 }));
@@ -441,7 +463,7 @@ where
                             }
 
                             Either::Right(commitments) => {
-                                println!("[SA] Got commitments");
+                                trace!("[SA] Got commitments");
                                 self.task = Some(AggregationTask {
                                     state: AggregationState::AggregateResponses(
                                         st.complete(commitments, self.handel_conf),
@@ -478,6 +500,7 @@ where
                                     self.task = None;
                                     let res = st.complete(responses);
                                     // todo: support error case.
+                                    trace!("[SA] Got responses: {:?}", res);
                                     if channel.send(Ok(res)).is_err() {
                                         // warn here.
                                     }

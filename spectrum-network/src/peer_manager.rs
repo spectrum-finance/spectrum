@@ -488,6 +488,7 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
 
     fn on_connection_established(&mut self, peer_id: PeerId, conn_id: ConnectionId) {
         if let Some(PeerInState::Connected(mut cp)) = self.state.peer(&peer_id) {
+            trace!("Peer {} has been acknowledged as connected", peer_id);
             cp.confirm_connection();
         } else {
             error!("Peer {} hasn't been acknowledged as connected", peer_id)
@@ -522,10 +523,15 @@ impl<S: PeersState> PeerManagerNotificationsBehavior for PeerManager<S> {
     fn on_dial_failure(&mut self, peer_id: PeerId) {
         match self.state.peer(&peer_id) {
             Some(PeerInState::Connected(_)) => {
+                trace!("ON DIAL FAILURE: {:?} already connected", peer_id);
                 self.on_report_peer(peer_id, ReputationChange::NoResponse);
             }
-            Some(PeerInState::NotConnected(_)) => {} // warn
-            None => {}                               // warn
+            Some(PeerInState::NotConnected(_)) => {
+                trace!("ON DIAL FAILURE: {:?} NOT connected", peer_id);
+            } // warn
+            None => {
+                trace!("ON DIAL FAILURE: {:?} unknown peer", peer_id);
+            } // warn
         }
     }
 

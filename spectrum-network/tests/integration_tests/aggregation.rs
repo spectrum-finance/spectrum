@@ -11,8 +11,10 @@ use libp2p::core::upgrade::Version;
 use libp2p::swarm::{SwarmBuilder, SwarmEvent};
 use libp2p::{identity, noise, tcp, yamux, Multiaddr, Transport};
 use libp2p_identity::{Keypair, PeerId};
-use rand::Rng;
+use log::trace;
+use std::io::Write;
 
+use serde::{Deserialize, Serialize};
 use spectrum_crypto::digest::Blake2b;
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
@@ -27,7 +29,7 @@ use spectrum_network::protocol_handler::handel::partitioning::{
     MakeBinomialPeerPartitions, PseudoRandomGenPerm,
 };
 use spectrum_network::protocol_handler::handel::{HandelConfig, Threshold};
-use spectrum_network::protocol_handler::sigma_aggregation::SigmaAggregation;
+use spectrum_network::protocol_handler::sigma_aggregation::{types::PublicKey, SigmaAggregation};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::{ProtocolVer, Reputation};
 
@@ -50,13 +52,26 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
         let peer_key = identity::Keypair::from(identity::secp256k1::Keypair::from(k256_to_libsecp256k1(
             peer_sk.clone(),
         )));
-        let peer_id = PeerId::from(peer_key.public());
-        let peer_addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", 7000 + node_ix).parse().unwrap();
+        use elliptic_curve::sec1::ToEncodedPoint;
+        let k256_pk = peer_sk.public_key();
+        let k256_point = k256_pk.to_encoded_point(true);
+        let k256_encoded = k256_point.as_bytes();
+        let libp2p_pk = libp2p_identity::secp256k1::PublicKey::decode(k256_encoded).unwrap();
+        let peer_id = PeerId::from_public_key(&libp2p_identity::PublicKey::Secp256k1(libp2p_pk));
+        let other_peer_id = PeerId::from(peer_key.public());
+        assert_eq!(peer_id, other_peer_id);
+        let peer_addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", 8000 + node_ix).parse().unwrap();
+
+        let bb = peer_sk.to_bytes().to_vec();
+        let key = SecretKey::from_slice(&bb).unwrap();
+        assert_eq!(key, peer_sk);
+
+        //generate_peer_info_files(n);
 
         let one_shot_proto_conf = OneShotProtocolConfig {
             version: ProtocolVer::default(),
             spec: OneShotProtocolSpec {
-                max_message_size: 500,
+                max_message_size: 5000,
             },
         };
         let peer_conn_handler_conf = PeerConnHandlerConf {
@@ -85,10 +100,11 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
             window_shrinking_factor: 4,
             initial_scoring_window: 3,
             fast_path_window: 10,
-            dissemination_interval: Duration::from_millis(20),
+            dissemination_interval: Duration::from_millis(40),
             level_activation_delay: Duration::from_millis(50),
+            poll_fn_delay: Duration::from_millis(5),
         };
-        let seed = rng.gen::<[u8; 32]>();
+        let seed = [0_u8; 32];
         let gen_perm = PseudoRandomGenPerm::new(seed);
         let (aggr_handler_snd, aggr_handler_inbox) = mpsc::channel::<AggregationAction<Blake2b>>(100);
         let sig_aggr = SigmaAggregation::new(
@@ -118,13 +134,13 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
         );
         let (abortable_peer, handle) =
             futures::future::abortable(create_swarm(peer_key.clone(), nc, peer_addr.clone(), node_ix));
-        async_std::task::spawn(async move {
+        tokio::task::spawn(async move {
             println!("PEER:{} :: spawning protocol handler..", node_ix);
             loop {
                 aggr_handler.select_next_some().await;
             }
         });
-        async_std::task::spawn(async move {
+        tokio::task::spawn(async move {
             println!("PEER:{} :: spawning peer..", node_ix);
             abortable_peer.await
         });
@@ -164,8 +180,59 @@ pub async fn create_swarm(
         match swarm.select_next_some().await {
             SwarmEvent::NewListenAddr { address, .. } => println!("{} :: Listening on {:?}", peer, address),
             ce => {
-                println!("{} :: Recv event :: {:?}", peer, ce);
+                trace!("{} :: Recv event :: {:?}", peer, ce);
             }
         }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PeerInfo {
+    pub peer_id: PeerId,
+    pub peer_addr: Multiaddr,
+    pub peer_sk_base_16: String,
+    pub committee: HashMap<PublicKey, Option<Multiaddr>>,
+}
+
+pub struct IndividualPeerInfo {
+    peer_id: PeerId,
+    peer_addr: Multiaddr,
+    peer_sk_base_16: String,
+}
+
+fn generate_peer_info_files(num_nodes: usize) {
+    let mut rng = OsRng;
+    let mut committee = HashMap::default();
+    let mut individual_peer_info = vec![];
+    for node_ix in 0..num_nodes {
+        let peer_sk = SecretKey::random(&mut rng);
+        let peer_key = identity::Keypair::from(identity::secp256k1::Keypair::from(k256_to_libsecp256k1(
+            peer_sk.clone(),
+        )));
+        let peer_id = PeerId::from(peer_key.public());
+        let peer_addr: Multiaddr = format!("/ip4/172.18.12.{}/tcp/8000", node_ix).parse().unwrap();
+
+        committee.insert(peer_sk.public_key().into(), Some(peer_addr.clone()));
+        let peer_info = IndividualPeerInfo {
+            peer_id,
+            peer_addr,
+            peer_sk_base_16: base16::encode_lower(&peer_sk.to_bytes().to_vec()),
+        };
+        individual_peer_info.push(peer_info);
+    }
+
+    for (node_ix, info) in individual_peer_info.into_iter().enumerate() {
+        let peer_info = PeerInfo {
+            peer_id: info.peer_id,
+            peer_addr: info.peer_addr,
+            peer_sk_base_16: info.peer_sk_base_16,
+            committee: committee.clone(),
+        };
+        let yaml_string = serde_yaml::to_string(&peer_info).unwrap();
+        let mut file = std::fs::File::create(format!("peer_input_{}.yml", node_ix)).unwrap();
+        file.write_all(yaml_string.as_bytes()).unwrap();
+
+        // Flush the contents to ensure all data is written
+        file.flush().unwrap();
     }
 }

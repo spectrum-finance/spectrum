@@ -18,7 +18,7 @@ use crate::protocol_handler::handel::partitioning::PeerIx;
 use crate::protocol_handler::handel::Weighted;
 use crate::protocol_handler::sigma_aggregation::crypto::verify_response;
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct PublicKey(k256::PublicKey);
 
 impl Hash for PublicKey {
@@ -273,9 +273,9 @@ impl VerifiableAgainst<ResponsesVerifInput> for Responses {
         self.0.iter().all(|(k, zi)| {
             public_data
                 .inputs
-                .get(&k)
+                .get(k)
                 .map(|input| {
-                    let ai = &input.individual_input.into();
+                    let ai = &input.individual_input;
                     verify_response(zi, ai, c, input.commitment.clone(), input.pk.clone())
                 })
                 .unwrap_or(false)
