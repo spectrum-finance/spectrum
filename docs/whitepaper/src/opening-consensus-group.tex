@@ -20,37 +20,26 @@ To introduce randomness into these processes, Verifiable Random Function (VRF) h
 
 \subsubsection{Verifiable Random Function}
 
-Verifiable Random Function (VRF) is a reliable way to introduce randomness in the protocol and to be\
-used as a random oracle.
+Verifiable Random Function (VRF) is a reliable way to introduce randomness in the protocol.
 By definition the function $\mathcal{F}$ can be attributed to the VRF family if the following methods are defined\
 for the $\mathcal{F}$:
 \begin{enumerate}
     \item \textbf{Gen}: ${Gen(1^k) \rightarrow (pk, sk)}$, where $pk$ is the public key and $sk$ is the secret key;
-    \item \textbf{Prove}: ${Prove(x; sk) \rightarrow (\mathcal{F}(x; sk), \pi)}$, where $x$ is a random input, $\mathcal{F}(x; sk)$\
-    is a random value, sampled from $\{0,1\}^{l_{VRF}}$ and $\pi \vcentcolon= \pi(x; sk)$ is the associated proof;
-    \item \textbf{Verify}: ${Verify(x, y, \pi; pk) \rightarrow 0 | 1}$, where the output is $1$ if\
-    and only if ${y=\mathcal{F}(x; sk)}$.
+    \item \textbf{Prove}: ${Prove(x, sk) \rightarrow \pi}$, where $x$ is an input and $\pi \vcentcolon= \Pi(x, sk)$ is\
+    the proof, associated with $x$ and mixed with some random value $r$, sampled from $\{0,1\}^{l_{VRF}}$.
+    \item \textbf{Verify}: ${Verify(x, \pi, pk) \rightarrow 0 | 1}$, where the output is $1$ if\
+    and only if ${\pi \equiv \Pi(x, sk)}$.
 \end{enumerate}
 
-There are several ways to design a VRF appropriate for our purposes.
-At the first stage of the Spectrum protocol development we'll use an implementation, inspired\
-by~\cite{cryptoeprint:2017/573}, which is based on the 2-Hash-DH verifiable oblivious PRF~\cite{asiacrypt:2014/233}.
-
-This implementation is based on the hash functions $H$ and $H'$  with ranges $\{0,1\}^{l_{VRF}}$ and ${\langle g \rangle}$\
-respectively, where ${\langle g \rangle = q}$.
-Thereby, public key and the private key received from the \textbf{Gen}\
-output is ${pk = g \cdot k}$ and ${sk = H'(x) \cdot k}$ respectively.
-\textbf{Prove} method returns the VRF generated random value ${y = H(x, sk)}$ and the proof\
-${\pi = (sk, EQDL(k : \log_{H'(x)}(sk) = \log_{g}(pk); x, pk))}$.
-The \textbf{Verify} of ${(x, y, \pi, pk)}$ at first parses $\pi$ as ${(pk, \pi')}$ where $\pi'$ is a proof of equality of\
-discrete logarithms and then verifies ${y = H(x, sk)}$ with the proof $\pi'$.
-Finally, it returns $1$ if and only if both tests pass.
-The proof notation ${EQDL(k : \log_{H'(x)}(sk) = \log_{g}(pk); x, pk)}$ stands for the string ${(c, s)}$\
-where $c = H(x, pk, g \cdot r, H'(x) \cdot r)$, ${s = r + k \cdot c}$ mod $q$, while the verification of ${(c, s)}$ on\
-context ${x, pk}$ is performed by checking the equality ${c = H(x, pk, g^s \cdot pk^{-c}, H'(x)^s \cdot sk^{-c})}$.
+The most secure nowadays are Elliptic Curve Verifiable Random Functions (ECVRF).
+Basically ECVRF is a cryptographic-based VRF that satisfies the trusted uniqueness, trusted collision resistance,\
+and full pseudorandomness properties ~\cite{cryptoeprint:2014/905}.
+The security of the ECVRF follows from the decisional Diffie-Hellman (DDH) assumption in the random oracle model.
 
 \subsubsection{Lottery protocol}
-Our lottery protocol is designed to achieve 2 main purposes:
+Our lottery protocol is based on the ECVRF as a source of randomness and is generally inspired\
+by~\cite{cryptoeprint:2017/573}.
+Lottery is designed to achieve two main purposes:
 \begin{itemize}
     \item Consensus group reinitialization.
     \item Slot leaders selection.
@@ -60,21 +49,22 @@ Let's look at the lottery protocol integrated into the normal protocol flow.
 There are some pre-defined primitives, detailed description of which can be found in the original\
 Ouroboros Praos paper ~\cite{cryptoeprint:2017/573}.
 \begin{enumerate}
-    \item \textbf{Ideal Resettable Leaky Beacon} ${\mathcal_{F}}_{RLB}$: is used to sample epoch randomness from the\
+    \item \textbf{Ideal Leaky Beacon} ${\mathcal_{F}}_{LB}$: is used to sample epoch randomness from the\
     blockchain.
-    \item \textbf{Ideal Verifiable Random Function} ${\mathcal_{F}}_{VRF}$: generates random numbers with proofs.
+    \item \textbf{Ideal Verifiable Random Function} ${\mathcal_{F}}_{VRF}$: is used as a source of randomness.
     \item \textbf{Lottery function} ${\mathcal_{F}}_{L}$: determines whether a participant is a winner based on a\
     random number and other parameters.
 \end{enumerate}
 Protocol initially is running by manually selected opening consensus group $\{PK_i\}_{i=0}^M$ of the predefined size $M$.
-Stakeholders interact with each other and with the ideal functionalities ${\mathcal_{F}}_{RLB}$,\
+Stakeholders interact with each other and with the ideal functionalities ${\mathcal_{F}}_{LB}$,\
 ${\mathcal_{F}}_{VRF}, {\mathcal_{F}}_{L}$ over a sequence of $L = E \cdot R$ slots\
 ${S=\{sl_1,...,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
 
 \textbf{Lottery function}
-The lottery function ${\mathcal_{F}}_{L}$ compares the random number $y$ generated by the ${\mathcal_{F}}_{VRF}$ with\
-a threshold value $T$ and evaluates to $1$ if and only if ${y < T}$, i.e.\
-${\mathcal_{F}}_{L}(state, f, y) \rightarrow 0|1$, where $state$ is a blockchain state snapshot, $f$\
+The lottery function ${\mathcal_{F}}_{L}$ compares the random number $y$ derived from the VRF proof $\pi$ with\
+the threshold value $T$.
+It evaluates to $1$ if and only if ${y < T}$, i.e.\
+${\mathcal_{F}}_{L}(state, f, \pi) \rightarrow 0|1$, where $state$ is a blockchain state snapshot, $f$\
 is a frequency parameter.
 An important feature is that the probability $p$ that the described condition will be met depends on the stake\
 $s$ of the participant and can be adjusted by a free parameter $f$.
@@ -88,29 +78,28 @@ group if he is verified.
 Participant is verified if his verification key tuple is stored in the blockchain for a\
 reliable period of time equals to $K_F$ slots.
 
-At the end of the epoch ${e_j \geqslant 1}$ every verified $PK_i$ sends\
-${(\textbf{epochrnd\_req}, sid, PK_i, e_j)}$ to ${\mathcal_{F}}_{RLB}$ and receives\
-$({\textbf{epochrnd}, sid, \eta_j)}$.
-When every $PK_i$ evaluates ${\mathcal_{F}}_{VRF}$ with a query\
-${(\textbf{EvalProve}, sid, \eta_j || e_j || \textbf{test*})}$\
-and pass the received random $y$ value to the ${\mathcal_{F}}_{L}$.
+At the end of the epoch ${e_j \geq 1}$ every verified $PK_i$ receives new epoch seed $\eta_j$ from the\
+${\mathcal_{F}}_{LB}$.
+When every $PK_i$ evaluates ${\mathcal_{F}}_{VRF}$ with the input
+and passes the received proof $\pi$ to the ${\mathcal_{F}}_{L}$.
 To calculate an appropriate threshold ${T_i^j}^*$, ${\mathcal_{F}}_{L}$ should be parametrized with the same\
-stake distribution which was in the last block used by ${\mathcal_{F}}_{RLB}$ to sample a new $\eta_j$.
+stake distribution which was in the last block used by ${\mathcal_{F}}_{LB}$ to sample a new $\eta_j$.
 Argument of the function $\phi$ is ${f = M /\/ K}$, where $M$ is a number of new consensus group\
 members to select and $K$ is the total number of the verified stakeholders.
 Afterwards every selected consensus group member includes the associated proofs into the blockchain.
 
 \textbf{Slot leaders}.
 During the epoch, for every slot ${sl \in S}$ every consensus group member separately evaluates\
-${\mathcal_{F}}_{VRF}$ with his own inputs ${(\textbf{EvalProve}, sid, \eta_j || sl || \textbf{nonce})}$\
-and ${(\textbf{EvalProve}, sid, \eta_j || sl || \textbf{test})}$, where \textbf{nonce} is an arbitrary string.
-Received outputs ${(\textbf{Evaluated}, sid, y, \pi)}$ and ${(\textbf{Evaluated}, sid, \rho_y, \rho_\pi)}$\
-respectively includes generated random numbers ${y, \rho_y}$ and the associated proofs ${\pi, \rho_\pi}$.
+${\mathcal_{F}}_{VRF}$ with his own inputs ${x = \eta_j || sl || \textbf{nonce}}$\
+and ${x' = \eta_j || sl || \textbf{test}}$, where \textbf{nonce} is an arbitrary string.
+He receives the associated proofs $\pi$ and $\rho_\pi$ respectively.
 
-If ${\mathcal_{F}}_{L}(state, f, y) \rightarrow 1$ then $PK_i$ is a slot leader and he can propose a batch\
+If ${\mathcal_{F}}_{L}(state, f, \pi) \rightarrow 1$ then $PK_i$ is a slot leader and he can propose a batch\
 which should be notarized by all committee members.
-Random number $\rho_y$ will be used to sample a random seed for the next epoch.
-At every slot $PK_i$ can be chosen as the slot leader with the probability
+Another proof $\rho_y$ is also included into the batch and will be used by  ${\mathcal_{F}}_{LB}$\
+to sample a random seed for the next epoch.
+
+At every slot, $PK_i$ can be chosen as the slot leader with the probability\
 ${p_i = \phi(\alpha_i, f) = 1-(1-f)^{\alpha_i}}$, where ${\alpha_i=s_i/\\\sum_{l=0}^{l=M} s_l}$ is a relative stake\
 of the participant, fixed at the moment of the epoch $e_j$ start.
 Parameter $f$ is an active slots coefficient, responsible for percentage of slots in the epoch which should have\
