@@ -5,11 +5,6 @@
 //!  full pseudorandomness properties. The security
 //!  of this ECVRF follows from the decisional Diffie-Hellman (DDH)
 //!  assumption in the random oracle model.
-//!
-//! It uses the algorithms described in:
-//!
-//! * [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05)
-//! * [RFC6979](https://tools.ietf.org/html/rfc6979)
 //! * [905.pdf](https://eprint.iacr.org/2014/905.pdf)
 //!
 
