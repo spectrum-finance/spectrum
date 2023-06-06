@@ -3,10 +3,9 @@ use std::collections::HashMap;
 use k256::schnorr::signature::Verifier;
 use k256::schnorr::VerifyingKey;
 
-use spectrum_move::{GasUnits, SerializedModule};
-
 use spectrum_ledger::sbox::{Owner, SBox, ScriptHash};
 use spectrum_ledger::transaction::{EvaluatedTransaction, LinkedTransaction};
+use spectrum_move::{GasUnits, SerializedModule};
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub struct EvaluationError {
@@ -64,7 +63,7 @@ impl TxEvaluator for ProgrammableTxEvaluator {
                 match i.owner {
                     Owner::ProveDlog(pk) => {
                         let vk = VerifyingKey::try_from(pk).unwrap();
-                        if vk.verify(hash.as_ref(), &sig).is_ok() {
+                        if vk.verify(hash.as_ref(), &sig.into()).is_ok() {
                             verified_inputs.push(i);
                         } else {
                             return Err(EvaluationError {

@@ -23,5 +23,5 @@ pub trait LedgerState {
     /// Get reference datum.
     fn get_ref_datum(&self, datum_ref: DatumRef) -> Option<SerializedValue>;
     /// Apply transaction batch.
-    fn apply_transactions(&self, txs: NonEmpty<Transaction>) -> Result<(), LedgerStateError>;
+    fn apply_transactions(&self, txs: &NonEmpty<Transaction>) -> Result<(), LedgerStateError>;
 }
