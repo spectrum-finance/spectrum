@@ -91,28 +91,13 @@ pub struct HandelConfig {
     pub poll_fn_delay: Duration,
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct HandelProgress {
-    num_verified: u32,
-    num_failed: u32,
-}
-
-impl HandelProgress {
-    pub fn new() -> Self {
-        Self {
-            num_verified: 0,
-            num_failed: 0,
-        }
-    }
-}
-
 /// A round of Handel protocol that drives aggregation of contribution `C`.
 pub struct Handel<C, P, PP> {
     conf: HandelConfig,
     public_data: P,
     scoring_window: usize,
     unverified_contributions: Vec<HashMap<PeerIx, PendingContribution<C>>>,
-    pub peer_partitions: PP,
+    peer_partitions: PP,
     levels: Vec<Option<ActiveLevel<C>>>,
     /// Keeps track of byzantine peers.
     byzantine_nodes: HashSet<PeerIx>,
@@ -121,10 +106,10 @@ pub struct Handel<C, P, PP> {
     outbox: VecDeque<ProtocolBehaviourOut<VoidMessage, HandelMessage<C>>>,
     next_dissemination_at: Instant,
     level_activation_schedule: Vec<Option<Instant>>,
-    progress: HandelProgress,
     own_peer_ix: PeerIx,
     /// Tracks peers who have indicated that they have completed particular contribution levels.
     peers_completed_levels: HashMap<PeerIx, HashSet<u32>>,
+    /// We use a delay in the `poll` fn to prevent spinning.
     delay: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
@@ -172,7 +157,6 @@ where
                     }
                 })
                 .collect(),
-            progress: HandelProgress::new(),
             own_peer_ix,
             peers_completed_levels: HashMap::default(),
             delay: None,
@@ -230,12 +214,10 @@ where
                 // Verify individual contribution first
                 if let Some(ic) = c.individual_contribution {
                     if ic.verify(&self.public_data) {
-                        self.progress.num_verified += 1;
                         lvl.individual_contributions.push(Verified(ic));
                     } else {
                         // Ban peer, shrink scoring window, skip scoring and
                         // verification of aggregate contribution from this peer.
-                        self.progress.num_failed += 1;
                         trace!("[Handel] run_aggr: {:?} BANNED", c.sender_id);
                         self.byzantine_nodes.insert(c.sender_id);
                         let shrinked_window = self
@@ -283,7 +265,6 @@ where
             // Verify aggregate contributions
             for sc in scored_contributions.into_iter() {
                 if sc.contribution.verify(&self.public_data) {
-                    self.progress.num_verified += 1;
                     let Verified(best_contrib) = &lvl.best_contribution;
                     if sc.score > best_contrib.score {
                         trace!(
@@ -298,8 +279,7 @@ where
                         .saturating_mul(self.conf.window_shrinking_factor);
                 } else {
                     // Ban peer, shrink scoring window.
-                    trace!("[Handel] run_aggr: {:?} BANNED~~~~~~~~", sc.sender_id);
-                    self.progress.num_failed += 1;
+                    trace!("[Handel] run_aggr: {:?} BANNED", sc.sender_id);
                     self.byzantine_nodes.insert(sc.sender_id);
                     let shrinked_window = self
                         .scoring_window

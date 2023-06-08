@@ -50,6 +50,7 @@ pub enum EnabledProtocol {
 pub enum ConnectedPeer<THandler> {
     /// We are connected to this peer.
     Connected {
+        /// Note that we can have multiple connections with each peer.
         conn_ids: Vec<ConnectionId>,
         enabled_protocols: HashMap<ProtocolId, (EnabledProtocol, THandler)>,
     },
@@ -858,7 +859,6 @@ where
                             self.pending_actions.push_back(ToSwarm::Dial {
                                 opts: DialOpts::peer_id(peer)
                                     .addresses(addr_hint.map_or(Vec::new(), |a| vec![a]))
-                                    //.condition(PeerCondition::Always)
                                     .build(),
                             });
                             not_enabled_peer.insert(ConnectedPeer::PendingConnect {

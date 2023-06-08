@@ -66,8 +66,6 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
         let key = SecretKey::from_slice(&bb).unwrap();
         assert_eq!(key, peer_sk);
 
-        //generate_peer_info_files(n);
-
         let one_shot_proto_conf = OneShotProtocolConfig {
             version: ProtocolVer::default(),
             spec: OneShotProtocolSpec {
@@ -186,6 +184,7 @@ pub async fn create_swarm(
     }
 }
 
+/// Serialise this into YAML file for Docker testing.
 #[derive(Serialize, Deserialize)]
 pub struct PeerInfo {
     pub peer_id: PeerId,
@@ -200,6 +199,7 @@ pub struct IndividualPeerInfo {
     peer_sk_base_16: String,
 }
 
+/// Used for Docker testing.
 fn generate_peer_info_files(num_nodes: usize) {
     let mut rng = OsRng;
     let mut committee = HashMap::default();

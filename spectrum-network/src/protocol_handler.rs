@@ -292,7 +292,6 @@ where
                                 let message_bytes = codec::BinCodec::encode(message.clone());
                                 let protocol =
                                     ProtocolTag::new(self.behaviour.get_protocol_id(), use_version);
-                                //println!("[PH] Sending OS message to {}", peer);
                                 self.network
                                     .send_one_shot_message(peer, addr_hint, protocol, message_bytes);
                             }
@@ -317,19 +316,15 @@ where
                         protocol_ver: negotiated_ver,
                         content,
                     } => {
-                        //println!("[PH] Recv message from {}, ver {:?}", peer_id, negotiated_ver);
                         match codec::decode::<
                             <<TBehaviour as ProtocolBehaviour>::TProto as ProtocolSpec>::TMessage,
                         >(content)
                         {
                             Ok(msg) => {
-                                //println!("[PH] Message decoded");
                                 let actual_ver = msg.version();
                                 if actual_ver == negotiated_ver {
-                                    //println!("[PH] Neg version is matching");
                                     self.behaviour.inject_message(peer_id, msg);
                                 } else {
-                                    //println!("[PH] Neg version not matching");
                                     self.behaviour.inject_malformed_mesage(
                                         peer_id,
                                         MalformedMessage::VersionMismatch {
@@ -340,7 +335,7 @@ where
                                 }
                             }
                             Err(e) => {
-                                //println!("[PH] Malformed message: {:?}", e);
+                                error!("[PH] Malformed message: {:?}", e);
                                 self.behaviour
                                     .inject_malformed_mesage(peer_id, MalformedMessage::UnknownFormat);
                             }
