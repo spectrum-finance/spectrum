@@ -16,6 +16,7 @@ use std::io::Write;
 
 use serde::{Deserialize, Serialize};
 use spectrum_crypto::digest::Blake2b;
+use spectrum_crypto::pubkey::PublicKey;
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
@@ -29,7 +30,7 @@ use spectrum_network::protocol_handler::handel::partitioning::{
     MakeBinomialPeerPartitions, PseudoRandomGenPerm,
 };
 use spectrum_network::protocol_handler::handel::{HandelConfig, Threshold};
-use spectrum_network::protocol_handler::sigma_aggregation::{types::PublicKey, SigmaAggregation};
+use spectrum_network::protocol_handler::sigma_aggregation::{SigmaAggregation};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::{ProtocolVer, Reputation};
 
@@ -119,7 +120,7 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
         let network_api = NetworkMailbox {
             mailbox_snd: requests_snd,
         };
-        let (mut aggr_handler, aggr_mailbox) = ProtocolHandler::new(sig_aggr, network_api, 10);
+        let (mut aggr_handler, aggr_mailbox) = ProtocolHandler::new(sig_aggr, network_api, SIGMA_AGGR_PROTOCOL_ID, 10);
         let nc = NetworkController::new(
             peer_conn_handler_conf,
             HashMap::from([(

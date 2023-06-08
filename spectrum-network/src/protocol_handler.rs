@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use ::void::Void;
 
 use either::Either;
 use futures::channel::mpsc;
@@ -12,7 +13,6 @@ use higher::Bifunctor;
 pub use libp2p::swarm::NetworkBehaviour;
 use libp2p::{Multiaddr, PeerId};
 use log::{error, trace};
-use void::Void;
 
 use crate::network_controller::NetworkAPI;
 use crate::peer_conn_handler::message_sink::MessageSink;
