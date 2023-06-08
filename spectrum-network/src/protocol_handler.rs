@@ -1,9 +1,9 @@
+use ::void::Void;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use ::void::Void;
 
 use either::Either;
 use futures::channel::mpsc;

@@ -521,13 +521,9 @@ async fn integration_test_1() {
             protocol_id,
             protocol_ver,
         },
-        NetworkControllerOut::PeerPunished {
-            peer_id: local_peer_id_1,
-            reason: ReputationChange::NoResponse,
-        },
         NetworkControllerOut::Disconnected {
             peer_id: local_peer_id_1,
-            reason: ConnectionLossReason::Reset(ConnHandlerError::UnacceptablePeer),
+            reason: ConnectionLossReason::ResetByPeer,
         },
     ];
 
