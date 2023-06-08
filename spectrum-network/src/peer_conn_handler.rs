@@ -16,7 +16,7 @@ use libp2p::swarm::{
     ConnectionHandler, ConnectionHandlerEvent, KeepAlive, NegotiatedSubstream, SubstreamProtocol,
 };
 use libp2p::PeerId;
-use log::trace;
+use log::{error, trace};
 use rand::rngs::OsRng;
 use rand::RngCore;
 
@@ -279,6 +279,11 @@ impl ConnectionHandler for PeerConnHandler {
             ConnHandlerIn::TryDeliverOnce(msg) => {
                 self.pending_one_shots
                     .insert(OneShotRequestId::random(), OneShotRequest::Pending(msg));
+                trace!(
+                    "[PCH] TryDeliverOnce to {:?}: # pending one shots: {}",
+                    self.peer_id,
+                    self.pending_one_shots.len()
+                );
             }
             ConnHandlerIn::Open {
                 protocol_id,
@@ -460,7 +465,7 @@ impl ConnectionHandler for PeerConnHandler {
                 protocol: future::Either::Right(rid),
                 ..
             }) => {
-                trace!("{:?} has been fired", rid);
+                trace!("[PCH] oneshot {:?} has been fired", rid);
                 self.pending_one_shots.remove(&rid);
             }
 
@@ -536,7 +541,9 @@ impl ConnectionHandler for PeerConnHandler {
             }
 
             ConnectionEvent::AddressChange(_) => {}
-            ConnectionEvent::ListenUpgradeError(_) => {}
+            ConnectionEvent::ListenUpgradeError(_) => {
+                error!("[PCH] ListenUpgradeError");
+            }
         }
     }
 

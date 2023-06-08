@@ -1,3 +1,4 @@
+use ::void::Void;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -8,10 +9,10 @@ use either::Either;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Receiver;
 use futures::Stream;
+use higher::Bifunctor;
 pub use libp2p::swarm::NetworkBehaviour;
-use libp2p::PeerId;
+use libp2p::{Multiaddr, PeerId};
 use log::{error, trace};
-use void::Void;
 
 use crate::network_controller::NetworkAPI;
 use crate::peer_conn_handler::message_sink::MessageSink;
@@ -30,6 +31,7 @@ pub mod handel;
 mod pool;
 pub mod sigma_aggregation;
 pub mod versioning;
+pub mod void;
 
 #[derive(Debug)]
 pub enum NetworkAction<THandshake, TMessage> {
@@ -50,6 +52,7 @@ pub enum NetworkAction<THandshake, TMessage> {
     /// establishing a persistent two-way communication channel.
     SendOneShotMessage {
         peer: PeerId,
+        addr_hint: Option<Multiaddr>,
         use_version: ProtocolVer,
         message: TMessage,
     },
@@ -61,6 +64,48 @@ pub enum NetworkAction<THandshake, TMessage> {
 pub enum ProtocolBehaviourOut<THandshake, TMessage> {
     Send { peer_id: PeerId, message: TMessage },
     NetworkAction(NetworkAction<THandshake, TMessage>),
+}
+
+impl<'a, THandshake, TMessage> Bifunctor<'a, THandshake, TMessage>
+    for ProtocolBehaviourOut<THandshake, TMessage>
+{
+    type Target<T, U> = ProtocolBehaviourOut<T, U>;
+    fn bimap<C, D, L, R>(self, left: L, right: R) -> Self::Target<C, D>
+    where
+        L: Fn(THandshake) -> C + 'a,
+        R: Fn(TMessage) -> D + 'a,
+    {
+        match self {
+            ProtocolBehaviourOut::Send { peer_id, message } => ProtocolBehaviourOut::Send {
+                peer_id,
+                message: right(message),
+            },
+            ProtocolBehaviourOut::NetworkAction(na) => ProtocolBehaviourOut::NetworkAction(match na {
+                NetworkAction::EnablePeer { peer_id, handshakes } => NetworkAction::EnablePeer {
+                    peer_id,
+                    handshakes: handshakes
+                        .into_iter()
+                        .map(|(v, h)| (v, h.map(|hs| left(hs))))
+                        .collect(),
+                },
+                NetworkAction::UpdatePeerProtocols { peer, protocols } => {
+                    NetworkAction::UpdatePeerProtocols { peer, protocols }
+                }
+                NetworkAction::SendOneShotMessage {
+                    peer,
+                    addr_hint,
+                    use_version,
+                    message,
+                } => NetworkAction::SendOneShotMessage {
+                    peer,
+                    addr_hint,
+                    use_version,
+                    message: right(message),
+                },
+                NetworkAction::BanPeer(peer) => NetworkAction::BanPeer(peer),
+            }),
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -279,12 +324,14 @@ where
                             }
                             NetworkAction::SendOneShotMessage {
                                 peer,
+                                addr_hint,
                                 use_version,
                                 message,
                             } => {
                                 let message_bytes = codec::encode(message.clone());
                                 let protocol = ProtocolTag::new(self.protocol, use_version);
-                                self.network.send_one_shot_message(peer, protocol, message_bytes);
+                                self.network
+                                    .send_one_shot_message(peer, addr_hint, protocol, message_bytes);
                             }
                             NetworkAction::BanPeer(pid) => self.network.ban_peer(pid),
                         },

@@ -1,9 +1,11 @@
-use crate::peer_manager::data::ReputationChange;
+use std::cmp::Ordering;
+use std::fmt::{Debug, Display, Formatter};
+
 use libp2p::bytes::BytesMut;
 use libp2p::core::upgrade;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
-use std::fmt::{Debug, Display, Formatter};
+
+use crate::peer_manager::data::ReputationChange;
 
 /// Opaque identifier for an incoming connection. Allocated by the network.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -60,6 +62,12 @@ impl From<u8> for ProtocolId {
 /// Version of a protocol.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ProtocolVer(pub u8);
+
+impl Default for ProtocolVer {
+    fn default() -> Self {
+        ProtocolVer(1)
+    }
+}
 
 impl Ord for ProtocolVer {
     fn cmp(&self, other: &Self) -> Ordering {

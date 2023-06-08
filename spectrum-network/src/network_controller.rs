@@ -9,12 +9,13 @@ use futures::channel::mpsc::{Receiver, Sender};
 use futures::{SinkExt, Stream};
 use libp2p::core::Endpoint;
 use libp2p::swarm::behaviour::ConnectionEstablished;
+use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::{
     CloseConnection, ConnectionClosed, ConnectionDenied, ConnectionId, DialFailure, FromSwarm,
     NetworkBehaviour, NotifyHandler, PollParameters, ToSwarm,
 };
 use libp2p::{Multiaddr, PeerId};
-use log::{trace, warn};
+use log::{info, trace, warn};
 
 use crate::one_shot_upgrade::OneShotMessage;
 use crate::peer_conn_handler::message_sink::MessageSink;
@@ -49,7 +50,8 @@ pub enum EnabledProtocol {
 pub enum ConnectedPeer<THandler> {
     /// We are connected to this peer.
     Connected {
-        conn_id: ConnectionId,
+        /// Note that we can have multiple connections with each peer.
+        conn_ids: Vec<ConnectionId>,
         enabled_protocols: HashMap<ProtocolId, (EnabledProtocol, THandler)>,
     },
     /// The peer is connected but not approved by PM yet.
@@ -118,6 +120,7 @@ pub enum NetworkControllerIn {
     /// establishing a persistent two-way communication channel.
     SendOneShotMessage {
         peer: PeerId,
+        addr_hint: Option<Multiaddr>,
         protocol: ProtocolTag,
         message: RawMessage,
     },
@@ -134,7 +137,13 @@ pub trait NetworkAPI {
     fn update_peer_protocols(&self, peer: PeerId, protocols: Vec<ProtocolId>);
     /// Send the given message to the specified peer without
     /// establishing a persistent two-way communication channel.
-    fn send_one_shot_message(&self, peer: PeerId, protocol: ProtocolTag, message: RawMessage);
+    fn send_one_shot_message(
+        &self,
+        peer: PeerId,
+        addr_hint: Option<Multiaddr>,
+        protocol: ProtocolTag,
+        message: RawMessage,
+    );
     /// Ban peer permanently.
     fn ban_peer(&self, peer: PeerId);
 }
@@ -161,14 +170,23 @@ impl NetworkAPI for NetworkMailbox {
                 .send(NetworkControllerIn::UpdatePeerProtocols { peer, protocols }),
         );
     }
-    fn send_one_shot_message(&self, peer: PeerId, protocol: ProtocolTag, message: RawMessage) {
-        let _ = futures::executor::block_on(self.mailbox_snd.clone().send(
-            NetworkControllerIn::SendOneShotMessage {
-                peer,
-                protocol,
-                message,
-            },
-        ));
+    fn send_one_shot_message(
+        &self,
+        peer: PeerId,
+        addr_hint: Option<Multiaddr>,
+        protocol: ProtocolTag,
+        message: RawMessage,
+    ) {
+        let _ = futures::executor::block_on({
+            self.mailbox_snd
+                .clone()
+                .send(NetworkControllerIn::SendOneShotMessage {
+                    peer,
+                    addr_hint,
+                    protocol,
+                    message,
+                })
+        });
     }
     fn ban_peer(&self, peer: PeerId) {
         let _ =
@@ -375,6 +393,7 @@ where
             Some(ConnectedPeer::PendingConnect {
                 tasks,
                 terminate_asap,
+                ..
             }) => Ok(self.init_conn_handler(peer, tasks.clone(), *terminate_asap)),
             _ => Ok(self.init_conn_handler(peer, vec![], false)),
         }
@@ -388,11 +407,21 @@ where
                 ..
             }) => {
                 match self.enabled_peers.entry(peer_id) {
-                    Entry::Occupied(mut peer_entry) => match peer_entry.get() {
-                        ConnectedPeer::PendingConnect { .. } => {
+                    Entry::Occupied(mut peer_entry) => match peer_entry.get_mut() {
+                        ConnectedPeer::PendingConnect { tasks, .. } => {
+                            for os_msg in tasks {
+                                self.pending_actions.push_back(ToSwarm::NotifyHandler {
+                                    peer_id,
+                                    handler: NotifyHandler::One(connection_id),
+                                    event: ConnHandlerIn::TryDeliverOnce(OneShotMessage {
+                                        protocol: os_msg.protocol,
+                                        content: os_msg.content.clone(),
+                                    }),
+                                });
+                            }
                             self.peers.connection_established(peer_id, connection_id); // confirm connection
                             peer_entry.insert(ConnectedPeer::Connected {
-                                conn_id: connection_id,
+                                conn_ids: vec![connection_id],
                                 enabled_protocols: HashMap::new(),
                             });
                             // notify all handlers about new connection.
@@ -401,9 +430,21 @@ where
                             }
                             self.outbound_peer_connected(peer_id);
                         }
-                        ConnectedPeer::Connected { .. }
-                        | ConnectedPeer::PendingDisconnect(..)
-                        | ConnectedPeer::PendingApprove(..) => {
+                        ConnectedPeer::Connected { conn_ids, .. } => {
+                            assert!(!conn_ids.contains(&connection_id));
+                            conn_ids.push(connection_id);
+                            self.pending_actions.push_back(ToSwarm::CloseConnection {
+                                peer_id,
+                                connection: CloseConnection::One(connection_id),
+                            })
+                        }
+                        ConnectedPeer::PendingDisconnect(..) => {
+                            self.pending_actions.push_back(ToSwarm::CloseConnection {
+                                peer_id,
+                                connection: CloseConnection::One(connection_id),
+                            })
+                        }
+                        ConnectedPeer::PendingApprove(..) => {
                             self.pending_actions.push_back(ToSwarm::CloseConnection {
                                 peer_id,
                                 connection: CloseConnection::One(connection_id),
@@ -411,7 +452,7 @@ where
                         }
                     },
                     Entry::Vacant(entry) => {
-                        trace!("Observing new inbound connection {}", peer_id);
+                        trace!("[NC] Observing new inbound connection {}", peer_id);
                         self.peers.incoming_connection(peer_id, connection_id);
                         entry.insert(ConnectedPeer::PendingApprove(connection_id));
                     }
@@ -425,8 +466,25 @@ where
                 ..
             }) => {
                 let disconnect_reason = match self.enabled_peers.entry(peer_id) {
-                    Entry::Occupied(peer_entry) => match peer_entry.get() {
-                        ConnectedPeer::Connected { .. } | ConnectedPeer::PendingDisconnect(..) => {
+                    Entry::Occupied(mut peer_entry) => match peer_entry.get_mut() {
+                        ConnectedPeer::Connected { conn_ids, .. } => {
+                            let ix = conn_ids.iter().position(|c_id| *c_id == connection_id).unwrap();
+                            conn_ids.remove(ix);
+                            if conn_ids.is_empty() {
+                                peer_entry.remove();
+                            }
+                            if let Some(err) = handler.get_fault() {
+                                let reason = ConnectionLossReason::Reset(err);
+                                self.peers.connection_lost(peer_id, reason);
+                                Some(reason)
+                            } else {
+                                let reason = ConnectionLossReason::ResetByPeer;
+                                self.peers.connection_lost(peer_id, reason);
+                                Some(reason)
+                            }
+                        }
+
+                        ConnectedPeer::PendingDisconnect(..) => {
                             peer_entry.remove();
                             if let Some(err) = handler.get_fault() {
                                 let reason = ConnectionLossReason::Reset(err);
@@ -444,25 +502,43 @@ where
                     Entry::Vacant(_) => None,
                 };
                 if let Some(reason) = disconnect_reason {
+                    info!("Disconnecting from {:?}, reason: {:?}", peer_id, reason);
                     self.peer_disconnected(peer_id, reason);
                 }
             }
 
-            FromSwarm::DialFailure(DialFailure { peer_id, .. }) => {
+            FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
+                info!("[NC] DIAL FAILURE to {:?}, error: {:?}", peer_id, error);
                 if let Some(peer_id) = peer_id {
                     self.peers.dial_failure(peer_id);
                 }
             }
 
             FromSwarm::AddressChange(_) => {}
-            FromSwarm::ListenFailure(_) => {}
-            FromSwarm::NewListener(_) => {}
-            FromSwarm::NewListenAddr(_) => {}
-            FromSwarm::ExpiredListenAddr(_) => {}
-            FromSwarm::ListenerError(_) => {}
-            FromSwarm::ListenerClosed(_) => {}
-            FromSwarm::NewExternalAddr(_) => {}
-            FromSwarm::ExpiredExternalAddr(_) => {}
+            FromSwarm::ListenFailure(e) => {
+                info!("[NC] ListenFailure({:?}", e.error);
+            }
+            FromSwarm::NewListener(_) => {
+                info!("[NC] NewListener");
+            }
+            FromSwarm::NewListenAddr(_) => {
+                info!("[NC] NewListenAddr");
+            }
+            FromSwarm::ExpiredListenAddr(_) => {
+                info!("[NC] ExpiredListenAddr");
+            }
+            FromSwarm::ListenerError(e) => {
+                info!("[NC] ListenerFailure({}", e.err);
+            }
+            FromSwarm::ListenerClosed(e) => {
+                info!("[NC] ListerClosed({:?}", e.reason);
+            }
+            FromSwarm::NewExternalAddr(_) => {
+                info!("[NC] NewExternalAddr");
+            }
+            FromSwarm::ExpiredExternalAddr(_) => {
+                info!("[NC] ExpiredExternalAddr");
+            }
         }
     }
 
@@ -517,30 +593,49 @@ where
                 protocol_tag,
                 handshake,
             } => {
-                if let Some(ConnectedPeer::Connected {
-                    enabled_protocols, ..
-                }) = self.enabled_peers.get_mut(&peer_id)
-                {
-                    let protocol_id = protocol_tag.protocol_id();
-                    let (_, prot_handler) = self.supported_protocols.get(&protocol_id).unwrap();
-                    match enabled_protocols.entry(protocol_id) {
-                        Entry::Vacant(entry) => {
-                            entry.insert((EnabledProtocol::PendingApprove, prot_handler.clone()));
-                            prot_handler.protocol_requested(peer_id, protocol_tag.protocol_ver(), handshake);
-                            self.protocol_pending_approve(peer_id, protocol_id);
+                if let Some(peer) = self.enabled_peers.get_mut(&peer_id) {
+                    match peer {
+                        ConnectedPeer::Connected {
+                            enabled_protocols, ..
+                        } => {
+                            trace!("Connection opened by {:?} in Connected state", peer_id);
+                            let protocol_id = protocol_tag.protocol_id();
+                            let (_, prot_handler) = self.supported_protocols.get(&protocol_id).unwrap();
+                            match enabled_protocols.entry(protocol_id) {
+                                Entry::Vacant(entry) => {
+                                    entry.insert((EnabledProtocol::PendingApprove, prot_handler.clone()));
+                                    prot_handler.protocol_requested(
+                                        peer_id,
+                                        protocol_tag.protocol_ver(),
+                                        handshake,
+                                    );
+                                    self.protocol_pending_approve(peer_id, protocol_id);
+                                }
+                                Entry::Occupied(_) => {
+                                    warn!(
+                                        "Peer {:?} opened already enabled protocol {:?}",
+                                        peer_id, protocol_id
+                                    );
+                                    self.pending_actions.push_back(ToSwarm::NotifyHandler {
+                                        peer_id,
+                                        handler: NotifyHandler::One(connection),
+                                        event: ConnHandlerIn::Close(protocol_id),
+                                    })
+                                }
+                            }
                         }
-                        Entry::Occupied(_) => {
-                            warn!(
-                                "Peer {:?} opened already enabled protocol {:?}",
-                                peer_id, protocol_id
-                            );
-                            self.pending_actions.push_back(ToSwarm::NotifyHandler {
-                                peer_id,
-                                handler: NotifyHandler::One(connection),
-                                event: ConnHandlerIn::Close(protocol_id),
-                            })
+                        ConnectedPeer::PendingApprove(_) => {
+                            trace!("Connection opened by {:?} in PendingApprove state", peer_id);
+                        }
+                        ConnectedPeer::PendingConnect { .. } => {
+                            trace!("Connection opened by {:?} in PendingConnect state", peer_id);
+                        }
+                        ConnectedPeer::PendingDisconnect(_) => {
+                            trace!("Connection opened by {:?} in PendingDisconnect state", peer_id);
                         }
                     }
+                } else {
+                    trace!("Connection opened by {:?}, not in enabled peers", peer_id);
                 }
             }
             ConnHandlerOut::ClosedByPeer(protocol_id)
@@ -621,12 +716,12 @@ where
                     continue;
                 }
                 Poll::Ready(Some(PeerManagerOut::Drop(peer_id))) => {
-                    if let Some(ConnectedPeer::Connected { conn_id, .. }) =
+                    if let Some(ConnectedPeer::Connected { conn_ids, .. }) =
                         self.enabled_peers.get_mut(&peer_id)
                     {
                         self.pending_actions.push_back(ToSwarm::NotifyHandler {
                             peer_id,
-                            handler: NotifyHandler::One(*conn_id),
+                            handler: NotifyHandler::One(*conn_ids.first().unwrap()),
                             event: ConnHandlerIn::CloseAllProtocols,
                         });
                         self.peer_disconnected(
@@ -642,7 +737,7 @@ where
                             if let ConnectedPeer::PendingApprove(_) = peer.get() {
                                 trace!("Inbound connection from peer {} accepted", pid);
                                 peer.insert(ConnectedPeer::Connected {
-                                    conn_id: cid,
+                                    conn_ids: vec![cid],
                                     enabled_protocols: HashMap::new(),
                                 });
                                 self.inbound_peer_connected(pid);
@@ -714,12 +809,23 @@ where
                 match input {
                     NetworkControllerIn::SendOneShotMessage {
                         peer,
+                        addr_hint,
                         protocol,
                         message,
                     } => match self.enabled_peers.entry(peer) {
                         Entry::Occupied(mut enabled_peer) => match enabled_peer.get_mut() {
-                            ConnectedPeer::Connected { conn_id, .. }
-                            | ConnectedPeer::PendingApprove(conn_id) => {
+                            ConnectedPeer::Connected { conn_ids, .. } => {
+                                // if the peer is enabled already we choose existing connection
+                                self.pending_actions.push_back(ToSwarm::NotifyHandler {
+                                    peer_id: peer,
+                                    handler: NotifyHandler::One(*conn_ids.first().unwrap()),
+                                    event: ConnHandlerIn::TryDeliverOnce(OneShotMessage {
+                                        protocol,
+                                        content: message,
+                                    }),
+                                })
+                            }
+                            ConnectedPeer::PendingApprove(conn_id) => {
                                 // if the peer is enabled already we reuse existing connection
                                 self.pending_actions.push_back(ToSwarm::NotifyHandler {
                                     peer_id: peer,
@@ -739,12 +845,22 @@ where
                                     protocol,
                                     content: message,
                                 });
+                                info!(
+                                    "[NC] adding to adjacent task {:?}, # adjacent_tasks: {}",
+                                    peer,
+                                    adjacent_tasks.len()
+                                );
                             }
-                            ConnectedPeer::PendingDisconnect(_) => {} // todo: wait for disconnect; reconnect?
+                            ConnectedPeer::PendingDisconnect(_) => {
+                                info!("[NC] FAILED OS to pending-disconnected-peer {:?}", peer);
+                            } // todo: wait for disconnect; reconnect?
                         },
                         Entry::Vacant(not_enabled_peer) => {
-                            self.pending_actions
-                                .push_back(ToSwarm::Dial { opts: peer.into() });
+                            self.pending_actions.push_back(ToSwarm::Dial {
+                                opts: DialOpts::peer_id(peer)
+                                    .addresses(addr_hint.map_or(Vec::new(), |a| vec![a]))
+                                    .build(),
+                            });
                             not_enabled_peer.insert(ConnectedPeer::PendingConnect {
                                 tasks: vec![OneShotMessage {
                                     protocol,
@@ -763,7 +879,7 @@ where
                         handshake,
                     } => {
                         if let Some(ConnectedPeer::Connected {
-                            conn_id,
+                            conn_ids,
                             enabled_protocols,
                         }) = self.enabled_peers.get_mut(&peer_id)
                         {
@@ -779,7 +895,7 @@ where
                                             .insert(protocol_id, (EnabledProtocol::PendingEnable, handler));
                                         self.pending_actions.push_back(ToSwarm::NotifyHandler {
                                             peer_id,
-                                            handler: NotifyHandler::One(*conn_id),
+                                            handler: NotifyHandler::One(*conn_ids.first().unwrap()),
                                             event: ConnHandlerIn::Open {
                                                 protocol_id,
                                                 handshake,
@@ -807,7 +923,7 @@ where
                                     self.peers.force_enabled(peer_id, protocol_id); // notify PM
                                     self.pending_actions.push_back(ToSwarm::NotifyHandler {
                                         peer_id,
-                                        handler: NotifyHandler::One(*conn_id),
+                                        handler: NotifyHandler::One(*conn_ids.first().unwrap()),
                                         event: ConnHandlerIn::Open {
                                             protocol_id,
                                             handshake,

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use blake2::digest::typenum::U32;
 use blake2::Blake2b;
 use blake2::Digest;
@@ -12,6 +14,7 @@ use k256::{ProjectivePoint, Scalar, SecretKey};
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest256};
 use spectrum_crypto::pubkey::PublicKey;
 
+use crate::protocol_handler::handel::partitioning::PeerIx;
 use crate::protocol_handler::handel::Threshold;
 use crate::protocol_handler::sigma_aggregation::types::{
     AggregateCommitment, Commitment, CommitmentSecret, Signature,
