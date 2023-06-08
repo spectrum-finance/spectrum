@@ -2,11 +2,93 @@
 members = [
     "spectrum-node",
     "spectrum-network",
+    "spectrum-ledger",
     "spectrum-crypto",
-    "algebra-core"
+    "spectrum-move",
+    "algebra-core",
+    "futures-util"
+]
+
+exclude = [
+    "external/move/extensions/move-table-extension",
+    "external/move/move-binary-format",
+    "external/move/move-binary-format/serializer-tests",
+    "external/move/move-borrow-graph",
+    "external/move/move-bytecode-verifier",
+    "external/move/move-bytecode-verifier/bytecode-verifier-tests",
+    "external/move/move-bytecode-verifier/fuzz",
+    "external/move/move-bytecode-verifier/invalid-mutations",
+    "external/move/move-bytecode-verifier/transactional-tests",
+    "external/move/move-command-line-common",
+    "external/move/move-compiler",
+    "external/move/move-compiler/transactional-tests",
+    "external/move/move-core/types",
+    "external/move/move-ir/types",
+    "external/move/move-ir-compiler",
+    "external/move/move-ir-compiler/move-bytecode-source-map",
+    "external/move/move-ir-compiler/move-ir-to-bytecode",
+    "external/move/move-ir-compiler/move-ir-to-bytecode/syntax",
+    "external/move/move-ir-compiler/transactional-tests",
+    "external/move/move-model",
+    "external/move/move-prover",
+    "external/move/move-prover/boogie-backend",
+    "external/move/move-prover/bytecode",
+    "external/move/move-prover/interpreter",
+    "external/move/move-prover/interpreter/crypto",
+    "external/move/move-prover/interpreter-testsuite",
+    "external/move/move-prover/move-abigen",
+    "external/move/move-prover/move-docgen",
+    "external/move/move-prover/move-errmapgen",
+    "external/move/move-prover/test-utils",
+    "external/move/move-stdlib",
+    "external/move/move-symbol-pool",
+    "external/move/move-vm/integration-tests",
+    "external/move/move-vm/paranoid-tests",
+    "external/move/move-vm/runtime",
+    "external/move/move-vm/test-utils",
+    "external/move/move-vm/transactional-tests",
+    "external/move/move-vm/types",
+    "external/move/testing-infra/module-generation",
+    "external/move/testing-infra/test-generation",
+    "external/move/testing-infra/transactional-test-runner",
+    "external/move/tools/move-bytecode-utils",
+    "external/move/tools/move-bytecode-viewer",
+    "external/move/tools/move-cli",
+    "external/move/tools/move-coverage",
+    "external/move/tools/move-disassembler",
+    "external/move/tools/move-explain",
+    "external/move/tools/move-package",
+    "external/move/tools/move-resource-viewer",
+    "external/move/tools/move-unit-test",
+    "external/move/tools/read-write-set",
+    "external/move/tools/read-write-set/dynamic",
+    "external/move/tools/read-write-set/types"
 ]
 
 [profile.release]
 # Tell `rustc` to optimize for small code size.
 opt-level = "s"
 lto = true
+
+[workspace.dependencies]
+# Move dependencies
+move-binary-format = { path = "external/move/move-binary-format" }
+move-bytecode-utils = { path = "external/move/tools/move-bytecode-utils" }
+move-bytecode-verifier = { path = "external/move/move-bytecode-verifier" }
+move-cli = { path = "external/move/tools/move-cli" }
+move-compiler = { path = "external/move/move-compiler" }
+move-core-types = { path = "external/move/move-core/types", features = ["address32"] }
+move-disassembler = { path = "external/move/tools/move-disassembler" }
+move-package = { path = "external/move/tools/move-package" }
+move-stdlib = { path = "external/move/move-stdlib" }
+move-vm-runtime = { path = "external/move/move-vm/runtime" }
+move-unit-test = { path = "external/move/tools/move-unit-test" }
+move-vm-test-utils = { path = "external/move/move-vm/test-utils" }
+move-vm-types = { path = "external/move/move-vm/types" }
+move-command-line-common = { path = "external/move/move-command-line-common" }
+move-transactional-test-runner = { path = "external/move/testing-infra/transactional-test-runner" }
+move-ir-types = { path = "external/move/move-ir/types" }
+move-prover = { path = "external/move/move-prover" }
+move-prover-boogie-backend = { path = "external/move/move-prover/boogie-backend" }
+move-stackless-bytecode = { path = "external/move/move-prover/bytecode" }
+move-symbol-pool = { path = "external/move/move-symbol-pool" }

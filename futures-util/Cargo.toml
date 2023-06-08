@@ -1,0 +1,12 @@
+[package]
+name = "futures-util"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.65.0"
+
+[dependencies]
+futures = "0.3.21"
+pin-project = "1.0.10"
+
+[dev-dependencies]
+async-std = { version = "1.10.0", features = ["attributes"] }

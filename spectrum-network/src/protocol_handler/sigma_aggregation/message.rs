@@ -30,7 +30,7 @@ impl Versioned for SigmaAggrMessage {
 
 pub struct SigmaAggrSpec;
 
-impl ProtocolSpec for SigmaAggrSpec {
+impl<'de> ProtocolSpec<'de> for SigmaAggrSpec {
     type THandshake = VoidMessage;
     type TMessage = SigmaAggrMessage;
 }

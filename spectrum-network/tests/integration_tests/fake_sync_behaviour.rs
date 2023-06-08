@@ -10,16 +10,17 @@ use derive_more::Display;
 use futures::{stream::FuturesOrdered, Future, Stream};
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
+
 use spectrum_network::{
     peer_manager::Peers,
-    protocol::SYNC_PROTOCOL_ID,
+    protocol::DISCOVERY_PROTOCOL_ID,
     protocol_handler::{
-        sync::{
-            message::{HandshakeV1, SyncHandshake, SyncSpec},
+        discovery::{
+            message::{DiscoveryHandshake, DiscoverySpec, HandshakeV1},
             NodeStatus,
         },
         versioning::Versioned,
-        MalformedMessage, NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut,
+        NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut,
     },
     types::{ProtocolId, ProtocolVer},
 };
@@ -51,12 +52,12 @@ impl FakeSyncSpec {
     }
 }
 
-impl spectrum_network::protocol_handler::ProtocolSpec for FakeSyncSpec {
-    type THandshake = SyncHandshake;
+impl<'de> spectrum_network::protocol_handler::ProtocolSpec<'de> for FakeSyncSpec {
+    type THandshake = DiscoveryHandshake;
     type TMessage = FakeSyncMessage;
 }
 
-type SyncBehaviourOut = ProtocolBehaviourOut<SyncHandshake, FakeSyncMessage>;
+type SyncBehaviourOut = ProtocolBehaviourOut<DiscoveryHandshake, FakeSyncMessage>;
 
 #[derive(Debug, Display)]
 pub enum SyncBehaviorError {
@@ -89,11 +90,11 @@ where
         }
     }
 
-    fn make_poly_handshake(&self) -> Vec<(ProtocolVer, Option<SyncHandshake>)> {
+    fn make_poly_handshake(&self) -> Vec<(ProtocolVer, Option<DiscoveryHandshake>)> {
         let status = &self.local_status;
         vec![(
-            SyncSpec::v1(),
-            Some(SyncHandshake::HandshakeV1(HandshakeV1 {
+            DiscoverySpec::v1(),
+            Some(DiscoveryHandshake::HandshakeV1(HandshakeV1 {
                 supported_protocols: status.supported_protocols.clone(),
                 height: status.height,
             })),
@@ -127,15 +128,11 @@ where
     }
 }
 
-impl<TPeers> ProtocolBehaviour for FakeSyncBehaviour<TPeers>
+impl<'de, TPeers> ProtocolBehaviour<'de> for FakeSyncBehaviour<TPeers>
 where
     TPeers: Peers,
 {
     type TProto = FakeSyncSpec;
-
-    fn get_protocol_id(&self) -> ProtocolId {
-        SYNC_PROTOCOL_ID
-    }
 
     fn inject_peer_connected(&mut self, peer_id: PeerId) {
         // Immediately enable sync with the peer.
@@ -150,10 +147,8 @@ where
         self.send_fake_msg(peer_id);
     }
 
-    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {}
-
-    fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<SyncHandshake>) {
-        if let Some(SyncHandshake::HandshakeV1(hs)) = handshake {
+    fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<DiscoveryHandshake>) {
+        if let Some(DiscoveryHandshake::HandshakeV1(hs)) = handshake {
             self.tracked_peers.insert(
                 peer_id,
                 NodeStatus {
@@ -181,7 +176,9 @@ where
     fn inject_protocol_enabled(
         &mut self,
         peer_id: PeerId,
-        _handshake: Option<<Self::TProto as spectrum_network::protocol_handler::ProtocolSpec>::THandshake>,
+        _handshake: Option<
+            <Self::TProto as spectrum_network::protocol_handler::ProtocolSpec<'de>>::THandshake,
+        >,
     ) {
         self.send_fake_msg(peer_id);
     }
@@ -190,7 +187,10 @@ where
         self.tracked_peers.remove(&peer_id);
     }
 
-    fn poll(&mut self, cx: &mut Context) -> Poll<Option<ProtocolBehaviourOut<SyncHandshake, FakeSyncMessage>>> {
+    fn poll(
+        &mut self,
+        cx: &mut Context,
+    ) -> Poll<Option<ProtocolBehaviourOut<DiscoveryHandshake, FakeSyncMessage>>> {
         loop {
             match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
                 Poll::Ready(Some(Ok(out))) => {

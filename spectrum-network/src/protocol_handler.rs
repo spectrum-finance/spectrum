@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -11,6 +12,7 @@ use higher::Bifunctor;
 pub use libp2p::swarm::NetworkBehaviour;
 use libp2p::{Multiaddr, PeerId};
 use log::{error, trace};
+use void::Void;
 
 use crate::network_controller::NetworkAPI;
 use crate::peer_conn_handler::message_sink::MessageSink;
@@ -23,9 +25,11 @@ use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 pub mod aggregation;
 pub mod codec;
 pub mod cosi;
+pub mod diffusion;
+pub mod discovery;
 pub mod handel;
+mod pool;
 pub mod sigma_aggregation;
-pub mod sync;
 pub mod versioning;
 pub mod void;
 
@@ -110,18 +114,18 @@ pub enum ProtocolHandlerError {
     MalformedMessage(RawMessage),
 }
 
-pub trait ProtocolSpec {
-    type THandshake: codec::BinCodec + Versioned + Send;
-    type TMessage: codec::BinCodec + Versioned + Debug + Send + Clone;
+pub trait ProtocolSpec<'de> {
+    type THandshake: serde::Serialize + serde::Deserialize<'de> + Versioned + Send;
+    type TMessage: serde::Serialize + serde::Deserialize<'de> + Versioned + Debug + Send + Clone;
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum MalformedMessage {
-    VersionMismatch {
-        negotiated_ver: ProtocolVer,
-        actual_ver: ProtocolVer,
-    },
-    UnknownFormat,
+impl<'de, L, R> ProtocolSpec<'de> for Either<L, R>
+where
+    L: ProtocolSpec<'de>,
+    R: ProtocolSpec<'de>,
+{
+    type THandshake = Either<L::THandshake, R::THandshake>;
+    type TMessage = Either<L::TMessage, R::TMessage>;
 }
 
 /// Defines behaviour of particular stages of a protocol that terminates with `TOut`,
@@ -132,9 +136,6 @@ pub trait TemporalProtocolStage<THandshake, TMessage, TOut> {
 
     /// Inject a new message coming from a peer.
     fn inject_message(&mut self, peer_id: PeerId, content: TMessage) {}
-
-    /// Inject an event when the peer sent a malformed message.
-    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {}
 
     /// Inject protocol request coming from a peer.
     fn inject_protocol_requested(&mut self, peer_id: PeerId, handshake: Option<THandshake>) {}
@@ -156,27 +157,21 @@ pub trait TemporalProtocolStage<THandshake, TMessage, TOut> {
     ) -> Poll<Either<ProtocolBehaviourOut<THandshake, TMessage>, TOut>>;
 }
 
-pub trait ProtocolBehaviour {
+pub trait ProtocolBehaviour<'de> {
     /// Protocol specification.
-    type TProto: ProtocolSpec;
-
-    /// Returns ID of the protocol this behaviour implements.
-    fn get_protocol_id(&self) -> ProtocolId;
+    type TProto: ProtocolSpec<'de>;
 
     /// Inject an event that we have established a conn with a peer.
     fn inject_peer_connected(&mut self, peer_id: PeerId) {}
 
     /// Inject a new message coming from a peer.
-    fn inject_message(&mut self, peer_id: PeerId, content: <Self::TProto as ProtocolSpec>::TMessage) {}
-
-    /// Inject an event when the peer sent a malformed message.
-    fn inject_malformed_mesage(&mut self, peer_id: PeerId, details: MalformedMessage) {}
+    fn inject_message(&mut self, peer_id: PeerId, content: <Self::TProto as ProtocolSpec<'de>>::TMessage) {}
 
     /// Inject protocol request coming from a peer.
     fn inject_protocol_requested(
         &mut self,
         peer_id: PeerId,
-        handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
+        handshake: Option<<Self::TProto as ProtocolSpec<'de>>::THandshake>,
     ) {
     }
 
@@ -187,7 +182,7 @@ pub trait ProtocolBehaviour {
     fn inject_protocol_enabled(
         &mut self,
         peer_id: PeerId,
-        handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
+        handshake: Option<<Self::TProto as ProtocolSpec<'de>>::THandshake>,
     ) {
     }
 
@@ -201,42 +196,90 @@ pub trait ProtocolBehaviour {
     ) -> Poll<
         Option<
             ProtocolBehaviourOut<
-                <Self::TProto as ProtocolSpec>::THandshake,
-                <Self::TProto as ProtocolSpec>::TMessage,
+                <Self::TProto as ProtocolSpec<'de>>::THandshake,
+                <Self::TProto as ProtocolSpec<'de>>::TMessage,
             >,
         >,
     >;
 }
 
-/// A layer that facilitate massage transmission from protocol handlers to peers.
-pub struct ProtocolHandler<TBehaviour, TNetwork> {
-    peers: HashMap<PeerId, MessageSink>,
-    inbox: Receiver<ProtocolEvent>,
-    behaviour: TBehaviour,
-    network: TNetwork,
+pub struct BehaviourStream<'de, T, P>(T, PhantomData<&'de P>);
+
+impl<'de, T, P> BehaviourStream<'de, T, P> {
+    pub fn new(behaviour: T) -> Self {
+        Self(behaviour, PhantomData)
+    }
 }
 
-impl<TBehaviour, TNetwork> ProtocolHandler<TBehaviour, TNetwork> {
-    pub fn new(behaviour: TBehaviour, network: TNetwork, msg_buffer_size: usize) -> (Self, ProtocolMailbox) {
+impl<'de, T, P> Unpin for BehaviourStream<'de, T, P>
+where
+    P: ProtocolSpec<'de>,
+    T: ProtocolBehaviour<'de, TProto = P>,
+{
+}
+
+impl<'de, T, P> Stream for BehaviourStream<'de, T, P>
+where
+    P: ProtocolSpec<'de>,
+    T: ProtocolBehaviour<'de, TProto = P>,
+{
+    type Item =
+        ProtocolBehaviourOut<<P as ProtocolSpec<'de>>::THandshake, <P as ProtocolSpec<'de>>::TMessage>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = &mut *self;
+        this.0.poll(cx)
+    }
+}
+
+impl<'de, T, P> FusedStream for BehaviourStream<'de, T, P>
+where
+    P: ProtocolSpec<'de>,
+    T: ProtocolBehaviour<'de, TProto = P>,
+{
+    fn is_terminated(&self) -> bool {
+        false
+    }
+}
+
+/// A layer that facilitate massage transmission from protocol handlers to peers.
+pub struct ProtocolHandler<'de, TBehaviour, TNetwork> {
+    peers: HashMap<PeerId, MessageSink>,
+    inbox: Receiver<ProtocolEvent>,
+    pub protocol: ProtocolId,
+    behaviour: TBehaviour,
+    network: TNetwork,
+    pd: PhantomData<&'de Void>,
+}
+
+impl<'de, TBehaviour, TNetwork> ProtocolHandler<'de, TBehaviour, TNetwork> {
+    pub fn new(
+        behaviour: TBehaviour,
+        network: TNetwork,
+        protocol: ProtocolId,
+        msg_buffer_size: usize,
+    ) -> (Self, ProtocolMailbox) {
         let (snd, recv) = mpsc::channel::<ProtocolEvent>(msg_buffer_size);
         let prot_mailbox = ProtocolMailbox::new(snd);
         let prot_handler = Self {
             peers: HashMap::new(),
             inbox: recv,
+            protocol,
             behaviour,
             network,
+            pd: PhantomData::default(),
         };
         (prot_handler, prot_mailbox)
     }
 }
 
-impl<TBehaviour, TNetwork> Stream for ProtocolHandler<TBehaviour, TNetwork>
+impl<'de, TBehaviour, TNetwork> Stream for ProtocolHandler<'de, TBehaviour, TNetwork>
 where
-    TBehaviour: ProtocolBehaviour + Unpin,
+    TBehaviour: ProtocolBehaviour<'de> + Unpin,
     TNetwork: NetworkAPI + Unpin,
 {
     #[cfg(feature = "integration_tests")]
-    type Item = <TBehaviour::TProto as ProtocolSpec>::TMessage;
+    type Item = <TBehaviour::TProto as ProtocolSpec<'de>>::TMessage;
     #[cfg(not(feature = "integration_tests"))]
     type Item = ();
 
@@ -253,7 +296,7 @@ where
                             trace!("Sending message {:?} to peer {}", message, peer_id);
                             if let Some(sink) = self.peers.get(&peer_id) {
                                 trace!("Sink is available");
-                                if let Err(_) = sink.send_message(codec::BinCodec::encode(message.clone())) {
+                                if let Err(_) = sink.send_message(codec::encode(message.clone())) {
                                     trace!("Failed to submit a message to {:?}. Channel is closed.", peer_id)
                                 }
                                 trace!("Sent");
@@ -271,14 +314,10 @@ where
                                 let poly_spec = PolyVerHandshakeSpec::from(
                                     handshakes
                                         .into_iter()
-                                        .map(|(v, m)| (v, m.map(codec::BinCodec::encode)))
+                                        .map(|(v, m)| (v, m.map(codec::encode)))
                                         .collect::<BTreeMap<_, _>>(),
                                 );
-                                self.network.enable_protocol(
-                                    self.behaviour.get_protocol_id(),
-                                    peer,
-                                    poly_spec,
-                                );
+                                self.network.enable_protocol(self.protocol, peer, poly_spec);
                             }
                             NetworkAction::UpdatePeerProtocols { peer, protocols } => {
                                 self.network.update_peer_protocols(peer, protocols);
@@ -289,9 +328,8 @@ where
                                 use_version,
                                 message,
                             } => {
-                                let message_bytes = codec::BinCodec::encode(message.clone());
-                                let protocol =
-                                    ProtocolTag::new(self.behaviour.get_protocol_id(), use_version);
+                                let message_bytes = codec::encode(message.clone());
+                                let protocol = ProtocolTag::new(self.protocol, use_version);
                                 self.network
                                     .send_one_shot_message(peer, addr_hint, protocol, message_bytes);
                             }
@@ -316,29 +354,18 @@ where
                         protocol_ver: negotiated_ver,
                         content,
                     } => {
-                        match codec::decode::<
+                        if let Ok(msg) = codec::decode::<
                             <<TBehaviour as ProtocolBehaviour>::TProto as ProtocolSpec>::TMessage,
                         >(content)
                         {
-                            Ok(msg) => {
-                                let actual_ver = msg.version();
-                                if actual_ver == negotiated_ver {
-                                    self.behaviour.inject_message(peer_id, msg);
-                                } else {
-                                    self.behaviour.inject_malformed_mesage(
-                                        peer_id,
-                                        MalformedMessage::VersionMismatch {
-                                            negotiated_ver,
-                                            actual_ver,
-                                        },
-                                    )
-                                }
+                            let actual_ver = msg.version();
+                            if actual_ver == negotiated_ver {
+                                self.behaviour.inject_message(peer_id, msg);
+                            } else {
+                                self.network.ban_peer(peer_id);
                             }
-                            Err(e) => {
-                                error!("[PH] Malformed message: {:?}", e);
-                                self.behaviour
-                                    .inject_malformed_mesage(peer_id, MalformedMessage::UnknownFormat);
-                            }
+                        } else {
+                            self.network.ban_peer(peer_id);
                         }
                     }
                     ProtocolEvent::Requested {
@@ -356,18 +383,10 @@ where
                                 if actual_ver == negotiated_ver {
                                     self.behaviour.inject_protocol_requested(peer_id, Some(hs));
                                 } else {
-                                    self.behaviour.inject_malformed_mesage(
-                                        peer_id,
-                                        MalformedMessage::VersionMismatch {
-                                            negotiated_ver,
-                                            actual_ver,
-                                        },
-                                    )
+                                    self.network.ban_peer(peer_id);
                                 }
                             }
-                            Some(Err(_)) => self
-                                .behaviour
-                                .inject_malformed_mesage(peer_id, MalformedMessage::UnknownFormat),
+                            Some(Err(_)) => self.network.ban_peer(peer_id),
                             None => self.behaviour.inject_protocol_requested(peer_id, None),
                         }
                     }
@@ -391,18 +410,10 @@ where
                                 if actual_ver == negotiated_ver {
                                     self.behaviour.inject_protocol_enabled(peer_id, Some(hs));
                                 } else {
-                                    self.behaviour.inject_malformed_mesage(
-                                        peer_id,
-                                        MalformedMessage::VersionMismatch {
-                                            negotiated_ver,
-                                            actual_ver,
-                                        },
-                                    )
+                                    self.network.ban_peer(peer_id);
                                 }
                             }
-                            Some(Err(_)) => self
-                                .behaviour
-                                .inject_malformed_mesage(peer_id, MalformedMessage::UnknownFormat),
+                            Some(Err(_)) => self.network.ban_peer(peer_id),
                             None => self.behaviour.inject_protocol_enabled(peer_id, None),
                         }
                     }
@@ -419,7 +430,7 @@ where
 }
 
 /// The stream of protocol events never terminates, so we can implement fused for it.
-impl<TBehaviour, TNetwork> FusedStream for ProtocolHandler<TBehaviour, TNetwork>
+impl<'de, TBehaviour, TNetwork> FusedStream for ProtocolHandler<'de, TBehaviour, TNetwork>
 where
     Self: Stream,
 {
