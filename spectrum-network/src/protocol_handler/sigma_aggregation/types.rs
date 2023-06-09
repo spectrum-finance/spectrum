@@ -136,10 +136,7 @@ impl<C> Weighted for Contributions<C> {
 pub type PreCommitments = Contributions<Blake2bDigest256>;
 
 impl VerifiableAgainst<()> for PreCommitments {
-    fn verify(&self, _: &()) -> bool {
-        true
-    }
-    fn verify_part(self, _: &()) -> PVResult<Self> {
+    fn verify(self, _: &()) -> PVResult<Self> {
         PVResult::Valid {
             contribution: self,
             partially: false,
@@ -178,18 +175,7 @@ impl From<Signature> for Vec<u8> {
 pub type CommitmentsWithProofs = Contributions<(Commitment, Signature)>;
 
 impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
-    fn verify(&self, public_data: &CommitmentsVerifInput) -> bool {
-        self.0.iter().all(|(i, (commitment, sig))| {
-            if let Some(pre_commitment) = public_data.pre_commitments.0.get(&i) {
-                let vk = VerifyingKey::from(commitment.clone());
-                *pre_commitment == blake2b256_hash(&*commitment.as_bytes())
-                    && vk.verify(&public_data.message_digest_bytes, &sig.0).is_ok()
-            } else {
-                false
-            }
-        })
-    }
-    fn verify_part(self, public_data: &CommitmentsVerifInput) -> PVResult<Self> {
+    fn verify(self, public_data: &CommitmentsVerifInput) -> PVResult<Self> {
         let contrib_len = self.0.len();
         let mut aggr = HashMap::new();
         let mut missing_parts = 0;
@@ -257,20 +243,7 @@ struct ResponseVerifInput {
 }
 
 impl VerifiableAgainst<ResponsesVerifInput> for Responses {
-    fn verify(&self, public_data: &ResponsesVerifInput) -> bool {
-        let c = &public_data.challenge;
-        self.0.iter().all(|(k, zi)| {
-            public_data
-                .inputs
-                .get(&k)
-                .map(|input| {
-                    let ai = &input.individual_input.into();
-                    verify_response(zi, ai, c, input.commitment.clone(), input.pk.clone())
-                })
-                .unwrap_or(false)
-        })
-    }
-    fn verify_part(self, public_data: &ResponsesVerifInput) -> PVResult<Self> {
+    fn verify(self, public_data: &ResponsesVerifInput) -> PVResult<Self> {
         let c = &public_data.challenge;
         let contrib_len = self.0.len();
         let mut aggr = HashMap::new();

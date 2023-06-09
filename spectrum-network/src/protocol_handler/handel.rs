@@ -213,18 +213,21 @@ where
             while let Some(c) = lvl.prioritized_contributions.pop() {
                 // Verify individual contribution first
                 if let Some(ic) = c.individual_contribution {
-                    if ic.verify(&self.public_data) {
-                        lvl.individual_contributions.push(Verified(ic));
-                    } else {
-                        // Ban peer, shrink scoring window, skip scoring and
-                        // verification of aggregate contribution from this peer.
-                        trace!("[Handel] run_aggr: {:?} BANNED", c.sender_id);
-                        self.byzantine_nodes.insert(c.sender_id);
-                        let shrinked_window = self
-                            .scoring_window
-                            .saturating_div(self.conf.window_shrinking_factor);
-                        self.scoring_window = max(shrinked_window, 1);
-                        continue;
+                    match ic.verify(&self.public_data) {
+                        PVResult::Invalid => {
+                            // Ban peer, shrink scoring window, skip scoring and
+                            // verification of aggregate contribution from this peer.
+                            trace!("[Handel] run_aggr: {:?} BANNED", c.sender_id);
+                            self.byzantine_nodes.insert(c.sender_id);
+                            let shrinked_window = self
+                                .scoring_window
+                                .saturating_div(self.conf.window_shrinking_factor);
+                            self.scoring_window = max(shrinked_window, 1);
+                            continue;
+                        }
+                        PVResult::Valid { contribution: ic, .. } => {
+                            lvl.individual_contributions.push(Verified(ic));
+                        }
                     }
                 }
                 // Score aggregate contribution
@@ -269,7 +272,7 @@ where
                 contribution,
             } in scored_contributions.into_iter()
             {
-                match contribution.verify_part(&self.public_data) {
+                match contribution.verify(&self.public_data) {
                     PVResult::Invalid => {
                         // Ban peer, shrink scoring window.
                         trace!("[Handel] run_aggr: {:?} BANNED", sender_id);
@@ -292,10 +295,7 @@ where
                                 self.own_peer_ix,
                                 score
                             );
-                            lvl.best_contribution = Verified(ScoredContribution {
-                                score,
-                                contribution,
-                            });
+                            lvl.best_contribution = Verified(ScoredContribution { score, contribution });
                         }
                         self.scoring_window = self
                             .scoring_window
@@ -771,11 +771,11 @@ mod tests {
     }
 
     impl VerifiableAgainst<()> for Contrib {
-        fn verify(&self, proposition: &()) -> bool {
-            true
-        }
-        fn verify_part(self, public_data: &()) -> PVResult<Self> {
-            PVResult::Valid(self)
+        fn verify(self, public_data: &()) -> PVResult<Self> {
+            PVResult::Valid {
+                contribution: self,
+                partially: false,
+            }
         }
     }
 
