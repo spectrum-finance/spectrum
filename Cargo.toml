@@ -5,6 +5,7 @@ members = [
     "spectrum-view",
     "spectrum-ledger",
     "spectrum-crypto",
+    "spectrum-vrf",
     "spectrum-move",
     "algebra-core",
     "futures-util"
