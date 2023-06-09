@@ -1,0 +1,13 @@
+[package]
+name = "spectrum-move"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.65.0"
+
+[dependencies]
+derive_more = "0.99.17"
+void = "1.0.2"
+serde = { version = "1.0.147", features = ["derive"] }
+
+move-vm-runtime.workspace = true
+move-core-types.workspace = true

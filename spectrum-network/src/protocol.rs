@@ -2,9 +2,11 @@ use either::Either;
 
 use crate::types::{ProtocolId, ProtocolVer};
 
-pub const SYNC_PROTOCOL_ID: ProtocolId = ProtocolId::from_u8(0);
+pub const DISCOVERY_PROTOCOL_ID: ProtocolId = ProtocolId::from_u8(0);
 
-pub const SIGMA_AGGR_PROTOCOL_ID: ProtocolId = ProtocolId::from_u8(1);
+pub const DIFFUSION_PROTOCOL_ID: ProtocolId = ProtocolId::from_u8(1);
+
+pub const SIGMA_AGGR_PROTOCOL_ID: ProtocolId = ProtocolId::from_u8(2);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StatefulProtocolSpec {
