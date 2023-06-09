@@ -252,10 +252,9 @@ impl VerifiableAgainst<ResponsesVerifInput> for Responses {
             if let Some(input) = public_data.inputs.get(&k) {
                 let ai = &input.individual_input.into();
                 let verified = verify_response(&zi, ai, c, input.commitment.clone(), input.pk.clone());
-                if !verified {
-                    return PVResult::Invalid;
+                if verified {
+                    aggr.insert(k, zi);
                 }
-                aggr.insert(k, zi);
             } else {
                 missing_parts += 1;
             }
