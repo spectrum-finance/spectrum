@@ -191,7 +191,7 @@ impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
             } else {
                 missing_parts += 1;
             }
-            if missing_parts * 2 > contrib_len {
+            if contrib_len > 1 && missing_parts * 2 > contrib_len {
                 // More than 50% of aggregate is invalid.
                 return PVResult::Invalid;
             }
@@ -259,7 +259,7 @@ impl VerifiableAgainst<ResponsesVerifInput> for Responses {
             } else {
                 missing_parts += 1;
             }
-            if missing_parts * 2 > contrib_len {
+            if contrib_len > 1 && missing_parts * 2 > contrib_len {
                 // More than 50% of aggregate is invalid.
                 return PVResult::Invalid;
             }
