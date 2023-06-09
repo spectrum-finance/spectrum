@@ -17,7 +17,7 @@ pub enum PVResult<T> {
 pub trait VerifiableAgainst<P>: Sized {
     /// Verifies the statement.
     fn verify(&self, public_data: &P) -> bool;
-    /// Verifies the statement and returns `Some(valid_part)` in case partial verification succeded.
-    /// Returns `None` otherwise.
+    /// Verifies the statement and returns valid part in case partial verification succeded.
+    /// Returns `PVResult::Invalid` otherwise.
     fn verify_part(self, public_data: &P) -> PVResult<Self>;
 }
