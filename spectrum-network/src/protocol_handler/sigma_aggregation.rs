@@ -10,12 +10,11 @@ use futures::Stream;
 use higher::Bifunctor;
 use k256::{Scalar, SecretKey};
 use libp2p::{Multiaddr, PeerId};
-
 use log::trace;
+
 use spectrum_crypto::digest::Digest256;
 use spectrum_crypto::pubkey::PublicKey;
 
-use crate::protocol::SIGMA_AGGR_PROTOCOL_ID;
 use crate::protocol_handler::aggregation::AggregationAction;
 use crate::protocol_handler::handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
 use crate::protocol_handler::handel::{Handel, HandelConfig, HandelRound};
@@ -33,7 +32,6 @@ use crate::protocol_handler::sigma_aggregation::types::{
 use crate::protocol_handler::void::VoidMessage;
 use crate::protocol_handler::ProtocolBehaviour;
 use crate::protocol_handler::ProtocolBehaviourOut;
-use crate::types::ProtocolId;
 
 mod crypto;
 mod message;
