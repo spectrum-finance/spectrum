@@ -6,6 +6,7 @@ use crate::transaction::Transaction;
 pub mod block;
 pub mod sbox;
 pub mod transaction;
+pub mod interop;
 
 #[derive(
     Eq,
