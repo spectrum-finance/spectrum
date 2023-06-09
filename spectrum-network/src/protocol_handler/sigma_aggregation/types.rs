@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use algebra_core::CommutativePartialSemigroup;
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::pubkey::PublicKey;
-use spectrum_crypto::VerifiableAgainst;
+use spectrum_crypto::{PVResult, VerifiableAgainst};
 
 use crate::protocol_handler::handel::partitioning::PeerIx;
 use crate::protocol_handler::handel::Weighted;
@@ -139,6 +139,12 @@ impl VerifiableAgainst<()> for PreCommitments {
     fn verify(&self, _: &()) -> bool {
         true
     }
+    fn verify_part(self, _: &()) -> PVResult<Self> {
+        PVResult::Valid {
+            contribution: self,
+            partially: false,
+        }
+    }
 }
 
 pub struct CommitmentsVerifInput {
@@ -182,6 +188,32 @@ impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
                 false
             }
         })
+    }
+    fn verify_part(self, public_data: &CommitmentsVerifInput) -> PVResult<Self> {
+        let contrib_len = self.0.len();
+        let mut aggr = HashMap::new();
+        let mut missing_parts = 0;
+        for (i, (commitment, sig)) in self.0 {
+            if let Some(pre_commitment) = public_data.pre_commitments.0.get(&i) {
+                let vk = VerifyingKey::from(commitment.clone());
+                let verified = *pre_commitment == blake2b256_hash(&*commitment.as_bytes())
+                    && vk.verify(&public_data.message_digest_bytes, &sig.0).is_ok();
+                if !verified {
+                    return PVResult::Invalid;
+                }
+                aggr.insert(i, (commitment, sig));
+            } else {
+                missing_parts += 1;
+            }
+            if missing_parts * 2 > contrib_len {
+                // More than 50% of aggregate is invalid.
+                return PVResult::Invalid;
+            }
+        }
+        PVResult::Valid {
+            contribution: Contributions(aggr),
+            partially: missing_parts > 0,
+        }
     }
 }
 
@@ -237,6 +269,32 @@ impl VerifiableAgainst<ResponsesVerifInput> for Responses {
                 })
                 .unwrap_or(false)
         })
+    }
+    fn verify_part(self, public_data: &ResponsesVerifInput) -> PVResult<Self> {
+        let c = &public_data.challenge;
+        let contrib_len = self.0.len();
+        let mut aggr = HashMap::new();
+        let mut missing_parts = 0;
+        for (k, zi) in self.0 {
+            if let Some(input) = public_data.inputs.get(&k) {
+                let ai = &input.individual_input.into();
+                let verified = verify_response(&zi, ai, c, input.commitment.clone(), input.pk.clone());
+                if !verified {
+                    return PVResult::Invalid;
+                }
+                aggr.insert(k, zi);
+            } else {
+                missing_parts += 1;
+            }
+            if missing_parts * 2 > contrib_len {
+                // More than 50% of aggregate is invalid.
+                return PVResult::Invalid;
+            }
+        }
+        PVResult::Valid {
+            contribution: Contributions(aggr),
+            partially: missing_parts > 0,
+        }
     }
 }
 

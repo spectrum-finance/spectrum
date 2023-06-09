@@ -10,10 +10,10 @@ use async_std::task::sleep;
 use either::{Either, Left, Right};
 use futures::FutureExt;
 use libp2p::PeerId;
+use log::trace;
 
 use algebra_core::CommutativePartialSemigroup;
-use log::trace;
-use spectrum_crypto::VerifiableAgainst;
+use spectrum_crypto::{PVResult, VerifiableAgainst};
 
 use crate::protocol_handler::handel::message::HandelMessage;
 use crate::protocol_handler::handel::partitioning::{PeerIx, PeerOrd, PeerPartitions};
@@ -263,28 +263,41 @@ where
                 }
             }
             // Verify aggregate contributions
-            for sc in scored_contributions.into_iter() {
-                if sc.contribution.verify(&self.public_data) {
-                    let Verified(best_contrib) = &lvl.best_contribution;
-                    if sc.score > best_contrib.score {
-                        trace!(
-                            "{:?} set NEW best contribution score: {}",
-                            self.own_peer_ix,
-                            sc.score
-                        );
-                        lvl.best_contribution = Verified(sc.into());
+            for ScoredContributionTraced {
+                score,
+                sender_id,
+                contribution,
+            } in scored_contributions.into_iter()
+            {
+                match contribution.verify_part(&self.public_data) {
+                    PVResult::Invalid => {
+                        // Ban peer, shrink scoring window.
+                        trace!("[Handel] run_aggr: {:?} BANNED", sender_id);
+                        self.byzantine_nodes.insert(sender_id);
+                        let shrinked_window = self
+                            .scoring_window
+                            .saturating_div(self.conf.window_shrinking_factor);
+                        self.scoring_window = max(shrinked_window, 1);
                     }
-                    self.scoring_window = self
-                        .scoring_window
-                        .saturating_mul(self.conf.window_shrinking_factor);
-                } else {
-                    // Ban peer, shrink scoring window.
-                    trace!("[Handel] run_aggr: {:?} BANNED", sc.sender_id);
-                    self.byzantine_nodes.insert(sc.sender_id);
-                    let shrinked_window = self
-                        .scoring_window
-                        .saturating_div(self.conf.window_shrinking_factor);
-                    self.scoring_window = max(shrinked_window, 1);
+                    PVResult::Valid {
+                        contribution,
+                        partially,
+                    } => {
+                        // Recalculate score if needed.
+                        let updated_score = if partially { contribution.weight() } else { score };
+                        let Verified(best_contrib) = &lvl.best_contribution;
+                        if updated_score > best_contrib.score {
+                            trace!(
+                                "{:?} set NEW best contribution score: {}",
+                                self.own_peer_ix,
+                                updated_score
+                            );
+                            lvl.best_contribution = Verified(ScoredContribution { score, contribution });
+                        }
+                        self.scoring_window = self
+                            .scoring_window
+                            .saturating_mul(self.conf.window_shrinking_factor);
+                    }
                 }
             }
             let Verified(best_contrib) = &lvl.best_contribution;
@@ -730,7 +743,7 @@ mod tests {
     use libp2p::{Multiaddr, PeerId};
 
     use algebra_core::CommutativePartialSemigroup;
-    use spectrum_crypto::VerifiableAgainst;
+    use spectrum_crypto::{PVResult, VerifiableAgainst};
 
     use crate::protocol_handler::handel::partitioning::tests::FakePartitions;
     use crate::protocol_handler::handel::partitioning::{
@@ -757,6 +770,9 @@ mod tests {
     impl VerifiableAgainst<()> for Contrib {
         fn verify(&self, proposition: &()) -> bool {
             true
+        }
+        fn verify_part(self, public_data: &()) -> PVResult<Self> {
+            PVResult::Valid(self)
         }
     }
 
