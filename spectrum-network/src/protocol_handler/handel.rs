@@ -284,15 +284,18 @@ where
                         partially,
                     } => {
                         // Recalculate score if needed.
-                        let updated_score = if partially { contribution.weight() } else { score };
+                        let score = if partially { contribution.weight() } else { score };
                         let Verified(best_contrib) = &lvl.best_contribution;
-                        if updated_score > best_contrib.score {
+                        if score > best_contrib.score {
                             trace!(
                                 "{:?} set NEW best contribution score: {}",
                                 self.own_peer_ix,
-                                updated_score
+                                score
                             );
-                            lvl.best_contribution = Verified(ScoredContribution { score, contribution });
+                            lvl.best_contribution = Verified(ScoredContribution {
+                                score,
+                                contribution,
+                            });
                         }
                         self.scoring_window = self
                             .scoring_window
