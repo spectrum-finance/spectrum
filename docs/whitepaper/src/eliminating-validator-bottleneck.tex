@@ -73,23 +73,7 @@ As a result, the syncing Shards flow looks as follows:
     $i$-th committee \emph{Local leader} receives $R_d$ reward shared with the \emph{Relayer}.
 \end{itemize}
 
-\subsubsection{Optimization of the batch sharing process}
-
-Relayers become a new bottleneck of the above scheme.
-To improve the transaction propagation scheme, we assume using the scheme proposed by ~\cite{danezis2022narwhal}.
-Authors propose to separating the task of transaction dissemination from the transactions ordering.
-Block producing consists of a several mempool rounds where validators continuously propagate batches of\
-transactions and validate them forming a Directed Acyclic Graph (DAG) structure of certificates.
-As a result, the DAG-structure contains all the information necessary to reach the consensus, and each participant\
-can locally form a block without additional communication.
-Also, mempool throughput increases linearly with the number of resources each validator has while the latency\
-does not suffer.
-
-In our case, members of different committees share notarized batches of updates, which will be the vertices of the\
-DAG-graph structure and the sync process will be asynchronous and will not require to stop the batch notarization\
-process for the next blocks.
-
-\subsubsection{Forks and integrity}\label{subsec:resolving-forks}
+\subsubsection{Forks and integrity}\label{subsubsec:resolving-forks}
 
 Protocol flow implies that any of the local leaders can append their blocks to $L^+$, which leads to forks.
 This type of forks is a normal part of the protocol lifecycle, however, total possible number of the normal forks in\
