@@ -20,6 +20,8 @@ use spectrum_crypto::pubkey::PublicKey;
 use spectrum_network::protocol::{OneShotProtocolConfig, OneShotProtocolSpec, ProtocolConfig};
 use spectrum_network::protocol_api::ProtocolEvent;
 use spectrum_network::protocol_handler::aggregation::AggregationAction;
+use spectrum_network::protocol_handler::handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
+use spectrum_network::protocol_handler::handel::Threshold;
 use spectrum_network::types::{ProtocolTag, RawMessage};
 use spectrum_network::{
     network_controller::{NetworkController, NetworkControllerIn, NetworkControllerOut, NetworkMailbox},
@@ -970,9 +972,16 @@ async fn create_swarm<P>(
 
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
 #[tokio::test]
-async fn sigma_aggregation_normal() {
+async fn sigma_aggregation_byzantine() {
     //init_logging_once_for(vec![], LevelFilter::Debug, None);
-    let mut peers = aggregation::setup_nodes(8);
+    let byzantine_nodes = vec![
+        PeerIx::from(0),
+        PeerIx::from(15),
+        PeerIx::from(12),
+        PeerIx::from(7),
+    ];
+
+    let (peers, partitioner) = aggregation::setup_nodes(16, Threshold { num: 12, denom: 16 });
     let md = blake2b256_hash(b"foo");
     let committee: HashMap<PublicKey, Option<Multiaddr>> = peers
         .iter()
@@ -982,13 +991,56 @@ async fn sigma_aggregation_normal() {
              }| ((*peer_pk).into(), Some(peer_addr.clone())),
         )
         .collect();
+    let peers_and_addr: Vec<_> = committee
+        .iter()
+        .map(|(pk, addr)| (PeerId::from(pk.clone()), addr.clone()))
+        .collect();
+
+    let mut aggr_handler_mailboxes = vec![];
+    let mut abort_handles = vec![];
+    for (node_ix, mut peer) in peers.into_iter().enumerate() {
+        let peer_key = identity::Keypair::from(identity::secp256k1::Keypair::from(
+            aggregation::k256_to_libsecp256k1(peer.peer_sk.clone()),
+        ));
+        let (abortable_peer, handle) = futures::future::abortable(aggregation::create_swarm(
+            peer_key.clone(),
+            peer.nc,
+            peer.peer_addr.clone(),
+            node_ix,
+        ));
+
+        let pk: PublicKey = peer.peer_pk.into();
+        let host_pid = PeerId::from(pk);
+        let partitions = partitioner.make(host_pid, peers_and_addr.clone());
+        let host_ix = partitions.try_index_peer(host_pid).unwrap();
+
+        if byzantine_nodes.contains(&host_ix) {
+            println!(
+                "PEER:{} IS BYZANTINE ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+                node_ix
+            );
+        } else {
+            abort_handles.push(handle);
+            aggr_handler_mailboxes.push(peer.aggr_handler_mailbox);
+            tokio::task::spawn(async move {
+                println!("PEER:{} :: spawning protocol handler..", node_ix);
+                loop {
+                    peer.aggr_handler.select_next_some().await;
+                }
+            });
+            tokio::task::spawn(async move {
+                println!("PEER:{} :: spawning peer..", node_ix);
+                abortable_peer.await
+            });
+        }
+    }
 
     wasm_timer::Delay::new(Duration::from_millis(100)).await.unwrap();
     let mut result_futures = Vec::new();
-    for peer in peers.iter_mut() {
+    for aggr_handler_mailbox in aggr_handler_mailboxes {
         let (snd, recv) = oneshot::channel();
         result_futures.push(recv);
-        async_std::task::block_on(peer.aggr_handler_mailbox.clone().send(AggregationAction::Reset {
+        async_std::task::block_on(aggr_handler_mailbox.clone().send(AggregationAction::Reset {
             new_committee: committee.clone(),
             new_message: md,
             channel: snd,
@@ -998,23 +1050,35 @@ async fn sigma_aggregation_normal() {
 
     let started_at = Instant::now();
 
+    let num_finished = std::sync::Arc::new(futures::lock::Mutex::new(0));
     for (ix, fut) in result_futures.into_iter().enumerate() {
+        let num_finished = num_finished.clone();
         async_std::task::spawn(async move {
             let res = fut.await;
             let finished_at = Instant::now();
             let elapsed = finished_at.sub(started_at);
             match res {
-                Ok(_) => println!("PEER:{} :: Finished aggr in {} millis", ix, elapsed.as_millis()),
+                Ok(_) => {
+                    *num_finished.lock().await += 1;
+                    println!("PEER:{} :: Finished aggr in {} millis", ix, elapsed.as_millis())
+                }
                 Err(_) => println!("PEER:{} :: Failed aggr in {} millis", ix, elapsed.as_millis()),
             }
         });
     }
 
-    wasm_timer::Delay::new(Duration::from_secs(2)).await.unwrap();
+    wasm_timer::Delay::new(Duration::from_secs(10)).await.unwrap();
 
-    for peer in &peers {
-        peer.peer_handle.abort();
+    for abort_handle in abort_handles {
+        abort_handle.abort();
     }
+
+    let num_finished = *num_finished.lock().await;
+    println!(
+        "num_finished aggr: {}, {}%",
+        num_finished,
+        (num_finished as f64) / (16.0) * 100.0
+    );
 }
 
 fn make_swarm_components<P, F>(

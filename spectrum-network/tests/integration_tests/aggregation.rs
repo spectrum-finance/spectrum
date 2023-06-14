@@ -27,27 +27,25 @@ use spectrum_network::protocol::{
 use spectrum_network::protocol_api::ProtocolMailbox;
 use spectrum_network::protocol_handler::aggregation::AggregationAction;
 use spectrum_network::protocol_handler::handel::partitioning::{
-    MakeBinomialPeerPartitions, PseudoRandomGenPerm,
+    MakeBinomialPeerPartitions, PeerIx, PseudoRandomGenPerm,
 };
 use spectrum_network::protocol_handler::handel::{HandelConfig, Threshold};
-use spectrum_network::protocol_handler::sigma_aggregation::{SigmaAggregation};
+use spectrum_network::protocol_handler::sigma_aggregation::SigmaAggregation;
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::{ProtocolVer, Reputation};
-
-pub struct Peer {
-    pub peer_id: PeerId,
-    pub peer_addr: Multiaddr,
-    pub peer_pk: k256::PublicKey,
-    pub peer_handle: AbortHandle,
-    pub aggr_handler_mailbox: Sender<AggregationAction<Blake2b>>,
-}
 
 pub fn k256_to_libsecp256k1(secret_key: SecretKey) -> identity::secp256k1::SecretKey {
     identity::secp256k1::SecretKey::try_from_bytes(secret_key.to_bytes().as_mut_slice()).unwrap()
 }
 
-pub fn setup_nodes(n: usize) -> Vec<Peer> {
+pub fn setup_nodes<'de>(
+    n: usize,
+    threshold: Threshold,
+) -> (Vec<Peer<'de>>, MakeBinomialPeerPartitions<PseudoRandomGenPerm>) {
     let mut rng = OsRng;
+    let seed = [0_u8; 32];
+    let gen_perm = PseudoRandomGenPerm::new(seed);
+    let gen_perm_cloned = gen_perm.clone();
     let mut spawn_node = move |node_ix| {
         let peer_sk = SecretKey::random(&mut rng);
         let peer_key = identity::Keypair::from(identity::secp256k1::Keypair::from(k256_to_libsecp256k1(
@@ -95,16 +93,14 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
             peer_manager_msg_buffer_size: 1000,
         };
         let handel_conf = HandelConfig {
-            threshold: Threshold { num: 8, denom: 8 },
+            threshold,
             window_shrinking_factor: 4,
             initial_scoring_window: 3,
             fast_path_window: 10,
             dissemination_interval: Duration::from_millis(40),
             level_activation_delay: Duration::from_millis(50),
-            poll_fn_delay: Duration::from_millis(5),
+            poll_fn_delay: Duration::from_millis(2),
         };
-        let seed = [0_u8; 32];
-        let gen_perm = PseudoRandomGenPerm::new(seed);
         let (aggr_handler_snd, aggr_handler_inbox) = mpsc::channel::<AggregationAction<Blake2b>>(100);
         let sig_aggr = SigmaAggregation::new(
             peer_sk.clone(),
@@ -120,42 +116,53 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
         let network_api = NetworkMailbox {
             mailbox_snd: requests_snd,
         };
-        let (mut aggr_handler, aggr_mailbox) = ProtocolHandler::new(sig_aggr, network_api, SIGMA_AGGR_PROTOCOL_ID, 10);
-        let nc = NetworkController::new(
-            peer_conn_handler_conf,
-            HashMap::from([(
-                SIGMA_AGGR_PROTOCOL_ID,
-                (ProtocolConfig::OneShot(one_shot_proto_conf.clone()), aggr_mailbox),
-            )]),
-            peers,
-            peer_manager,
-            requests_recv,
-        );
-        let (abortable_peer, handle) =
-            futures::future::abortable(create_swarm(peer_key.clone(), nc, peer_addr.clone(), node_ix));
-        tokio::task::spawn(async move {
-            println!("PEER:{} :: spawning protocol handler..", node_ix);
-            loop {
-                aggr_handler.select_next_some().await;
-            }
-        });
-        tokio::task::spawn(async move {
-            println!("PEER:{} :: spawning peer..", node_ix);
-            abortable_peer.await
-        });
+        let (aggr_handler, aggr_mailbox): (
+            ProtocolHandler<
+                SigmaAggregation<Blake2b, MakeBinomialPeerPartitions<PseudoRandomGenPerm>>,
+                NetworkMailbox,
+            >,
+            _,
+        ) = ProtocolHandler::new(sig_aggr, network_api, SIGMA_AGGR_PROTOCOL_ID, 10);
+        let nc: NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox> =
+            NetworkController::new(
+                peer_conn_handler_conf,
+                HashMap::from([(
+                    SIGMA_AGGR_PROTOCOL_ID,
+                    (ProtocolConfig::OneShot(one_shot_proto_conf.clone()), aggr_mailbox),
+                )]),
+                peers,
+                peer_manager,
+                requests_recv,
+            );
         Peer {
             peer_id,
             peer_addr,
             peer_pk: peer_sk.public_key(),
-            peer_handle: handle,
+            peer_sk,
             aggr_handler_mailbox: aggr_handler_snd,
+            aggr_handler,
+            nc,
         }
     };
     let mut nodes = vec![];
     for i in 0..n {
         nodes.push(spawn_node(i));
     }
-    nodes
+    (nodes, MakeBinomialPeerPartitions { rng: gen_perm_cloned })
+}
+
+pub struct Peer<'de> {
+    pub peer_id: PeerId,
+    pub peer_addr: Multiaddr,
+    pub peer_pk: k256::PublicKey,
+    pub peer_sk: SecretKey,
+    pub aggr_handler_mailbox: Sender<AggregationAction<Blake2b>>,
+    pub aggr_handler: ProtocolHandler<
+        'de,
+        SigmaAggregation<'de, Blake2b, MakeBinomialPeerPartitions<PseudoRandomGenPerm>>,
+        NetworkMailbox,
+    >,
+    pub nc: NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>,
 }
 
 pub async fn create_swarm(

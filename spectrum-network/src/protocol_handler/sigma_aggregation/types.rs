@@ -7,6 +7,7 @@ use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::schnorr::signature::*;
 use k256::schnorr::VerifyingKey;
 use k256::{ProjectivePoint, Scalar, SecretKey};
+use log::trace;
 use serde::{Deserialize, Serialize};
 
 use algebra_core::CommutativePartialSemigroup;
@@ -254,6 +255,11 @@ impl VerifiableAgainst<ResponsesVerifInput> for Responses {
                 let verified = verify_response(&zi, ai, c, input.commitment.clone(), input.pk.clone());
                 if verified {
                     aggr.insert(k, zi);
+                } else {
+                    trace!(
+                        "Failed to verify contribution from {:?} **************************8",
+                        k
+                    );
                 }
             } else {
                 missing_parts += 1;

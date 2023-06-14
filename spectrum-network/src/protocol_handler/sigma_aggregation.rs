@@ -33,6 +33,8 @@ use crate::protocol_handler::void::VoidMessage;
 use crate::protocol_handler::ProtocolBehaviour;
 use crate::protocol_handler::ProtocolBehaviourOut;
 
+use super::handel::Threshold;
+
 mod crypto;
 mod message;
 pub mod types;
@@ -119,12 +121,13 @@ where
     fn complete(
         self,
         pre_commitments: PreCommitments,
-        handel_conf: HandelConfig,
+        mut handel_conf: HandelConfig,
     ) -> AggregateSchnorrCommitments<'a, H, PP> {
         let verif_input = CommitmentsVerifInput {
             pre_commitments,
             message_digest_bytes: self.message_digest.as_ref().to_vec(),
         };
+        handel_conf.threshold = Threshold { num: 2, denom: 3 };
         AggregateSchnorrCommitments {
             host_sk: self.host_sk,
             host_ix: self.host_ix,
@@ -172,7 +175,7 @@ where
     fn complete(
         self,
         commitments_with_proofs: CommitmentsWithProofs,
-        handel_conf: HandelConfig,
+        mut handel_conf: HandelConfig,
     ) -> AggregateResponses<'a, H, PP> {
         // Need to ensure stable ordering for committee and individual inputs. Just sort by PeerIx.
         let mut committee = self.committee.clone().into_iter().collect::<Vec<_>>();
@@ -205,6 +208,7 @@ where
             self.individual_inputs.clone(),
             challenge,
         );
+        handel_conf.threshold = Threshold { num: 2, denom: 3 };
         AggregateResponses {
             host_sk: self.host_sk,
             host_ix: self.host_ix,
@@ -423,6 +427,19 @@ where
                                 continue;
                             }
                             Either::Right(pre_commitments) => {
+                                let mut missing_peers: Vec<_> = (0_usize..16).collect();
+                                let peers = pre_commitments
+                                    .entries()
+                                    .into_iter()
+                                    .map(|(key, _)| key.unwrap())
+                                    .collect::<Vec<_>>();
+                                for i in peers {
+                                    if let Some(ix) = missing_peers.iter().position(|j| *j == i) {
+                                        missing_peers.remove(ix);
+                                    }
+                                }
+                                missing_peers.sort();
+                                println!("{:?}: PreComm missing: {:?}", st.host_ix, missing_peers);
                                 let host_ix = st.host_ix;
                                 self.task = Some(AggregationTask {
                                     state: AggregationState::AggregateSchnorrCommitments(
@@ -459,6 +476,19 @@ where
 
                             Either::Right(commitments) => {
                                 trace!("[SA] Got commitments");
+                                let mut missing_peers: Vec<_> = (0_usize..16).collect();
+                                let peers = commitments
+                                    .entries()
+                                    .into_iter()
+                                    .map(|(key, _)| key.unwrap())
+                                    .collect::<Vec<_>>();
+                                for i in peers {
+                                    if let Some(ix) = missing_peers.iter().position(|j| *j == i) {
+                                        missing_peers.remove(ix);
+                                    }
+                                }
+                                missing_peers.sort();
+                                println!("{:?}: Comm missing: {:?}", st.host_ix, missing_peers);
                                 self.task = Some(AggregationTask {
                                     state: AggregationState::AggregateResponses(
                                         st.complete(commitments, self.handel_conf),
@@ -493,9 +523,10 @@ where
                                 }
                                 Either::Right(responses) => {
                                     self.task = None;
+                                    let host_ix = st.host_ix;
                                     let res = st.complete(responses);
                                     // todo: support error case.
-                                    trace!("[SA] Got responses: {:?}", res);
+                                    trace!("{:?}: [SA] Got responses: {:?}", host_ix, res);
                                     if channel.send(Ok(res)).is_err() {
                                         // warn here.
                                     }

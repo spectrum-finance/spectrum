@@ -217,7 +217,7 @@ where
                         PVResult::Invalid => {
                             // Ban peer, shrink scoring window, skip scoring and
                             // verification of aggregate contribution from this peer.
-                            trace!("[Handel] run_aggr: {:?} BANNED", c.sender_id);
+                            trace!("[Handel] run_aggr(indiv): {:?} BANNED", c.sender_id);
                             self.byzantine_nodes.insert(c.sender_id);
                             let shrinked_window = self
                                 .scoring_window
@@ -238,7 +238,8 @@ where
                     Some(aggr) => {
                         let score = aggr.weight();
                         trace!(
-                            "{:?} successful contribution (weight: {} ",
+                            "{:?} successful contribution {:?} (weight: {} ",
+                            aggr,
                             self.own_peer_ix,
                             score
                         );
@@ -275,7 +276,7 @@ where
                 match contribution.verify(&self.public_data) {
                     PVResult::Invalid => {
                         // Ban peer, shrink scoring window.
-                        trace!("[Handel] run_aggr: {:?} BANNED", sender_id);
+                        trace!("[Handel] run_aggr (aggr): {:?} BANNED", sender_id);
                         self.byzantine_nodes.insert(sender_id);
                         let shrinked_window = self
                             .scoring_window
@@ -287,13 +288,15 @@ where
                         partially,
                     } => {
                         // Recalculate score if needed.
-                        let score = if partially { contribution.weight() } else { score };
+                        let score = contribution.weight();
                         let Verified(best_contrib) = &lvl.best_contribution;
                         if score > best_contrib.score {
                             trace!(
-                                "{:?} set NEW best contribution score: {}",
+                                "{:?}: set NEW best contribution {:?}, score: {}, partially: {}",
                                 self.own_peer_ix,
-                                score
+                                contribution,
+                                score,
+                                partially
                             );
                             lvl.best_contribution = Verified(ScoredContribution { score, contribution });
                         }
@@ -304,9 +307,17 @@ where
                 }
             }
             let Verified(best_contrib) = &lvl.best_contribution;
+            let score = best_contrib.contribution.weight();
+            let best_contrib = best_contrib.clone();
             if is_complete(&best_contrib.contribution, level, self.conf.threshold) {
                 lvl.completed();
-                trace!("{:?}: RFP @ level {}", self.own_peer_ix, level);
+                trace!(
+                    "{:?}: RFP @ level {}, contribution: {:?}, score: {}",
+                    self.own_peer_ix,
+                    level,
+                    best_contrib,
+                    score,
+                );
                 self.run_fast_path(level);
                 self.try_activate_level(level + 1);
             }
@@ -321,6 +332,7 @@ where
                     let peers_at_level = self.peer_partitions.peers_at_level(level, PeerOrd::VP);
                     if peers_at_level.is_empty() {
                         // This level is empty, skip it
+                        trace!("Level {} is empty! peers_at_level(VP): {:?}******************************************************", level, peers_at_level);
                         self.levels[level] = Some(ActiveLevel::unit(prev_level.best_contribution.clone()));
                         self.try_activate_level(level + 1);
                     } else {
@@ -667,10 +679,11 @@ where
             .is_ok()
         {
             trace!(
-                "[Handel] {:?}: contribution from {:?} @ level {}",
+                "[Handel] {:?}: contribution from {:?} @ level {}, receiver_level_complete: {}",
                 self.own_peer_ix,
                 self.peer_partitions.try_index_peer(peer_id).unwrap(),
-                msg.level
+                msg.level,
+                !msg.contact_sender,
             );
             self.run_aggregation(msg.level as usize);
         }
@@ -746,6 +759,7 @@ mod tests {
     use libp2p::{Multiaddr, PeerId};
 
     use algebra_core::CommutativePartialSemigroup;
+    use log::trace;
     use spectrum_crypto::{PVResult, VerifiableAgainst};
 
     use crate::protocol_handler::handel::partitioning::tests::FakePartitions;
@@ -917,7 +931,7 @@ mod tests {
             let handel = make_handel(own_peer, peers.clone(), my_contrib.clone());
 
             let own_peer_ix = handel.peer_partitions.try_index_peer(own_peer).unwrap();
-            println!("Partition for {:?}------------------------", own_peer_ix);
+            trace!("Partition for {:?}------------------------", own_peer_ix);
             for level in 0..handel.peer_partitions.num_levels() {
                 dbg!((level, &handel.peer_partitions.peers_at_level(level, PeerOrd::VP)));
             }
@@ -928,7 +942,7 @@ mod tests {
         let mut num_messages_sent = 0;
         // run dissemination
         loop {
-            println!("PASS {} ****************************************", counter);
+            trace!("PASS {} ****************************************", counter);
             let mut messages = vec![];
             for i in 0..nodes.len() {
                 let (from_peer_id, handel) = nodes.get_mut(i).unwrap();
@@ -974,9 +988,9 @@ mod tests {
 
         for (_, handel) in nodes {
             let result = handel.get_complete_aggregate().unwrap();
-            println!("{:?} contribution: {:?}", handel.own_peer_ix, result);
+            trace!("{:?} contribution: {:?}", handel.own_peer_ix, result);
         }
 
-        println!("PASSED. # messages sent: {}", num_messages_sent);
+        trace!("PASSED. # messages sent: {}", num_messages_sent);
     }
 }
