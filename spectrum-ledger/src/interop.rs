@@ -1,11 +1,11 @@
-use spectrum_crypto::digest::Blake2bDigest256;
+use nonempty::NonEmpty;
+
+use spectrum_crypto::digest::{Blake2bDigest256, Digest256};
 use spectrum_move::{SerializedModule, SerializedValue};
 
+use crate::block::BlockId;
 use crate::sbox::{BoxDestination, BoxId, DatumHash, Owner, SValue};
 use crate::ChainId;
-
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct InteropHeight(u64);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PeriferalId(Blake2bDigest256);
@@ -31,20 +31,57 @@ pub struct InboundBox {
     pub reference_datum: Option<SerializedValue>,
 }
 
-// Proof that local interop committee approved outbound value transfer.
-pub struct OutboundCert();
+// Bundled outbound transactions
+pub struct CertBundle(NonEmpty<[u8; 32]>);
 
-/// Events coming from external system.
-pub enum InteropEvent {
+pub struct IBlockCert();
+
+pub struct IEffDigest(Blake2bDigest256);
+
+/// State transitions coming from external system.
+pub enum IEffect {
     /// Value incoming from external system.
     InboundCreated(InboundBox),
     /// Certification of outbound value transfer.
-    OutboundCertified(OutboundCert),
+    OutboundCertified(CertBundle),
     /// Elimination of local box in result of outbound transaction.
     Eliminated(BoxId),
 }
 
-pub struct InteropBlock {
-    pub height: InteropHeight,
-    pub events: Vec<InteropEvent>,
+pub struct IBlockCandidate {
+    pub id: IBlockId,
+    pub height: u64,
+    pub effects: Vec<IEffDigest>,
+}
+
+pub struct IBlock {
+    pub id: IBlockId,
+    pub height: u64,
+    pub cert: IBlockCert,
+    pub effects: Vec<IEffect>,
+}
+
+pub struct IBlockPtr {
+    pub id: IBlockId,
+    pub block_id: BlockId,
+}
+
+#[derive(
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Hash,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    derive_more::From,
+    derive_more::Into,
+)]
+pub struct IBlockId(Blake2bDigest256);
+
+/// A cell which can either contain `IBlock` itself ot a ppointer to it.
+pub enum IBlockCell {
+    Fresh(IBlock),
+    Moved(IBlockPtr),
 }
