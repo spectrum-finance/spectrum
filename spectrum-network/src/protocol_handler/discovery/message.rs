@@ -52,7 +52,7 @@ impl DiscoverySpec {
     }
 }
 
-impl<'de> ProtocolSpec<'de> for DiscoverySpec {
+impl ProtocolSpec for DiscoverySpec {
     type THandshake = DiscoveryHandshake;
     type TMessage = DiscoveryMessage;
 }

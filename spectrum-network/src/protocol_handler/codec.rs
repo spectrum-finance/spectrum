@@ -9,7 +9,7 @@ pub fn encode<T: Serialize>(obj: T) -> RawMessage {
     RawMessage::from(encoded)
 }
 
-pub fn decode<'de, T: Deserialize<'de>>(msg: RawMessage) -> Result<T, Error<std::io::Error>> {
+pub fn decode<T: for<'de> Deserialize<'de>>(msg: RawMessage) -> Result<T, Error<std::io::Error>> {
     let bf: Vec<u8> = msg.into();
     ciborium::de::from_reader(&bf[..])
 }
