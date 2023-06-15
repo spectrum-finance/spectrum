@@ -969,6 +969,11 @@ async fn create_swarm<P>(
         }
     }
 }
+//#[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
+//#[tokio::test]
+//async fn gen_docker_files() {
+//    aggregation::generate_peer_info_files(64);
+//}
 
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
 #[tokio::test]
