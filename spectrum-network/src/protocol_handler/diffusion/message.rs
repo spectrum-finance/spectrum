@@ -88,7 +88,7 @@ impl DiffusionSpec {
     }
 }
 
-impl<'de> ProtocolSpec<'de> for DiffusionSpec {
+impl ProtocolSpec for DiffusionSpec {
     type THandshake = DiffusionHandshake;
     type TMessage = DiffusionMessage;
 }

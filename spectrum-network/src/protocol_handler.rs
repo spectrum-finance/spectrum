@@ -114,15 +114,15 @@ pub enum ProtocolHandlerError {
     MalformedMessage(RawMessage),
 }
 
-pub trait ProtocolSpec<'de> {
-    type THandshake: serde::Serialize + serde::Deserialize<'de> + Versioned + Send;
-    type TMessage: serde::Serialize + serde::Deserialize<'de> + Versioned + Debug + Send + Clone;
+pub trait ProtocolSpec {
+    type THandshake: serde::Serialize + for<'de> serde::Deserialize<'de> + Versioned + Send;
+    type TMessage: serde::Serialize + for<'de> serde::Deserialize<'de> + Versioned + Debug + Send + Clone;
 }
 
-impl<'de, L, R> ProtocolSpec<'de> for Either<L, R>
+impl<L, R> ProtocolSpec for Either<L, R>
 where
-    L: ProtocolSpec<'de>,
-    R: ProtocolSpec<'de>,
+    L: ProtocolSpec,
+    R: ProtocolSpec,
 {
     type THandshake = Either<L::THandshake, R::THandshake>;
     type TMessage = Either<L::TMessage, R::TMessage>;
@@ -157,21 +157,21 @@ pub trait TemporalProtocolStage<THandshake, TMessage, TOut> {
     ) -> Poll<Either<ProtocolBehaviourOut<THandshake, TMessage>, TOut>>;
 }
 
-pub trait ProtocolBehaviour<'de> {
+pub trait ProtocolBehaviour {
     /// Protocol specification.
-    type TProto: ProtocolSpec<'de>;
+    type TProto: ProtocolSpec;
 
     /// Inject an event that we have established a conn with a peer.
     fn inject_peer_connected(&mut self, peer_id: PeerId) {}
 
     /// Inject a new message coming from a peer.
-    fn inject_message(&mut self, peer_id: PeerId, content: <Self::TProto as ProtocolSpec<'de>>::TMessage) {}
+    fn inject_message(&mut self, peer_id: PeerId, content: <Self::TProto as ProtocolSpec>::TMessage) {}
 
     /// Inject protocol request coming from a peer.
     fn inject_protocol_requested(
         &mut self,
         peer_id: PeerId,
-        handshake: Option<<Self::TProto as ProtocolSpec<'de>>::THandshake>,
+        handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
     ) {
     }
 
@@ -182,7 +182,7 @@ pub trait ProtocolBehaviour<'de> {
     fn inject_protocol_enabled(
         &mut self,
         peer_id: PeerId,
-        handshake: Option<<Self::TProto as ProtocolSpec<'de>>::THandshake>,
+        handshake: Option<<Self::TProto as ProtocolSpec>::THandshake>,
     ) {
     }
 
@@ -196,35 +196,35 @@ pub trait ProtocolBehaviour<'de> {
     ) -> Poll<
         Option<
             ProtocolBehaviourOut<
-                <Self::TProto as ProtocolSpec<'de>>::THandshake,
-                <Self::TProto as ProtocolSpec<'de>>::TMessage,
+                <Self::TProto as ProtocolSpec>::THandshake,
+                <Self::TProto as ProtocolSpec>::TMessage,
             >,
         >,
     >;
 }
 
-pub struct BehaviourStream<'de, T, P>(T, PhantomData<&'de P>);
+pub struct BehaviourStream<T, P>(T, PhantomData<P>);
 
-impl<'de, T, P> BehaviourStream<'de, T, P> {
+impl<T, P> BehaviourStream<T, P> {
     pub fn new(behaviour: T) -> Self {
         Self(behaviour, PhantomData)
     }
 }
 
-impl<'de, T, P> Unpin for BehaviourStream<'de, T, P>
+impl<T, P> Unpin for BehaviourStream<T, P>
 where
-    P: ProtocolSpec<'de>,
-    T: ProtocolBehaviour<'de, TProto = P>,
+    P: ProtocolSpec,
+    T: ProtocolBehaviour<TProto = P>,
 {
 }
 
-impl<'de, T, P> Stream for BehaviourStream<'de, T, P>
+impl<T, P> Stream for BehaviourStream<T, P>
 where
-    P: ProtocolSpec<'de>,
-    T: ProtocolBehaviour<'de, TProto = P>,
+    P: ProtocolSpec,
+    T: ProtocolBehaviour<TProto = P>,
 {
     type Item =
-        ProtocolBehaviourOut<<P as ProtocolSpec<'de>>::THandshake, <P as ProtocolSpec<'de>>::TMessage>;
+        ProtocolBehaviourOut<<P as ProtocolSpec>::THandshake, <P as ProtocolSpec>::TMessage>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = &mut *self;
@@ -232,10 +232,10 @@ where
     }
 }
 
-impl<'de, T, P> FusedStream for BehaviourStream<'de, T, P>
+impl<T, P> FusedStream for BehaviourStream<T, P>
 where
-    P: ProtocolSpec<'de>,
-    T: ProtocolBehaviour<'de, TProto = P>,
+    P: ProtocolSpec,
+    T: ProtocolBehaviour<TProto = P>,
 {
     fn is_terminated(&self) -> bool {
         false
@@ -243,16 +243,15 @@ where
 }
 
 /// A layer that facilitate massage transmission from protocol handlers to peers.
-pub struct ProtocolHandler<'de, TBehaviour, TNetwork> {
+pub struct ProtocolHandler<TBehaviour, TNetwork> {
     peers: HashMap<PeerId, MessageSink>,
     inbox: Receiver<ProtocolEvent>,
     pub protocol: ProtocolId,
     behaviour: TBehaviour,
     network: TNetwork,
-    pd: PhantomData<&'de Void>,
 }
 
-impl<'de, TBehaviour, TNetwork> ProtocolHandler<'de, TBehaviour, TNetwork> {
+impl<TBehaviour, TNetwork> ProtocolHandler<TBehaviour, TNetwork> {
     pub fn new(
         behaviour: TBehaviour,
         network: TNetwork,
@@ -267,19 +266,18 @@ impl<'de, TBehaviour, TNetwork> ProtocolHandler<'de, TBehaviour, TNetwork> {
             protocol,
             behaviour,
             network,
-            pd: PhantomData::default(),
         };
         (prot_handler, prot_mailbox)
     }
 }
 
-impl<'de, TBehaviour, TNetwork> Stream for ProtocolHandler<'de, TBehaviour, TNetwork>
+impl<TBehaviour, TNetwork> Stream for ProtocolHandler<TBehaviour, TNetwork>
 where
-    TBehaviour: ProtocolBehaviour<'de> + Unpin,
+    TBehaviour: ProtocolBehaviour + Unpin,
     TNetwork: NetworkAPI + Unpin,
 {
     #[cfg(feature = "integration_tests")]
-    type Item = <TBehaviour::TProto as ProtocolSpec<'de>>::TMessage;
+    type Item = <TBehaviour::TProto as ProtocolSpec>::TMessage;
     #[cfg(not(feature = "integration_tests"))]
     type Item = ();
 
@@ -430,7 +428,7 @@ where
 }
 
 /// The stream of protocol events never terminates, so we can implement fused for it.
-impl<'de, TBehaviour, TNetwork> FusedStream for ProtocolHandler<'de, TBehaviour, TNetwork>
+impl<TBehaviour, TNetwork> FusedStream for ProtocolHandler<TBehaviour, TNetwork>
 where
     Self: Stream,
 {

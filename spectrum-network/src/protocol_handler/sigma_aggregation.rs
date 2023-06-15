@@ -322,7 +322,7 @@ where
     }
 }
 
-impl<'a, 'de, H, MPP> ProtocolBehaviour<'de> for SigmaAggregation<'a, H, MPP>
+impl<'a, H, MPP> ProtocolBehaviour for SigmaAggregation<'a, H, MPP>
 where
     H: Debug,
     MPP: MakePeerPartitions + Clone + Send,

@@ -101,7 +101,7 @@ where
     }
 }
 
-impl<'de, TPeers> ProtocolBehaviour<'de> for DiscoveryBehaviour<TPeers>
+impl<TPeers> ProtocolBehaviour for DiscoveryBehaviour<TPeers>
 where
     TPeers: Peers,
 {

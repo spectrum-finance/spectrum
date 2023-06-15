@@ -314,7 +314,7 @@ fn decode_modifier(
     res.map_err(|_| ())
 }
 
-impl<'a, 'de, THistory, TLedgerView> ProtocolBehaviour<'de> for DiffusionBehaviour<'a, THistory, TLedgerView>
+impl<'a, THistory, TLedgerView> ProtocolBehaviour for DiffusionBehaviour<'a, THistory, TLedgerView>
 where
     THistory: HistoryReadAsync + 'a,
     TLedgerView: LedgerViewWriteAsync + 'a,
