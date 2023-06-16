@@ -208,7 +208,7 @@ pub struct IndividualPeerInfo {
 }
 
 /// Used for Docker testing.
-fn generate_peer_info_files(num_nodes: usize) {
+pub fn generate_peer_info_files(num_nodes: usize) {
     let mut rng = OsRng;
     let mut committee = HashMap::default();
     let mut individual_peer_info = vec![];
@@ -229,6 +229,8 @@ fn generate_peer_info_files(num_nodes: usize) {
         individual_peer_info.push(peer_info);
     }
 
+    let mut docker_compose_str = String::from("services:\n");
+
     for (node_ix, info) in individual_peer_info.into_iter().enumerate() {
         let peer_info = PeerInfo {
             peer_id: info.peer_id,
@@ -236,6 +238,18 @@ fn generate_peer_info_files(num_nodes: usize) {
             peer_sk_base_16: info.peer_sk_base_16,
             committee: committee.clone(),
         };
+        docker_compose_str += &format!("  node{}:\n", node_ix);
+        docker_compose_str += "    image: spectrum\n";
+        docker_compose_str += "    volumes:\n";
+        docker_compose_str += "      - type: bind\n";
+        docker_compose_str += "        source: ${PWD}/conf/log4rs.yaml\n";
+        docker_compose_str += "        target: /conf/log4rs.yaml\n";
+        docker_compose_str += "      - type: bind\n";
+        docker_compose_str += &format!("        source: ${{PWD}}/conf/peer_input_{}.yml\n", node_ix);
+        docker_compose_str += "        target: /conf/peer_info.yml\n";
+        docker_compose_str += "    networks:\n";
+        docker_compose_str += "      network:\n";
+        docker_compose_str += &format!("        ipv4_address: 172.18.12.{}\n", node_ix);
         let yaml_string = serde_yaml::to_string(&peer_info).unwrap();
         let mut file = std::fs::File::create(format!("peer_input_{}.yml", node_ix)).unwrap();
         file.write_all(yaml_string.as_bytes()).unwrap();
@@ -243,4 +257,16 @@ fn generate_peer_info_files(num_nodes: usize) {
         // Flush the contents to ensure all data is written
         file.flush().unwrap();
     }
+    docker_compose_str += "networks:\n";
+    docker_compose_str += "  network:\n";
+    docker_compose_str += "    driver: bridge\n";
+    docker_compose_str += "    ipam:\n";
+    docker_compose_str += "      driver: default\n";
+    docker_compose_str += "      config:\n";
+    docker_compose_str += "        - subnet: 172.18.12.0/16\n";
+    let mut file = std::fs::File::create("docker-compose.yml").unwrap();
+    file.write_all(docker_compose_str.as_bytes()).unwrap();
+
+    // Flush the contents to ensure all data is written
+    file.flush().unwrap();
 }
