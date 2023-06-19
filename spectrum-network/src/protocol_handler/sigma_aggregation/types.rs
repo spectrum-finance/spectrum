@@ -7,12 +7,13 @@ use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::schnorr::signature::*;
 use k256::schnorr::VerifyingKey;
 use k256::{ProjectivePoint, Scalar, SecretKey};
+use log::trace;
 use serde::{Deserialize, Serialize};
 
 use algebra_core::CommutativePartialSemigroup;
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::pubkey::PublicKey;
-use spectrum_crypto::VerifiableAgainst;
+use spectrum_crypto::{PVResult, VerifiableAgainst};
 
 use crate::protocol_handler::handel::partitioning::PeerIx;
 use crate::protocol_handler::handel::Weighted;
@@ -136,8 +137,11 @@ impl<C> Weighted for Contributions<C> {
 pub type PreCommitments = Contributions<Blake2bDigest256>;
 
 impl VerifiableAgainst<()> for PreCommitments {
-    fn verify(&self, _: &()) -> bool {
-        true
+    fn verify(self, _: &()) -> PVResult<Self> {
+        PVResult::Valid {
+            contribution: self,
+            partially: false,
+        }
     }
 }
 
@@ -172,16 +176,31 @@ impl From<Signature> for Vec<u8> {
 pub type CommitmentsWithProofs = Contributions<(Commitment, Signature)>;
 
 impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
-    fn verify(&self, public_data: &CommitmentsVerifInput) -> bool {
-        self.0.iter().all(|(i, (commitment, sig))| {
+    fn verify(self, public_data: &CommitmentsVerifInput) -> PVResult<Self> {
+        let contrib_len = self.0.len();
+        let mut aggr = HashMap::new();
+        let mut missing_parts = 0;
+        for (i, (commitment, sig)) in self.0 {
             if let Some(pre_commitment) = public_data.pre_commitments.0.get(&i) {
                 let vk = VerifyingKey::from(commitment.clone());
-                *pre_commitment == blake2b256_hash(&*commitment.as_bytes())
-                    && vk.verify(&public_data.message_digest_bytes, &sig.0).is_ok()
+                let verified = *pre_commitment == blake2b256_hash(&*commitment.as_bytes())
+                    && vk.verify(&public_data.message_digest_bytes, &sig.0).is_ok();
+                if !verified {
+                    return PVResult::Invalid;
+                }
+                aggr.insert(i, (commitment, sig));
             } else {
-                false
+                missing_parts += 1;
             }
-        })
+            if contrib_len > 1 && missing_parts * 2 > contrib_len {
+                // More than 50% of aggregate is invalid.
+                return PVResult::Invalid;
+            }
+        }
+        PVResult::Valid {
+            contribution: Contributions(aggr),
+            partially: missing_parts > 0,
+        }
     }
 }
 
@@ -225,18 +244,35 @@ struct ResponseVerifInput {
 }
 
 impl VerifiableAgainst<ResponsesVerifInput> for Responses {
-    fn verify(&self, public_data: &ResponsesVerifInput) -> bool {
+    fn verify(self, public_data: &ResponsesVerifInput) -> PVResult<Self> {
         let c = &public_data.challenge;
-        self.0.iter().all(|(k, zi)| {
-            public_data
-                .inputs
-                .get(&k)
-                .map(|input| {
-                    let ai = &input.individual_input.into();
-                    verify_response(zi, ai, c, input.commitment.clone(), input.pk.clone())
-                })
-                .unwrap_or(false)
-        })
+        let contrib_len = self.0.len();
+        let mut aggr = HashMap::new();
+        let mut missing_parts = 0;
+        for (k, zi) in self.0 {
+            if let Some(input) = public_data.inputs.get(&k) {
+                let ai = &input.individual_input.into();
+                let verified = verify_response(&zi, ai, c, input.commitment.clone(), input.pk.clone());
+                if verified {
+                    aggr.insert(k, zi);
+                } else {
+                    trace!(
+                        "Failed to verify contribution from {:?} **************************8",
+                        k
+                    );
+                }
+            } else {
+                missing_parts += 1;
+            }
+            if contrib_len > 1 && missing_parts * 2 > contrib_len {
+                // More than 50% of aggregate is invalid.
+                return PVResult::Invalid;
+            }
+        }
+        PVResult::Valid {
+            contribution: Contributions(aggr),
+            partially: missing_parts > 0,
+        }
     }
 }
 
