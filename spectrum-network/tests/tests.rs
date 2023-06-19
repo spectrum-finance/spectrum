@@ -32,7 +32,7 @@ use spectrum_network::protocol::{
 };
 use spectrum_network::protocol_api::ProtocolMailbox;
 use spectrum_network::protocol_handler::discovery::message::DiscoverySpec;
-use spectrum_network::protocol_handler::discovery::{NodeStatus, DiscoveryBehaviour};
+use spectrum_network::protocol_handler::discovery::{DiscoveryBehaviour, NodeStatus};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
 
@@ -116,7 +116,7 @@ pub fn build_node<'de>(
     local_status: NodeStatus,
 ) -> (
     Swarm<CustomProtoWithAddr>,
-    ProtocolHandler<'de, DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
+    ProtocolHandler<DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
 ) {
     let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
         .into_authentic(&keypair)
@@ -171,7 +171,8 @@ pub fn build_node<'de>(
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };
-    let (sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api, DISCOVERY_PROTOCOL_ID, 10);
+    let (sync_handler, sync_mailbox) =
+        ProtocolHandler::new(sync_behaviour, network_api, DISCOVERY_PROTOCOL_ID, 10);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(
@@ -197,11 +198,11 @@ pub fn build_node<'de>(
 /// Builds two nodes that have each other as bootstrap nodes.
 /// This is to be used only for testing, and a panic will happen if something goes wrong.
 #[allow(clippy::type_complexity)]
-pub fn build_nodes<'de>(
+pub fn build_nodes(
     n: usize,
 ) -> Vec<(
     Swarm<CustomProtoWithAddr>,
-    ProtocolHandler<'de, DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
+    ProtocolHandler<DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
 )> {
     let mut out = Vec::with_capacity(n);
 

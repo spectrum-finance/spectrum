@@ -158,7 +158,6 @@ pub struct Peer<'de> {
     pub peer_sk: SecretKey,
     pub aggr_handler_mailbox: Sender<AggregationAction<Blake2b>>,
     pub aggr_handler: ProtocolHandler<
-        'de,
         SigmaAggregation<'de, Blake2b, MakeBinomialPeerPartitions<PseudoRandomGenPerm>>,
         NetworkMailbox,
     >,
