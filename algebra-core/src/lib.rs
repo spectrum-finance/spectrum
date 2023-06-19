@@ -1,4 +1,5 @@
 pub mod combinators;
+pub mod iso;
 
 /// https://ncatlab.org/nlab/show/commutative+semigroup
 pub trait CommutativeSemigroup {

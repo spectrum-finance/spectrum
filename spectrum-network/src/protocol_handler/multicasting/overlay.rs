@@ -1,15 +1,16 @@
 use std::collections::HashSet;
-use std::ops::Range;
 
 use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
+use rand::prelude::SliceRandom;
+use rand::RngCore;
 
 use algebra_core::combinators::EitherOrBoth;
-use itertools::EitherOrBoth;
 
+#[derive(Debug)]
 pub struct TreeOverlay {
-    parent_nodes: HashSet<PeerId>,
-    child_nodes: Vec<(PeerId, Option<Multiaddr>)>,
+    pub parent_nodes: HashSet<PeerId>,
+    pub child_nodes: Vec<(PeerId, Option<Multiaddr>)>,
 }
 
 impl TreeOverlay {
@@ -23,25 +24,29 @@ impl TreeOverlay {
 
 pub trait MakeTreeOverlay {
     fn make(
-        &self,
+        &mut self,
         fixed_root_peer: Option<PeerId>,
         host_peer: PeerId,
         peers: Vec<(PeerId, Option<Multiaddr>)>,
     ) -> TreeOverlay;
 }
 
-pub struct RedundancyTreeOverlayBuilder {
-    redundancy_factor: usize,
+pub struct RedundancyTreeOverlayBuilder<R> {
+    pub redundancy_factor: usize,
+    pub rng: R,
 }
 
-impl MakeTreeOverlay for RedundancyTreeOverlayBuilder {
+impl<R> MakeTreeOverlay for RedundancyTreeOverlayBuilder<R>
+where
+    R: RngCore,
+{
     fn make(
-        &self,
+        &mut self,
         fixed_root_peer: Option<PeerId>,
         host_peer: PeerId,
         mut peers: Vec<(PeerId, Option<Multiaddr>)>,
     ) -> TreeOverlay {
-        peers.sort_by_key(|(pid, _)| pid);
+        peers.sort_by_key(|(pid, _)| *pid);
         if let Some(root_peer) = fixed_root_peer {
             let ix = peers
                 .iter()
@@ -51,32 +56,35 @@ impl MakeTreeOverlay for RedundancyTreeOverlayBuilder {
             peers.insert(0, root);
         }
         let mut acc = TreeOverlay::new();
-        match build_links(host_peer, &peers) {
-            Links::RootLinks { children } => {
-                if let Some(cl) = children.0 {
-                    acc.child_nodes.push(cl);
+        for _ in 0..self.redundancy_factor {
+            match build_links(host_peer, &peers) {
+                Links::RootLinks { children } => {
+                    if let Some(cl) = children.0 {
+                        acc.child_nodes.push(cl);
+                    }
+                    if let Some(cr) = children.1 {
+                        acc.child_nodes.push(cr);
+                    }
                 }
-                if let Some(cr) = children.1 {
-                    acc.child_nodes.push(cr);
+                Links::NodeLinks { parent, children } => {
+                    children
+                        .collect()
+                        .into_iter()
+                        .for_each(|c| acc.child_nodes.push(c));
+                    acc.parent_nodes.insert(parent);
+                }
+                Links::LeafLinks { parent } => {
+                    acc.parent_nodes.insert(parent);
                 }
             }
-            Links::NodeLinks { parent, children } => {
-                if let Some(cl) = children.left() {
-                    acc.child_nodes.push(cl);
-                }
-                if let Some(cr) = children.right() {
-                    acc.child_nodes.push(cr);
-                }
-                acc.parent_nodes.insert(parent);
-            }
-            Links::LeafLinks { parent } => {
-                acc.parent_nodes.insert(parent);
-            }
+            // Shuffle peerset after each pass so we can get N different trees.
+            peers.shuffle(&mut self.rng)
         }
         return acc;
     }
 }
 
+#[derive(Debug)]
 enum Links {
     RootLinks {
         children: (
@@ -103,15 +111,15 @@ fn build_links(host_peer: PeerId, peers: &Vec<(PeerId, Option<Multiaddr>)>) -> L
             if cur_ix >= pt.1 {
                 cur_pt_ix += 1;
                 prev_pt_lower = pt.0;
-                pt = (pt.1, pt.1 + 2.pow(cur_pt_ix))
+                pt = (pt.1, pt.1 + 2usize.pow(cur_pt_ix))
             }
-            if pid == host_peer {
+            if *pid == host_peer {
                 let ix_in_pt = cur_ix - pt.0;
                 let parent_ix = prev_pt_lower + ix_in_pt / 2;
                 return match peers.get(parent_ix) {
                     Some((parent_pid, _)) if parent_ix != cur_ix => {
                         let left_child_ix = 2 * ix_in_pt + pt.1;
-                        let right_child_ix = left_child_ix_in_pt + 1 + pt.1;
+                        let right_child_ix = left_child_ix + 1;
                         if let Ok(children) = EitherOrBoth::try_from((
                             peers.get(left_child_ix).cloned(),
                             peers.get(right_child_ix).cloned(),
@@ -126,16 +134,96 @@ fn build_links(host_peer: PeerId, peers: &Vec<(PeerId, Option<Multiaddr>)>) -> L
                             }
                         }
                     }
-                    _ => {
-                        Links::RootLinks {
-                            children: (peers.get(1).cloned(), peers.get(2).cloned()),
-                        };
-                    }
+                    _ => Links::RootLinks {
+                        children: (peers.get(1).cloned(), peers.get(2).cloned()),
+                    },
                 };
             }
             cur_ix += 1;
         } else {
             panic!("Tree integrity violated");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use libp2p_identity::PeerId;
+    use rand::prelude::StdRng;
+    use rand::SeedableRng;
+
+    use crate::protocol_handler::multicasting::overlay::{build_links, Links, MakeTreeOverlay, RedundancyTreeOverlayBuilder};
+
+    #[test]
+    fn link_in_aligned_tree_leaf() {
+        let peers = (0..15).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
+        let host = peers[7].0;
+        let links = build_links(host, &peers);
+        assert!(matches!(links, Links::LeafLinks { .. }));
+        match links {
+            Links::LeafLinks { parent } => {
+                assert_eq!(parent, peers[3].0);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn link_in_aligned_tree_root() {
+        let peers = (0..15).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
+        let host = peers[0].0;
+        let links = build_links(host, &peers);
+        assert!(matches!(links, Links::RootLinks { .. }));
+        match links {
+            Links::RootLinks { children } => {
+                assert_eq!(
+                    vec![children.0.unwrap(), children.1.unwrap()],
+                    vec![peers[1].clone(), peers[2].clone()]
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn link_in_aligned_tree_node() {
+        let peers = (0..15).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
+        let host = peers[5].0;
+        let links = build_links(host, &peers);
+        assert!(matches!(links, Links::NodeLinks { .. }));
+        match links {
+            Links::NodeLinks { parent, children } => {
+                assert_eq!(parent, peers[2].0);
+                assert_eq!(children.collect(), vec![peers[11].clone(), peers[12].clone()]);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn link_in_incomplete_tree_node() {
+        let peers = (0..16).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
+        let host = peers[7].0;
+        let links = build_links(host, &peers);
+        assert!(matches!(links, Links::NodeLinks { .. }));
+        match links {
+            Links::NodeLinks { parent, children } => {
+                assert_eq!(parent, peers[3].0);
+                assert_eq!(children.collect(), vec![peers[15].clone()]);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn build_overlay() {
+        let peers = (0..15).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
+        let host = peers[0].0;
+        let mut builder = RedundancyTreeOverlayBuilder {
+            redundancy_factor: 3,
+            rng: StdRng::seed_from_u64(42)
+        };
+        let overlay = builder.make(None, host, peers);
+        println!("{:?}", overlay);
     }
 }

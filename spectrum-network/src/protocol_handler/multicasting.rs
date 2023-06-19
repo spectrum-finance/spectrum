@@ -1,5 +1,3 @@
-mod overlay;
-
 use std::collections::{HashSet, VecDeque};
 use std::task::{Context, Poll};
 
@@ -10,9 +8,11 @@ use libp2p_identity::PeerId;
 use algebra_core::CommutativeSemigroup;
 use spectrum_crypto::VerifiableAgainst;
 
+use crate::protocol_handler::multicasting::overlay::TreeOverlay;
 use crate::protocol_handler::void::VoidMessage;
 use crate::protocol_handler::{NetworkAction, ProtocolBehaviourOut, TemporalProtocolStage};
-use crate::protocol_handler::multicasting::overlay::TreeOverlay;
+
+mod overlay;
 
 pub struct TreeBasedMulticasting<S, P> {
     statement: Option<S>,
@@ -29,7 +29,7 @@ where
         if self.overlay.parent_nodes.contains(&peer_id) {
             if content.verify(&self.public_data) {
                 if let Some(stmt) = self.statement.take() {
-                    self.statement.insert(stmt.combine(content))
+                    let _ = self.statement.insert(stmt.combine(&content));
                 }
             } else {
                 self.outbox

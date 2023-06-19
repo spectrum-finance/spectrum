@@ -1,11 +1,14 @@
-pub enum EitherOrBoth<O1, O2> {
-    Left(O1),
-    Right(O2),
-    Both(O1, O2),
+use crate::iso::Iso;
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum EitherOrBoth<A, B> {
+    Left(A),
+    Right(B),
+    Both(A, B),
 }
 
-impl<O1, O2> EitherOrBoth<O1, O2> {
-    pub fn swap(self) -> EitherOrBoth<O2, O1> {
+impl<A, B> EitherOrBoth<A, B> {
+    pub fn swap(self) -> EitherOrBoth<B, A> {
         match self {
             EitherOrBoth::Left(o1) => EitherOrBoth::Right(o1),
             EitherOrBoth::Right(o2) => EitherOrBoth::Left(o2),
@@ -28,11 +31,30 @@ impl<O1, O2> EitherOrBoth<O1, O2> {
             _ => None,
         }
     }
+
+    /// If Both, return `Some` tuple containing left and right.
+    pub fn both(self) -> Option<(A, B)> {
+        match self {
+            EitherOrBoth::Both(a, b) => Some((a, b)),
+            _ => None,
+        }
+    }
+
+    pub fn collect(self) -> Vec<B>
+    where
+        A: Iso<B>,
+    {
+        match self {
+            EitherOrBoth::Left(a) => vec![a.iso_into()],
+            EitherOrBoth::Right(b) => vec![b],
+            EitherOrBoth::Both(a, b) => vec![a.iso_into(), b],
+        }
+    }
 }
 
-impl<O1, O2> TryFrom<(Option<O1>, Option<O2>)> for EitherOrBoth<O1, O2> {
+impl<A, B> TryFrom<(Option<A>, Option<B>)> for EitherOrBoth<A, B> {
     type Error = ();
-    fn try_from(pair: (Option<O1>, Option<O2>)) -> Result<Self, Self::Error> {
+    fn try_from(pair: (Option<A>, Option<B>)) -> Result<Self, Self::Error> {
         match pair {
             (Some(l), Some(r)) => Ok(Self::Both(l, r)),
             (Some(l), None) => Ok(Self::Left(l)),
