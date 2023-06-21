@@ -188,4 +188,11 @@ where
     }
 }
 
-pub type Multicasting<S> = dyn TemporalProtocolStage<VoidMessage, S, S>;
+pub trait Multicasting<'a, S>: TemporalProtocolStage<VoidMessage, S, S> + 'a {}
+
+impl<'a, S, P> Multicasting<'a, S> for DagMulticasting<S, P>
+where
+    S: CommutativePartialSemigroup + VerifiableAgainst<P> + Clone + 'a,
+    P: 'a,
+{
+}

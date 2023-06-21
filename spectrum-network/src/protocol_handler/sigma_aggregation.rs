@@ -18,7 +18,7 @@ use spectrum_crypto::pubkey::PublicKey;
 use crate::protocol_handler::aggregation::AggregationAction;
 use crate::protocol_handler::handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
 use crate::protocol_handler::handel::{Handel, HandelConfig, HandelRound};
-use crate::protocol_handler::multicasting::overlay::{MakeDagOverlay, DagOverlay};
+use crate::protocol_handler::multicasting::overlay::{DagOverlay, MakeDagOverlay};
 use crate::protocol_handler::multicasting::{DagMulticasting, Multicasting};
 use crate::protocol_handler::sigma_aggregation::crypto::{
     aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
@@ -176,7 +176,7 @@ impl<'a, H, PP> AggregateCommitments<'a, H, PP>
 where
     PP: PeerPartitions + Send + 'a,
 {
-    fn complete(self, commitments_with_proofs: CommitmentsWithProofs) -> BroadcastCommitments<H, PP> {
+    fn complete(self, commitments_with_proofs: CommitmentsWithProofs) -> BroadcastCommitments<'a, H, PP> {
         BroadcastCommitments {
             host_sk: self.host_sk,
             host_ix: self.host_ix,
@@ -196,7 +196,7 @@ where
     }
 }
 
-struct BroadcastCommitments<H, PP> {
+struct BroadcastCommitments<'a, H, PP> {
     /// `x_i`
     host_sk: SecretKey,
     /// Host's index in the Handel overlay.
@@ -214,10 +214,10 @@ struct BroadcastCommitments<H, PP> {
     /// `σ_i`. Dlog proof of knowledge for `Y_i`.
     host_explusion_proof: Signature,
     handel_partitions: PP,
-    mcast: Box<Multicasting<CommitmentsWithProofs>>,
+    mcast: Box<dyn Multicasting<'a, CommitmentsWithProofs> + Send>,
 }
 
-impl<'a, H, PP> BroadcastCommitments<H, PP>
+impl<'a, H, PP> BroadcastCommitments<'a, H, PP>
 where
     PP: PeerPartitions + Send + 'a,
 {
@@ -309,7 +309,7 @@ pub struct Aggregated<H> {
 enum AggregationState<'a, H, PP> {
     AggregatePreCommitments(AggregatePreCommitments<'a, H, PP>),
     AggregateCommitments(AggregateCommitments<'a, H, PP>),
-    BroadcastCommitments(BroadcastCommitments<H, PP>),
+    BroadcastCommitments(BroadcastCommitments<'a, H, PP>),
     AggregateResponses(AggregateResponses<'a, H, PP>),
 }
 
@@ -329,6 +329,16 @@ where
     mcast_overlay_builder: OB,
     inbox: Receiver<AggregationAction<H>>,
     outbox: VecDeque<ProtocolBehaviourOut<VoidMessage, SigmaAggrMessage>>,
+}
+
+trait AssertKinds: Unpin {}
+impl<'a, H, MPP, OB> AssertKinds for SigmaAggregation<'a, H, MPP, OB>
+where
+    MPP: MakePeerPartitions + Unpin,
+    <MPP as MakePeerPartitions>::PP: Unpin,
+    OB: Unpin,
+    H: Unpin,
+{
 }
 
 impl<'a, H, MPP, OB> SigmaAggregation<'a, H, MPP, OB>
@@ -581,15 +591,4 @@ where
             return Poll::Pending;
         }
     }
-}
-
-struct OverlayNode {
-    peer_id: PeerId,
-    peer_pk: PublicKey,
-    maddr: Option<Multiaddr>,
-}
-
-struct OverlayView {
-    host: OverlayNode,
-    all_members: HashMap<PeerIx, OverlayNode>,
 }

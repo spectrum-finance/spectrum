@@ -938,9 +938,7 @@ async fn create_swarm<P>(
     peer: Peer,
     mut tx: mpsc::Sender<(
         Peer,
-        Msg<
-            <<P as ProtocolBehaviour>::TProto as spectrum_network::protocol_handler::ProtocolSpec>::TMessage,
-        >,
+        Msg<<<P as ProtocolBehaviour>::TProto as spectrum_network::protocol_handler::ProtocolSpec>::TMessage>,
     )>,
 ) where
     P: ProtocolBehaviour + Unpin + Send + 'static,

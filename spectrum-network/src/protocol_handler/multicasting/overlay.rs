@@ -3,11 +3,11 @@ use std::collections::HashSet;
 use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
 use rand::prelude::{SliceRandom, StdRng};
-use rand::{RngCore, SeedableRng};
+use rand::SeedableRng;
 
 use algebra_core::combinators::EitherOrBoth;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DagOverlay {
     pub parent_nodes: HashSet<PeerId>,
     pub child_nodes: Vec<(PeerId, Option<Multiaddr>)>,
@@ -31,12 +31,13 @@ pub trait MakeDagOverlay {
     ) -> DagOverlay;
 }
 
-pub struct RedundancyTreeOverlayBuilder {
+#[derive(Copy, Clone, Debug)]
+pub struct RedundancyDagOverlayBuilder {
     pub redundancy_factor: usize,
     pub seed: u64,
 }
 
-impl MakeDagOverlay for RedundancyTreeOverlayBuilder {
+impl MakeDagOverlay for RedundancyDagOverlayBuilder {
     fn make(
         &self,
         fixed_root_peer: Option<PeerId>,
@@ -149,7 +150,7 @@ mod tests {
     use libp2p_identity::PeerId;
 
     use crate::protocol_handler::multicasting::overlay::{
-        build_links, Links, MakeDagOverlay, RedundancyTreeOverlayBuilder,
+        build_links, Links, MakeDagOverlay, RedundancyDagOverlayBuilder,
     };
 
     #[test]
@@ -217,7 +218,7 @@ mod tests {
     fn build_overlay() {
         let peers = (0..15).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
         let host = peers[0].0;
-        let mut builder = RedundancyTreeOverlayBuilder {
+        let mut builder = RedundancyDagOverlayBuilder {
             redundancy_factor: 3,
             seed: 42,
         };
