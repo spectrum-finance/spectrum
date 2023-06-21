@@ -176,7 +176,7 @@ impl<'a, H, PP> AggregateCommitments<'a, H, PP>
 where
     PP: PeerPartitions + Send + 'a,
 {
-    fn complete(self, commitments_with_proofs: CommitmentsWithProofs) -> BroadcastCommitments<'a, H, PP> {
+    fn complete(self, commitments_with_proofs: CommitmentsWithProofs) -> BroadcastCommitments<H, PP> {
         BroadcastCommitments {
             host_sk: self.host_sk,
             host_ix: self.host_ix,
@@ -196,7 +196,7 @@ where
     }
 }
 
-struct BroadcastCommitments<'a, H, PP> {
+struct BroadcastCommitments<H, PP> {
     /// `x_i`
     host_sk: SecretKey,
     /// Host's index in the Handel overlay.
@@ -214,10 +214,10 @@ struct BroadcastCommitments<'a, H, PP> {
     /// `σ_i`. Dlog proof of knowledge for `Y_i`.
     host_explusion_proof: Signature,
     handel_partitions: PP,
-    mcast: Box<dyn Multicasting<'a, CommitmentsWithProofs> + Send>,
+    mcast: Box<dyn Multicasting<CommitmentsWithProofs> + Send>,
 }
 
-impl<'a, H, PP> BroadcastCommitments<'a, H, PP>
+impl<'a, H, PP> BroadcastCommitments<H, PP>
 where
     PP: PeerPartitions + Send + 'a,
 {
@@ -309,7 +309,7 @@ pub struct Aggregated<H> {
 enum AggregationState<'a, H, PP> {
     AggregatePreCommitments(AggregatePreCommitments<'a, H, PP>),
     AggregateCommitments(AggregateCommitments<'a, H, PP>),
-    BroadcastCommitments(BroadcastCommitments<'a, H, PP>),
+    BroadcastCommitments(BroadcastCommitments<H, PP>),
     AggregateResponses(AggregateResponses<'a, H, PP>),
 }
 

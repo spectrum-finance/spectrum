@@ -188,11 +188,9 @@ where
     }
 }
 
-pub trait Multicasting<'a, S>: TemporalProtocolStage<VoidMessage, S, S> + 'a {}
+pub trait Multicasting<S>: TemporalProtocolStage<VoidMessage, S, S> {}
 
-impl<'a, S, P> Multicasting<'a, S> for DagMulticasting<S, P>
-where
-    S: CommutativePartialSemigroup + VerifiableAgainst<P> + Clone + 'a,
-    P: 'a,
+impl<S, P> Multicasting<S> for DagMulticasting<S, P> where
+    S: CommutativePartialSemigroup + VerifiableAgainst<P> + Clone
 {
 }
