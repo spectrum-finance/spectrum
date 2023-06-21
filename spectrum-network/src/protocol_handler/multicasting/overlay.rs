@@ -2,18 +2,18 @@ use std::collections::HashSet;
 
 use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
-use rand::prelude::SliceRandom;
-use rand::RngCore;
+use rand::prelude::{SliceRandom, StdRng};
+use rand::{RngCore, SeedableRng};
 
 use algebra_core::combinators::EitherOrBoth;
 
 #[derive(Debug)]
-pub struct TreeOverlay {
+pub struct DagOverlay {
     pub parent_nodes: HashSet<PeerId>,
     pub child_nodes: Vec<(PeerId, Option<Multiaddr>)>,
 }
 
-impl TreeOverlay {
+impl DagOverlay {
     pub fn new() -> Self {
         Self {
             parent_nodes: HashSet::new(),
@@ -22,30 +22,27 @@ impl TreeOverlay {
     }
 }
 
-pub trait MakeTreeOverlay {
+pub trait MakeDagOverlay {
     fn make(
-        &mut self,
+        &self,
         fixed_root_peer: Option<PeerId>,
         host_peer: PeerId,
         peers: Vec<(PeerId, Option<Multiaddr>)>,
-    ) -> TreeOverlay;
+    ) -> DagOverlay;
 }
 
-pub struct RedundancyTreeOverlayBuilder<R> {
+pub struct RedundancyTreeOverlayBuilder {
     pub redundancy_factor: usize,
-    pub rng: R,
+    pub seed: u64,
 }
 
-impl<R> MakeTreeOverlay for RedundancyTreeOverlayBuilder<R>
-where
-    R: RngCore,
-{
+impl MakeDagOverlay for RedundancyTreeOverlayBuilder {
     fn make(
-        &mut self,
+        &self,
         fixed_root_peer: Option<PeerId>,
         host_peer: PeerId,
         mut peers: Vec<(PeerId, Option<Multiaddr>)>,
-    ) -> TreeOverlay {
+    ) -> DagOverlay {
         peers.sort_by_key(|(pid, _)| *pid);
         if let Some(root_peer) = fixed_root_peer {
             let ix = peers
@@ -55,7 +52,8 @@ where
             let root = peers.remove(ix);
             peers.insert(0, root);
         }
-        let mut acc = TreeOverlay::new();
+        let mut acc = DagOverlay::new();
+        let mut rng = StdRng::seed_from_u64(self.seed);
         for _ in 0..self.redundancy_factor {
             match build_links(host_peer, &peers) {
                 Links::RootLinks { children } => {
@@ -78,7 +76,7 @@ where
                 }
             }
             // Shuffle peerset after each pass so we can get N different trees.
-            peers.shuffle(&mut self.rng)
+            peers.shuffle(&mut rng)
         }
         return acc;
     }
@@ -149,10 +147,10 @@ fn build_links(host_peer: PeerId, peers: &Vec<(PeerId, Option<Multiaddr>)>) -> L
 #[cfg(test)]
 mod tests {
     use libp2p_identity::PeerId;
-    use rand::prelude::StdRng;
-    use rand::SeedableRng;
 
-    use crate::protocol_handler::multicasting::overlay::{build_links, Links, MakeTreeOverlay, RedundancyTreeOverlayBuilder};
+    use crate::protocol_handler::multicasting::overlay::{
+        build_links, Links, MakeDagOverlay, RedundancyTreeOverlayBuilder,
+    };
 
     #[test]
     fn link_in_aligned_tree_leaf() {
@@ -221,7 +219,7 @@ mod tests {
         let host = peers[0].0;
         let mut builder = RedundancyTreeOverlayBuilder {
             redundancy_factor: 3,
-            rng: StdRng::seed_from_u64(42)
+            seed: 42,
         };
         let overlay = builder.make(None, host, peers);
         println!("{:?}", overlay);
