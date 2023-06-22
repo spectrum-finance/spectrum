@@ -2,8 +2,11 @@ use blake2::{Blake2b, Digest};
 use blake2::digest::typenum::U32;
 use elliptic_curve::{CurveArithmetic, NonZeroScalar, PublicKey, Scalar, ScalarPrimitive};
 use elliptic_curve::generic_array::GenericArray;
+use elliptic_curve::point::PointCompression;
+use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
 
 use spectrum_crypto::digest::{sha256_hash, Sha2Digest256};
+use spectrum_vrf::utils::projective_point_to_bytes;
 
 pub type Blake2b256 = Blake2b<U32>;
 
@@ -19,6 +22,24 @@ pub fn hash_to_public_key<TCurve: CurveArithmetic>(hash: Sha2Digest256)
     PublicKey::<TCurve>::from_secret_scalar(&non_zero_scalar)
 }
 
+pub fn merge_public_keys<TCurve: CurveArithmetic + PointCompression>(pk_0: &PublicKey<TCurve>,
+                                                                     pk_1: &PublicKey<TCurve>)
+                                                                     -> PublicKey<TCurve>
+    where <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+          <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+          <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>
+{
+    let pk_0_bytes = projective_point_to_bytes::<TCurve>(
+        (*pk_0).clone().to_projective());
+    let pk_1_bytes = projective_point_to_bytes::<TCurve>(
+        (*pk_1).clone().to_projective());
+
+    let pk_concatenated = [pk_0_bytes, pk_1_bytes].concat();
+    let pk_sum_hash = sha256_hash(&pk_concatenated);
+
+    hash_to_public_key::<TCurve>(pk_sum_hash)
+}
+
 pub fn partial_seed(seed: &Sha2Digest256, if_left: bool) -> Sha2Digest256 {
     let mut partial_seed = Blake2b256::default();
     partial_seed.update(&[if if_left { 1 } else { 2 }]);
@@ -32,6 +53,7 @@ pub fn double_the_seed(seed: &Sha2Digest256) -> (Sha2Digest256, Sha2Digest256) {
     let seed_right = partial_seed(&seed, false);
     (seed_left, seed_right)
 }
+
 
 #[cfg(test)]
 mod test {
