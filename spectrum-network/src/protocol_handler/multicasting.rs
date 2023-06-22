@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -21,10 +21,11 @@ pub mod overlay;
 
 /// DAG based multicasting that accumulates received statements along the way.
 pub struct DagMulticasting<S, P> {
-    statement: Option<S>,
-    public_data: P,
-    overlay: DagOverlay,
-    outbox: VecDeque<ProtocolBehaviourOut<VoidMessage, S>>,
+    pub statement: Option<S>,
+    pub public_data: P,
+    pub overlay: DagOverlay,
+    pub contacted_peers: HashSet<PeerId>,
+    pub outbox: VecDeque<ProtocolBehaviourOut<VoidMessage, S>>,
 }
 
 impl<S, P> DagMulticasting<S, P> {
@@ -33,6 +34,7 @@ impl<S, P> DagMulticasting<S, P> {
             statement,
             public_data,
             overlay,
+            contacted_peers: HashSet::new(),
             outbox: VecDeque::new(),
         }
     }
@@ -64,14 +66,17 @@ where
     fn poll(&mut self, _: &mut Context) -> Poll<Either<ProtocolBehaviourOut<VoidMessage, S>, S>> {
         if let Some(stmt) = &self.statement {
             for (peer, addr) in &self.overlay.child_nodes {
-                self.outbox.push_back(ProtocolBehaviourOut::NetworkAction(
-                    NetworkAction::SendOneShotMessage {
-                        peer: *peer,
-                        addr_hint: addr.clone(),
-                        use_version: Default::default(),
-                        message: stmt.clone(),
-                    },
-                ))
+                if !self.contacted_peers.contains(peer) {
+                    self.contacted_peers.insert(*peer);
+                    self.outbox.push_back(ProtocolBehaviourOut::NetworkAction(
+                        NetworkAction::SendOneShotMessage {
+                            peer: *peer,
+                            addr_hint: addr.clone(),
+                            use_version: Default::default(),
+                            message: stmt.clone(),
+                        },
+                    ))
+                }
             }
         }
         if let Some(out) = self.outbox.pop_front() {
@@ -88,10 +93,10 @@ struct ApplyStatement<S>(Verified<S>);
 
 /// This type of multicating supports async verification of statements.
 pub struct DagMulticastingAsync<'a, S, P> {
-    task_timeout: Duration,
     statement: Option<S>,
     public_data: Arc<P>,
     overlay: DagOverlay,
+    contacted_peers: HashSet<PeerId>,
     outbox: VecDeque<ProtocolBehaviourOut<VoidMessage, S>>,
     from_tasks: Receiver<FromTask<ApplyStatement<S>, ProtocolBehaviourOut<VoidMessage, S>>>,
     tasks: TaskPool<'a, ApplyStatement<S>, ProtocolBehaviourOut<VoidMessage, S>, ()>,
@@ -104,10 +109,10 @@ impl<'a, S, P> DagMulticastingAsync<'a, S, P> {
         let (snd, recv) = async_std::channel::bounded(FROM_TASK_BUFFER_SIZE);
         let tasks = TaskPool::new(String::from("MCast"), task_timeout, snd);
         Self {
-            task_timeout,
             statement,
             public_data: Arc::new(public_data),
             overlay,
+            contacted_peers: HashSet::new(),
             outbox: VecDeque::new(),
             from_tasks: recv,
             tasks,
@@ -168,14 +173,17 @@ where
         }
         if let Some(stmt) = &self.statement {
             for (peer, addr) in &self.overlay.child_nodes {
-                self.outbox.push_back(ProtocolBehaviourOut::NetworkAction(
-                    NetworkAction::SendOneShotMessage {
-                        peer: *peer,
-                        addr_hint: addr.clone(),
-                        use_version: Default::default(),
-                        message: stmt.clone(),
-                    },
-                ))
+                if !self.contacted_peers.contains(peer) {
+                    self.contacted_peers.insert(*peer);
+                    self.outbox.push_back(ProtocolBehaviourOut::NetworkAction(
+                        NetworkAction::SendOneShotMessage {
+                            peer: *peer,
+                            addr_hint: addr.clone(),
+                            use_version: Default::default(),
+                            message: stmt.clone(),
+                        },
+                    ))
+                }
             }
         }
         if let Some(out) = self.outbox.pop_front() {

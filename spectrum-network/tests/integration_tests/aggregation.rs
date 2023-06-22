@@ -58,8 +58,8 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
         let k256_pk = peer_sk.public_key();
         let k256_point = k256_pk.to_encoded_point(true);
         let k256_encoded = k256_point.as_bytes();
-        let libp2p_pk = libp2p_identity::secp256k1::PublicKey::decode(k256_encoded).unwrap();
-        let peer_id = PeerId::from_public_key(&libp2p_identity::PublicKey::Secp256k1(libp2p_pk));
+        let libp2p_pk = libp2p_identity::secp256k1::PublicKey::try_from_bytes(k256_encoded).unwrap();
+        let peer_id = PeerId::from_public_key(&libp2p_identity::PublicKey::from(libp2p_pk));
         let other_peer_id = PeerId::from(peer_key.public());
         assert_eq!(peer_id, other_peer_id);
         let peer_addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", 8000 + node_ix).parse().unwrap();

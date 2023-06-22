@@ -48,3 +48,4 @@ libp2p = { version = "0.51.*", features = ["noise", "yamux", "async-std", "tcp"]
 log4rs_test_utils = {version = "0.2.3", featuers = ["test_logging"]}
 base16 = "0.2.1"
 serde_yaml = "0.9.21"
+itertools = "0.10.5"
