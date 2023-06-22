@@ -9,9 +9,12 @@
 //! * [2001/034](https://eprint.iacr.org/2001/034)
 //! * [2017/573]( https://eprint.iacr.org/2017/573.pdf)
 
+use std::ops::Add;
 use ecdsa::{RecoveryId, Signature, SigningKey, VerifyingKey};
-use ecdsa::signature::Signer;
+use ecdsa::hazmat::SignPrimitive;
+use ecdsa::signature::{Signer, SignerMut};
 use elliptic_curve::{CurveArithmetic, PublicKey, SecretKey};
+use elliptic_curve::generic_array::ArrayLength;
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
 use k256::ecdsa::signature::Verifier;
@@ -108,6 +111,26 @@ pub fn kes_sum_sign(kes_sk: &KesSumSecretKey<Secp256k1>,
             sig: signature.0,
             pk_0: kes_sk.pk_0,
             pk_1: kes_sk.pk_1,
+        })
+    }
+}
+
+pub fn kes_sum_generic_sign<TCurve: CurveArithmetic +
+elliptic_curve::PrimeCurve>(kes_sk:
+                            &KesSumSecretKey<TCurve>,
+                            message: &Sha2Digest256)
+                            -> Result<KesSignature<TCurve>, Error>
+    where <TCurve as CurveArithmetic>::Scalar: SignPrimitive<TCurve>,
+          <<TCurve as elliptic_curve::Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>
+
+{
+    {
+        let signing_key: SigningKey<TCurve> = SigningKey::<TCurve>::from(&kes_sk.sk_0);
+        let signature: (Signature<TCurve>, RecoveryId) = signing_key.sign(message.0.as_slice());
+        Ok(KesSignature {
+            sig: signature.0,
+            pk_0: kes_sk.pk_0.clone(),
+            pk_1: kes_sk.pk_1.clone(),
         })
     }
 }
