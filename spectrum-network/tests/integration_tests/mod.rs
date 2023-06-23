@@ -1,8 +1,10 @@
 use std::collections::HashSet;
 use std::ops::Sub;
+use std::sync::Arc;
 use std::time::Instant;
 use std::{collections::HashMap, time::Duration};
 
+use async_std::sync::Mutex;
 use futures::channel::mpsc::Sender;
 use futures::{
     channel::{mpsc, oneshot},
@@ -989,7 +991,9 @@ async fn multicasting_normal() {
         seed: 64,
     };
     wasm_timer::Delay::new(Duration::from_millis(1000)).await.unwrap();
-    println!("Started");
+
+    println!("Starting testing ..");
+
     let root_pid = peers[0].peer_id;
     let mut result_futures = Vec::new();
 
@@ -1013,14 +1017,34 @@ async fn multicasting_normal() {
 
     let started_at = Instant::now();
 
+    #[derive(Debug)]
+    struct Stats {
+        num_succ: usize,
+        num_fail: usize,
+    }
+
+    let stats = Arc::new(Mutex::new(Stats {
+        num_fail: 0,
+        num_succ: 0,
+    }));
+
     for (ix, fut) in result_futures.into_iter().enumerate() {
-        async_std::task::spawn(async move {
-            let res = fut.await;
-            let finished_at = Instant::now();
-            let elapsed = finished_at.sub(started_at);
-            match res {
-                Ok(_) => println!("PEER:{} :: Finished mcast in {} millis", ix, elapsed.as_millis()),
-                Err(_) => println!("PEER:{} :: Failed mcast in {} millis", ix, elapsed.as_millis()),
+        async_std::task::spawn({
+            let stats = Arc::clone(&stats);
+            async move {
+                let res = fut.await;
+                let finished_at = Instant::now();
+                let elapsed = finished_at.sub(started_at);
+                match res {
+                    Ok(_) => {
+                        println!("[Peer-{}] :: Finished mcast in {} millis", ix, elapsed.as_millis());
+                        stats.lock().await.num_succ += 1;
+                    }
+                    Err(_) => {
+                        println!("[Peer-{}] :: Failed mcast in {} millis", ix, elapsed.as_millis());
+                        stats.lock().await.num_fail += 1;
+                    }
+                }
             }
         });
     }
@@ -1032,7 +1056,9 @@ async fn multicasting_normal() {
     for peer in &peers {
         peer.peer_handle.abort();
     }
-    println!("Killed all peers");
+
+    let stats = async_std::task::block_on(stats.lock());
+    println!("Finished. {:?}", stats);
 }
 
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]

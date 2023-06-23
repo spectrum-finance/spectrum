@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::mem;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -50,6 +51,7 @@ pub struct MulticsatingBehaviour<S> {
     host_ix: usize,
     state: Option<McastTask<S>>,
     inbox: mpsc::Receiver<SetTask<S>>,
+    stash: HashMap<PeerId, S>,
 }
 
 trait AssertKinds: ProtocolBehaviour + Unpin {}
@@ -75,6 +77,7 @@ impl<S> MulticsatingBehaviour<S> {
                 host_ix,
                 state: None,
                 inbox: recv,
+                stash: HashMap::new(),
             },
             snd,
         )
@@ -99,15 +102,16 @@ where
         match &mut self.state {
             None => {
                 println!(
-                    "WARN: [Peer-{}] Got message {:?} in Idle state",
+                    "[Peer-{}] :: Got message {:?} in Idle state",
                     self.host_ix, content
                 );
+                self.stash.insert(peer_id, content);
             }
             Some(McastTask {
                 process: ref mut proc,
                 ..
             }) => {
-                println!("INFO: [Peer-{}] Got message {:?}", self.host_ix, content);
+                println!("[Peer-{}] :: Got message {:?}", self.host_ix, content);
                 proc.inject_message(peer_id, content)
             }
         }
@@ -121,6 +125,13 @@ where
                     on_response,
                     overlay,
                 })) => {
+                    println!("[Peer-{}] :: State=Idle=>Busy", self.host_ix);
+                    println!("[Peer-{}] :: Stash.len={}", self.host_ix, self.stash.len());
+                    let stash = mem::replace(&mut self.stash, HashMap::new());
+                    for (p, s) in stash {
+                        println!("[Peer-{}] :: Injecting stashed mesages", self.host_ix);
+                        self.inject_message(p, s)
+                    }
                     self.state = Some(McastTask {
                         process: Box::new(DagMulticasting::new(initial_statement, (), overlay)),
                         on_response,
@@ -130,13 +141,13 @@ where
             }
             match self.state.take() {
                 None => {
-                    println!("INFO: [Peer-{}] State=Idle", self.host_ix);
+                    println!("[Peer-{}] :: State=Idle", self.host_ix);
                 }
                 Some(McastTask {
                     mut process,
                     on_response,
                 }) => {
-                    println!("INFO: [Peer-{}] State=Busy", self.host_ix);
+                    println!("[Peer-{}] :: State=Busy", self.host_ix);
                     match process.poll(cx) {
                         Poll::Ready(out) => match out {
                             Either::Left(cmd) => {
@@ -144,13 +155,13 @@ where
                                 return Poll::Ready(Some(cmd));
                             }
                             Either::Right(res) => {
-                                println!("INFO: [Peer-{}] Done", self.host_ix);
+                                println!("[Peer-{}] :: Done", self.host_ix);
                                 on_response.send(res).expect("Failed to complete response");
                                 continue;
                             }
                         },
                         Poll::Pending => {
-                            println!("INFO: [Peer-{}] Process=>Pending", self.host_ix);
+                            println!("[Peer-{}] :: Process=>Pending", self.host_ix);
                             self.state = Some(McastTask { process, on_response });
                         }
                     }
@@ -284,13 +295,13 @@ where
         let (abortable_peer, handle) =
             futures::future::abortable(create_swarm(peer_key.clone(), nc, peer_addr.clone(), node_ix));
         tokio::task::spawn(async move {
-            println!("PEER:{} :: spawning protocol handler..", node_ix);
+            println!("[Peer-{}] :: spawning protocol handler..", node_ix);
             loop {
                 aggr_handler.select_next_some().await;
             }
         });
         tokio::task::spawn(async move {
-            println!("PEER:{} :: spawning peer..", node_ix);
+            println!("[Peer-{}] :: spawning peer..", node_ix);
             abortable_peer.await
         });
         Peer {
