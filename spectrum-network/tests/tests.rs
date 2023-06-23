@@ -116,7 +116,7 @@ pub fn build_node<'de>(
     local_status: NodeStatus,
 ) -> (
     Swarm<CustomProtoWithAddr>,
-    ProtocolHandler<'de, DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
+    ProtocolHandler<DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
 ) {
     let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
         .into_authentic(&keypair)
@@ -197,11 +197,11 @@ pub fn build_node<'de>(
 /// Builds two nodes that have each other as bootstrap nodes.
 /// This is to be used only for testing, and a panic will happen if something goes wrong.
 #[allow(clippy::type_complexity)]
-pub fn build_nodes<'de>(
+pub fn build_nodes(
     n: usize,
 ) -> Vec<(
     Swarm<CustomProtoWithAddr>,
-    ProtocolHandler<'de, DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
+    ProtocolHandler<DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
 )> {
     let mut out = Vec::with_capacity(n);
 
