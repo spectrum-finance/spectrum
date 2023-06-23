@@ -1,4 +1,6 @@
 extern crate core;
 
 pub mod kes;
-mod utils;
+pub mod prod_comp;
+pub mod sum_comp;
+pub mod utils;

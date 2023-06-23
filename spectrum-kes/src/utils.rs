@@ -3,12 +3,30 @@ use blake2::{Blake2b, Digest};
 use elliptic_curve::generic_array::GenericArray;
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
-use elliptic_curve::{CurveArithmetic, NonZeroScalar, PublicKey, Scalar, ScalarPrimitive};
+use elliptic_curve::{CurveArithmetic, NonZeroScalar, PublicKey, Scalar, ScalarPrimitive, SecretKey};
 
 use spectrum_crypto::digest::{sha256_hash, Sha2Digest256};
 use spectrum_vrf::utils::projective_point_to_bytes;
 
+#[derive(Debug)]
+pub struct Error;
+
 pub type Blake2b256 = Blake2b<U32>;
+
+pub fn kes_key_gen<TCurve: CurveArithmetic>(
+    seed: &Sha2Digest256,
+) -> Result<(SecretKey<TCurve>, PublicKey<TCurve>), Error> {
+    let seed_bytes: [u8; 32] = (*seed).into();
+    let sk: SecretKey<TCurve> = SecretKey::<TCurve>::from_slice(&seed_bytes).unwrap();
+    let pk = PublicKey::<TCurve>::from_secret_scalar(&sk.to_nonzero_scalar());
+    Ok((sk, pk))
+}
+
+pub fn kes_sk_key_gen<TCurve: CurveArithmetic>(seed: &Sha2Digest256) -> Result<SecretKey<TCurve>, Error> {
+    let seed_bytes: [u8; 32] = (*seed).into();
+    let sk = SecretKey::<TCurve>::from_slice(&seed_bytes).unwrap();
+    Ok(sk)
+}
 
 pub fn hash_to_public_key<TCurve: CurveArithmetic>(hash: Sha2Digest256) -> PublicKey<TCurve> {
     let hash_bytes: [u8; 32] = hash.into();
