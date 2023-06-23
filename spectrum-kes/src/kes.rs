@@ -12,13 +12,12 @@
 use std::ops::Add;
 
 use ecdsa::hazmat::SignPrimitive;
-use ecdsa::signature::{Signer, SignerMut};
+use ecdsa::signature::{Signer, SignerMut, Verifier};
 use ecdsa::{Signature, SigningKey, VerifyingKey};
 use elliptic_curve::generic_array::ArrayLength;
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
 use elliptic_curve::{CurveArithmetic, PublicKey, SecretKey};
-use k256::ecdsa::signature::Verifier;
 use k256::Secp256k1;
 
 use spectrum_crypto::digest::Sha2Digest256;
@@ -99,22 +98,7 @@ fn kes_sum_update<TCurve: CurveArithmetic>(
     })
 }
 
-pub fn kes_sum_sign(
-    kes_sk: &KesSumSecretKey<Secp256k1>,
-    message: &Sha2Digest256,
-) -> Result<KesSignature<Secp256k1>, Error> {
-    {
-        let signing_key: SigningKey<Secp256k1> = SigningKey::from(kes_sk.sk_0.clone());
-        let signature: Signature<Secp256k1> = signing_key.sign(message.as_ref());
-        Ok(KesSignature {
-            sig: signature,
-            pk_0: kes_sk.pk_0,
-            pk_1: kes_sk.pk_1,
-        })
-    }
-}
-
-pub fn kes_sum_generic_sign<TCurve>(
+pub fn kes_sum_sign<TCurve>(
     kes_sk: &KesSumSecretKey<TCurve>,
     message: &Sha2Digest256,
 ) -> Result<KesSignature<TCurve>, Error>
@@ -136,18 +120,24 @@ where
     }
 }
 
-pub fn kes_sum_verify(
-    signature: &KesSignature<Secp256k1>,
-    kes_pk: &PublicKey<Secp256k1>,
+pub fn kes_sum_verify<TCurve: CurveArithmetic + ecdsa::PrimeCurve + PointCompression>(
+    signature: &KesSignature<TCurve>,
+    kes_pk: &PublicKey<TCurve>,
     message: &Sha2Digest256,
     bound_slot: &i32,
     signing_slot: &i32,
-) -> Result<bool, Error> {
+) -> Result<bool, Error>
+where
+    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+    VerifyingKey<TCurve>: Verifier<Signature<TCurve>>,
+{
     let actual_pk = merge_public_keys(&signature.pk_0, &signature.pk_1);
 
     let result = {
         if actual_pk == *kes_pk {
-            let ver_key: VerifyingKey<Secp256k1> = {
+            let ver_key: VerifyingKey<TCurve> = {
                 if *signing_slot < *bound_slot {
                     VerifyingKey::from(signature.pk_0.clone())
                 } else {
@@ -234,10 +224,10 @@ mod test {
         let m_0_hash: Sha2Digest256 = sha256_hash("Hi".as_bytes());
         let m_1_hash: Sha2Digest256 = sha256_hash("Buy".as_bytes());
 
-        let sign_0 = kes_sum_sign(&sk_new_0, &m_0_hash).unwrap();
-        let sign_01 = kes_sum_sign(&sk_new_0, &m_1_hash).unwrap();
-        let sign_1 = kes_sum_sign(&sk_new_1, &m_0_hash).unwrap();
-        let sign_10 = kes_sum_sign(&sk_new_1, &m_0_hash).unwrap();
+        let sign_0 = kes_sum_sign::<Secp256k1>(&sk_new_0, &m_0_hash).unwrap();
+        let sign_01 = kes_sum_sign::<Secp256k1>(&sk_new_0, &m_1_hash).unwrap();
+        let sign_1 = kes_sum_sign::<Secp256k1>(&sk_new_1, &m_0_hash).unwrap();
+        let sign_10 = kes_sum_sign::<Secp256k1>(&sk_new_1, &m_0_hash).unwrap();
 
         assert_eq!(sk_sum.sk_0, sk_new_0.sk_0);
         assert_ne!(sk_new_0.sk_0, sk_new_1.sk_0);
@@ -263,22 +253,25 @@ mod test {
         let m_0_hash: Sha2Digest256 = sha256_hash("Hi".as_bytes());
         let m_1_hash: Sha2Digest256 = sha256_hash("Buy".as_bytes());
 
-        let sign_00 = kes_sum_sign(&sk_new_0, &m_0_hash).unwrap();
-        let sign_10 = kes_sum_sign(&sk_new_1, &m_0_hash).unwrap();
+        let sign_00 = kes_sum_sign::<Secp256k1>(&sk_new_0, &m_0_hash).unwrap();
+        let sign_10 = kes_sum_sign::<Secp256k1>(&sk_new_1, &m_0_hash).unwrap();
 
-        let ver_00_fair = kes_sum_verify(&sign_00, &pk_sum, &m_0_hash, &bound_slot, &current_slot_0).unwrap();
+        let ver_00_fair =
+            kes_sum_verify::<Secp256k1>(&sign_00, &pk_sum, &m_0_hash, &bound_slot, &current_slot_0).unwrap();
         let ver_00_mal_message =
-            kes_sum_verify(&sign_00, &pk_sum, &m_1_hash, &bound_slot, &current_slot_0).unwrap();
+            kes_sum_verify::<Secp256k1>(&sign_00, &pk_sum, &m_1_hash, &bound_slot, &current_slot_0).unwrap();
         let ver_00_mal_slot =
-            kes_sum_verify(&sign_00, &pk_sum, &m_1_hash, &bound_slot, &current_slot_1).unwrap();
-        let ver_10_fair = kes_sum_verify(&sign_10, &pk_sum, &m_0_hash, &bound_slot, &current_slot_1).unwrap();
+            kes_sum_verify::<Secp256k1>(&sign_00, &pk_sum, &m_1_hash, &bound_slot, &current_slot_1).unwrap();
+        let ver_10_fair =
+            kes_sum_verify::<Secp256k1>(&sign_10, &pk_sum, &m_0_hash, &bound_slot, &current_slot_1).unwrap();
 
         let seed_0 = sha256_hash(OsRng.next_u64().to_string().as_bytes());
 
         let (_, pk_sum_mal) = kes_sum_key_gen::<Secp256k1>(&seed_0).unwrap();
 
         let ver_10_mal_pk =
-            kes_sum_verify(&sign_10, &pk_sum_mal, &m_0_hash, &bound_slot, &current_slot_1).unwrap();
+            kes_sum_verify::<Secp256k1>(&sign_10, &pk_sum_mal, &m_0_hash, &bound_slot, &current_slot_1)
+                .unwrap();
 
         assert!(ver_00_fair);
         assert!(!!!ver_00_mal_message);
