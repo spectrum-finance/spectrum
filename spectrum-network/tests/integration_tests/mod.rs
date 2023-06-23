@@ -938,14 +938,10 @@ async fn create_swarm<P>(
     peer: Peer,
     mut tx: mpsc::Sender<(
         Peer,
-        Msg<
-            <<P as ProtocolBehaviour<'static>>::TProto as spectrum_network::protocol_handler::ProtocolSpec<
-                'static,
-            >>::TMessage,
-        >,
+        Msg<<<P as ProtocolBehaviour>::TProto as spectrum_network::protocol_handler::ProtocolSpec>::TMessage>,
     )>,
 ) where
-    P: ProtocolBehaviour<'static> + Unpin + Send + 'static,
+    P: ProtocolBehaviour + Unpin + Send + 'static,
 {
     let transport = tcp::async_io::Transport::default()
         .upgrade(Version::V1Lazy)
@@ -1022,11 +1018,11 @@ fn make_swarm_components<P, F>(
     gen_protocol_behaviour: F,
     msg_buffer_size: usize,
 ) -> (
-    ProtocolHandler<'static, P, NetworkMailbox>,
+    ProtocolHandler<P, NetworkMailbox>,
     NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox>,
 )
 where
-    P: ProtocolBehaviour<'static> + Unpin + Send + 'static,
+    P: ProtocolBehaviour + Unpin + Send + 'static,
     F: FnOnce(PeersMailbox) -> P,
 {
     let peer_conn_handler_conf = PeerConnHandlerConf {
