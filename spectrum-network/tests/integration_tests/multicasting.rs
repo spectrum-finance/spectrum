@@ -112,7 +112,7 @@ where
                 ..
             }) => {
                 println!("[Peer-{}] :: Got message {:?}", self.host_ix, content);
-                proc.inject_message(peer_id, content)
+                proc.inject_message(peer_id, content);
             }
         }
     }

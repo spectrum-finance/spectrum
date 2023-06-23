@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
+use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -318,6 +319,48 @@ struct AggregationTask<'a, H, PP> {
     channel: Sender<Result<Aggregated<H>, ()>>,
 }
 
+#[repr(usize)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+enum StageTag {
+    PreCommit = 0,
+    Commit = 1,
+    Broadcast = 2,
+    Response = 3,
+}
+
+impl From<&SigmaAggrMessageV1> for StageTag {
+    fn from(m: &SigmaAggrMessageV1) -> Self {
+        match m {
+            SigmaAggrMessageV1::PreCommitments(_) => StageTag::PreCommit,
+            SigmaAggrMessageV1::Commitments(_) => StageTag::Commit,
+            SigmaAggrMessageV1::Broadcast(_) => StageTag::Broadcast,
+            SigmaAggrMessageV1::Responses(_) => StageTag::Response,
+        }
+    }
+}
+
+/// Stash of messages received during improper stage. Messages are groupped by stage.
+struct MessageStash([HashMap<PeerId, SigmaAggrMessageV1>; 4]);
+
+impl MessageStash {
+    fn new() -> Self {
+        Self([HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new()])
+    }
+
+    fn stash(&mut self, peer: PeerId, m: SigmaAggrMessageV1) {
+        let stage = StageTag::from(&m);
+        self.0[stage as usize].insert(peer, m);
+    }
+
+    fn unstash(&mut self, stage: StageTag) -> HashMap<PeerId, SigmaAggrMessageV1> {
+        mem::replace(&mut self.0[stage as usize], HashMap::new())
+    }
+
+    fn flush(&mut self) {
+        self.0 = [HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new()];
+    }
+}
+
 pub struct SigmaAggregation<'a, H, MPP, OB>
 where
     MPP: MakePeerPartitions,
@@ -325,6 +368,7 @@ where
     host_sk: SecretKey,
     handel_conf: HandelConfig,
     task: Option<AggregationTask<'a, H, MPP::PP>>,
+    stash: MessageStash,
     partitioner: MPP,
     mcast_overlay_builder: OB,
     inbox: Receiver<AggregationAction<H>>,
@@ -356,10 +400,23 @@ where
             host_sk,
             handel_conf,
             task: None,
+            stash: MessageStash::new(),
             partitioner,
             mcast_overlay_builder,
             inbox,
             outbox: VecDeque::new(),
+        }
+    }
+
+    fn unstash_stage(&mut self, stage: StageTag)
+    where
+        H: Debug,
+        MPP: MakePeerPartitions + Clone + Send,
+        MPP::PP: Send + 'a,
+        OB: MakeDagOverlay + Clone,
+    {
+        for (p, m) in self.stash.unstash(stage) {
+            self.inject_message(p, SigmaAggrMessage::SigmaAggrMessageV1(m))
         }
     }
 }
@@ -389,6 +446,9 @@ where
                         pre_commitment.host_ix,
                     );
                     pre_commitment.handel.inject_message(peer_id, pre_commits);
+                } else {
+                    trace!("SigmaAggrMessageV1 expected PreCommitments, got {:?}", msg);
+                    self.stash.stash(peer_id, msg);
                 }
             }
             Some(AggregationTask {
@@ -400,12 +460,21 @@ where
                     commitment.handel.inject_message(peer_id, commits);
                 } else {
                     trace!("SigmaAggrMessageV1 expected Commitments, got {:?}", msg);
+                    self.stash.stash(peer_id, msg);
                 }
             }
             Some(AggregationTask {
                 state: AggregationState::BroadcastCommitments(ref mut bcast),
                 ..
-            }) => {}
+            }) => {
+                if let SigmaAggrMessageV1::Broadcast(commits) = msg {
+                    trace!("SigmaAggrMessageV1::Broadcast: {:?}", commits);
+                    bcast.mcast.inject_message(peer_id, commits);
+                } else {
+                    trace!("SigmaAggrMessageV1 expected Broadcast, got {:?}", msg);
+                    self.stash.stash(peer_id, msg);
+                }
+            }
             Some(AggregationTask {
                 state: AggregationState::AggregateResponses(ref mut response),
                 ..
@@ -415,6 +484,7 @@ where
                     response.handel.inject_message(peer_id, resps);
                 } else {
                     trace!("SigmaAggrMessageV1 expected Responses, got {:?}", msg);
+                    self.stash.stash(peer_id, msg);
                 }
             }
             None => {}
@@ -437,6 +507,7 @@ where
                         new_message,
                         channel,
                     } => {
+                        self.stash.flush();
                         self.task = Some(AggregationTask {
                             state: AggregationState::AggregatePreCommitments(AggregatePreCommitments::init(
                                 self.host_sk.clone(),
@@ -473,6 +544,7 @@ where
                             }
                             Either::Right(pre_commitments) => {
                                 let host_ix = st.host_ix;
+                                self.unstash_stage(StageTag::Commit);
                                 self.task = Some(AggregationTask {
                                     state: AggregationState::AggregateCommitments(
                                         st.complete(pre_commitments, self.handel_conf),
@@ -508,6 +580,7 @@ where
 
                             Either::Right(commitments) => {
                                 trace!("[SA] Got commitments");
+                                self.unstash_stage(StageTag::Broadcast);
                                 self.task = Some(AggregationTask {
                                     state: AggregationState::BroadcastCommitments(st.complete(commitments)),
                                     channel,
@@ -539,6 +612,7 @@ where
                             }
                             Either::Right(commitments) => {
                                 trace!("[SA] Got commitments");
+                                self.unstash_stage(StageTag::Response);
                                 self.task = Some(AggregationTask {
                                     state: AggregationState::AggregateResponses(
                                         st.complete(commitments, self.handel_conf),
@@ -568,6 +642,7 @@ where
                                 }
                                 Either::Right(responses) => {
                                     self.task = None;
+                                    self.stash.flush();
                                     let res = st.complete(responses);
                                     // todo: support error case.
                                     trace!("[SA] Got responses: {:?}", res);
