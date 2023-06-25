@@ -96,22 +96,18 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
             peer_manager_msg_buffer_size: 1000,
         };
         let handel_conf = HandelConfig {
-            threshold: Threshold { num: 8, denom: 8 },
+            threshold: Threshold { num: 16, denom: 16 },
             window_shrinking_factor: 4,
             initial_scoring_window: 3,
-            fast_path_window: 10,
+            fast_path_window: 16,
             dissemination_interval: Duration::from_millis(40),
             level_activation_delay: Duration::from_millis(50),
-            poll_fn_delay: Duration::from_millis(5),
+            throttle_factor: 5,
         };
         let seed = [0_u8; 32];
         let gen_perm = PseudoRandomGenPerm::new(seed);
         let (aggr_handler_snd, aggr_handler_inbox) = mpsc::channel::<AggregationAction<Blake2b>>(100);
-        let sig_aggr: SigmaAggregation<
-            Blake2b,
-            MakeBinomialPeerPartitions<PseudoRandomGenPerm>,
-            RedundancyDagOverlayBuilder,
-        > = SigmaAggregation::new(
+        let sig_aggr = SigmaAggregation::new(
             peer_sk.clone(),
             handel_conf,
             MakeBinomialPeerPartitions {

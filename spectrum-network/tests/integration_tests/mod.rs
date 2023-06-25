@@ -1082,7 +1082,7 @@ async fn sigma_aggregation_normal() {
         )
         .collect();
 
-    wasm_timer::Delay::new(Duration::from_secs(1)).await.unwrap();
+    async_std::task::sleep(Duration::from_secs(1)).await;
     println!("Starting testing ..");
 
     let mut result_futures = Vec::new();
@@ -1129,7 +1129,7 @@ async fn sigma_aggregation_normal() {
         });
     }
 
-    wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
+    async_std::task::sleep(Duration::from_secs(10)).await;
 
     println!("Timeout");
 
@@ -1137,7 +1137,7 @@ async fn sigma_aggregation_normal() {
         peer.peer_handle.abort();
     }
 
-    wasm_timer::Delay::new(Duration::from_secs(1)).await.unwrap();
+    async_std::task::sleep(Duration::from_secs(1)).await;
     println!("Finished. {:?}", stats.lock().await);
 }
 

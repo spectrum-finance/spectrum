@@ -6,13 +6,12 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use async_std::task::sleep;
 use either::{Either, Left, Right};
 use futures::FutureExt;
 use libp2p::PeerId;
+use log::trace;
 
 use algebra_core::CommutativePartialSemigroup;
-use log::trace;
 use spectrum_crypto::VerifiableAgainst;
 
 use crate::protocol_handler::handel::message::HandelMessage;
@@ -88,7 +87,7 @@ pub struct HandelConfig {
     pub fast_path_window: usize,
     pub dissemination_interval: Duration,
     pub level_activation_delay: Duration,
-    pub poll_fn_delay: Duration,
+    pub throttle_factor: u32,
 }
 
 /// A round of Handel protocol that drives aggregation of contribution `C`.
@@ -634,6 +633,8 @@ impl<C: Eq> Ord for ScoredContributionTraced<C> {
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
 struct Verified<C>(C);
 
+const BASE_THROTTLE_DURATION: Duration = Duration::from_millis(1);
+
 impl<C, P, PP> TemporalProtocolStage<VoidMessage, HandelMessage<C>, C> for Handel<C, P, PP>
 where
     C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone + Eq + Debug,
@@ -662,37 +663,36 @@ where
 
     fn poll(
         &mut self,
-        cx: &mut Context<'_>,
+        cx: &mut Context,
     ) -> Poll<Either<ProtocolBehaviourOut<VoidMessage, HandelMessage<C>>, C>> {
         if let Some(mut delay) = self.delay.take() {
             match delay.poll_unpin(cx) {
-                Poll::Ready(_) => {
-                    self.try_disseminatate();
-                    self.try_activate_levels();
-
-                    if let Some(out) = self.outbox.pop_front() {
-                        trace!(
-                            "[Handel] {:?}: outbox.pop(), # outbox items left: {}",
-                            self.own_peer_ix,
-                            self.outbox.len()
-                        );
-                        return Poll::Ready(Left(out));
-                    }
-                    if let Some(ca) = self.get_complete_aggregate() {
-                        Poll::Ready(Right(ca))
-                    } else {
-                        self.delay = Some(Box::pin(tokio::time::sleep(self.conf.poll_fn_delay)));
-                        cx.waker().wake_by_ref();
-                        Poll::Pending
-                    }
-                }
+                Poll::Ready(_) => {}
                 Poll::Pending => {
                     self.delay = Some(delay);
-                    Poll::Pending
+                    return Poll::Pending;
                 }
             }
+        }
+
+        self.try_disseminatate();
+        self.try_activate_levels();
+
+        if let Some(out) = self.outbox.pop_front() {
+            trace!(
+                "[Handel] {:?}: outbox.pop(), # outbox items left: {}",
+                self.own_peer_ix,
+                self.outbox.len()
+            );
+            self.delay = Some(Box::pin(tokio::time::sleep(BASE_THROTTLE_DURATION)));
+            return Poll::Ready(Left(out));
+        }
+        if let Some(ca) = self.get_complete_aggregate() {
+            Poll::Ready(Right(ca))
         } else {
-            self.delay = Some(Box::pin(tokio::time::sleep(self.conf.poll_fn_delay)));
+            self.delay = Some(Box::pin(tokio::time::sleep(
+                BASE_THROTTLE_DURATION * self.conf.throttle_factor,
+            )));
             cx.waker().wake_by_ref();
             Poll::Pending
         }
@@ -767,7 +767,7 @@ mod tests {
         fast_path_window: 4,
         dissemination_interval: Duration::from_millis(2000),
         level_activation_delay: Duration::from_millis(400),
-        poll_fn_delay: Duration::from_millis(5),
+        throttle_factor: 5,
     };
 
     fn make_handel(
