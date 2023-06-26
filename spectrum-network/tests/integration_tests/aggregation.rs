@@ -100,7 +100,7 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
             window_shrinking_factor: 4,
             initial_scoring_window: 3,
             fast_path_window: 16,
-            dissemination_interval: Duration::from_millis(40),
+            dissemination_delay: Duration::from_millis(40),
             level_activation_delay: Duration::from_millis(50),
             throttle_factor: 5,
         };
