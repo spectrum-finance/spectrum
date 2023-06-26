@@ -622,7 +622,12 @@ where
                                 continue;
                             }
                         },
-                        Poll::Pending => {}
+                        Poll::Pending => {
+                            self.task = Some(AggregationTask {
+                                state: AggregationState::BroadcastCommitments(st),
+                                channel,
+                            });
+                        }
                     },
                     AggregationTask {
                         state: AggregationState::AggregateResponses(mut st),

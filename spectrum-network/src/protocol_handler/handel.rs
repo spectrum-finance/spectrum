@@ -649,16 +649,6 @@ where
         &mut self,
         cx: &mut Context,
     ) -> Poll<Either<ProtocolBehaviourOut<VoidMessage, HandelMessage<C>>, C>> {
-        if let Some(mut delay) = self.next_processing.take() {
-            match delay.poll_unpin(cx) {
-                Poll::Ready(_) => {}
-                Poll::Pending => {
-                    self.next_processing = Some(delay);
-                    return Poll::Pending;
-                }
-            }
-        }
-
         match self.next_dissemination.poll_unpin(cx) {
             Poll::Ready(_) => {
                 self.run_dissemination();
@@ -675,6 +665,16 @@ where
                 }
             }
             Poll::Pending => {}
+        }
+
+        if let Some(mut delay) = self.next_processing.take() {
+            match delay.poll_unpin(cx) {
+                Poll::Ready(_) => {}
+                Poll::Pending => {
+                    self.next_processing = Some(delay);
+                    return Poll::Pending;
+                }
+            }
         }
 
         if let Some(out) = self.outbox.pop_front() {
