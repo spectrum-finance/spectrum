@@ -185,6 +185,12 @@ impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
     }
 }
 
+impl VerifiableAgainst<()> for CommitmentsWithProofs {
+    fn verify(&self, _: &()) -> bool {
+        true
+    }
+}
+
 pub type Responses = Contributions<Scalar>;
 
 pub struct ResponsesVerifInput {

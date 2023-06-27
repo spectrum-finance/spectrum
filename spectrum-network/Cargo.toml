@@ -39,7 +39,7 @@ libsecp256k1 = "0.7.1"
 group = "0.13.*"
 nonempty = "0.8.1"
 higher = "0.2.0"
-tokio = {version = "1", features = ["time", "rt", "macros"] }
+tokio = {version = "1.28.*", features = ["time", "rt", "macros", "rt-multi-thread"] }
 async-trait = "0.1.68"
 rocksdb = "0.21.0"
 
@@ -48,3 +48,4 @@ libp2p = { version = "0.51.*", features = ["noise", "yamux", "async-std", "tcp"]
 log4rs_test_utils = {version = "0.2.3", featuers = ["test_logging"]}
 base16 = "0.2.1"
 serde_yaml = "0.9.21"
+itertools = "0.10.5"

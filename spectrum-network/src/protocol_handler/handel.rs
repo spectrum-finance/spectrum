@@ -1,18 +1,19 @@
 use std::cmp::{max, Ordering};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
+use std::future::Future;
 use std::ops::{Add, Mul};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use async_std::task::sleep;
 use either::{Either, Left, Right};
+use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use libp2p::PeerId;
+use log::trace;
 
 use algebra_core::CommutativePartialSemigroup;
-use log::trace;
 use spectrum_crypto::VerifiableAgainst;
 
 use crate::protocol_handler::handel::message::HandelMessage;
@@ -86,9 +87,9 @@ pub struct HandelConfig {
     pub window_shrinking_factor: usize,
     pub initial_scoring_window: usize,
     pub fast_path_window: usize,
-    pub dissemination_interval: Duration,
+    pub dissemination_delay: Duration,
     pub level_activation_delay: Duration,
-    pub poll_fn_delay: Duration,
+    pub throttle_factor: u32,
 }
 
 /// A round of Handel protocol that drives aggregation of contribution `C`.
@@ -104,13 +105,13 @@ pub struct Handel<C, P, PP> {
     /// Keeps track of the peers to whom we've sent our own contribution already.
     own_contribution_recvs: HashSet<PeerIx>,
     outbox: VecDeque<ProtocolBehaviourOut<VoidMessage, HandelMessage<C>>>,
-    next_dissemination_at: Instant,
-    level_activation_schedule: Vec<Option<Instant>>,
     own_peer_ix: PeerIx,
     /// Tracks peers who have indicated that they have completed particular contribution levels.
     peers_completed_levels: HashMap<PeerIx, HashSet<u32>>,
     /// We use a delay in the `poll` fn to prevent spinning.
-    delay: Option<Pin<Box<tokio::time::Sleep>>>,
+    next_processing: Option<Pin<Box<tokio::time::Sleep>>>,
+    next_dissemination: Pin<Box<tokio::time::Sleep>>,
+    next_activation: Pin<Box<tokio::time::Sleep>>,
 }
 
 impl<C, P, PP> Handel<C, P, PP>
@@ -133,7 +134,6 @@ where
         });
         levels[0] = Some(ActiveLevel::unit(own_contribution_scored.clone()));
         levels[1] = Some(ActiveLevel::new(own_contribution_scored, 1));
-        let now = Instant::now();
         Handel {
             conf,
             public_data,
@@ -144,44 +144,11 @@ where
             byzantine_nodes: HashSet::new(),
             own_contribution_recvs: HashSet::new(),
             outbox: VecDeque::new(),
-            next_dissemination_at: now,
-            level_activation_schedule: vec![(); num_levels]
-                .into_iter()
-                .enumerate()
-                .map(|(i, _)| {
-                    if i > 1 {
-                        Some(now.add(conf.level_activation_delay.mul(i as u32)))
-                    } else {
-                        // 0'th and 1'st levels are already activated.
-                        None
-                    }
-                })
-                .collect(),
             own_peer_ix,
             peers_completed_levels: HashMap::default(),
-            delay: None,
-        }
-    }
-
-    fn try_disseminatate(&mut self) {
-        let now = Instant::now();
-        if now >= self.next_dissemination_at {
-            self.run_dissemination();
-            self.next_dissemination_at = now.add(self.conf.dissemination_interval);
-        }
-    }
-
-    fn try_activate_levels(&mut self) {
-        let now = Instant::now();
-        for (lvl, schedule) in self.level_activation_schedule.clone().into_iter().enumerate() {
-            if let Some(ts) = schedule {
-                if ts <= now {
-                    self.try_activate_level(lvl);
-                    self.level_activation_schedule[lvl] = None;
-                } else {
-                    break;
-                }
-            }
+            next_processing: None,
+            next_dissemination: Box::pin(tokio::time::sleep(conf.dissemination_delay)),
+            next_activation: Box::pin(tokio::time::sleep(conf.level_activation_delay)),
         }
     }
 
@@ -575,6 +542,22 @@ where
         self.levels.get(level).map(|l| l.is_some()).unwrap_or(false)
     }
 
+    fn next_non_active_level(&self) -> Option<usize> {
+        self.levels
+            .iter()
+            .enumerate()
+            .take_while(|(_, l)| l.is_none())
+            .map(|(i, _)| i)
+            .max()
+            .and_then(|lvl| {
+                if lvl < self.peer_partitions.num_levels() {
+                    Some(lvl)
+                } else {
+                    None
+                }
+            })
+    }
+
     fn get_own_contribution(&self) -> C {
         self.levels[0]
             .as_ref()
@@ -634,6 +617,8 @@ impl<C: Eq> Ord for ScoredContributionTraced<C> {
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
 struct Verified<C>(C);
 
+const BASE_THROTTLE_DURATION: Duration = Duration::from_millis(1);
+
 impl<C, P, PP> TemporalProtocolStage<VoidMessage, HandelMessage<C>, C> for Handel<C, P, PP>
 where
     C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone + Eq + Debug,
@@ -662,37 +647,51 @@ where
 
     fn poll(
         &mut self,
-        cx: &mut Context<'_>,
+        cx: &mut Context,
     ) -> Poll<Either<ProtocolBehaviourOut<VoidMessage, HandelMessage<C>>, C>> {
-        if let Some(mut delay) = self.delay.take() {
-            match delay.poll_unpin(cx) {
-                Poll::Ready(_) => {
-                    self.try_disseminatate();
-                    self.try_activate_levels();
+        match self.next_dissemination.poll_unpin(cx) {
+            Poll::Ready(_) => {
+                self.run_dissemination();
+                self.next_dissemination = Box::pin(tokio::time::sleep(self.conf.dissemination_delay));
+            }
+            Poll::Pending => {}
+        }
 
-                    if let Some(out) = self.outbox.pop_front() {
-                        trace!(
-                            "[Handel] {:?}: outbox.pop(), # outbox items left: {}",
-                            self.own_peer_ix,
-                            self.outbox.len()
-                        );
-                        return Poll::Ready(Left(out));
-                    }
-                    if let Some(ca) = self.get_complete_aggregate() {
-                        Poll::Ready(Right(ca))
-                    } else {
-                        self.delay = Some(Box::pin(tokio::time::sleep(self.conf.poll_fn_delay)));
-                        cx.waker().wake_by_ref();
-                        Poll::Pending
-                    }
-                }
-                Poll::Pending => {
-                    self.delay = Some(delay);
-                    Poll::Pending
+        match self.next_activation.poll_unpin(cx) {
+            Poll::Ready(_) => {
+                if let Some(lvl) = self.next_non_active_level() {
+                    self.try_activate_level(lvl);
+                    self.next_activation = Box::pin(tokio::time::sleep(self.conf.level_activation_delay));
                 }
             }
+            Poll::Pending => {}
+        }
+
+        if let Some(mut delay) = self.next_processing.take() {
+            match delay.poll_unpin(cx) {
+                Poll::Ready(_) => {}
+                Poll::Pending => {
+                    self.next_processing = Some(delay);
+                    return Poll::Pending;
+                }
+            }
+        }
+
+        if let Some(out) = self.outbox.pop_front() {
+            trace!(
+                "[Handel] {:?}: outbox.pop(), # outbox items left: {}",
+                self.own_peer_ix,
+                self.outbox.len()
+            );
+            self.next_processing = Some(Box::pin(tokio::time::sleep(BASE_THROTTLE_DURATION)));
+            return Poll::Ready(Left(out));
+        }
+        if let Some(ca) = self.get_complete_aggregate() {
+            Poll::Ready(Right(ca))
         } else {
-            self.delay = Some(Box::pin(tokio::time::sleep(self.conf.poll_fn_delay)));
+            self.next_processing = Some(Box::pin(tokio::time::sleep(
+                BASE_THROTTLE_DURATION * self.conf.throttle_factor,
+            )));
             cx.waker().wake_by_ref();
             Poll::Pending
         }
@@ -765,9 +764,9 @@ mod tests {
         window_shrinking_factor: 2,
         initial_scoring_window: 4,
         fast_path_window: 4,
-        dissemination_interval: Duration::from_millis(2000),
+        dissemination_delay: Duration::from_millis(2000),
         level_activation_delay: Duration::from_millis(400),
-        poll_fn_delay: Duration::from_millis(5),
+        throttle_factor: 5,
     };
 
     fn make_handel(

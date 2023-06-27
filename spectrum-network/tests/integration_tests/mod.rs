@@ -1,7 +1,10 @@
+use std::collections::HashSet;
 use std::ops::Sub;
+use std::sync::Arc;
 use std::time::Instant;
 use std::{collections::HashMap, time::Duration};
 
+use async_std::sync::Mutex;
 use futures::channel::mpsc::Sender;
 use futures::{
     channel::{mpsc, oneshot},
@@ -15,11 +18,15 @@ use libp2p::{
     tcp, yamux, Multiaddr, PeerId,
 };
 
-use spectrum_crypto::digest::blake2b256_hash;
+use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::pubkey::PublicKey;
 use spectrum_network::protocol::{OneShotProtocolConfig, OneShotProtocolSpec, ProtocolConfig};
 use spectrum_network::protocol_api::ProtocolEvent;
 use spectrum_network::protocol_handler::aggregation::AggregationAction;
+use spectrum_network::protocol_handler::multicasting::overlay::{
+    MakeDagOverlay, RedundancyDagOverlayBuilder,
+};
+use spectrum_network::protocol_handler::sigma_aggregation::types::Contributions;
 use spectrum_network::types::{ProtocolTag, RawMessage};
 use spectrum_network::{
     network_controller::{NetworkController, NetworkControllerIn, NetworkControllerOut, NetworkMailbox},
@@ -42,9 +49,11 @@ use spectrum_network::{
 };
 
 use crate::integration_tests::fake_sync_behaviour::{FakeSyncBehaviour, FakeSyncMessage, FakeSyncMessageV1};
+use crate::integration_tests::multicasting::{SetTask, Statements};
 
 mod aggregation;
 mod fake_sync_behaviour;
+mod multicasting;
 
 /// Identifies particular peers
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -938,9 +947,7 @@ async fn create_swarm<P>(
     peer: Peer,
     mut tx: mpsc::Sender<(
         Peer,
-        Msg<
-            <<P as ProtocolBehaviour>::TProto as spectrum_network::protocol_handler::ProtocolSpec>::TMessage,
-        >,
+        Msg<<<P as ProtocolBehaviour>::TProto as spectrum_network::protocol_handler::ProtocolSpec>::TMessage>,
     )>,
 ) where
     P: ProtocolBehaviour + Unpin + Send + 'static,
@@ -966,11 +973,105 @@ async fn create_swarm<P>(
     }
 }
 
+#[derive(Debug)]
+struct Stats {
+    num_succ: usize,
+    num_fail: usize,
+}
+
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
 #[tokio::test]
+async fn multicasting_normal() {
+    let mut peers = multicasting::setup_nodes::<Statements<u64>>(17);
+    let statement = Statements(vec![0]);
+    let committee: Vec<(PeerId, Option<Multiaddr>)> = peers
+        .iter()
+        .map(
+            |multicasting::Peer {
+                 peer_addr, peer_id, ..
+             }| (*peer_id, Some(peer_addr.clone())),
+        )
+        .collect();
+    let overlay_builder = RedundancyDagOverlayBuilder {
+        redundancy_factor: 3,
+        seed: 64,
+    };
+
+    wasm_timer::Delay::new(Duration::from_secs(1)).await.unwrap();
+    println!("Starting testing ..");
+
+    let root_pid = peers[0].peer_id;
+    let mut result_futures = Vec::new();
+
+    for peer in peers.iter_mut() {
+        let overlay = overlay_builder.make(Some(root_pid), peer.peer_id, committee.clone());
+        let (snd, recv) = oneshot::channel();
+        result_futures.push(recv);
+        let initial_statement = if peer.peer_id == root_pid {
+            Some(statement.clone())
+        } else {
+            None
+        };
+        peer.aggr_handler_mailbox
+            .clone()
+            .send(SetTask {
+                initial_statement,
+                on_response: snd,
+                overlay,
+            })
+            .await
+            .unwrap();
+        println!("Assigned task to peer {:?}", peer.peer_addr);
+    }
+
+    let started_at = Instant::now();
+
+    let stats = Arc::new(Mutex::new(Stats {
+        num_fail: 0,
+        num_succ: 0,
+    }));
+
+    for (ix, fut) in result_futures.into_iter().enumerate() {
+        async_std::task::spawn({
+            let stats = Arc::clone(&stats);
+            async move {
+                let res = fut.await;
+                let finished_at = Instant::now();
+                let elapsed = finished_at.sub(started_at);
+                match res {
+                    Ok(_) => {
+                        println!(
+                            "[Peer-{}] :: Finished mcast in {} millis",
+                            ix,
+                            elapsed.as_millis()
+                        );
+                        stats.lock().await.num_succ += 1;
+                    }
+                    Err(_) => {
+                        println!("[Peer-{}] :: Failed mcast in {} millis", ix, elapsed.as_millis());
+                        stats.lock().await.num_fail += 1;
+                    }
+                }
+            }
+        });
+    }
+
+    wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
+
+    println!("Timeout");
+
+    for peer in &peers {
+        peer.peer_handle.abort();
+    }
+
+    println!("Finished. {:?}", stats.lock().await);
+}
+
+#[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
+#[tokio::test(flavor ="multi_thread")]
 async fn sigma_aggregation_normal() {
     //init_logging_once_for(vec![], LevelFilter::Debug, None);
-    let mut peers = aggregation::setup_nodes(8);
+    let mut peers = aggregation::setup_nodes(16);
     let md = blake2b256_hash(b"foo");
     let committee: HashMap<PublicKey, Option<Multiaddr>> = peers
         .iter()
@@ -981,38 +1082,63 @@ async fn sigma_aggregation_normal() {
         )
         .collect();
 
-    wasm_timer::Delay::new(Duration::from_millis(100)).await.unwrap();
+    async_std::task::sleep(Duration::from_secs(1)).await;
+    println!("Starting testing ..");
+
     let mut result_futures = Vec::new();
     for peer in peers.iter_mut() {
         let (snd, recv) = oneshot::channel();
         result_futures.push(recv);
-        async_std::task::block_on(peer.aggr_handler_mailbox.clone().send(AggregationAction::Reset {
-            new_committee: committee.clone(),
-            new_message: md,
-            channel: snd,
-        }))
-        .unwrap();
+        peer.aggr_handler_mailbox
+            .clone()
+            .send(AggregationAction::Reset {
+                new_committee: committee.clone(),
+                new_message: md,
+                channel: snd,
+            })
+            .await
+            .unwrap();
+        println!("Assigned task to peer {:?}", peer.peer_addr);
     }
 
     let started_at = Instant::now();
 
+    let stats = Arc::new(Mutex::new(Stats {
+        num_fail: 0,
+        num_succ: 0,
+    }));
+
     for (ix, fut) in result_futures.into_iter().enumerate() {
-        async_std::task::spawn(async move {
-            let res = fut.await;
-            let finished_at = Instant::now();
-            let elapsed = finished_at.sub(started_at);
-            match res {
-                Ok(_) => println!("PEER:{} :: Finished aggr in {} millis", ix, elapsed.as_millis()),
-                Err(_) => println!("PEER:{} :: Failed aggr in {} millis", ix, elapsed.as_millis()),
+        async_std::task::spawn({
+            let stats = Arc::clone(&stats);
+            async move {
+                let res = fut.await;
+                let finished_at = Instant::now();
+                let elapsed = finished_at.sub(started_at);
+                match res {
+                    Ok(_) => {
+                        println!("[Peer-{}] :: Finished aggr in {} millis", ix, elapsed.as_millis());
+                        stats.lock().await.num_succ += 1;
+                    }
+                    Err(_) => {
+                        println!("[Peer-{}] :: Failed aggr in {} millis", ix, elapsed.as_millis());
+                        stats.lock().await.num_fail += 1;
+                    }
+                }
             }
         });
     }
 
-    wasm_timer::Delay::new(Duration::from_secs(2)).await.unwrap();
+    async_std::task::sleep(Duration::from_secs(10)).await;
+
+    println!("Timeout");
 
     for peer in &peers {
         peer.peer_handle.abort();
     }
+
+    async_std::task::sleep(Duration::from_secs(1)).await;
+    println!("Finished. {:?}", stats.lock().await);
 }
 
 fn make_swarm_components<P, F>(

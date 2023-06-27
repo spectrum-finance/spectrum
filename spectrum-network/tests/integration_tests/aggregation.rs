@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::time::Duration;
 
 use elliptic_curve::rand_core::OsRng;
@@ -12,9 +13,8 @@ use libp2p::swarm::{SwarmBuilder, SwarmEvent};
 use libp2p::{identity, noise, tcp, yamux, Multiaddr, Transport};
 use libp2p_identity::{Keypair, PeerId};
 use log::trace;
-use std::io::Write;
-
 use serde::{Deserialize, Serialize};
+
 use spectrum_crypto::digest::Blake2b;
 use spectrum_crypto::pubkey::PublicKey;
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
@@ -30,8 +30,9 @@ use spectrum_network::protocol_handler::handel::partitioning::{
     MakeBinomialPeerPartitions, PseudoRandomGenPerm,
 };
 use spectrum_network::protocol_handler::handel::{HandelConfig, Threshold};
-use spectrum_network::protocol_handler::sigma_aggregation::{SigmaAggregation};
-use spectrum_network::protocol_handler::ProtocolHandler;
+use spectrum_network::protocol_handler::multicasting::overlay::RedundancyDagOverlayBuilder;
+use spectrum_network::protocol_handler::sigma_aggregation::SigmaAggregation;
+use spectrum_network::protocol_handler::{ProtocolBehaviour, ProtocolHandler};
 use spectrum_network::types::{ProtocolVer, Reputation};
 
 pub struct Peer {
@@ -57,8 +58,8 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
         let k256_pk = peer_sk.public_key();
         let k256_point = k256_pk.to_encoded_point(true);
         let k256_encoded = k256_point.as_bytes();
-        let libp2p_pk = libp2p_identity::secp256k1::PublicKey::decode(k256_encoded).unwrap();
-        let peer_id = PeerId::from_public_key(&libp2p_identity::PublicKey::Secp256k1(libp2p_pk));
+        let libp2p_pk = libp2p_identity::secp256k1::PublicKey::try_from_bytes(k256_encoded).unwrap();
+        let peer_id = PeerId::from_public_key(&libp2p_identity::PublicKey::from(libp2p_pk));
         let other_peer_id = PeerId::from(peer_key.public());
         assert_eq!(peer_id, other_peer_id);
         let peer_addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", 8000 + node_ix).parse().unwrap();
@@ -95,13 +96,13 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
             peer_manager_msg_buffer_size: 1000,
         };
         let handel_conf = HandelConfig {
-            threshold: Threshold { num: 8, denom: 8 },
+            threshold: Threshold { num: 16, denom: 16 },
             window_shrinking_factor: 4,
             initial_scoring_window: 3,
-            fast_path_window: 10,
-            dissemination_interval: Duration::from_millis(40),
+            fast_path_window: 16,
+            dissemination_delay: Duration::from_millis(40),
             level_activation_delay: Duration::from_millis(50),
-            poll_fn_delay: Duration::from_millis(5),
+            throttle_factor: 5,
         };
         let seed = [0_u8; 32];
         let gen_perm = PseudoRandomGenPerm::new(seed);
@@ -112,6 +113,10 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
             MakeBinomialPeerPartitions {
                 rng: gen_perm.clone(),
             },
+            RedundancyDagOverlayBuilder {
+                redundancy_factor: 3,
+                seed: 42,
+            },
             aggr_handler_inbox,
         );
         let peer_state = PeerRepo::new(netw_config, vec![]);
@@ -120,7 +125,8 @@ pub fn setup_nodes(n: usize) -> Vec<Peer> {
         let network_api = NetworkMailbox {
             mailbox_snd: requests_snd,
         };
-        let (mut aggr_handler, aggr_mailbox) = ProtocolHandler::new(sig_aggr, network_api, SIGMA_AGGR_PROTOCOL_ID, 10);
+        let (mut aggr_handler, aggr_mailbox) =
+            ProtocolHandler::new(sig_aggr, network_api, SIGMA_AGGR_PROTOCOL_ID, 10);
         let nc = NetworkController::new(
             peer_conn_handler_conf,
             HashMap::from([(

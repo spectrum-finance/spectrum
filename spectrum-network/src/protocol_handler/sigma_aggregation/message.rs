@@ -1,4 +1,3 @@
-use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 
 use crate::protocol_handler::handel::message::HandelMessage;
@@ -17,6 +16,7 @@ pub enum SigmaAggrMessage {
 pub enum SigmaAggrMessageV1 {
     PreCommitments(HandelMessage<PreCommitments>),
     Commitments(HandelMessage<CommitmentsWithProofs>),
+    Broadcast(CommitmentsWithProofs),
     Responses(HandelMessage<Responses>),
 }
 
