@@ -1,9 +1,9 @@
-use spectrum_ledger::sbox::{BoxRef, SBox};
+use spectrum_ledger::cell::{CellCore, CellRef, MutCell};
 use spectrum_ledger::transaction::EvaluatedTransaction;
 
 pub enum TransactionEffect {
-    Drop(BoxRef),
-    Create(SBox),
+    Drop(CellRef),
+    Create(MutCell),
     // todo: Mutation, CoinMinting ..
 }
 
@@ -31,7 +31,7 @@ impl TxValidator for ConsensusTxValidator {
         // todo: support input mutation, coin minting
         let mut effects = vec![];
         for i in inputs {
-            effects.push(TransactionEffect::Drop(i.get_ref()))
+            effects.push(TransactionEffect::Drop(i.cell_ref()))
         }
         for o in outputs {
             effects.push(TransactionEffect::Create(o))

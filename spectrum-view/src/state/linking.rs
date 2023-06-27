@@ -42,7 +42,7 @@ where
         let mut linked_inputs = vec![];
         for (ix, (pt, maybe_sig_ix)) in inputs.into_iter().enumerate() {
             if let Some(bx) = self.ledger.get(pt) {
-                match (&bx.owner, maybe_sig_ix) {
+                match (&bx.owner(), maybe_sig_ix) {
                     (Owner::ProveDlog(_), Some(sig_ix)) => {
                         if let Some(sig) = witness.signatures.get(sig_ix as usize) {
                             linked_inputs.push((bx, Some(sig.clone())));

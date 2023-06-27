@@ -25,7 +25,7 @@ pub struct Transaction {
     /// Script invokations.
     pub invokations: Vec<ScriptInv>,
     /// Statically evaluated outputs.
-    pub evaluated_outputs: Vec<SBox>,
+    pub evaluated_outputs: Vec<MutCell>,
     /// Aux data requred for transaction execution (e.g. scripts, data ..).
     pub witness: Witness,
 }
@@ -47,13 +47,13 @@ impl SystemDigest for Transaction {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct LinkedTransaction {
     /// Consumed boxes.
-    pub inputs: Vec<(SBox, Option<Signature>)>,
+    pub inputs: Vec<(AnyCell, Option<Signature>)>,
     /// Read-only inputs.
-    pub reference_inputs: Vec<SBox>,
+    pub reference_inputs: Vec<AnyCell>,
     /// Script invokations.
     pub invokations: Vec<LinkedScriptInv>,
     /// Statically evaluated outputs.
-    pub evaluated_outputs: Vec<SBox>,
+    pub evaluated_outputs: Vec<MutCell>,
     /// Hash of the original transaction.
     pub hash: Blake2bDigest256,
 }
@@ -63,9 +63,9 @@ pub struct LinkedTransaction {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct EvaluatedTransaction {
     /// Consumed boxes.
-    pub inputs: Vec<SBox>,
+    pub inputs: Vec<AnyCell>,
     /// Evaluated outputs.
-    pub outputs: Vec<SBox>,
+    pub outputs: Vec<MutCell>,
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]

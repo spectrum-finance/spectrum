@@ -5,21 +5,37 @@ use k256::PublicKey;
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_move::{SerializedModule, SerializedValue};
 
-use crate::ChainId;
+use crate::{ChainId, SystemDigest};
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct BoxId(Blake2bDigest256);
+#[derive(
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Copy,
+    Clone,
+    Hash,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    derive_more::From,
+)]
+pub struct CellId(Blake2bDigest256);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BoxVer(u32);
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct BoxRef(pub BoxId, pub BoxVer);
+impl BoxVer {
+    pub const INITIAL: BoxVer = BoxVer(0);
+}
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub enum BoxPtr {
-    Id(BoxId),
-    Ref(BoxRef),
+pub struct CellRef(pub CellId, pub BoxVer);
+
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
+pub enum CellPtr {
+    Id(CellId),
+    Ref(CellRef),
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
@@ -54,11 +70,11 @@ impl From<SerializedModule> for ScriptHash {
 
 /// Where the script source can be found.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct ScriptRef(BoxRef);
+pub struct ScriptRef(CellRef);
 
 /// Where the datum source can be found.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct DatumRef(BoxRef);
+pub struct DatumRef(CellRef);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Owner {
@@ -80,9 +96,7 @@ pub struct BoxDestination {
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct SBox {
-    /// Unique identifier of the box.
-    pub id: BoxId,
+pub struct CellCore {
     /// Monotonically increasing version of the box.
     pub ver: BoxVer,
     /// Monetary value attached to the box.
@@ -91,8 +105,6 @@ pub struct SBox {
     pub owner: Owner,
     /// Data attached to the box.
     pub datum: Option<DatumHash>,
-    /// Source chain of the box. `None` if the box is local.
-    pub src: Option<ChainId>,
     /// Destination chain of the box (where the value of the box is supposed to settle in the end).
     /// `None` if the box is supposed to remain on the multichain.
     pub dst: Option<BoxDestination>,
@@ -102,8 +114,47 @@ pub struct SBox {
     pub reference_datum: Option<SerializedValue>,
 }
 
-impl SBox {
-    pub fn get_ref(&self) -> BoxRef {
-        BoxRef(self.id, self.ver)
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct MutCell {
+    /// Core cell
+    pub core: CellCore,
+    /// Monotonically increasing version of the box.
+    pub ver: BoxVer,
+}
+
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ImportedCell {
+    /// Core cell
+    pub core: CellCore,
+    /// Source chain of the box.
+    pub src: ChainId,
+}
+
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum AnyCell {
+    Mut(MutCell),
+    Imported(ImportedCell),
+}
+
+impl AnyCell {
+    pub fn cell_ref(&self) -> CellRef {
+        let ver = match self {
+            AnyCell::Mut(mc) => mc.ver,
+            AnyCell::Imported(_) => BoxVer::INITIAL,
+        };
+        CellRef(CellId::from(self.digest()), ver)
+    }
+
+    pub fn owner(&self) -> Owner {
+        match self {
+            AnyCell::Mut(mc) => mc.core.owner,
+            AnyCell::Imported(ic) => ic.core.owner,
+        }
+    }
+}
+
+impl SystemDigest for AnyCell {
+    fn digest(&self) -> Blake2bDigest256 {
+        todo!()
     }
 }

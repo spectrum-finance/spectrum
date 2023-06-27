@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Instant;
@@ -18,7 +17,7 @@ use libp2p::{
     tcp, yamux, Multiaddr, PeerId,
 };
 
-use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
+use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_crypto::pubkey::PublicKey;
 use spectrum_network::protocol::{OneShotProtocolConfig, OneShotProtocolSpec, ProtocolConfig};
 use spectrum_network::protocol_api::ProtocolEvent;
@@ -26,7 +25,6 @@ use spectrum_network::protocol_handler::aggregation::AggregationAction;
 use spectrum_network::protocol_handler::multicasting::overlay::{
     MakeDagOverlay, RedundancyDagOverlayBuilder,
 };
-use spectrum_network::protocol_handler::sigma_aggregation::types::Contributions;
 use spectrum_network::types::{ProtocolTag, RawMessage};
 use spectrum_network::{
     network_controller::{NetworkController, NetworkControllerIn, NetworkControllerOut, NetworkMailbox},
@@ -1068,7 +1066,7 @@ async fn multicasting_normal() {
 }
 
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
-#[tokio::test(flavor ="multi_thread")]
+#[tokio::test(flavor = "multi_thread")]
 async fn sigma_aggregation_normal() {
     //init_logging_once_for(vec![], LevelFilter::Debug, None);
     let mut peers = aggregation::setup_nodes(16);

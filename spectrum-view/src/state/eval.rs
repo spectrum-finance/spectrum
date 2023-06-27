@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use k256::schnorr::signature::Verifier;
 use k256::schnorr::VerifyingKey;
 
-use spectrum_ledger::sbox::{Owner, SBox, ScriptHash};
+use spectrum_ledger::cell::{Owner, CellCore, ScriptHash, AnyCell};
 use spectrum_ledger::transaction::{EvaluatedTransaction, LinkedTransaction};
 use spectrum_move::{GasUnits, SerializedModule};
 
@@ -20,7 +20,7 @@ pub trait TxEvaluator {
 
 pub struct InvokationScope {
     pub script: SerializedModule,
-    pub owned_inputs: Vec<SBox>,
+    pub owned_inputs: Vec<AnyCell>,
 }
 
 impl InvokationScope {
@@ -30,8 +30,8 @@ impl InvokationScope {
             owned_inputs: Vec::new(),
         }
     }
-    pub fn add_owned_input(&mut self, bx: SBox) {
-        self.owned_inputs.push(bx);
+    pub fn add_owned_input(&mut self, cell: AnyCell) {
+        self.owned_inputs.push(cell);
     }
 }
 
@@ -60,7 +60,7 @@ impl TxEvaluator for ProgrammableTxEvaluator {
             .collect();
         for (ix, (i, maybe_sig)) in inputs.into_iter().enumerate() {
             if let Some(sig) = maybe_sig {
-                match i.owner {
+                match i.owner() {
                     Owner::ProveDlog(pk) => {
                         let vk = VerifyingKey::try_from(pk).unwrap();
                         if vk.verify(hash.as_ref(), &sig.into()).is_ok() {

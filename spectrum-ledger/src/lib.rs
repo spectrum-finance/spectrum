@@ -4,9 +4,9 @@ use crate::block::{BlockHeader, BlockId, BlockBody};
 use crate::transaction::Transaction;
 
 pub mod block;
-pub mod sbox;
 pub mod transaction;
 pub mod interop;
+pub mod cell;
 
 #[derive(
     Eq,
