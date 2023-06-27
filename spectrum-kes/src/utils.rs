@@ -73,10 +73,11 @@ pub fn double_the_seed(seed: &Sha2Digest256) -> (Sha2Digest256, Sha2Digest256) {
 #[cfg(test)]
 mod test {
     use elliptic_curve::rand_core::{OsRng, RngCore};
+    use k256::Secp256k1;
 
     use spectrum_crypto::digest::sha256_hash;
 
-    use crate::utils::double_the_seed;
+    use crate::utils::{double_the_seed, kes_key_gen};
 
     #[test]
     fn test_seed_split() {
@@ -87,5 +88,15 @@ mod test {
         assert_eq!(r.as_ref().len(), 32);
         assert_eq!(r_l.as_ref().len(), 32);
         assert_eq!(r_l.as_ref().len(), r_r.as_ref().len());
+    }
+
+    #[test]
+    fn test_kes_key_gen() {
+        let seed_0 = sha256_hash(OsRng.next_u64().to_string().as_bytes());
+        let seed_1 = sha256_hash(OsRng.next_u64().to_string().as_bytes());
+        let (sk_0, pk_0) = kes_key_gen::<Secp256k1>(&seed_0).unwrap();
+        let (sk_1, pk_1) = kes_key_gen::<Secp256k1>(&seed_1).unwrap();
+        assert_ne!(sk_0, sk_1);
+        assert_ne!(pk_0, pk_1);
     }
 }

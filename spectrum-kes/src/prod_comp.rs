@@ -42,8 +42,8 @@ where
     SigningKey<TCurve>: Signer<Signature<TCurve>>,
     SigningKey<TCurve>: SignerMut<Signature<TCurve>>,
 {
-    let (seed_0, _) = double_the_seed(&seed);
-    let (seed_10, seed_11) = double_the_seed(&seed);
+    let (seed_0, seed_01) = double_the_seed(&seed);
+    let (seed_10, seed_11) = double_the_seed(&seed_01);
 
     let (sk_0, pk) = kes_key_gen::<TCurve>(&seed_0).unwrap();
     let (sk_1, pk_1) = kes_key_gen::<TCurve>(&seed_10).unwrap();
@@ -78,23 +78,22 @@ where
     SigningKey<TCurve>: SignerMut<Signature<TCurve>>,
 {
     //TODO: make recursive
-    let (sk_1, pk_1, sig) = {
+    let (sk_new, pk_new, sig) = {
         if ((*current_slot).clone() + 1).rem_euclid((*bound_slot).clone()) == 0 {
             let (seed_0, _) = double_the_seed(&kes_sk.seed_11);
-            let (sk_1_, pk_1_) = kes_key_gen::<TCurve>(&seed_0).unwrap();
+            let (sk_new_, pk_new_) = kes_key_gen::<TCurve>(&seed_0).unwrap();
 
             let m = [
-                current_slot
-                    .rem_euclid((*bound_slot).clone())
+                ((*current_slot).clone() / (*bound_slot).clone())
                     .to_string()
                     .as_bytes(),
-                &projective_point_to_bytes::<TCurve>(pk_1_.to_projective()),
+                &projective_point_to_bytes::<TCurve>(pk_new_.to_projective()),
             ]
             .concat();
 
             let signing_key = SigningKey::from(&kes_sk.sk_0);
             let sig_ = signing_key.sign(&m);
-            (sk_1_, pk_1_, sig_)
+            (sk_new_, pk_new_, sig_)
         } else {
             (kes_sk.sk_1.clone(), kes_sk.pk_1.clone(), kes_sk.sig.clone())
         }
@@ -102,8 +101,8 @@ where
 
     Ok(KesProdSecretKey {
         sk_0: kes_sk.sk_0.clone(),
-        sk_1,
-        pk_1,
+        sk_1: sk_new,
+        pk_1: pk_new,
         sig,
         seed_11: kes_sk.seed_11.clone(),
     })
@@ -126,13 +125,14 @@ where
     {
         let m = [
             message.as_ref(),
-            current_slot
+            (*current_slot)
+                .clone()
                 .rem_euclid((*bound_slot).clone())
                 .to_string()
                 .as_bytes(),
         ]
         .concat();
-        let signing_key = SigningKey::from(&kes_sk.sk_0);
+        let signing_key = SigningKey::from(&kes_sk.sk_1);
         let sig_1 = signing_key.sign(&m);
         Ok(KesProdSignature {
             sig_0: kes_sk.sig.clone(),
@@ -156,24 +156,31 @@ where
     VerifyingKey<TCurve>: Verifier<Signature<TCurve>>,
 {
     let ver_key_0: VerifyingKey<TCurve> = VerifyingKey::from(kes_pk.clone());
-    let ver_key_1: VerifyingKey<TCurve> = VerifyingKey::from(signature.pk_1.clone());
+    let ver_key_1: VerifyingKey<TCurve> = VerifyingKey::from(signature.pk_1);
 
-    let m_0 = [
-        &projective_point_to_bytes::<TCurve>(signature.pk_1.to_projective()),
-        (signing_slot / bound_slot).to_string().as_bytes(),
-    ]
-    .concat();
+    let m_0 = if (*signing_slot).clone() + 1 >= (*bound_slot).clone() {
+        [
+            ((*signing_slot).clone() / (*bound_slot).clone())
+                .to_string()
+                .as_bytes(),
+            &projective_point_to_bytes::<TCurve>(signature.pk_1.to_projective()),
+        ]
+        .concat()
+    } else {
+        projective_point_to_bytes::<TCurve>(signature.pk_1.to_projective())
+    };
 
     let m_1 = [
         message.as_ref(),
-        signing_slot
+        (*signing_slot)
+            .clone()
             .rem_euclid((*bound_slot).clone())
             .to_string()
             .as_bytes(),
     ]
     .concat();
 
-    let ver_0 = match ver_key_0.verify(&m_0, &signature.sig_0.clone()) {
+    let ver_0 = match ver_key_0.verify(m_0.as_ref(), &signature.sig_0.clone()) {
         Ok(_) => true,
         Err(_) => false,
     };
@@ -183,5 +190,135 @@ where
         Err(_) => false,
     };
 
-    Ok(ver_0 | ver_1)
+    Ok(ver_0 & ver_1)
+}
+
+#[cfg(test)]
+mod test {
+    use elliptic_curve::rand_core::{OsRng, RngCore};
+    use k256::Secp256k1;
+
+    use spectrum_crypto::digest::{sha256_hash, Sha2Digest256};
+
+    use crate::prod_comp::{kes_prod_key_gen, kes_prod_sign, kes_prod_update, kes_prod_verify};
+
+    #[test]
+    fn key_gen_prod_test() {
+        let seed_00 = sha256_hash(OsRng.next_u64().to_string().as_bytes());
+        let seed_01 = sha256_hash(OsRng.next_u64().to_string().as_bytes());
+
+        let (sk_prod_0, pk_prod_0) = kes_prod_key_gen::<Secp256k1>(&seed_00).unwrap();
+        let (_, pk_prod_1) = kes_prod_key_gen::<Secp256k1>(&seed_01).unwrap();
+
+        assert_ne!(sk_prod_0.sk_0, sk_prod_0.sk_1);
+        assert_ne!(seed_00, sk_prod_0.seed_11);
+        assert_ne!(seed_01, seed_00);
+        assert_ne!(pk_prod_0, sk_prod_0.pk_1);
+        assert_ne!(pk_prod_1, pk_prod_0);
+    }
+
+    #[test]
+    fn kes_prod_update_test() {
+        let bound_slot = 6;
+        let current_slot_0 = 0;
+        let current_slot_1 = bound_slot.clone() / 2;
+        let current_slot_2 = bound_slot.clone() - 1;
+        let current_slot_3 = bound_slot.clone() + 1;
+
+        let seed = sha256_hash(OsRng.next_u64().to_string().as_bytes());
+
+        let (sk_prod, _) = kes_prod_key_gen::<Secp256k1>(&seed).unwrap();
+
+        let sk_new_0 = kes_prod_update::<Secp256k1>(&sk_prod, &current_slot_0, &bound_slot).unwrap();
+
+        let sk_new_1 = kes_prod_update::<Secp256k1>(&sk_new_0, &current_slot_1, &bound_slot).unwrap();
+
+        let sk_new_2 = kes_prod_update::<Secp256k1>(&sk_new_1, &current_slot_2, &bound_slot).unwrap();
+
+        let sk_new_3 = kes_prod_update::<Secp256k1>(&sk_new_2, &current_slot_3, &bound_slot).unwrap();
+
+        assert_eq!(sk_prod.sk_1, sk_new_0.sk_1);
+        assert_eq!(sk_prod.sk_1, sk_new_1.sk_1);
+        assert_ne!(sk_prod.sk_1, sk_new_2.sk_1);
+        assert_eq!(sk_new_2.sk_1, sk_new_3.sk_1);
+        assert_eq!(sk_prod.pk_1, sk_new_0.pk_1);
+        assert_ne!(sk_new_0.pk_1, sk_new_2.pk_1);
+    }
+
+    #[test]
+    fn kes_prod_sign_test() {
+        let bound_slot = 6;
+        let current_slot_0 = 1;
+        let current_slot_1 = bound_slot - 1;
+
+        let seed = sha256_hash(OsRng.next_u64().to_string().as_bytes());
+
+        let (sk_prod, _) = kes_prod_key_gen::<Secp256k1>(&seed).unwrap();
+
+        let sk_new_0 = kes_prod_update::<Secp256k1>(&sk_prod, &current_slot_0, &bound_slot).unwrap();
+
+        let sk_new_1 = kes_prod_update::<Secp256k1>(&sk_new_0, &current_slot_1, &bound_slot).unwrap();
+
+        let m_0_hash: Sha2Digest256 = sha256_hash("Hi".as_bytes());
+        let m_1_hash: Sha2Digest256 = sha256_hash("Buy".as_bytes());
+
+        let sign_0 = kes_prod_sign::<Secp256k1>(&sk_new_0, &m_0_hash, &bound_slot, &current_slot_0).unwrap();
+        let sign_01 = kes_prod_sign::<Secp256k1>(&sk_new_0, &m_1_hash, &bound_slot, &current_slot_0).unwrap();
+        let sign_1 = kes_prod_sign::<Secp256k1>(&sk_new_1, &m_0_hash, &bound_slot, &current_slot_1).unwrap();
+        let sign_10 = kes_prod_sign::<Secp256k1>(&sk_new_1, &m_1_hash, &bound_slot, &current_slot_1).unwrap();
+
+        assert_eq!(sk_prod.sk_1, sk_new_0.sk_1);
+        assert_ne!(sk_new_0.sk_1, sk_new_1.sk_1);
+        assert_ne!(sign_0.sig_1.to_bytes(), sign_1.sig_1.to_bytes());
+        assert_ne!(sign_0.sig_1.to_bytes(), sign_01.sig_1.to_bytes());
+        assert_ne!(sign_1.sig_1.to_bytes(), sign_10.sig_1.to_bytes());
+    }
+
+    #[test]
+    fn kes_prod_verify_test() {
+        let bound_slot = 6;
+        let current_slot_0 = 1;
+        let current_slot_1 = bound_slot - 1;
+
+        let seed = sha256_hash(OsRng.next_u64().to_string().as_bytes());
+
+        let (sk_prod, pk_prod) = kes_prod_key_gen::<Secp256k1>(&seed).unwrap();
+
+        let sk_new_0 = kes_prod_update::<Secp256k1>(&sk_prod, &current_slot_0, &bound_slot).unwrap();
+
+        let sk_new_1 = kes_prod_update::<Secp256k1>(&sk_new_0, &current_slot_1, &bound_slot).unwrap();
+
+        let m_0_hash: Sha2Digest256 = sha256_hash("Hi".as_bytes());
+        let m_1_hash: Sha2Digest256 = sha256_hash("Buy".as_bytes());
+
+        let sign_00 = kes_prod_sign::<Secp256k1>(&sk_new_0, &m_0_hash, &bound_slot, &current_slot_0).unwrap();
+        let sign_10 = kes_prod_sign::<Secp256k1>(&sk_new_1, &m_0_hash, &bound_slot, &current_slot_1).unwrap();
+
+        let ver_00_fair =
+            kes_prod_verify::<Secp256k1>(&sign_00, &pk_prod, &m_0_hash, &bound_slot, &current_slot_0)
+                .unwrap();
+        let ver_00_mal_message =
+            kes_prod_verify::<Secp256k1>(&sign_00, &pk_prod, &m_1_hash, &bound_slot, &current_slot_0)
+                .unwrap();
+        let ver_00_mal_slot =
+            kes_prod_verify::<Secp256k1>(&sign_00, &pk_prod, &m_1_hash, &bound_slot, &current_slot_1)
+                .unwrap();
+        let ver_10_fair =
+            kes_prod_verify::<Secp256k1>(&sign_10, &pk_prod, &m_0_hash, &bound_slot, &current_slot_1)
+                .unwrap();
+
+        let seed_0 = sha256_hash(OsRng.next_u64().to_string().as_bytes());
+
+        let (_, pk_prod_mal) = kes_prod_key_gen::<Secp256k1>(&seed_0).unwrap();
+
+        let ver_10_mal_pk =
+            kes_prod_verify::<Secp256k1>(&sign_10, &pk_prod_mal, &m_0_hash, &bound_slot, &current_slot_1)
+                .unwrap();
+
+        assert!(ver_00_fair);
+        assert!(!!!ver_00_mal_message);
+        assert!(!!!ver_00_mal_slot);
+        assert!(ver_10_fair);
+        assert!(!!!ver_10_mal_pk);
+    }
 }
