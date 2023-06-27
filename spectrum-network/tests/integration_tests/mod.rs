@@ -1068,7 +1068,7 @@ async fn multicasting_normal() {
 }
 
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
-#[tokio::test]
+#[tokio::test(flavor ="multi_thread")]
 async fn sigma_aggregation_normal() {
     //init_logging_once_for(vec![], LevelFilter::Debug, None);
     let mut peers = aggregation::setup_nodes(16);
