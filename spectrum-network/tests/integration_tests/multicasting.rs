@@ -47,7 +47,7 @@ pub struct SetTask<S> {
     pub overlay: DagOverlay,
 }
 
-pub struct MulticsatingBehaviour<S> {
+pub struct MulticastingBehaviour<S> {
     host_ix: usize,
     state: Option<McastTask<S>>,
     inbox: mpsc::Receiver<SetTask<S>>,
@@ -55,7 +55,7 @@ pub struct MulticsatingBehaviour<S> {
 }
 
 trait AssertKinds: ProtocolBehaviour + Unpin {}
-impl<S> AssertKinds for MulticsatingBehaviour<S> where
+impl<S> AssertKinds for MulticastingBehaviour<S> where
     S: VerifiableAgainst<()>
         + CommutativePartialSemigroup
         + serde::Serialize
@@ -69,7 +69,7 @@ impl<S> AssertKinds for MulticsatingBehaviour<S> where
 {
 }
 
-impl<S> MulticsatingBehaviour<S> {
+impl<S> MulticastingBehaviour<S> {
     pub fn new(host_ix: usize) -> (Self, mpsc::Sender<SetTask<S>>) {
         let (snd, recv) = mpsc::channel(128);
         (
@@ -84,7 +84,7 @@ impl<S> MulticsatingBehaviour<S> {
     }
 }
 
-impl<S> ProtocolBehaviour for MulticsatingBehaviour<S>
+impl<S> ProtocolBehaviour for MulticastingBehaviour<S>
 where
     S: VerifiableAgainst<()>
         + CommutativePartialSemigroup
@@ -273,7 +273,7 @@ where
             protocols_allocation: Vec::new(),
             peer_manager_msg_buffer_size: 1000,
         };
-        let (mcast, handler_snd) = MulticsatingBehaviour::<S>::new(node_ix);
+        let (mcast, handler_snd) = MulticastingBehaviour::<S>::new(node_ix);
         let peer_state = PeerRepo::new(netw_config, vec![]);
         let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
         let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(100);

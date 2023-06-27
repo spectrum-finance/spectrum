@@ -91,7 +91,7 @@ where
 
 struct ApplyStatement<S>(Verified<S>);
 
-/// This type of multicating supports async verification of statements.
+/// This type of multicasting supports async verification of statements.
 pub struct DagMulticastingAsync<'a, S, P> {
     statement: Option<S>,
     public_data: Arc<P>,
