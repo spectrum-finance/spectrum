@@ -1,4 +1,4 @@
-use spectrum_ledger::sbox::{BoxPtr, DatumRef, Owner, ScriptRef};
+use spectrum_ledger::cell::{CellPtr, DatumRef, Owner, ScriptRef};
 use spectrum_ledger::transaction::{
     DatumWitness, LinkedScriptInv, LinkedTransaction, ScriptInv, ScriptWitness, Transaction,
 };
@@ -8,8 +8,8 @@ use crate::state::LedgerState;
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum LinkingError {
-    MissingInput(BoxPtr),
-    MissingRefInput(BoxPtr),
+    MissingInput(CellPtr),
+    MissingRefInput(CellPtr),
     MissingScript(),
     MissingDatum(DatumRef),
     MissingSignature(/*input_index*/ usize),

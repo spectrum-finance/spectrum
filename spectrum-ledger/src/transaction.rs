@@ -4,7 +4,7 @@ use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_crypto::signature::Signature;
 use spectrum_move::{SerializedModule, SerializedValue};
 
-use crate::sbox::{BoxPtr, DatumRef, SBox, ScriptRef};
+use crate::cell::{CellPtr, DatumRef, CellCore, ScriptRef, AnyCell, MutCell};
 use crate::{ModifierId, SystemDigest};
 
 /// Transaction processing pipeline:
@@ -19,9 +19,9 @@ use crate::{ModifierId, SystemDigest};
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Transaction {
     /// Consumed boxes.
-    pub inputs: Vec<(BoxPtr, Option<u16>)>,
+    pub inputs: Vec<(CellPtr, Option<u16>)>,
     /// Read-only inputs.
-    pub reference_inputs: Vec<BoxPtr>,
+    pub reference_inputs: Vec<CellPtr>,
     /// Script invokations.
     pub invokations: Vec<ScriptInv>,
     /// Statically evaluated outputs.

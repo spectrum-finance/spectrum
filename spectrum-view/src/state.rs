@@ -1,6 +1,6 @@
 use nonempty::NonEmpty;
 
-use spectrum_ledger::sbox::{BoxPtr, DatumRef, SBox, ScriptRef};
+use spectrum_ledger::cell::{CellPtr, DatumRef, CellCore, ScriptRef, AnyCell};
 use spectrum_ledger::transaction::Transaction;
 use spectrum_move::{SerializedModule, SerializedValue};
 
@@ -17,7 +17,7 @@ pub enum LedgerStateError {
 /// Sync API to ledger state.
 pub trait LedgerState {
     /// Get box by pointer from ledger state.
-    fn get(&self, ptr: BoxPtr) -> Option<SBox>;
+    fn get(&self, ptr: CellPtr) -> Option<AnyCell>;
     /// Get reference script.
     fn get_ref_script(&self, script_ref: ScriptRef) -> Option<SerializedModule>;
     /// Get reference datum.
