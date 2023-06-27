@@ -70,6 +70,37 @@ pub fn double_the_seed(seed: &Sha2Digest256) -> (Sha2Digest256, Sha2Digest256) {
     (seed_left, seed_right)
 }
 
+pub fn associate_message_with_slot(current_slot: &i32, bound_slot: &i32, message: &Sha2Digest256) -> Vec<u8> {
+    [
+        message.as_ref(),
+        (*current_slot)
+            .clone()
+            .rem_euclid((*bound_slot).clone())
+            .to_string()
+            .as_bytes(),
+    ]
+    .concat()
+}
+
+pub fn associate_pk_with_slot<TCurve: CurveArithmetic + PointCompression>(
+    current_slot: &i32,
+    bound_slot: &i32,
+    pk: &PublicKey<TCurve>,
+) -> Vec<u8>
+where
+    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+{
+    [
+        ((*current_slot).clone() / (*bound_slot).clone())
+            .to_string()
+            .as_bytes(),
+        &projective_point_to_bytes::<TCurve>((*pk).clone().to_projective()),
+    ]
+    .concat()
+}
+
 #[cfg(test)]
 mod test {
     use elliptic_curve::rand_core::{OsRng, RngCore};

@@ -11,7 +11,7 @@ use elliptic_curve::{CurveArithmetic, PublicKey, SecretKey};
 use spectrum_crypto::digest::Sha2Digest256;
 use spectrum_vrf::utils::projective_point_to_bytes;
 
-use crate::utils::{double_the_seed, kes_key_gen};
+use crate::utils::{associate_message_with_slot, associate_pk_with_slot, double_the_seed, kes_key_gen};
 
 #[derive(Debug)]
 pub struct Error;
@@ -83,13 +83,7 @@ where
             let (seed_0, _) = double_the_seed(&kes_sk.seed_11);
             let (sk_new_, pk_new_) = kes_key_gen::<TCurve>(&seed_0).unwrap();
 
-            let m = [
-                ((*current_slot).clone() / (*bound_slot).clone())
-                    .to_string()
-                    .as_bytes(),
-                &projective_point_to_bytes::<TCurve>(pk_new_.to_projective()),
-            ]
-            .concat();
+            let m = associate_pk_with_slot::<TCurve>(&current_slot, &bound_slot, &pk_new_);
 
             let signing_key = SigningKey::from(&kes_sk.sk_0);
             let sig_ = signing_key.sign(&m);
@@ -123,15 +117,7 @@ where
 {
     //TODO: make recursive
     {
-        let m = [
-            message.as_ref(),
-            (*current_slot)
-                .clone()
-                .rem_euclid((*bound_slot).clone())
-                .to_string()
-                .as_bytes(),
-        ]
-        .concat();
+        let m = associate_message_with_slot(&current_slot, &bound_slot, &message);
         let signing_key = SigningKey::from(&kes_sk.sk_1);
         let sig_1 = signing_key.sign(&m);
         Ok(KesProdSignature {
@@ -159,26 +145,12 @@ where
     let ver_key_1: VerifyingKey<TCurve> = VerifyingKey::from(signature.pk_1);
 
     let m_0 = if (*signing_slot).clone() + 1 >= (*bound_slot).clone() {
-        [
-            ((*signing_slot).clone() / (*bound_slot).clone())
-                .to_string()
-                .as_bytes(),
-            &projective_point_to_bytes::<TCurve>(signature.pk_1.to_projective()),
-        ]
-        .concat()
+        associate_pk_with_slot::<TCurve>(&signing_slot, &bound_slot, &signature.pk_1)
     } else {
         projective_point_to_bytes::<TCurve>(signature.pk_1.to_projective())
     };
 
-    let m_1 = [
-        message.as_ref(),
-        (*signing_slot)
-            .clone()
-            .rem_euclid((*bound_slot).clone())
-            .to_string()
-            .as_bytes(),
-    ]
-    .concat();
+    let m_1 = associate_message_with_slot(&signing_slot, &bound_slot, &message);
 
     let ver_0 = match ver_key_0.verify(m_0.as_ref(), &signature.sig_0.clone()) {
         Ok(_) => true,
