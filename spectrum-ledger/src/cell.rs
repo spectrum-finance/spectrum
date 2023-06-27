@@ -5,8 +5,11 @@ use k256::PublicKey;
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_move::{SerializedModule, SerializedValue};
 
+use crate::interop::IEffectId;
+use crate::transaction::TxId;
 use crate::{ChainId, SystemDigest};
 
+/// Stable cell identifier.
 #[derive(
     Eq,
     PartialEq,
@@ -23,14 +26,14 @@ use crate::{ChainId, SystemDigest};
 pub struct CellId(Blake2bDigest256);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct BoxVer(u32);
+pub struct CellVer(u32);
 
-impl BoxVer {
-    pub const INITIAL: BoxVer = BoxVer(0);
+impl CellVer {
+    pub const INITIAL: CellVer = CellVer(0);
 }
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct CellRef(pub CellId, pub BoxVer);
+pub struct CellRef(pub CellId, pub CellVer);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum CellPtr {
@@ -97,8 +100,6 @@ pub struct BoxDestination {
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CellCore {
-    /// Monotonically increasing version of the box.
-    pub ver: BoxVer,
     /// Monetary value attached to the box.
     pub value: SValue,
     /// Owner who can mutate the box.
@@ -119,15 +120,30 @@ pub struct MutCell {
     /// Core cell
     pub core: CellCore,
     /// Monotonically increasing version of the box.
-    pub ver: BoxVer,
+    pub ver: CellVer,
+    /// ID of a transaction which created this cell.
+    pub tx_id: TxId,
+    pub index: u32,
+}
+
+impl MutCell {
+    pub fn id(&self) -> CellId {
+        todo!()
+    }
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ImportedCell {
     /// Core cell
     pub core: CellCore,
-    /// Source chain of the box.
-    pub src: ChainId,
+    /// ID of an inbound effect which created this cell.
+    pub eff_id: IEffectId,
+}
+
+impl ImportedCell {
+    pub fn id(&self) -> CellId {
+        todo!()
+    }
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -137,12 +153,22 @@ pub enum AnyCell {
 }
 
 impl AnyCell {
-    pub fn cell_ref(&self) -> CellRef {
-        let ver = match self {
+    pub fn id(&self) -> CellId {
+        match self {
+            AnyCell::Mut(mc) => mc.id(),
+            AnyCell::Imported(ic) => ic.id(),
+        }
+    }
+
+    pub fn ver(&self) -> CellVer {
+        match self {
             AnyCell::Mut(mc) => mc.ver,
-            AnyCell::Imported(_) => BoxVer::INITIAL,
-        };
-        CellRef(CellId::from(self.digest()), ver)
+            AnyCell::Imported(_) => CellVer::INITIAL,
+        }
+    }
+
+    pub fn cell_ref(&self) -> CellRef {
+        CellRef(self.id(), self.ver())
     }
 
     pub fn owner(&self) -> Owner {

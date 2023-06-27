@@ -5,6 +5,7 @@ use spectrum_crypto::digest::Blake2bDigest256;
 use crate::block::BlockId;
 use crate::cell::{CellId, ImportedCell};
 
+/// Identifier derived from external value carrying unit.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PeriferalId(Blake2bDigest256);
 
@@ -13,7 +14,8 @@ pub struct CertBundle(NonEmpty<[u8; 32]>);
 
 pub struct IBlockCert();
 
-pub struct IEffDigest(Blake2bDigest256);
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
+pub struct IEffectId(Blake2bDigest256);
 
 /// State transitions coming from external system.
 pub enum IEffect {
@@ -28,7 +30,7 @@ pub enum IEffect {
 pub struct IBlockCandidate {
     pub id: IBlockId,
     pub height: u64,
-    pub effects: Vec<IEffDigest>,
+    pub effects: Vec<IEffectId>,
 }
 
 pub struct IBlock {

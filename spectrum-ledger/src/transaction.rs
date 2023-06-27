@@ -4,8 +4,24 @@ use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_crypto::signature::Signature;
 use spectrum_move::{SerializedModule, SerializedValue};
 
-use crate::cell::{CellPtr, DatumRef, CellCore, ScriptRef, AnyCell, MutCell};
-use crate::{ModifierId, SystemDigest};
+use crate::cell::{AnyCell, CellPtr, DatumRef, MutCell, ScriptRef};
+use crate::SystemDigest;
+
+#[derive(
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    derive_more::From,
+    derive_more::Into,
+)]
+pub struct TxId(Blake2bDigest256);
 
 /// Transaction processing pipeline:
 /// `Transaction`          (linking   )-> `LinkedTransaction`
@@ -31,7 +47,7 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn id(&self) -> ModifierId {
+    pub fn id(&self) -> TxId {
         todo!()
     }
 }
