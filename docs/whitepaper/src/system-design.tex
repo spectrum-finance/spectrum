@@ -46,14 +46,23 @@ todo
 
 todo
 
+\subsection{Consensus}\label{subsec:consensus}
+\input{consensus.tex}
+
+\subsection{Ledger}\label{subsec:ledger}
+\input{ledger.tex}
+
 \subsection{Eliminating Validator Bottleneck}\label{subsec:eliminating-validator-bottleneck}
 \input{eliminating-validator-bottleneck.tex}
+
+\subsection{System integrity}\label{subsec:system-integrity}
+\input{integrity.tex}
 
 \subsection{Protocol Flow}\label{subsec:protocol-flow}
 let's summarize all of the above and describe the full flow of the Spectrum protocol.
 Protocol is running by manually selected opening consensus group $V_0$.
-Stakeholders interact with each other and with the ideal functionalities ${\mathcal_{F}}_{RLB}$,\
-${\mathcal_{F}}_{VRF}$, ${\mathcal_{F}}_{KES}$, ${\mathcal_{F}}_{DSIG}$ over a sequence of $L = E \cdot R$ slots\
+Stakeholders interact with each other and with the ideal functionalities ${\mathcal{F}}_{RLB}$,\
+${\mathcal{F}}_{VRF}$, ${\mathcal{F}}_{KES}$, ${\mathcal{F}}_{DSIG}$ over a sequence of $L = E \cdot R$ slots\
 ${S=\{sl_1,...,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
 
 \subsubsection{Bootstrapping}\label{subsubsec:bootstrapping}
@@ -65,17 +74,13 @@ A manually picked set of validators $V_0$ of the predefined size $M$ is assigned
 
     \item All consensus group members i.e. $\forall PK_i \in V_0$ should generate the tuple of verification keys\
     ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$, using the ideal functionalities ${\mathcal_{F}}_{VRF}$,\
-    ${\mathcal_{F}}_{KES}$, ${\mathcal_{F}}_{DSIG}$ instances, running on their machines.
-
-    \item Then, to claim an initial stakes $\{s_i\}_{i=0}^M$ every protocol participant sends a request\
-    ${(\textbf{ver\_keys}, sid, PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$ to the ${\mathcal_{F}}_{RLB}$,\
-    which saves the key tuple ${(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$.
+    ${\mathcal{F}}_{KES}$, ${\mathcal{F}}_{DSIG}$ instances, running on their machines.
 
     \item Full set of the verification\
-    keys tuples ${V_{init} = \{(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})\}_{i=0}^M}$\
-    should be stored in the blockchain and acknowledged by all members of the initial consensus group.
+    keys tuples ${V_{init} = \{(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})\}_{i=0}^M}$ with the initial stakes $\{s_i\}_{i=0}^M$
+    must be stored in the blockchain and acknowledged by all members of the initial consensus group.
 
-    \item ${\mathcal_{F}}_{RLB}$, parameterized with confirmed $V_{init}$ is evaluated independently by every\
+    \item ${\mathcal{F}}_{LB}$, parameterized with confirmed $V_{init}$ is evaluated independently by every\
     participant to sample an initial random seed value $\eta \leftarrow \{0, 1\}^\lambda$.
 
     \item Finally, all approved stakeholders should agree on the genesis block\
@@ -83,60 +88,63 @@ A manually picked set of validators $V_0$ of the predefined size $M$ is assigned
 \end{enumerate}
 
 \subsubsection{Normal Flow}\label{subsubsec:normal-flow}
-Once the system is bootstrapped, protocol is running in a normal flow.
-\begin{enumerate}[listparindent=0.5cm,
-    align=left]
+Once the system is bootstrapped, protocol is running in a normal flow:
+\begin{legal}
     \item \textbf{Registration}.
-    Any Spectrum stakeholder can register to become a committee member.
-    To get a chance to be included in the set of validators $V_n$ in the epoch $e_n$ participant $PK_i$ should register\
-    in the lottery during the epoch $e_{n-2}$ by publishing his verification tuples\
-    ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$.
+    Any Spectrum stakeholder can register to become a committee member of his local chain $c_i$.
+    To get a chance to be included in the set of validators $\mathbf{C}^n_i$ in the epoch $e_n$\
+    participant $PK_i$ should register in the lottery during the epoch $e_{n-2}$ by publishing his verification tuple\
+    ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$ into the $L^+$.
+    Once enough time (number of slots) has elapsed to meet the reliable confirmation threshold $R^+$ for the $L^+$,\
+    the participant is considered as \textit{verified}.
 
     \item \textbf{Consensus Lottery}.
-    At the end of the epoch ${e_j \geqslant 1}$ every verified $PK_i$ sends\
-    ${(\textbf{epochrnd\_req}, sid, PK_i, e_j)}$ to ${\mathcal_{F}}_{RLB}$ and receives\
-    $({\textbf{epochrnd}, sid, \eta_j)}$.
-    When every $PK_i$ evaluates ${\mathcal_{F}}_{VRF}$ with a query\
-    ${(\textbf{EvalProve}, sid, \eta_j || e_j || \textbf{test*})}$\
-    and pass the received random $y$ value to the ${\mathcal_{F}}_{L}$.
-    If successful, then publish $y$ and the associated proof to form an approved consensus\
-    group members table for the epoch ${e_{j + 1}}$.
+    At the end of the epoch ${e_j \geq 1}$ every \textit{verified} $PK_i$ receives new epoch seed $\eta_n$\
+    from the ${\mathcal{F}}_{LB}$.
+    When every $PK_i$ evaluates ${\mathcal{F}}_{VRF}$ with the input, which includes new $\eta_n$\
+    and passes the received proof $\pi_i$ to the ${\mathcal{F}}_{L}$.
+    Function ${\mathcal{F}}_{L}$ is parameterized with the $\mathbf{C}^i$ lottery params and uses the same\
+    stake distribution which was in the last block used by ${\mathcal{F}}_{LB}$ to calculate the threshold.
+    If successful, i.e. ${\mathcal{F}}_{L}$ returns $1$, then publish the associated proofs into the $L^+$.
+    Functionality ${\mathcal{F}}_{LB}$ is parameterized with the history, including blocks with release times up to\
+    ${-R^+}$ from the actual slot.
+    Therefore, even in case of a rollback, the currently selected members of the consensus group remain legitimate
 
     \item \textbf{Committee key aggregation}.
-    Once new committee is selected, nodes in $V_n$ aggregate their individual public keys $\{PK_i\}$ into
-    a joint one $aPK_n$.
+    Once new committee is selected, nodes in the $\mathbf{C}_i^n$ aggregate their individual public keys $\{PK_i\}$ into
+    a joint one $aPK_n$, which is needed to sign the \textit{Batch Applying Transactions} with the external events\
+    (\textit{Inbound Value Transfers}, \textit{Outbound Value Transfers}, \textit{Boxes Eliminations}).
 
     \item \textbf{Committee transition}.
-    Nodes in $V_{n-1}$ publish cross-chain message ${M_n : (aPK_n, \sigma_{n-1})}$ , where $aPK_n$ is
-    an aggregated public key of the new committee $V_n$ , $\sigma_{n-1}$ is an aggregated signature of
+    Nodes in the $\mathbf{C}_i^{n-1}$ publish cross-chain message ${M_n : (aPK_n, \sigma_{n-1})}$ , where $aPK_n$ is\
+    an aggregated public key of the new committee $\mathbf{C}_i^n$ , $\sigma_{n-1}$ is an aggregated signature of
     $M_n$ such that ${Verify(\sigma_{n-1}, aPK_{n-1}, Mn) = 1}$.
-    Vaults are updated such that ${Vault\{(E_{n-1}, aPK_{n-1})\} \coloneqq (e_n, aPK_n)}$.
+    Vaults are updated such that ${Vault\{(e_{n-1}, aPK_{n-1})\} \coloneqq(e_n, aPK_n)}$.
 
     \item \textbf{Chain extension}.
-    Every online consensus group member collects en existed chains and verifying that for every chain every block,\
-    produced up to $Z$ blocks before contains correct data about slot $sl'$ leader $PK'$.
-    To verify a valid slot leader, response from the ${\mathcal_{F}}_{VRF}$ to query\
-    ${(\textbf{Verify}, sid, \eta' || sl' || \textbf{test}, y', \pi', v^{vrf'})}$ should be\
-    ${(\textbf{Verified}, sid, \eta' || sl' || \textbf{test}, y', \pi', 1)}$ and $y'<T_j'$ as well.
-    String \textbf{test} is an arbitrary and value $T_j'$ is a threshold for the stakeholder $PK'$ for the slot $sl'$.
+    \begin{legal}
 
-    Then every lottery participant separately evaluates ${\mathcal_{F}}_{VRF}$ with his own inputs\
-    ${(\textbf{EvalProve}, sid, \eta_j || sl || \textbf{nonce})}$ and\
-    ${(\textbf{EvalProve}, sid, \eta_j || sl || \textbf{test})}$, where \textbf{nonce} is an arbitrary string.
-    Received outputs ${(\textbf{Evaluated}, sid, y, \pi)}$ and ${(\textbf{Evaluated}, sid, \rho_y, \rho_\pi)}$\
-    respectively includes generated random numbers ${y, \rho_y}$ and the associated proofs ${\pi, \rho_\pi}$.
-    If ${y < T_i^j}$ then $PK_i$ is a slot leader and he can propose a batch which should be notarized by all\
-    committee members.
-    Random number $\rho_y$ will be used to sample a random seed for the next epoch.
+        \item Every online consensus group member collects en existed chains related to the $L^+$ and verifying that for every chain every block,\
+        produced up to $R^+$ blocks before contains correct data about the corresponding slot $sl'$ leader $PK'$.
+        To verify a valid slot leader, responses from the ${\mathcal{F}}_{VRF}$ and ${\mathcal{F}}_{L}$ with the relevant inputs must equal $1$. Leader $PK'$ must be also a member of the committee, legal at $sl'$, this is checked in the same way. All forks are resolved by the rules of the longest chain and the largest stake in the corresponding priority.
 
-    \textbf{Note:} The ${\mathcal_{F}}_{VRF}$ is designed in such a way that not every slot has a leader,\
-    moreover, most of the slots remain empty to serve protocol synchronization.
-    If there are $P$ several elected leaders for this slot, they all propose a new batches of updates\
-    $\{B_p\}_{p=0}^P$ with included proofs of the leadership ${(v_i^{vrf}, y, \pi)}$ and ${(\pi, \rho_\pi)}$.
+        \item During the epoch, for every slot $sl$ every committee $\mathbf{C}_i^n$ member $PK_i$ separately evaluates\
+        ${\mathcal{F}}_{VRF}$ with his own input ${x = \eta_n || sl || \textbf{nonce}}$\, where \textbf{nonce} is an arbitrary predefined string.
+        If successful ${\mathcal{F}}_{L}$ returns $1$, then $PK_i$ is the slot $sl$ leader he evaluates ${\mathcal{F}}_{VRF}$ one more time with the input ${x' = \eta_n || sl || \textbf{test}}$, where \textbf{test} is another arbitrary predefined string.
+        The associated proofs $\pi_i$ and $\rho_i$ will be included in the block, which will be added to the $L^+$.
 
-    After notarization batch is shared with over committees via syncing shards mechanism.
-    After syncing any of the separate committee leaders can propose a block consisted of notarized batches and sign\
-    it with ${\mathcal_{F}}_{KES}$ by sending the request ${(\textbf{sign\_req}, sid, PK_i, B_p, sl)}$.
-    Received from ${\mathcal_{F}}_{KES}$ response signature $\sigma_p$ is included in the proposed block.
+        \textbf{Note:} The ${\mathcal{F}}_{VRF}$ is designed in such a way that not every slot has a leader,\
+        moreover, most of the slots remain empty to serve protocol synchronization.
+        If there are $P$ several elected leaders for this slot, they all can add new blocks
+        $\{B_p\}_{p=0}^P$ with included proofs ${(v_i^{vrf}, \pi_i, \rho_i)}$.
 
-\end{enumerate}
+        \item All committee $\mathbf{C}_i^n$ members observe events in their local chains $c_i$ and in the $L+$ mempool.
+        If $PK_i$ is a slot $sl$ leader, then he is able to propose a batch $B^i_j$ of events from $c_i$ in a form of the \textit{Batch Applying Transaction}, which should be notarized by other members of the $\mathbf{C}_i^n$ with an aggregated signature.
+
+        \item Notarized batch $B^i*_j$ can first of all be formed by any member of the $\mathbf{C}_i^n$.
+        He should immediately send it to the leader, who proposed it and to the members of other committees $\mathbf{C}_{j\neq i}^n$.
+        After the leader receives set of batches ${B^k*_j}$, he forms the block $\mathbf{B}_m$ with updates from the $L^+$ mempool included, sign it with ${\mathcal{F}}_{KES}$, includes all proofs and broadcasts it to all committees.
+
+        \item After $R^+$ reliable slots number has passed all members of all committees that participated in the formation of the block $\mathbf{B}_m$ receive rewards proportional to their status.
+    \end{legal}
+\end{legal}

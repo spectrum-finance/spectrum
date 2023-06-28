@@ -49,22 +49,22 @@ Let's look at the lottery protocol integrated into the normal protocol flow.
 There are some pre-defined primitives, detailed description of which can be found in the original\
 Ouroboros Praos paper ~\cite{cryptoeprint:2017/573}.
 \begin{enumerate}
-    \item \textbf{Ideal Leaky Beacon} ${\mathcal_{F}}_{LB}$: is used to sample epoch randomness from the\
+    \item \textbf{Ideal Leaky Beacon} ${\mathcal{F}}_{LB}$: is used to sample epoch randomness from the\
     blockchain.
-    \item \textbf{Ideal Verifiable Random Function} ${\mathcal_{F}}_{VRF}$: is used as a source of randomness.
-    \item \textbf{Lottery function} ${\mathcal_{F}}_{L}$: determines whether a participant is a winner based on a\
+    \item \textbf{Ideal Verifiable Random Function} ${\mathcal{F}}_{VRF}$: is used as a source of randomness.
+    \item \textbf{Lottery function} ${\mathcal{F}}_{L}$: determines whether a participant is a winner based on a\
     random number and other parameters.
 \end{enumerate}
 Protocol initially is running by manually selected opening consensus group $\{PK_i\}_{i=0}^M$ of the predefined size $M$.
-Stakeholders interact with each other and with the ideal functionalities ${\mathcal_{F}}_{LB}$,\
-${\mathcal_{F}}_{VRF}, {\mathcal_{F}}_{L}$ over a sequence of $L = E \cdot R$ slots\
+Stakeholders interact with each other and with the ideal functionalities ${\mathcal{F}}_{LB}$,\
+${\mathcal{F}}_{VRF}, {\mathcal{F}}_{L}$ over a sequence of $L = E \cdot R$ slots\
 ${S=\{sl_1,...,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
 
 \textbf{Lottery function}
-The lottery function ${\mathcal_{F}}_{L}$ compares the random number $y$ derived from the VRF proof $\pi$ with\
+The lottery function ${\mathcal{F}}_{L}$ compares the random number $y$ derived from the VRF proof $\pi$ with\
 the threshold value $T$.
 It evaluates to $1$ if and only if ${y < T}$, i.e.\
-${\mathcal_{F}}_{L}(state, f, \pi) \rightarrow 0|1$, where $state$ is a blockchain state snapshot, $f$\
+${\mathcal{F}}_{L}(state, f, \pi) \rightarrow 0|1$, where $state$ is a blockchain state snapshot, $f$\
 is a frequency parameter.
 An important feature is that the probability $p$ that the described condition will be met depends on the stake\
 $s$ of the participant and can be adjusted by a free parameter $f$.
@@ -72,31 +72,31 @@ Threshold value is calculated according to ${T = 2^{l_{VRF}}\cdot \phi(\alpha, f
 ${\alpha=s/\\\sum_{l=0}^{l=M} s_l}$ is a relative stake of the participant.
 Thus, probability of winning is ${p = \phi(\alpha, f) = 1-(1-f)^{\alpha}}$.
 
-\textbf{Consensus group reinitialization}.
+\textbf{Consensus Group Lottery}.
 Every new epoch has a new consensus group and any protocol participant can try to become a member of the new consensus\
 group if he is verified.
 Participant is verified if his verification key tuple is stored in the blockchain for a\
 reliable period of time equals to $K_F$ slots.
 
 At the end of the epoch ${e_j \geq 1}$ every verified $PK_i$ receives new epoch seed $\eta_j$ from the\
-${\mathcal_{F}}_{LB}$.
-When every $PK_i$ evaluates ${\mathcal_{F}}_{VRF}$ with the input
+${\mathcal{F}}_{LB}$.
+When every $PK_i$ evaluates ${\mathcal{F}}_{VRF}$ with the input
 and passes the received proof $\pi$ to the ${\mathcal_{F}}_{L}$.
-To calculate an appropriate threshold ${T_i^j}^*$, ${\mathcal_{F}}_{L}$ should be parametrized with the same\
-stake distribution which was in the last block used by ${\mathcal_{F}}_{LB}$ to sample a new $\eta_j$.
+To calculate an appropriate threshold ${T_i^j}^*$, ${\mathcal{F}}_{L}$ should be parametrized with the same\
+stake distribution which was in the last block used by ${\mathcal{F}}_{LB}$ to sample a new $\eta_j$.
 Argument of the function $\phi$ is ${f = M /\/ K}$, where $M$ is a number of new consensus group\
 members to select and $K$ is the total number of the verified stakeholders.
 Afterwards every selected consensus group member includes the associated proofs into the blockchain.
 
-\textbf{Slot leaders}.
+\textbf{Leader Lottery}.
 During the epoch, for every slot ${sl \in S}$ every consensus group member separately evaluates\
-${\mathcal_{F}}_{VRF}$ with his own inputs ${x = \eta_j || sl || \textbf{nonce}}$\
+${\mathcal{F}}_{VRF}$ with his own inputs ${x = \eta_j || sl || \textbf{nonce}}$\
 and ${x' = \eta_j || sl || \textbf{test}}$, where \textbf{nonce} is an arbitrary string.
 He receives the associated proofs $\pi$ and $\rho_\pi$ respectively.
 
-If ${\mathcal_{F}}_{L}(state, f, \pi) \rightarrow 1$ then $PK_i$ is a slot leader and he can propose a batch\
+If ${\mathcal{F}}_{L}(state, f, \pi) \rightarrow 1$ then $PK_i$ is a slot leader and he can propose a batch\
 which should be notarized by all committee members.
-Another proof $\rho_y$ is also included into the batch and will be used by  ${\mathcal_{F}}_{LB}$\
+Another proof $\rho_y$ is also included into the batch and will be used by  ${\mathcal{F}}_{LB}$\
 to sample a random seed for the next epoch.
 
 At every slot, $PK_i$ can be chosen as the slot leader with the probability\
@@ -106,15 +106,20 @@ Parameter $f$ is an active slots coefficient, responsible for percentage of slot
 at least one leader.
 In other words, it determines how many slots will pass before a new block is produced.
 
-Using the scheme above we force opening consensus group members and slot leaders aren't publicly known ahead of time.
+\textbf{Note:} The parameters of both lotteries are adaptive and can be changed via the voting process.
+Participants must use public keys for the ${\mathcal{F}}_{VRF}$ evaluation in the\
+\textit{Consensus Group Lottery} and secret keys in the \textit{Leader Lottery}.
+Using the scheme above we force slot leaders aren't publicly known ahead of time.
 An attacker can't see who was a slot leader until he initializes batch notarization, thus an attacker can't know
 who specifically to attack in order to control a certain slot ahead of time.
-Grinding attacks are also limited because an adversary can't arbitrarily control $\eta_j$ values.
+Opening consensus group members on the over hand should be known ahead of time for the synchronization, there are\
+hundreds of members at each epoch, thus denial of service attacks are difficult to succeed.
+Grinding attacks are limited because an adversary can't arbitrarily control $\eta_j$ values.
 All he can try to do is to make as many forks as possible to estimate the most advantageous, but according to the\
 analysis this advantage doesn't change the security properties of the entire protocol.
 
 Using VRF is also cheap and fast, only initialization requires ${O(n^2)}$ communication between all participants\
-to agree on a genesis block.
+to agree on the genesis block.
 Single VRF evaluation is approximately 100 microseconds on x86-64 for a specific curves used in hash functions.
 There is also great UC-extension for batch verification\
 proposed by ~\cite{cryptoeprint:2022/1045} which make it even faster.
