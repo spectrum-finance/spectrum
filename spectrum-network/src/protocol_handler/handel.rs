@@ -545,6 +545,7 @@ where
     fn next_non_active_level(&self) -> Option<usize> {
         self.levels
             .iter()
+            .skip(2) // Note that levels 0 and 1 are always active.
             .enumerate()
             .take_while(|(_, l)| l.is_none())
             .map(|(i, _)| i)
