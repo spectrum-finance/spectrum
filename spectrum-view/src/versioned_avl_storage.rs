@@ -12,7 +12,6 @@ use scorex_crypto_avltree::{
 
 use versioned_storage::{VersionId, VersionedStore};
 
-type TreeHeight = usize;
 type VersionedStoreType =
     VersionedStore<scorex_crypto_avltree::operation::Digest32, Vec<u8>, ADDigest, DigestNError>;
 
@@ -144,7 +143,8 @@ fn serialize_visited_nodes(
     result
 }
 
-fn unpack_ad_digest(ad_digest: ADDigest) -> (scorex_crypto_avltree::operation::Digest32, TreeHeight) {
+/// Given ADDigest, extract hash of root node and tree height.
+fn unpack_ad_digest(ad_digest: ADDigest) -> (scorex_crypto_avltree::operation::Digest32, usize) {
     (
         <[u8; 32]>::try_from(&ad_digest.0[0..32]).unwrap(),
         ad_digest.0[32] as usize,
