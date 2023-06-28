@@ -35,9 +35,9 @@ pub struct AnnouncementState<S> {
 }
 
 /// It basically waits for an announcement and then forwards it to it's subtrees.
-impl<'d, S, R> TemporalProtocolStage<CoSiHandshake, CoSiMessage<S, R>, S> for CoSiAnnouncementStage<S, R>
+impl<S, R> TemporalProtocolStage<CoSiHandshake, CoSiMessage<S, R>, S> for CoSiAnnouncementStage<S, R>
 where
-    S: Eq + Clone + Send + Serialize + Deserialize<'d> + Debug,
+    S: Eq + Clone + Send + Serialize + Debug,
 {
     fn inject_message(&mut self, peer_id: PeerId, msg: CoSiMessage<S, R>) {
         match msg {

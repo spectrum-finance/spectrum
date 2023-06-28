@@ -28,11 +28,11 @@ use spectrum_network::peer_manager::data::PeerDestination;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
 use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerConfig, PeersMailbox};
 use spectrum_network::protocol::{
-    ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec, SYNC_PROTOCOL_ID,
+    ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec, DISCOVERY_PROTOCOL_ID,
 };
 use spectrum_network::protocol_api::ProtocolMailbox;
-use spectrum_network::protocol_handler::sync::message::SyncSpec;
-use spectrum_network::protocol_handler::sync::{NodeStatus, SyncBehaviour};
+use spectrum_network::protocol_handler::discovery::message::DiscoverySpec;
+use spectrum_network::protocol_handler::discovery::{NodeStatus, DiscoveryBehaviour};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
 
@@ -109,14 +109,14 @@ impl NetworkBehaviour for CustomProtoWithAddr {
     }
 }
 
-pub fn build_node(
+pub fn build_node<'de>(
     keypair: Keypair,
     self_addr: Multiaddr,
     peers_addrs: Vec<(PeerId, Multiaddr)>,
     local_status: NodeStatus,
 ) -> (
     Swarm<CustomProtoWithAddr>,
-    ProtocolHandler<SyncBehaviour<PeersMailbox>, NetworkMailbox>,
+    ProtocolHandler<DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
 ) {
     let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
         .into_authentic(&keypair)
@@ -159,23 +159,23 @@ pub fn build_node(
     let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
     let sync_conf = StatefulProtocolConfig {
         supported_versions: vec![(
-            SyncSpec::v1(),
+            DiscoverySpec::v1(),
             StatefulProtocolSpec {
                 max_message_size: 100,
                 approve_required: true,
             },
         )],
     };
-    let sync_behaviour = SyncBehaviour::new(peers.clone(), local_status);
+    let sync_behaviour = DiscoveryBehaviour::new(peers.clone(), local_status);
     let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(10);
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };
-    let (sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api, 10);
+    let (sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api, DISCOVERY_PROTOCOL_ID, 10);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(
-            SYNC_PROTOCOL_ID,
+            sync_handler.protocol,
             (ProtocolConfig::Stateful(sync_conf), sync_mailbox),
         )]),
         peers,
@@ -201,7 +201,7 @@ pub fn build_nodes(
     n: usize,
 ) -> Vec<(
     Swarm<CustomProtoWithAddr>,
-    ProtocolHandler<SyncBehaviour<PeersMailbox>, NetworkMailbox>,
+    ProtocolHandler<DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
 )> {
     let mut out = Vec::with_capacity(n);
 
@@ -226,7 +226,7 @@ pub fn build_nodes(
             .collect();
 
         let status = NodeStatus {
-            supported_protocols: Vec::from([SYNC_PROTOCOL_ID]),
+            supported_protocols: Vec::from([DISCOVERY_PROTOCOL_ID]),
             height: 0,
         };
         out.push(build_node(keypair, addr, peers, status));

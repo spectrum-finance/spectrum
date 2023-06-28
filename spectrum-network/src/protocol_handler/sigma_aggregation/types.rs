@@ -7,59 +7,16 @@ use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::schnorr::signature::*;
 use k256::schnorr::VerifyingKey;
 use k256::{ProjectivePoint, Scalar, SecretKey};
-use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 
 use algebra_core::CommutativePartialSemigroup;
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
+use spectrum_crypto::pubkey::PublicKey;
 use spectrum_crypto::VerifiableAgainst;
 
 use crate::protocol_handler::handel::partitioning::PeerIx;
 use crate::protocol_handler::handel::Weighted;
 use crate::protocol_handler::sigma_aggregation::crypto::verify_response;
-
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct PublicKey(k256::PublicKey);
-
-impl Hash for PublicKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.0.to_encoded_point(true).as_bytes());
-    }
-}
-
-impl From<SecretKey> for PublicKey {
-    fn from(sk: SecretKey) -> Self {
-        Self(sk.public_key())
-    }
-}
-
-impl From<PublicKey> for k256::PublicKey {
-    fn from(pk: PublicKey) -> Self {
-        pk.0
-    }
-}
-
-impl From<k256::PublicKey> for PublicKey {
-    fn from(pk: k256::PublicKey) -> Self {
-        Self(pk)
-    }
-}
-
-impl From<PublicKey> for PeerId {
-    fn from(pk: PublicKey) -> Self {
-        let k256point = pk.0.to_encoded_point(true);
-        let encoded_pk = k256point.as_bytes();
-        PeerId::from_public_key(&libp2p_identity::PublicKey::Secp256k1(
-            libp2p_identity::secp256k1::PublicKey::decode(encoded_pk).unwrap(),
-        ))
-    }
-}
-
-impl From<&PublicKey> for PeerId {
-    fn from(pk: &PublicKey) -> Self {
-        pk.clone().into()
-    }
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, derive_more::From, derive_more::Into)]
 pub struct AggregateCommitment(PublicKey);
@@ -79,7 +36,7 @@ impl From<ProjectivePoint> for AggregateCommitment {
 
 impl From<AggregateCommitment> for ProjectivePoint {
     fn from(AggregateCommitment(pk): AggregateCommitment) -> Self {
-        pk.0.to_projective()
+        k256::PublicKey::from(pk).to_projective()
     }
 }
 
@@ -225,6 +182,12 @@ impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
                 false
             }
         })
+    }
+}
+
+impl VerifiableAgainst<()> for CommitmentsWithProofs {
+    fn verify(&self, _: &()) -> bool {
+        true
     }
 }
 
