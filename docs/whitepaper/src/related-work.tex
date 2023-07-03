@@ -1,0 +1,139 @@
+Blockchain interoperability is promising, but it still faces various design
+challenges.
+There have been many systematic researches regarding this issue and many famous authors have discussed\
+chain interoperability in general.
+The blockchain interoperability in the literature is usually classified into categories: Buterin ~\cite{buterin2016}
+suggested \emph{centralized}, \emph{sidechains/relays}, and \emph{hashlocking}; Belchior et\
+al. ~\cite{belchior2021survey} classified it in \emph{cryptocurrency-directed approaches}, \emph{blockchain engines}, and \emph{blockchain connectors},
+Wang ~\cite{cryptoeprint:2021/537} proposed to group it into \emph{chain-based interoperability},
+\emph{bridge-based interoperability}, and \emph{dApp-based interoperability}.
+
+\subsection{Existing Interoperability Solutions}\label{subsec:interoperability-categories}
+In our work we want to emphasize the benefits of the decentralization in the interoperability mechanism thus,\
+we will not include the systematical-level study of all existing approaches and will briefly discuss\
+the classification proposed by ~\cite{cryptoeprint:2021/537}.
+
+\subsubsection{Chain-based Interoperability}
+The chain based interoperability aims to public blockchains and uses an atomic swaps as its main mechanism\
+to share information across different chains.
+Following the classification existing in the literature there are three main types of such approaches to\
+interoperability: \emph{Sidechain}, \emph{Trusted notary Scheme}\
+and \emph{Hash-locking}.
+
+\emph{Sidechain} extend the functionalities the interconnected blockchain networks,\
+by enabling tokens synchronization and additional data transfer between them ~\cite{Parizi2019}.
+Sidechains can be designed in a decentralized manner and have their own consensus protocols.
+While the design of a sidechain always take into consideration the structure and the consensus of each connected\
+blockchain, none of the mainchains is aware of the presence of a sidechain.
+Sidechain is usually connects to the mainchains with a two-way peg scheme ~\cite{SINGH2020102471}, which uses a\
+relay routine to the bidirectional data transferring process.
+The main issue is that two-way pegs introduces a level of centralization.
+State-of-the-art sidechain platforms are Loom ~\cite{Loom2019}, Liquid ~\cite{Nick2020LiquidAB},
+and Poof-of-Authority (PoA) networks ~\cite{POA2018}.
+There also exist a lot of ongoing projects since this technology is innovative and in demand by the blockchain industry.
+
+\emph{Trusted notary Scheme} is the simplest way to achieve cross-chain interoperability.
+The blockchain notary schemes can provide the functionalities of timed proof of existence,\
+whose proof can be used as further proof of ownership ~\cite{DIFRANCESCOMAESA202099}.
+It doesn't require any additional changes in the underlying blockchains and uses a trusted notary to verify the\
+correctness and integrity of information transferred.
+A notary is a trusted party or a group of trusted parties that monitor connected chains and initiating transactions\
+upon the occurrence of some valid events or a requests.
+Well-known solutions using this technology are, for example, Herdius ~\cite{Balazs2017} and Bifrost ~\cite{Scheid2019}.
+In practice, the way to achieve interoperability using a notary scheme is to combine it with other methods as\
+it is done in the Interledger ~\cite{Thomas2015}, which combines it with the previously discussed sidechains.
+
+\emph{Hash-locking}: is an intermediary to validate or execute blockchain transactions.
+It uses a hash time-locked system applying a time lock to lock the transaction ~\cite{Pillai2019}\
+which is similar to the concept of an atomic swap.
+The hash-locking solution has some significant drawbacks, for example, it must lock some assets during its opening\
+phase for an established transaction channel, thereby creating a race condition and, moreover, the possibility of\
+losing assets if a timeout occurs.
+
+Summing it up, a practical way to enable chain-based interoperability with current major blockchain systems is to\
+combine the above solutions together.
+
+\subsubsection{Bridge-based Interoperability}
+Most existing chain-based blockchains are homogeneous systems, in which the assets are of the similar type.
+Bridge-based interoperability aims to create a connection component between homogeneous\
+and heterogeneous blockchains.
+This component can be implemented in two main forms: \emph{Trusted Relay} and \emph{Blockchain Engine}.
+
+\emph{Trusted Relay}: is very native approach where trusted parties share transactions between different blockchains.
+Relay schemes replicate block information of the source blockchain via verifiable smart contracts,\
+within a target blockchain to allow the target blockchain to verify\
+the existence of data on the source blockchain without requiring trust in a centralized entity ~\cite{buterin2016}.
+There exist many developing relay schemes: BTC Relay ~\cite{Chow2016}, PeaceRelay ~\cite{Luu2019}, etc.
+State-of-the art projects are: Hyperledger Cactus ~\cite{Hyperledger2020}, Testimonium~\cite{Frauenthaler2020} and\
+Tesseract ~\cite{cryptoeprint:2017/1153}.
+All this solutions support complex use case and are highly usable and reliable, however,\
+still not fully decentralized~\cite{cryptoeprint:2021/537}.
+
+\emph{Blockchain Engine}: is also provides a relay among the connected blockchains.
+It is based on a shared infrastructure which support different layers and services, including network, consensus,\
+incentive, etc.
+Requirements of multi-layer supports is essential, thus, most existing blockchain engine based solutions are still in\
+the stage of proof of concept or under active development.
+Most significant projects are: Polkadot ~\cite{cryptoeprint:2020/641}, Cosmos ~\cite{Kwon2019},
+WanChain ~\cite{Wanchain}, and ARK ~\cite{ARK}.
+
+All bridge-based solutions provide convenience for end-users since they\
+do not need to know what happened in the bridge.
+In general, trusted relays are much more simple and adopted to handle interoperability.
+However, they utilize mechanism similar to the notary schemes which also leads to a certain degree of centralization.
+
+\subsubsection{dApp-based Interoperability}
+For the wide adoption of the blockchain technologies, presence of well functioning\
+decentralized applications' (dApps) infrastructure is needed.
+Thus, dApp-based solutions should be interoperable as well.
+However, each dApp cannot ensure semantic interoperability, and it is essential to develop a minimum semantic that\
+must be supported by each application to achieve interoperability among dApps.
+dApp-based blockchain interoperability protocols in the literature are classified to: \emph{Blockchain of Blockchains},\
+\emph{Blockchain Adapters} and \emph{Blockchain Agnostic Protocols}.
+
+\emph{Blockchain of Blockchains}: is a platform that allows developers to construct a cross-chain dApps, where\
+each blockchain functions as an independent one.
+It differs from the sidechain solution in implementation.
+Sidechains typically aimed at atomic swaps among the homogeneous blockchains, where all actions should be coordinated\
+by the mainchain.
+In the blockchain of blockchains solutions the mainchain severs as a notary to record the activities that happen\
+on each subchain, and each subchain can be heterogeneous ~\cite{cryptoeprint:2021/537}.
+There are several projects where blockchain of blockchains concept is applied for different scenarios:\
+Overledger ~\cite{Verdian2018}, HyperService ~\cite{Liu2019}, SMChain ~\cite{cryptoeprint:2019/1401} and etc.
+
+
+
+\emph{Blockchain Adapter}: handle the interoperability by providing an interface for the end-users to\
+runtime selection, smart contracts, etc.
+Most significant project in this category are PleBeuS ~\cite{Scheid2020} and smart contracts \emph{move} protocol\
+\cite{Fynn2020}.
+Protocols in this category are focuses on the API design and data portability.
+
+\emph{Blockchain Agnostic Protocol}: refers to a single platform allowing multiple blockchains to co-exist,\
+enabling cross-chain or cross-blockchain communication between arbitrarily distributed ledgers.
+Blockchain agnosticism provides its end-users various options to pick their optimal blockchain and\
+provide the capabilities for cross-chain operations.
+
+Several agnostic-based technologies have been described in the literature: ILPv4 ~\cite{InterledgerV4},
+Gravity ~\cite{PupyshevGravity2020}, SuSy ~\cite{PupyshevSuSy2020} and etc.
+All these solutions are flexible and has great potential, although most of them are focused on the general design\
+of the prototype and not grant backward compatibility.
+
+
+dApp-based blockchain interoperability is very promising, even though most of these solutions are still in early\
+stages of development.
+Some protocols appear to be semi-centralized, since they require a direct connection with a trusted party.
+
+\subsubsection{Discussion}
+
+All the approaches described above in one way or another suffer from one main issue: full or partial centralization.
+The disadvantages of the centralized/semi-centralized trust model are obvious:
+\begin{enumerate}
+    \item A system is not sustainable when it depends on a single party.
+    \item If the oracle goes down unfinished swaps can appear frozen halfway.
+    \item A centralized oracle can censor transactions.
+    \item A malicious oracle can perform a man-in-the-middle attack by sending an inaccurate data.
+\end{enumerate}
+
+The implementation of a fair decentralization in the interoperability protocol is the first and main step towards\
+the adaptation of benefits given by the existing solutions and their successful practical usage.
