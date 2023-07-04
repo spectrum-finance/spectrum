@@ -1,6 +1,6 @@
 use nonempty::NonEmpty;
 
-use spectrum_ledger::cell::{CellPtr, DatumRef, CellCore, ScriptRef, AnyCell};
+use spectrum_ledger::cell::{CellPtr, DatumRef, Cell, ScriptRef, AnyCell};
 use spectrum_ledger::transaction::Transaction;
 use spectrum_move::{SerializedModule, SerializedValue};
 

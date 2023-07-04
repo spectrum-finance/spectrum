@@ -5,7 +5,7 @@ use k256::PublicKey;
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_move::{SerializedModule, SerializedValue};
 
-use crate::interop::IEffectId;
+use crate::interop::ExtEffId;
 use crate::transaction::TxId;
 use crate::{ChainId, SystemDigest};
 
@@ -98,15 +98,16 @@ pub struct BoxDestination {
     inputs: Option<BridgeInputs>,
 }
 
+/// Main and the only value carrying unit in the system.
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct CellCore {
-    /// Monetary value attached to the box.
+pub struct Cell {
+    /// Monetary value attached to the cell.
     pub value: SValue,
-    /// Owner who can mutate the box.
+    /// Owner who can mutate the cell.
     pub owner: Owner,
-    /// Data attached to the box.
+    /// Data attached to the cell.
     pub datum: Option<DatumHash>,
-    /// Destination chain of the box (where the value of the box is supposed to settle in the end).
+    /// Destination chain of the cell (where the value of the cell is supposed to settle in the end).
     /// `None` if the box is supposed to remain on the multichain.
     pub dst: Option<BoxDestination>,
     /// Script that can be referenced by other transactions.
@@ -118,7 +119,7 @@ pub struct CellCore {
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct MutCell {
     /// Core cell
-    pub core: CellCore,
+    pub core: Cell,
     /// Monotonically increasing version of the box.
     pub ver: CellVer,
     /// ID of a transaction which created this cell.
@@ -133,37 +134,56 @@ impl MutCell {
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct ImportedCell {
+pub struct InitCell {
     /// Core cell
-    pub core: CellCore,
+    pub core: Cell,
     /// ID of an inbound effect which created this cell.
-    pub eff_id: IEffectId,
+    pub eff_id: ExtEffId,
 }
 
-impl ImportedCell {
+impl InitCell {
     pub fn id(&self) -> CellId {
         todo!()
     }
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct TermCell {
+    /// Core cell
+    pub core: Cell,
+}
+
+impl TermCell {
+    pub fn id(&self) -> CellId {
+        todo!()
+    }
+}
+
+/// State:
+/// [Cells]
+/// [Settlements]?
+/// [Eliminations]?
+/// todo: make sure certification/elimination is atomic
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AnyCell {
+    Init(InitCell),
     Mut(MutCell),
-    Imported(ImportedCell),
+    Term(TermCell),
 }
 
 impl AnyCell {
     pub fn id(&self) -> CellId {
         match self {
+            AnyCell::Init(ic) => ic.id(),
             AnyCell::Mut(mc) => mc.id(),
-            AnyCell::Imported(ic) => ic.id(),
+            AnyCell::Term(tc) => tc.id(),
         }
     }
 
     pub fn ver(&self) -> CellVer {
         match self {
+            AnyCell::Init(_) | AnyCell::Term(_) => CellVer::INITIAL,
             AnyCell::Mut(mc) => mc.ver,
-            AnyCell::Imported(_) => CellVer::INITIAL,
         }
     }
 
@@ -173,8 +193,9 @@ impl AnyCell {
 
     pub fn owner(&self) -> Owner {
         match self {
+            AnyCell::Init(ic) => ic.core.owner,
             AnyCell::Mut(mc) => mc.core.owner,
-            AnyCell::Imported(ic) => ic.core.owner,
+            AnyCell::Term(tc) => tc.core.owner,
         }
     }
 }

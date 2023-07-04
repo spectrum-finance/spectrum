@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use k256::schnorr::signature::Verifier;
 use k256::schnorr::VerifyingKey;
 
-use spectrum_ledger::cell::{Owner, CellCore, ScriptHash, AnyCell};
+use spectrum_ledger::cell::{Owner, Cell, ScriptHash, AnyCell};
 use spectrum_ledger::transaction::{EvaluatedTransaction, LinkedTransaction};
 use spectrum_move::{GasUnits, SerializedModule};
 
