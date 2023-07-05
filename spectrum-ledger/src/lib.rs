@@ -1,12 +1,12 @@
 use spectrum_crypto::digest::Blake2bDigest256;
 
-use crate::block::{BlockHeader, BlockId, BlockBody};
+use crate::block::{BlockBody, BlockHeader, BlockId};
 use crate::transaction::Transaction;
 
 pub mod block;
-pub mod transaction;
-pub mod interop;
 pub mod cell;
+pub mod interop;
+pub mod transaction;
 
 #[derive(
     Eq,
