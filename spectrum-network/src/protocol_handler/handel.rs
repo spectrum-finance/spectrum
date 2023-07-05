@@ -173,6 +173,7 @@ where
                     }
                 }
             } else {
+                trace!("{:?} no unverified contributions", self.own_peer_ix);
                 return;
             }
             let Verified(best_contribution) = lvl.best_contribution.clone();
@@ -358,6 +359,7 @@ where
                     }
                 })
                 .collect::<Vec<_>>();
+            nodes.sort();
             nodes.dedup();
             trace!("RFP ({:?}): nodes_to_message: {:?}", self.own_peer_ix, nodes);
             for pix in nodes {
@@ -546,9 +548,9 @@ where
         self.levels
             .iter()
             .enumerate()
-            .take_while(|(_, l)| l.is_none())
+            .skip_while(|(_, l)| l.is_some())
             .map(|(i, _)| i)
-            .max()
+            .next()
             .and_then(|lvl| {
                 if lvl < self.peer_partitions.num_levels() {
                     Some(lvl)
