@@ -1,4 +1,5 @@
 use std::collections::{HashSet, VecDeque};
+use std::ops::Sub;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -6,7 +7,7 @@ use std::time::Duration;
 
 use async_std::channel::Receiver;
 use either::{Either, Left, Right};
-use futures::Stream;
+use futures::{FutureExt, Stream};
 use libp2p_identity::PeerId;
 
 use algebra_core::{CommutativePartialSemigroup, CommutativeSemigroup};
@@ -17,6 +18,8 @@ use crate::protocol_handler::pool::{FromTask, TaskPool};
 use crate::protocol_handler::void::VoidMessage;
 use crate::protocol_handler::{NetworkAction, ProtocolBehaviourOut, TemporalProtocolStage};
 
+use super::handel::partitioning::PeerIx;
+
 pub mod overlay;
 
 /// DAG based multicasting that accumulates received statements along the way.
@@ -26,16 +29,23 @@ pub struct DagMulticasting<S, P> {
     pub overlay: DagOverlay,
     pub contacted_peers: HashSet<PeerId>,
     pub outbox: VecDeque<ProtocolBehaviourOut<VoidMessage, S>>,
+    creation_time: std::time::Instant,
+    processing_delay: Duration,
+    next_processing: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
 impl<S, P> DagMulticasting<S, P> {
     pub fn new(statement: Option<S>, public_data: P, overlay: DagOverlay) -> Self {
+        let processing_delay = Duration::from_millis(10);
         Self {
             statement,
             public_data,
             overlay,
             contacted_peers: HashSet::new(),
             outbox: VecDeque::new(),
+            creation_time: std::time::Instant::now(),
+            processing_delay,
+            next_processing: Some(Box::pin(tokio::time::sleep(processing_delay))),
         }
     }
 }
@@ -53,17 +63,36 @@ where
                     }
                 } else {
                     let _ = self.statement.insert(content);
+                    unreachable!()
                 }
             } else {
                 self.outbox
                     .push_back(ProtocolBehaviourOut::NetworkAction(NetworkAction::BanPeer(
                         peer_id,
-                    )))
+                    )));
             }
         }
     }
 
-    fn poll(&mut self, _: &mut Context) -> Poll<Either<ProtocolBehaviourOut<VoidMessage, S>, S>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<Either<ProtocolBehaviourOut<VoidMessage, S>, S>> {
+        if let Some(mut delay) = self.next_processing.take() {
+            match delay.poll_unpin(cx) {
+                Poll::Ready(_) => {}
+                Poll::Pending => {
+                    self.next_processing = Some(delay);
+                    return Poll::Pending;
+                }
+            }
+        }
+
+        let finished_at = std::time::Instant::now();
+        let elapsed = finished_at.sub(self.creation_time);
+        if elapsed > Duration::from_millis(2000) {
+            if let Some(stmt) = self.statement.take() {
+                return Poll::Ready(Right(stmt));
+            }
+        }
+
         if let Some(stmt) = &self.statement {
             for (peer, addr) in &self.overlay.child_nodes {
                 if !self.contacted_peers.contains(peer) {
@@ -75,17 +104,18 @@ where
                             use_version: Default::default(),
                             message: stmt.clone(),
                         },
-                    ))
+                    ));
                 }
             }
         }
         if let Some(out) = self.outbox.pop_front() {
+            self.next_processing = Some(Box::pin(tokio::time::sleep(self.processing_delay)));
             return Poll::Ready(Left(out));
         }
-        if let Some(stmt) = self.statement.take() {
-            return Poll::Ready(Right(stmt));
-        }
-        return Poll::Pending;
+
+        self.next_processing = Some(Box::pin(tokio::time::sleep(self.processing_delay)));
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 }
 

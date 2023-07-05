@@ -468,10 +468,10 @@ where
                 ..
             }) => {
                 if let SigmaAggrMessageV1::Broadcast(commits) = msg {
-                    trace!("SigmaAggrMessageV1::Broadcast: {:?}", commits);
+                    println!("{:?}: Received SigmaAggrMessageV1::Broadcast", bcast.host_ix);
                     bcast.mcast.inject_message(peer_id, commits);
                 } else {
-                    trace!("SigmaAggrMessageV1 expected Broadcast, got {:?}", msg);
+                    //println!("SigmaAggrMessageV1 expected Broadcast, got {:?}", msg);
                     self.stash.stash(peer_id, msg);
                 }
             }
@@ -544,6 +544,19 @@ where
                             }
                             Either::Right(pre_commitments) => {
                                 let host_ix = st.host_ix;
+                                let mut missing_peers: Vec<_> = (0_usize..16).collect();
+                                let peers = pre_commitments
+                                    .entries()
+                                    .into_iter()
+                                    .map(|(key, _)| key.unwrap())
+                                    .collect::<Vec<_>>();
+                                for i in peers {
+                                    if let Some(ix) = missing_peers.iter().position(|j| *j == i) {
+                                        missing_peers.remove(ix);
+                                    }
+                                }
+                                missing_peers.sort();
+                                println!("{:?}: PreComm missing: {:?}", host_ix, missing_peers);
                                 self.unstash_stage(StageTag::Commit);
                                 self.task = Some(AggregationTask {
                                     state: AggregationState::AggregateCommitments(
@@ -579,6 +592,19 @@ where
                             }
 
                             Either::Right(commitments) => {
+                                let mut missing_peers: Vec<_> = (0_usize..16).collect();
+                                let peers = commitments
+                                    .entries()
+                                    .into_iter()
+                                    .map(|(key, _)| key.unwrap())
+                                    .collect::<Vec<_>>();
+                                for i in peers {
+                                    if let Some(ix) = missing_peers.iter().position(|j| *j == i) {
+                                        missing_peers.remove(ix);
+                                    }
+                                }
+                                missing_peers.sort();
+                                println!("{:?}: Comm missing: {:?}", st.host_ix, missing_peers);
                                 trace!("[SA] Got commitments");
                                 self.unstash_stage(StageTag::Broadcast);
                                 self.task = Some(AggregationTask {
@@ -611,7 +637,7 @@ where
                                 continue;
                             }
                             Either::Right(commitments) => {
-                                trace!("[SA] Got commitments");
+                                trace!("[SA] {:?}: Got broadcast commitments", st.host_ix);
                                 self.unstash_stage(StageTag::Response);
                                 self.task = Some(AggregationTask {
                                     state: AggregationState::AggregateResponses(

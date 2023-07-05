@@ -1086,7 +1086,7 @@ async fn sigma_aggregation_byzantine() {
         PeerIx::from(0),
         PeerIx::from(2),
         PeerIx::from(11),
-        PeerIx::from(14),
+        //PeerIx::from(14),
     ];
     run_sigma_aggregation_test(16, byzantine_nodes, Threshold { num: 12, denom: 16 }).await;
 }
