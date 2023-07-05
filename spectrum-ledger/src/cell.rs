@@ -26,14 +26,14 @@ use crate::{ChainId, SystemDigest};
 pub struct CellId(Blake2bDigest256);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct CellVer(u32);
+pub struct Serial(u32);
 
-impl CellVer {
-    pub const INITIAL: CellVer = CellVer(0);
+impl Serial {
+    pub const INITIAL: Serial = Serial(0);
 }
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct CellRef(pub CellId, pub CellVer);
+pub struct CellRef(pub CellId, pub Serial);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum CellPtr {
@@ -121,9 +121,10 @@ pub struct MutCell {
     /// Core cell
     pub core: Cell,
     /// Monotonically increasing version of the box.
-    pub ver: CellVer,
+    pub ver: Serial,
     /// ID of a transaction which created this cell.
     pub tx_id: TxId,
+    /// Index of the cell inside the TX which created it.
     pub index: u32,
 }
 
@@ -151,6 +152,10 @@ impl InitCell {
 pub struct TermCell {
     /// Core cell
     pub core: Cell,
+    /// ID of a transaction which created the cell.
+    pub tx_id: TxId,
+    /// Index of the cell inside the TX which created it.
+    pub index: u32,
 }
 
 impl TermCell {
@@ -180,9 +185,9 @@ impl AnyCell {
         }
     }
 
-    pub fn ver(&self) -> CellVer {
+    pub fn ver(&self) -> Serial {
         match self {
-            AnyCell::Init(_) | AnyCell::Term(_) => CellVer::INITIAL,
+            AnyCell::Init(_) | AnyCell::Term(_) => Serial::INITIAL,
             AnyCell::Mut(mc) => mc.ver,
         }
     }

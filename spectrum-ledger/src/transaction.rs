@@ -1,10 +1,14 @@
+use std::{iter, vec};
+
+use nonempty::NonEmpty;
+
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::TypeTag;
 use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_crypto::signature::Signature;
 use spectrum_move::{SerializedModule, SerializedValue};
 
-use crate::cell::{AnyCell, CellPtr, DatumRef, MutCell, ScriptRef};
+use crate::cell::{AnyCell, CellPtr, CellRef, DatumRef, MutCell, ScriptRef};
 use crate::SystemDigest;
 
 #[derive(
@@ -29,13 +33,46 @@ pub struct TxId(Blake2bDigest256);
 /// `EvaluatedTransaction` (validation)-> `[TransactionEffect]`
 /// Transaction effects can be safely applied to the global ledger state.
 
+/// Non-empty array of inputs.
+/// First input is always fully qualified.
+#[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct TxInputs {
+    /// TX must have at least one fully qualified input.
+    pub head: (CellRef, Option<u16>),
+    pub tail: Vec<(CellPtr, Option<u16>)>,
+}
+
+impl IntoIterator for TxInputs {
+    type Item = (CellPtr, Option<u16>);
+    type IntoIter = iter::Chain<iter::Once<Self::Item>, vec::IntoIter<Self::Item>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let (hd_ref, hd_sig) = self.head;
+        iter::once((CellPtr::Ref(hd_ref), hd_sig)).chain(self.tail)
+    }
+}
+
+impl From<TxInputs> for NonEmpty<(CellPtr, Option<u16>)> {
+    fn from(
+        TxInputs {
+            head: (cref, sig),
+            tail,
+        }: TxInputs,
+    ) -> Self {
+        NonEmpty {
+            head: (CellPtr::Ref(cref), sig),
+            tail,
+        }
+    }
+}
+
 /// Unverified transaction possibly containing yet unresolved inputs.
 /// This is the only form of transaction that travels over the wire and goes on-chain,
 /// that's why the size of this representation is optimized.
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Transaction {
     /// Consumed boxes.
-    pub inputs: Vec<(CellPtr, Option<u16>)>,
+    pub inputs: TxInputs,
     /// Read-only inputs.
     pub reference_inputs: Vec<CellPtr>,
     /// Script invokations.

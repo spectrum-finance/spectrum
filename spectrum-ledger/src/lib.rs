@@ -1,7 +1,7 @@
 use spectrum_crypto::digest::Blake2bDigest256;
 
 use crate::block::{BlockBody, BlockHeader, BlockId};
-use crate::transaction::Transaction;
+use crate::transaction::{Transaction, TxId};
 
 pub mod block;
 pub mod cell;
@@ -73,6 +73,12 @@ impl From<BlockId> for ModifierId {
     }
 }
 
+impl From<TxId> for ModifierId {
+    fn from(id: TxId) -> Self {
+        Self(Blake2bDigest256::from(id))
+    }
+}
+
 impl Into<BlockId> for ModifierId {
     fn into(self) -> BlockId {
         BlockId::from(self.0)
@@ -91,7 +97,7 @@ impl Modifier {
         match self {
             Modifier::BlockHeader(bh) => ModifierId::from(bh.id),
             Modifier::BlockBody(bb) => ModifierId::from(bb.id),
-            Modifier::Transaction(tx) => tx.id(),
+            Modifier::Transaction(tx) => ModifierId::from(tx.id()),
         }
     }
 }
