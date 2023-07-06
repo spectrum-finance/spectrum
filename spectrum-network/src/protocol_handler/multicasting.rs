@@ -19,6 +19,7 @@ use crate::protocol_handler::void::VoidMessage;
 use crate::protocol_handler::{NetworkAction, ProtocolBehaviourOut, TemporalProtocolStage};
 
 use super::handel::partitioning::PeerIx;
+use super::handel::Weighted;
 
 pub mod overlay;
 
@@ -52,13 +53,17 @@ impl<S, P> DagMulticasting<S, P> {
 
 impl<S, P> TemporalProtocolStage<VoidMessage, S, S> for DagMulticasting<S, P>
 where
-    S: CommutativePartialSemigroup + VerifiableAgainst<P> + Clone,
+    S: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone,
 {
     fn inject_message(&mut self, peer_id: PeerId, content: S) {
         if self.overlay.parent_nodes.contains(&peer_id) {
             if content.verify(&self.public_data) {
                 if let Some(stmt) = self.statement.take() {
                     if let Some(combined) = stmt.try_combine(&content) {
+                        if combined.weight() > stmt.weight() {
+                            println!("Got new contribution from broadcast");
+                            self.contacted_peers.clear();
+                        }
                         let _ = self.statement.insert(combined);
                     }
                 } else {
@@ -87,7 +92,7 @@ where
 
         let finished_at = std::time::Instant::now();
         let elapsed = finished_at.sub(self.creation_time);
-        if elapsed > Duration::from_millis(2000) {
+        if elapsed > Duration::from_millis(300) {
             if let Some(stmt) = self.statement.take() {
                 return Poll::Ready(Right(stmt));
             }
@@ -229,6 +234,6 @@ where
 pub trait Multicasting<S>: TemporalProtocolStage<VoidMessage, S, S> {}
 
 impl<S, P> Multicasting<S> for DagMulticasting<S, P> where
-    S: CommutativePartialSemigroup + VerifiableAgainst<P> + Clone
+    S: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone
 {
 }

@@ -25,6 +25,7 @@ use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerC
 use spectrum_network::protocol::{
     OneShotProtocolConfig, OneShotProtocolSpec, ProtocolConfig, SIGMA_AGGR_PROTOCOL_ID,
 };
+use spectrum_network::protocol_handler::handel::Weighted;
 use spectrum_network::protocol_handler::multicasting::overlay::DagOverlay;
 use spectrum_network::protocol_handler::multicasting::{DagMulticasting, Multicasting};
 use spectrum_network::protocol_handler::versioning::Versioned;
@@ -60,6 +61,7 @@ impl<S> AssertKinds for MulticastingBehaviour<S> where
         + CommutativePartialSemigroup
         + serde::Serialize
         + for<'de> serde::Deserialize<'de>
+        + Weighted
         + Versioned
         + Debug
         + Send
@@ -90,6 +92,7 @@ where
         + CommutativePartialSemigroup
         + serde::Serialize
         + for<'de> serde::Deserialize<'de>
+        + Weighted
         + Versioned
         + Debug
         + Send
@@ -201,6 +204,12 @@ impl<S: Clone + Eq> CommutativePartialSemigroup for Statements<S> {
     }
 }
 
+impl<S> Weighted for Statements<S> {
+    fn weight(&self) -> usize {
+        self.0.len()
+    }
+}
+
 impl<S> VerifiableAgainst<()> for Statements<S> {
     fn verify(&self, _: &()) -> bool {
         true
@@ -219,6 +228,7 @@ where
         + CommutativePartialSemigroup
         + serde::Serialize
         + for<'de> serde::Deserialize<'de>
+        + Weighted
         + Versioned
         + Debug
         + Send

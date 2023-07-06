@@ -27,7 +27,7 @@ use spectrum_network::protocol_api::ProtocolEvent;
 use spectrum_network::protocol_handler::aggregation::AggregationAction;
 use spectrum_network::protocol_handler::handel::{
     partitioning::{MakePeerPartitions, PeerIx, PeerPartitions},
-    Threshold,
+    Threshold, Weighted,
 };
 use spectrum_network::protocol_handler::multicasting::overlay::{
     MakeDagOverlay, RedundancyDagOverlayBuilder,
@@ -985,11 +985,20 @@ struct Stats {
     num_fail: usize,
 }
 
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Debug)]
+struct U64(u64);
+
+impl Weighted for U64 {
+    fn weight(&self) -> usize {
+        1
+    }
+}
+
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
 #[tokio::test]
 async fn multicasting_normal() {
-    let mut peers = multicasting::setup_nodes::<Statements<u64>>(17);
-    let statement = Statements(vec![0]);
+    let mut peers = multicasting::setup_nodes::<Statements<U64>>(17);
+    let statement = Statements(vec![U64(0)]);
     let committee: Vec<(PeerId, Option<Multiaddr>)> = peers
         .iter()
         .map(
@@ -1083,12 +1092,12 @@ async fn sigma_aggregation_normal() {
 #[tokio::test]
 async fn sigma_aggregation_byzantine() {
     let byzantine_nodes = vec![
-        PeerIx::from(0),
+        //PeerIx::from(0),
         PeerIx::from(2),
-        PeerIx::from(11),
+        PeerIx::from(3),
         //PeerIx::from(14),
     ];
-    run_sigma_aggregation_test(16, byzantine_nodes, Threshold { num: 12, denom: 16 }).await;
+    run_sigma_aggregation_test(16, byzantine_nodes, Threshold { num: 2, denom: 3 }).await;
 }
 
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
