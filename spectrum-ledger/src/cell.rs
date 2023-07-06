@@ -7,7 +7,7 @@ use spectrum_move::{SerializedModule, SerializedValue};
 
 use crate::interop::ExtEffId;
 use crate::transaction::TxId;
-use crate::{ChainId, SystemDigest};
+use crate::{ChainId, DigestViaEncoder, SystemDigest};
 
 /// Stable cell identifier.
 #[derive(
@@ -130,9 +130,11 @@ pub struct MutCell {
 
 impl MutCell {
     pub fn id(&self) -> CellId {
-        todo!()
+        CellId::from(self.digest())
     }
 }
+
+impl DigestViaEncoder for MutCell {}
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct InitCell {
@@ -144,9 +146,11 @@ pub struct InitCell {
 
 impl InitCell {
     pub fn id(&self) -> CellId {
-        todo!()
+        CellId::from(self.digest())
     }
 }
+
+impl DigestViaEncoder for InitCell {}
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TermCell {
@@ -160,15 +164,12 @@ pub struct TermCell {
 
 impl TermCell {
     pub fn id(&self) -> CellId {
-        todo!()
+        CellId::from(self.digest())
     }
 }
 
-/// State:
-/// [Cells]
-/// [Settlements]?
-/// [Eliminations]?
-/// todo: make sure certification/elimination is atomic
+impl DigestViaEncoder for TermCell {}
+
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AnyCell {
     Init(InitCell),
@@ -202,11 +203,5 @@ impl AnyCell {
             AnyCell::Mut(mc) => mc.core.owner,
             AnyCell::Term(tc) => tc.core.owner,
         }
-    }
-}
-
-impl SystemDigest for AnyCell {
-    fn digest(&self) -> Blake2bDigest256 {
-        todo!()
     }
 }

@@ -1,4 +1,6 @@
-use spectrum_crypto::digest::Blake2bDigest256;
+use serde::Serialize;
+
+use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 
 use crate::block::{BlockBody, BlockHeader, BlockId};
 use crate::transaction::{Transaction, TxId};
@@ -112,6 +114,17 @@ pub enum ModifierType {
 /// Provides digest used across the system for authentication.
 pub trait SystemDigest {
     fn digest(&self) -> Blake2bDigest256;
+}
+
+/// Marker trait for stucts whose hashes can be derived from serialised repr.
+trait DigestViaEncoder: Serialize {}
+
+impl<T: DigestViaEncoder> SystemDigest for T {
+    fn digest(&self) -> Blake2bDigest256 {
+        let mut encoded = Vec::new();
+        ciborium::ser::into_writer(self, &mut encoded).unwrap();
+        blake2b256_hash(&*encoded)
+    }
 }
 
 #[derive(

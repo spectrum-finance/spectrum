@@ -4,7 +4,7 @@ use nonempty::NonEmpty;
 
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::TypeTag;
-use spectrum_crypto::digest::Blake2bDigest256;
+use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::signature::Signature;
 use spectrum_move::{SerializedModule, SerializedValue};
 
@@ -39,6 +39,7 @@ pub struct TxId(Blake2bDigest256);
 pub struct TxInputs {
     /// TX must have at least one fully qualified input.
     pub head: (CellRef, Option<u16>),
+    /// Other inputs referenced by pointers.
     pub tail: Vec<(CellPtr, Option<u16>)>,
 }
 
@@ -83,15 +84,55 @@ pub struct Transaction {
     pub witness: Witness,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct TransactionWithoutWitness {
+    /// Consumed boxes.
+    pub inputs: TxInputs,
+    /// Read-only inputs.
+    pub reference_inputs: Vec<CellPtr>,
+    /// Script invokations.
+    pub invokations: Vec<ScriptInv>,
+    /// Statically evaluated outputs.
+    pub evaluated_outputs: Vec<MutCell>,
+}
+
+impl From<Transaction> for TransactionWithoutWitness {
+    fn from(
+        Transaction {
+            inputs,
+            reference_inputs,
+            invokations,
+            evaluated_outputs,
+            ..
+        }: Transaction,
+    ) -> Self {
+        Self {
+            inputs,
+            reference_inputs,
+            invokations,
+            evaluated_outputs,
+        }
+    }
+}
+
+impl Transaction {
+    fn bytes_without_witness(&self) -> Vec<u8> {
+        let tx = TransactionWithoutWitness::from(self.clone());
+        let mut encoded = Vec::new();
+        ciborium::ser::into_writer(&tx, &mut encoded).unwrap();
+        encoded
+    }
+}
+
 impl Transaction {
     pub fn id(&self) -> TxId {
-        todo!()
+        TxId::from(self.digest())
     }
 }
 
 impl SystemDigest for Transaction {
     fn digest(&self) -> Blake2bDigest256 {
-        todo!() // todo: DEV-1034
+        blake2b256_hash(&*self.bytes_without_witness())
     }
 }
 
