@@ -5,7 +5,7 @@ use k256::PublicKey;
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_move::{SerializedModule, SerializedValue};
 
-use crate::interop::ExtEffId;
+use crate::interop::{ExtEffId, Point};
 use crate::transaction::TxId;
 use crate::{ChainId, DigestViaEncoder, SystemDigest};
 
@@ -35,9 +35,13 @@ impl Serial {
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CellRef(pub CellId, pub Serial);
 
+/// Pointer to a cell.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum CellPtr {
+    /// Pointer by stable identifier.
+    /// Concrete version of the cell is to be resolved in runtime.
     Id(CellId),
+    /// Fully qualified pointer.
     Ref(CellRef),
 }
 
@@ -177,19 +181,33 @@ pub enum AnyCell {
     Term(TermCell),
 }
 
-impl AnyCell {
+impl From<OutputCell> for AnyCell {
+    fn from(out: OutputCell) -> Self {
+        match out {
+            OutputCell::Mut(mc) => Self::Mut(mc),
+            OutputCell::Term(tc) => Self::Term(tc),
+        }
+    }
+}
+
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum OutputCell {
+    Mut(MutCell),
+    Term(TermCell),
+}
+
+impl OutputCell {
     pub fn id(&self) -> CellId {
         match self {
-            AnyCell::Init(ic) => ic.id(),
-            AnyCell::Mut(mc) => mc.id(),
-            AnyCell::Term(tc) => tc.id(),
+            OutputCell::Mut(mc) => mc.id(),
+            OutputCell::Term(tc) => tc.id(),
         }
     }
 
     pub fn ver(&self) -> Serial {
         match self {
-            AnyCell::Init(_) | AnyCell::Term(_) => Serial::INITIAL,
-            AnyCell::Mut(mc) => mc.ver,
+            OutputCell::Term(_) => Serial::INITIAL,
+            OutputCell::Mut(mc) => mc.ver,
         }
     }
 
@@ -199,9 +217,41 @@ impl AnyCell {
 
     pub fn owner(&self) -> Owner {
         match self {
-            AnyCell::Init(ic) => ic.core.owner,
-            AnyCell::Mut(mc) => mc.core.owner,
-            AnyCell::Term(tc) => tc.core.owner,
+            OutputCell::Mut(mc) => mc.core.owner,
+            OutputCell::Term(tc) => tc.core.owner,
+        }
+    }
+}
+
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum InputCell {
+    Init { cell: InitCell, settled: bool },
+    Mut(MutCell),
+}
+
+impl InputCell {
+    pub fn id(&self) -> CellId {
+        match self {
+            InputCell::Init { cell, .. } => cell.id(),
+            InputCell::Mut(mc) => mc.id(),
+        }
+    }
+
+    pub fn ver(&self) -> Serial {
+        match self {
+            InputCell::Init { .. } => Serial::INITIAL,
+            InputCell::Mut(mc) => mc.ver,
+        }
+    }
+
+    pub fn cell_ref(&self) -> CellRef {
+        CellRef(self.id(), self.ver())
+    }
+
+    pub fn owner(&self) -> Owner {
+        match self {
+            InputCell::Init { cell, .. } => cell.core.owner,
+            InputCell::Mut(mc) => mc.core.owner,
         }
     }
 }

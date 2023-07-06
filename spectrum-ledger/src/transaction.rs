@@ -8,7 +8,7 @@ use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::signature::Signature;
 use spectrum_move::{SerializedModule, SerializedValue};
 
-use crate::cell::{AnyCell, CellPtr, CellRef, DatumRef, MutCell, ScriptRef};
+use crate::cell::{CellPtr, CellRef, DatumRef, InputCell, MutCell, OutputCell, ScriptRef};
 use crate::SystemDigest;
 
 #[derive(
@@ -33,7 +33,7 @@ pub struct TxId(Blake2bDigest256);
 /// `EvaluatedTransaction` (validation)-> `[TransactionEffect]`
 /// Transaction effects can be safely applied to the global ledger state.
 
-/// Non-empty array of inputs.
+/// Non-empty set of inputs.
 /// First input is always fully qualified.
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TxInputs {
@@ -79,7 +79,7 @@ pub struct Transaction {
     /// Script invokations.
     pub invokations: Vec<ScriptInv>,
     /// Statically evaluated outputs.
-    pub evaluated_outputs: Vec<MutCell>,
+    pub evaluated_outputs: Vec<OutputCell>,
     /// Aux data requred for transaction execution (e.g. scripts, data ..).
     pub witness: Witness,
 }
@@ -93,7 +93,7 @@ struct TransactionWithoutWitness {
     /// Script invokations.
     pub invokations: Vec<ScriptInv>,
     /// Statically evaluated outputs.
-    pub evaluated_outputs: Vec<MutCell>,
+    pub evaluated_outputs: Vec<OutputCell>,
 }
 
 impl From<Transaction> for TransactionWithoutWitness {
@@ -141,13 +141,13 @@ impl SystemDigest for Transaction {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct LinkedTransaction {
     /// Consumed boxes.
-    pub inputs: Vec<(AnyCell, Option<Signature>)>,
+    pub inputs: Vec<(InputCell, Option<Signature>)>,
     /// Read-only inputs.
-    pub reference_inputs: Vec<AnyCell>,
+    pub reference_inputs: Vec<InputCell>,
     /// Script invokations.
     pub invokations: Vec<LinkedScriptInv>,
     /// Statically evaluated outputs.
-    pub evaluated_outputs: Vec<MutCell>,
+    pub evaluated_outputs: Vec<OutputCell>,
     /// Hash of the original transaction.
     pub hash: Blake2bDigest256,
 }
@@ -157,9 +157,9 @@ pub struct LinkedTransaction {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct EvaluatedTransaction {
     /// Consumed boxes.
-    pub inputs: Vec<AnyCell>,
+    pub inputs: Vec<InputCell>,
     /// Evaluated outputs.
-    pub outputs: Vec<MutCell>,
+    pub outputs: Vec<OutputCell>,
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]

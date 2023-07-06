@@ -4,7 +4,7 @@ use spectrum_ledger::transaction::{
 };
 use spectrum_ledger::SystemDigest;
 
-use crate::state::LedgerState;
+use crate::state::CellPool;
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum LinkingError {
@@ -28,7 +28,7 @@ pub struct LedgerTxLinker<L> {
 
 impl<L> TxLinker for LedgerTxLinker<L>
 where
-    L: LedgerState,
+    L: CellPool,
 {
     fn link_transaction(&self, tx: Transaction) -> Result<LinkedTransaction, LinkingError> {
         let digest = tx.digest();

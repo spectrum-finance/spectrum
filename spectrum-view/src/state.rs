@@ -1,6 +1,6 @@
 use nonempty::NonEmpty;
 
-use spectrum_ledger::cell::{CellPtr, DatumRef, Cell, ScriptRef, AnyCell};
+use spectrum_ledger::cell::{CellPtr, DatumRef, Cell, ScriptRef, OutputCell, InputCell};
 use spectrum_ledger::transaction::Transaction;
 use spectrum_move::{SerializedModule, SerializedValue};
 
@@ -14,14 +14,17 @@ pub enum LedgerStateError {
     InvalidTransaction,
 }
 
-/// Sync API to ledger state.
-pub trait LedgerState {
-    /// Get box by pointer from ledger state.
-    fn get(&self, ptr: CellPtr) -> Option<AnyCell>;
+pub trait LedgerStateWrite {
+    /// Apply transaction batch.
+    fn apply_transactions(&self, txs: &NonEmpty<Transaction>) -> Result<(), LedgerStateError>;
+}
+
+/// Sync API to cell pool.
+pub trait CellPool {
+    /// Get cell by pointer.
+    fn get(&self, ptr: CellPtr) -> Option<InputCell>;
     /// Get reference script.
     fn get_ref_script(&self, script_ref: ScriptRef) -> Option<SerializedModule>;
     /// Get reference datum.
     fn get_ref_datum(&self, datum_ref: DatumRef) -> Option<SerializedValue>;
-    /// Apply transaction batch.
-    fn apply_transactions(&self, txs: &NonEmpty<Transaction>) -> Result<(), LedgerStateError>;
 }
