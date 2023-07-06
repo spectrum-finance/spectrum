@@ -3,9 +3,12 @@
 \usepackage{mathtools}
 \usepackage[
     backend=biber,
+    style=numeric,
     sorting=none,
     natbib
 ]{biblatex}
+\addbibresource{references.bib}
+
 \usepackage[dvipsnames]{xcolor}
 \usepackage{color}
 \usepackage{csquotes}
@@ -14,8 +17,6 @@
 \usepackage{amsmath}
 \usepackage{enumitem}
 \usepackage{amssymb}
-
-\addbibresource{references.bib}
 
 \newlist{legal}{enumerate}{10}
 \setlist[legal]{label*=\arabic*.}
@@ -35,6 +36,7 @@
 
         \section{Related Work}\label{sec:related-work}
         \input{related-work}
+
 
         \section{Goals}\label{sec:goals}
         \input{goals}
