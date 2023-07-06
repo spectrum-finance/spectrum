@@ -4,7 +4,6 @@ use std::task::{Context, Poll};
 use futures::channel::mpsc::{Receiver, Sender};
 use futures::{SinkExt, Stream, StreamExt};
 
-use spectrum_ledger::block::{BlockBody, BlockSection};
 use spectrum_ledger::Modifier;
 
 use crate::history::{InvalidBlockSection, LedgerHistory};
@@ -59,7 +58,7 @@ where
                 .apply_body(blk)
                 .map_err(|err| InvalidModifier::InvalidSection(InvalidBlockSection::InvalidBody(err)))
                 .and_then(|_| {
-                    self.state.apply_transactions(&blk.payload).map_err(|err| {
+                    self.state.apply_block(&blk).map_err(|err| {
                         InvalidModifier::InvalidSection(InvalidBlockSection::InvalidBlock(err))
                     })
                 }),

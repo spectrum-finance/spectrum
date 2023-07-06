@@ -1,4 +1,5 @@
 use nonempty::NonEmpty;
+use spectrum_ledger::block::BlockBody;
 
 use spectrum_ledger::cell::{CellPtr, DatumRef, Cell, ScriptRef, OutputCell, InputCell};
 use spectrum_ledger::transaction::Transaction;
@@ -16,7 +17,7 @@ pub enum LedgerStateError {
 
 pub trait LedgerStateWrite {
     /// Apply transaction batch.
-    fn apply_transactions(&self, txs: &NonEmpty<Transaction>) -> Result<(), LedgerStateError>;
+    fn apply_block(&self, blk: &BlockBody) -> Result<(), LedgerStateError>;
 }
 
 /// Sync API to cell pool.

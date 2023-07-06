@@ -21,6 +21,7 @@ pub struct IBlockCert();
 pub struct ExtEffId(Blake2bDigest256);
 
 /// Events observed in external system affecting the state of Spectrum.
+#[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ExtEff {
     /// Value incoming from external system.
     Imported(InitCell),

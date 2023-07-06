@@ -8,7 +8,7 @@ use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::signature::Signature;
 use spectrum_move::{SerializedModule, SerializedValue};
 
-use crate::cell::{CellPtr, CellRef, DatumRef, InputCell, MutCell, OutputCell, ScriptRef};
+use crate::cell::{CellPtr, CellRef, DatumRef, InputCell, OutputCell, ScriptRef};
 use crate::SystemDigest;
 
 #[derive(
