@@ -775,41 +775,42 @@ mod tests {
         own_peer: PeerId,
         peers: Vec<(PeerId, Option<Multiaddr>)>,
         contrib: Contrib,
+        conf: HandelConfig,
     ) -> Handel<Contrib, (), BinomialPeerPartitions<PseudoRandomGenPerm>> {
         let rng = PseudoRandomGenPerm::new([0u8; 32]);
         let pp = BinomialPeerPartitions::new(own_peer, peers, rng);
         let own_peer_ix = pp.try_index_peer(own_peer).unwrap();
-        Handel::new(CONF, contrib, (), pp, own_peer_ix)
+        Handel::new(conf, contrib, (), pp, own_peer_ix)
     }
 
-    #[test]
-    fn best_contrib_is_own_contrib_when_no_interactions() {
+    #[tokio::test]
+    async fn best_contrib_is_own_contrib_when_no_interactions() {
         let my_contrib = Contrib(HashSet::from([0]));
         let peers = (0..10).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
         let own_peer = peers[0].0;
-        let handel = make_handel(own_peer, peers, my_contrib.clone());
+        let handel = make_handel(own_peer, peers, my_contrib.clone(), CONF);
         assert_eq!(handel.best_contribution(), my_contrib);
     }
 
-    #[test]
-    fn zeroth_and_first_levels_are_active_on_start() {
+    #[tokio::test]
+    async fn zeroth_and_first_levels_are_active_on_start() {
         let my_contrib = Contrib(HashSet::from([0]));
         let peers = (0..10).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
         let own_peer = peers[0].0;
-        let handel = make_handel(own_peer, peers, my_contrib.clone());
+        let handel = make_handel(own_peer, peers, my_contrib.clone(), CONF);
         assert!(handel.is_active(0));
         assert!(handel.is_active(1));
         assert!(!handel.is_active(2));
     }
 
-    #[test]
-    fn aggregate_contribution() {
+    #[tokio::test]
+    async fn aggregate_contribution() {
         let my_contrib = Contrib(HashSet::from([0]));
         let their_contrib = Contrib(HashSet::from([1]));
         let their_aggregate_contrib = Contrib(HashSet::from([1, 4, 9]));
         let peers = (0..16).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
         let own_peer = peers[0].0;
-        let mut handel = make_handel(own_peer, peers.clone(), my_contrib.clone());
+        let mut handel = make_handel(own_peer, peers.clone(), my_contrib.clone(), CONF);
         let peer = handel.peer_partitions.peers_at_level(1, PeerOrd::VP)[0];
         let res = handel.handle_contribution(
             handel.peer_partitions.identify_peer(peer),
@@ -823,14 +824,14 @@ mod tests {
         assert_eq!(handel.best_contribution(), Contrib(HashSet::from([0, 1, 4, 9])));
     }
 
-    #[test]
-    fn ingnore_contributions_from_unknown_peers() {
+    #[tokio::test]
+    async fn ignore_contributions_from_unknown_peers() {
         let my_contrib = Contrib(HashSet::from([0]));
         let their_contrib = Contrib(HashSet::from([1]));
         let their_aggregate_contrib = Contrib(HashSet::from([1, 4, 9]));
         let peers = (0..10).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
         let own_peer = peers[0].0;
-        let mut handel = make_handel(own_peer, peers.clone(), my_contrib.clone());
+        let mut handel = make_handel(own_peer, peers.clone(), my_contrib.clone(), CONF);
         let res = handel.handle_contribution(
             PeerId::random(),
             1,
@@ -846,8 +847,8 @@ mod tests {
         assert_eq!(handel.best_contribution(), my_contrib);
     }
 
-    #[test]
-    fn empty_levels_are_skipped() {
+    #[tokio::test]
+    async fn empty_levels_are_skipped() {
         let my_contrib = Contrib(HashSet::from([0]));
         let level_1_peer_contrib = Contrib(HashSet::from([1]));
         let level_1_peer_aggregate_contrib = Contrib(HashSet::from([1, 4, 9]));
@@ -888,15 +889,15 @@ mod tests {
         assert!(handel.levels[3].is_some());
     }
 
-    #[test]
-    fn test_handel_aggregation() {
+    #[tokio::test]
+    async fn test_handel_aggregation() {
         let mut nodes = vec![];
         let n = 8;
         let peers = (0..n).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
         for i in 0..n {
             let my_contrib = Contrib(HashSet::from([i]));
             let own_peer = peers[i as usize].0;
-            let handel = make_handel(own_peer, peers.clone(), my_contrib.clone());
+            let handel = make_handel(own_peer, peers.clone(), my_contrib.clone(), CONF);
 
             let own_peer_ix = handel.peer_partitions.try_index_peer(own_peer).unwrap();
             println!("Partition for {:?}------------------------", own_peer_ix);
@@ -957,6 +958,96 @@ mod tests {
         for (_, handel) in nodes {
             let result = handel.get_complete_aggregate().unwrap();
             println!("{:?} contribution: {:?}", handel.own_peer_ix, result);
+        }
+
+        println!("PASSED. # messages sent: {}", num_messages_sent);
+    }
+
+    #[tokio::test]
+    async fn test_handel_aggregation_byzantine() {
+        let conf = HandelConfig {
+            threshold: Threshold { num: 2, denom: 3 },
+            window_shrinking_factor: 2,
+            initial_scoring_window: 4,
+            fast_path_window: 4,
+            dissemination_delay: Duration::from_millis(2000),
+            level_activation_delay: Duration::from_millis(400),
+            throttle_factor: 5,
+        };
+
+        let byzantine_nodes = vec![0, 1, 2, 3, 9, 10];
+
+        let mut nodes = vec![];
+        let n = 16;
+        let peers = (0..n).map(|_| (PeerId::random(), None)).collect::<Vec<_>>();
+        for i in 0..n {
+            let my_contrib = Contrib(HashSet::from([i]));
+            let own_peer = peers[i as usize].0;
+            let handel = make_handel(own_peer, peers.clone(), my_contrib.clone(), conf);
+
+            let own_peer_ix = handel.peer_partitions.try_index_peer(own_peer).unwrap();
+            println!("Partition for {:?}------------------------", own_peer_ix);
+            for level in 0..handel.peer_partitions.num_levels() {
+                dbg!((level, &handel.peer_partitions.peers_at_level(level, PeerOrd::VP)));
+            }
+            nodes.push((own_peer, own_peer_ix, handel));
+        }
+
+        let mut counter = 0;
+        let mut num_messages_sent = 0;
+        // run dissemination
+        loop {
+            println!("PASS {} ****************************************", counter);
+            let mut messages = vec![];
+            for i in 0..nodes.len() {
+                let (from_peer_id, own_peer_ix, handel) = nodes.get_mut(i).unwrap();
+
+                if !byzantine_nodes.contains(&own_peer_ix.unwrap()) {
+                    let mut peer_i_had_messages_to_send = false;
+                    while let Some(ProtocolBehaviourOut::NetworkAction(NetworkAction::SendOneShotMessage {
+                        peer,
+                        message,
+                        ..
+                    })) = handel.outbox.pop_front()
+                    {
+                        //println!("{:?} got msg to send", own_peer_ix);
+                        peer_i_had_messages_to_send = true;
+                        let to_ix = peers.iter().position(|(peer_id, _)| peer == *peer_id).unwrap();
+                        let from_ix = peers
+                            .iter()
+                            .position(|(peer_id, _)| *from_peer_id == *peer_id)
+                            .unwrap();
+                        messages.push((from_ix, to_ix, message));
+                    }
+                    if !peer_i_had_messages_to_send {
+                        handel.run_dissemination();
+                        if let Some(next_level) = handel.next_non_active_level() {
+                            handel.try_activate_level(next_level);
+                        }
+                    }
+                }
+            }
+
+            num_messages_sent += messages.len();
+
+            for (from_ix, to_ix, msg) in messages {
+                nodes[to_ix].2.inject_message(peers[from_ix].0, msg);
+            }
+
+            if nodes.iter().all(|(_, peer_ix, handel)| {
+                byzantine_nodes.contains(&peer_ix.unwrap()) || handel.get_complete_aggregate().is_some()
+            }) {
+                break;
+            }
+
+            counter += 1;
+        }
+
+        for (_, peer_ix, handel) in nodes {
+            if !byzantine_nodes.contains(&peer_ix.unwrap()) {
+                let result = handel.get_complete_aggregate().unwrap();
+                println!("{:?} contribution: {:?}", handel.own_peer_ix, result);
+            }
         }
 
         println!("PASSED. # messages sent: {}", num_messages_sent);
