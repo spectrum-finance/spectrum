@@ -1181,7 +1181,7 @@ async fn run_sigma_aggregation_test(num_nodes: usize, byzantine_nodes: Vec<PeerI
         });
     }
 
-    wasm_timer::Delay::new(Duration::from_millis(2000)).await.unwrap();
+    wasm_timer::Delay::new(Duration::from_secs(10)).await.unwrap();
 
     for abort_handle in abort_handles {
         abort_handle.abort();

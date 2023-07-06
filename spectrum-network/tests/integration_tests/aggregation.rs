@@ -59,7 +59,7 @@ pub fn setup_nodes<'de>(
         let peer_id = PeerId::from_public_key(&libp2p_identity::PublicKey::from(libp2p_pk));
         let other_peer_id = PeerId::from(peer_key.public());
         assert_eq!(peer_id, other_peer_id);
-        let peer_addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", 7000 + node_ix).parse().unwrap();
+        let peer_addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", 8000 + node_ix).parse().unwrap();
 
         let bb = peer_sk.to_bytes().to_vec();
         let key = SecretKey::from_slice(&bb).unwrap();
@@ -97,8 +97,8 @@ pub fn setup_nodes<'de>(
             window_shrinking_factor: 4,
             initial_scoring_window: 3,
             fast_path_window: 16,
-            dissemination_delay: Duration::from_millis(100),
-            level_activation_delay: Duration::from_millis(200),
+            dissemination_delay: Duration::from_millis(40),
+            level_activation_delay: Duration::from_millis(50),
             throttle_factor: 5,
         };
         let (aggr_handler_snd, aggr_handler_inbox) = mpsc::channel::<AggregationAction<Blake2b>>(100);
