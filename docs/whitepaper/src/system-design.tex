@@ -1,41 +1,45 @@
-This section presents Spectrum protocol design starting from a naive approach based on PBFT and gradually\
-addressing the challenges.
+This section presents Spectrum protocol design starting from a naive approach based on\
+Practical Byzantine Fault Tolerance (PBFT)~\cite{Castro2001} and gradually addressing the challenges.
 
 \subsection{Strawman Design: PBFTNetwork}\label{subsec:strawman-design}
 
 For simplicity we begin with a notarization protocol based on PBFT, then iteratively refine it into Spectrum.
 
-PBFTNetwork assumes that a group of ${n = 3f + 1}$ trusted nodes has been pre-selected upfront and fixed and at most\
-$f$ of these nodes are byzantine.
-At any given time one of these nodes is the \emph{leader}, who observes events on connected blockchains,
-batch them and initiate round of notarization within the consensus group.
-Remaining members of the consensus group verify the proposed batches by checking the presence of updates on\
-corresponding blockchains.
-Upon successful verification each node signs the batch with its secret key and sends the signature to the leader.
+PBFTNetwork assumes that a fixed consensus group of ${n = 3f + 1}$ nodes has been pre-selected upfront,\
+and at most $f$ of these nodes are Byzantine.
+The PBFT protocol is designed in such a way that there no no need to trust every individual notary,\
+but only two-thirds of the set.
+This approach has proved its reliability in practice and has been widely used in various solutions for many years.
 
-Under simplifying assumptions that at most $f$ nodes are byzantine the PBFTNetwork guarantees livness and safety.
+At any given time one of these nodes is the leader, who observes events on the connected blockchains,\
+batch them and initiate a notarization round within the consensus group.
+All validators verify the proposed batch by checking for relevant updates on the connected chains.
+Upon successful verification each node signs the batch with a secret key and sends the signature to the leader.
+
+Liveness and safety of the PBFTNetwork is guaranteed under the simplifying assumptions already mentioned above,\
+that at most $f$ nodes are Byzantine.
 However, the assumption of a fixed trusted committee is not realistic for open decentralized systems.
-Moreover, as PBFT consensus members authenticate each other via non-transferable symmetric-key MACs, each consensus
-member has to communicate with others directly, what results in $O(n^2)$ communication complexity.
+Moreover, as PBFT consensus members authenticate each other via non-transferable symmetric-key MACs, each consensus\
+member has to communicate with others directly, what results in the $O(n^2)$ communication complexity.
 Quadratic communication complexity imposes a hard limit on scalability of the system.
-Such a design also scales poorly in terms of adding support for more chains.
-The workload of each validator grows linearly with each added chain.
+Such a design is not suitable for building a multi-chain system, since the workload of\
+each validator grows linearly with each added chain.
 
 In the subsequent sections we address these limitations in four steps:
 \begin{enumerate}
-    \item \textbf{Opening consensus group and leaders.} We introduce a lottery-based mechanism for selecting consensus\
-    group and leaders dynamically.
+    \item \textbf{Opening consensus group.} We introduce a fair lottery-based mechanism to select consensus\
+    group dynamically.
     \item \textbf{Replacing MACs by Digital Signatures.} We replace MACs by digital signatures to make authentication\
-    transferable and thus opening the door for sparser communication patterns that can help to reduce\
+    transferable and, thus, opening the door for sparser communication patterns that reduces\
     the communication complexity.
     \item \textbf{Scalable Collective Signature Aggregation.} We utilize Byzantine-tolerant aggregation\
-    protocol that allows for quick aggregation of cryptographic signatures to reduce communication complexity\
+    protocol that allows for quick aggregation of cryptographic signatures and reduces communication complexity\
     to $O(\log n)$.
-    \item \textbf{Eliminating Validator Bottleneck.} We shard consensus groups into units by the type of chain\
-    each node is able to handle.
+    \item \textbf{Eliminating Validator Bottleneck.} We shard consensus groups into local committees\
+    by the type of chain that each node is able to handle.
 \end{enumerate}
 
-\subsection{Opening Consensus Group}\label{subsec:opening-consensus-group-and-leaders}
+\subsection{Opening Consensus Group}\label{subsec:opening-consensus-group}
 \input{opening-consensus-group}
 
 \subsection{Replacing MACs by Digital Signatures}\label{subsec:replacing-macs-by-digital-signatures}
@@ -46,17 +50,11 @@ todo
 
 todo
 
-\subsection{Consensus}\label{subsec:consensus}
-\input{consensus.tex}
-
-\subsection{Ledger}\label{subsec:ledger}
-\input{ledger.tex}
-
 \subsection{Eliminating Validator Bottleneck}\label{subsec:eliminating-validator-bottleneck}
 \input{eliminating-validator-bottleneck.tex}
 
-\subsection{System integrity}\label{subsec:system-integrity}
-\input{integrity.tex}
+\subsection{Ledger}\label{subsec:ledger}
+\input{ledger.tex}
 
 \subsection{Protocol Flow}\label{subsec:protocol-flow}
 let's summarize all of the above and describe the full flow of the Spectrum protocol.
@@ -148,3 +146,4 @@ Once the system is bootstrapped, protocol is running in a normal flow:
         \item After $R^+$ reliable slots number has passed all members of all committees that participated in the formation of the block $\mathbf{B}_m$ receive rewards proportional to their status.
     \end{legal}
 \end{legal}
+
