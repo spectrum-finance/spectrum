@@ -17,20 +17,17 @@ the classification proposed by~\cite{cryptoeprint:2021/537}.
 The chain-based interoperability aims to public blockchains and uses an atomic swaps as its main mechanism\
 to share information across different chains.
 Following the classification there are three main types of such interoperability approach:\
-sidechain, trusted notary scheme and hash locking.
+hash locking, trusted notary scheme and sidechain.
 
-\textbf{Sidechain} extend the functionalities of the interconnected blockchain networks,\
-by enabling tokens synchronization and additional data transfer between them~\cite{Parizi2019}.
-Sidechains can be designed in a decentralized manner and have their own consensus protocols.
-While the design of a sidechain always take into consideration the structure and the consensus of each connected\
-blockchain, none of the mainchains is aware of the presence of a sidechain.
-Sidechain is usually connects to the mainchains with a two-way peg scheme~\cite{SINGH2020102471}, which uses a\
-relay routine for a bidirectional hooking.
-The main issue is that two-way peg introduces a level of centralization even in case of a federated two-way peg,\
-where individuals in the federation are selected in a trustworthy manner.
-State-of-the-art sidechain platforms are Loom~\cite{Loom2019}, Liquid~\cite{Nick2020LiquidAB},
-and Poof-of-Authority (PoA) networks~\cite{POA2018}.
-There also exist a lot of ongoing projects since this technology is innovative and in demand by the blockchain industry.
+\textbf{Hash Locking} is an intermediary method, that allows to validate or execute blockchain transactions.
+Hashed Time Lock Contracts (HTLCs) were originally developed as an alternative to centralized switching
+and can be thought of as a distributed commitment~\cite{Kumar2021}, able to fend off a Byzantine adversary.
+It uses a hash time-locked system to lock the transaction~\cite{Pillai2019} which is similar to the concept\
+of the cross-chain atomic swap.
+
+From the technical point of view, the hash locking approach has some significant drawbacks,\
+for example, it must lock some assets during its opening phase for an established transaction channel,\
+thereby creating a race condition and, moreover, the possibility of losing assets if a timeout occurs.
 
 \textbf{Trusted Notary Scheme} usually considers as the simplest way to achieve cross-chain interoperability.
 The blockchain notary schemes can provide the functionalities of timed proof of existence,\
@@ -39,26 +36,35 @@ It doesn't require any additional changes in the underlying blockchains and uses
 correctness and integrity of information transferred.
 A notary can be a stand-alone authority or a group of trusted parties that monitor order books of the connected chains\
 and initiating transactions upon the occurrence of some valid events or requests.
+
 Well-known solutions using this technology are, for example, Herdius~\cite{Balazs2017} and Bifrost~\cite{Scheid2019}.
 In practice, the most appropriate way to achieve interoperability using a notary scheme is to combine it with\
-other methods as it is done in the Interledger~\cite{Thomas2015},\
-which combines it with the previously discussed sidechains.
+other methods as it is done in the Interledger~\cite{Thomas2015}, which combines it with sidechain.
 
-\textbf{Hash Locking} is an intermediary method, that allows to validate or execute blockchain transactions.
-Hashed Time Lock Contracts (HTLCs) were originally developed as an alternative to centralized switching
-and can be thought of as a distributed commitment~\cite{Kumar2021}, able to fend off a Byzantine adversary.
-It uses a hash time-locked system to lock the transaction~\cite{Pillai2019} which is similar to the concept\
-of the cross-chain atomic swap.
-From the technical point of view, the hash locking approach has some significant drawbacks,\
-for example, it must lock some assets during its opening phase for an established transaction channel,\
-thereby creating a race condition and, moreover, the possibility of losing assets if a timeout occurs.
+\textbf{Sidechain} is the most promising approach in this category.
+Sidechain can add new functionalities, namely, security and privacy, to the existing blockchains,
+making possible a tokens synchronization and additional data transfer between chains~\cite{Parizi2019}.
+The essential feature of the sidechain is that it's design always takes into consideration the structure\
+and the consensus of each connected blockchain, but none of the mainchains is aware of the presence of a sidechain.
+Moreover, sidechains can be designed in a decentralized manner and have their own consensus protocols.
+Sidechain is usually connects to the mainchains with a two-way peg scheme~\cite{SINGH2020102471}, which uses a\
+relay routine for a bidirectional hooking.
+
+The main issue is that two-way peg introduces a level of centralization.
+Using a two-way pegs introduces a level of centralization, however,\
+there are solutions which uses a federated two-way pegs, where single authority is replaced by\
+a group of trusted individuals selected in a trustworthy manner.
+
+State-of-the-art sidechain platforms are Loom~\cite{Loom2019}, Liquid~\cite{Nick2020LiquidAB}\
+and Poof-of-Authority (PoA) networks~\cite{POA2018}.
+There also exist a lot of ongoing projects since this technology is innovative and in demand by the blockchain industry.
 
 Summing it up, a practical way to apply chain-based interoperability methods to current mainstream blockchain\
 systems is to combine them together.
 Most existing solutions are designed primarily to exchange assets and aiming to improve the transaction processing\
 capacity of Bitcoin-dominated tokens.
 However, blockchain technology is much wider in its applications, and it's better to focus on transaction\
-interoperation between different chains in practical implementations.
+interoperation between different chains in practical implementations and effectively use all these promising approaches.
 
 \subsubsection{Bridge-based Interoperability}
 Bridge-based interoperability aims to create a connection component between homogeneous\
@@ -92,11 +98,9 @@ However, they usually utilize mechanism similar to the notary schemes which also
 to a certain degree of centralization.
 
 \subsubsection{dApp-based Interoperability}
-Main component necessary for wide adoption of blockchain technologies sre decentralized applications (dApps).
-Decentralized applications (dApps) play the most significant role in the wide adoption of blockchain technologies.
-Presence of well functioning dApps infrastructure is especially significant for blockchain ecosystem, thus,\
-dApps should be interoperable as well.
-However, each dApp cannot ensure semantic interoperability, and it is essential to develop a minimum semantic that\
+Presence of well functioning decentralized applications (dApps) is significant in the blockchain ecosystem, thus,\
+dApps should be interoperable as well, this is a goal of dApp-based interoperability.
+Each dApp cannot ensure semantic interoperability, and it is essential to develop a minimum semantic that\
 must be supported by each application to achieve interoperability among dApps.
 dApp-based blockchain interoperability protocols in the literature are classified to: blockchain of blockchains,\
 blockchain adapters and blockchain agnostic protocols.
@@ -120,37 +124,43 @@ Most significant project in this category are PleBeuS~\cite{Scheid2020} and smar
 enabling cross-chain or cross-blockchain communication between arbitrarily distributed ledgers.
 Blockchain agnosticism provides its end-users various options to pick their optimal blockchain and\
 provide the capabilities for cross-chain operations.
-
 Several agnostic-based technologies have been described in the literature: ILPv4~\cite{InterledgerV4},
 Gravity~\cite{PupyshevGravity2020}, SuSy~\cite{PupyshevSuSy2020} and etc.
 All these solutions are flexible and has great potential, although most of them are focused on the general design\
 of the prototype and not grant backward compatibility.
 
-dApp-based blockchain interoperability is very promising.
-Even though most of these solutions are still in early stages of development they are flexible and\
-provide great opportunities for developers and end-users.
-Nevertheless, some protocols appear to be semi-centralized, since they require a direct connection with a trusted party.
+dApp-based blockchain interoperability is very promising, most of the solutions in this category are either\
+in early stages of development or lack a practical implementation,\
+with criteria to evaluate their effectiveness and efficiency.
 
 \subsubsection{Discussion}
 
-All of the interoperability approaches described above have their strengths and weaknesses and\
-many developers are trying to combine them to build their cross-chain solutions.
-The majority of the reviewed solutions in one way or another suffer from absolute or semi-centralization.
+All of the interoperability approaches described above have their strengths and weaknesses.
+However, the chain-based interoperability approaches, especially, sidechains, are well-established and\
+benefits from extensive research and improvements in design.
+Sidechains has two important pros that will help to widespread\
+use of blockchain technology in various business areas:
+\begin{itemize}
+    \item Having their own consensus mechanisms, sidechains can process transactions\
+    efficiently and reduce transaction fees for users.
+    \item Taking into consideration the structure and the consensus of each connected blockchain,\
+    sidechains allow dApps to expand their ecosystem.
+\end{itemize}
 
+The main cons of the existing sidechain protocols is a centralization and poor security guaranties of the consensus.
 The disadvantages of centralization are obvious:
-\begin{enumerate}
+\begin{itemize}
     \item A system is not sustainable when it depends on a single party.
     \item If the trustee goes down, unfinished swaps can appear frozen halfway.
     \item A malicious trustee can censor transactions.
     \item A malicious trustee can perform a man-in-the-middle attack by sending an inaccurate data.
-\end{enumerate}
+\end{itemize}
 Almost the same deficiencies exist for a semi-centralized protocols,\
 where only a few dozen individuals act as validators.
 Such \("\)decentralization\("\) is very conditional, as it is difficult to meet the requirements to become a validator,\
 furthermore, malicious validators can easily cooperate to successfully attack.
 
-Well-functioning practical implementation in many developed protocols is also lacking:\
-systems are not scalable, not open-source, insufficiently secure.
-Thus, we come to the conclusion: scalable practical implementation of fair decentralization in\
-cross-chain protocols is the first and main step towards the adaptation of benefits given by the existing\
-interoperability approaches and their successful practical usage.
+Thus, we come to the conclusion.
+A scalable practical implementation of the fairly decentralized system with\
+a provably-secure consensus protocol is the main step towards wide practical usage of sidechains and their benefits in\
+cross-chain interoperability.
