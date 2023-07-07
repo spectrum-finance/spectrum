@@ -5,7 +5,7 @@ use k256::PublicKey;
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_move::{SerializedModule, SerializedValue};
 
-use crate::interop::{ExtEffId, Point};
+use crate::interop::Point;
 use crate::transaction::TxId;
 use crate::{ChainId, DigestViaEncoder, SystemDigest};
 
@@ -102,22 +102,33 @@ pub struct BoxDestination {
     inputs: Option<BridgeInputs>,
 }
 
+/// Progress point on external chain.
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ProgressPoint {
+    chain_id: ChainId,
+    point: Point,
+}
+
 /// Main and the only value carrying unit in the system.
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Cell {
     /// Monetary value attached to the cell.
     pub value: SValue,
-    /// Owner who can mutate the cell.
+    /// Owner that can mutate/consume the cell.
     pub owner: Owner,
     /// Data attached to the cell.
     pub datum: Option<DatumHash>,
-    /// Destination chain of the cell (where the value of the cell is supposed to settle in the end).
-    /// `None` if the box is supposed to remain on the multichain.
-    pub dst: Option<BoxDestination>,
     /// Script that can be referenced by other transactions.
     pub reference_script: Option<SerializedModule>,
     /// Datum that can be referenced by other transactions.
     pub reference_datum: Option<SerializedValue>,
+    /// ID of a transaction which created the cell.
+    pub tx_id: TxId,
+    /// Index of the cell inside the TX which created it.
+    pub index: u32,
+    /// Until external systems which this cell depends on reach those progress points
+    /// the cell is not confirmed.
+    pub confirmed_after: Vec<ProgressPoint>,
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -126,44 +137,26 @@ pub struct MutCell {
     pub core: Cell,
     /// Monotonically increasing version of the box.
     pub ver: Serial,
-    /// ID of a transaction which created this cell.
-    pub tx_id: TxId,
-    /// Index of the cell inside the TX which created it.
-    pub index: u32,
 }
 
 impl MutCell {
     pub fn id(&self) -> CellId {
         CellId::from(self.digest())
     }
+
+    pub fn cref(&self) -> CellRef {
+        CellRef(self.id(), self.ver)
+    }
 }
 
 impl DigestViaEncoder for MutCell {}
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct InitCell {
-    /// Core cell
-    pub core: Cell,
-    /// ID of an inbound effect which created this cell.
-    pub eff_id: ExtEffId,
-}
-
-impl InitCell {
-    pub fn id(&self) -> CellId {
-        CellId::from(self.digest())
-    }
-}
-
-impl DigestViaEncoder for InitCell {}
-
-#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TermCell {
     /// Core cell
     pub core: Cell,
-    /// ID of a transaction which created the cell.
-    pub tx_id: TxId,
-    /// Index of the cell inside the TX which created it.
-    pub index: u32,
+    /// Destination chain of the cell (where the value of the cell is supposed to settle in the end).
+    pub dst: BoxDestination,
 }
 
 impl TermCell {
@@ -176,82 +169,33 @@ impl DigestViaEncoder for TermCell {}
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AnyCell {
-    Init(InitCell),
     Mut(MutCell),
     Term(TermCell),
 }
 
-impl From<OutputCell> for AnyCell {
-    fn from(out: OutputCell) -> Self {
-        match out {
-            OutputCell::Mut(mc) => Self::Mut(mc),
-            OutputCell::Term(tc) => Self::Term(tc),
-        }
-    }
-}
-
-#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum OutputCell {
-    Mut(MutCell),
-    Term(TermCell),
-}
-
-impl OutputCell {
+impl AnyCell {
     pub fn id(&self) -> CellId {
         match self {
-            OutputCell::Mut(mc) => mc.id(),
-            OutputCell::Term(tc) => tc.id(),
+            AnyCell::Mut(mc) => mc.id(),
+            AnyCell::Term(tc) => tc.id(),
         }
     }
 
     pub fn ver(&self) -> Serial {
         match self {
-            OutputCell::Term(_) => Serial::INITIAL,
-            OutputCell::Mut(mc) => mc.ver,
+            AnyCell::Term(_) => Serial::INITIAL,
+            AnyCell::Mut(mc) => mc.ver,
         }
     }
 
-    pub fn cell_ref(&self) -> CellRef {
+    pub fn cref(&self) -> CellRef {
         CellRef(self.id(), self.ver())
     }
 
     pub fn owner(&self) -> Owner {
         match self {
-            OutputCell::Mut(mc) => mc.core.owner,
-            OutputCell::Term(tc) => tc.core.owner,
-        }
-    }
-}
-
-#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum InputCell {
-    Init { cell: InitCell, settled: bool },
-    Mut(MutCell),
-}
-
-impl InputCell {
-    pub fn id(&self) -> CellId {
-        match self {
-            InputCell::Init { cell, .. } => cell.id(),
-            InputCell::Mut(mc) => mc.id(),
-        }
-    }
-
-    pub fn ver(&self) -> Serial {
-        match self {
-            InputCell::Init { .. } => Serial::INITIAL,
-            InputCell::Mut(mc) => mc.ver,
-        }
-    }
-
-    pub fn cell_ref(&self) -> CellRef {
-        CellRef(self.id(), self.ver())
-    }
-
-    pub fn owner(&self) -> Owner {
-        match self {
-            InputCell::Init { cell, .. } => cell.core.owner,
-            InputCell::Mut(mc) => mc.core.owner,
+            AnyCell::Mut(mc) => mc.core.owner,
+            AnyCell::Term(tc) => tc.core.owner,
         }
     }
 }

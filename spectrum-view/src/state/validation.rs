@@ -1,4 +1,4 @@
-use spectrum_ledger::cell::{AnyCell, Cell, CellRef, MutCell, OutputCell};
+use spectrum_ledger::cell::{AnyCell, CellRef, MutCell};
 use spectrum_ledger::transaction::EvaluatedTransaction;
 
 pub enum TransactionEffect {
@@ -31,7 +31,7 @@ impl TxValidator for ConsensusTxValidator {
         // todo: support input mutation, coin minting
         let mut effects = vec![];
         for i in inputs {
-            effects.push(TransactionEffect::Drop(i.cell_ref()))
+            effects.push(TransactionEffect::Drop(i.cref()))
         }
         for o in outputs {
             effects.push(TransactionEffect::Create(AnyCell::from(o)))

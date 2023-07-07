@@ -8,7 +8,7 @@ use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::signature::Signature;
 use spectrum_move::{SerializedModule, SerializedValue};
 
-use crate::cell::{CellPtr, CellRef, DatumRef, InputCell, OutputCell, ScriptRef};
+use crate::cell::{AnyCell, CellPtr, CellRef, DatumRef, MutCell, ScriptRef};
 use crate::SystemDigest;
 
 #[derive(
@@ -79,7 +79,7 @@ pub struct Transaction {
     /// Script invokations.
     pub invokations: Vec<ScriptInv>,
     /// Statically evaluated outputs.
-    pub evaluated_outputs: Vec<OutputCell>,
+    pub evaluated_outputs: Vec<AnyCell>,
     /// Aux data requred for transaction execution (e.g. scripts, data ..).
     pub witness: Witness,
 }
@@ -93,7 +93,7 @@ struct TransactionWithoutWitness {
     /// Script invokations.
     pub invokations: Vec<ScriptInv>,
     /// Statically evaluated outputs.
-    pub evaluated_outputs: Vec<OutputCell>,
+    pub evaluated_outputs: Vec<AnyCell>,
 }
 
 impl From<Transaction> for TransactionWithoutWitness {
@@ -141,13 +141,13 @@ impl SystemDigest for Transaction {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct LinkedTransaction {
     /// Consumed boxes.
-    pub inputs: Vec<(InputCell, Option<Signature>)>,
+    pub inputs: Vec<(MutCell, Option<Signature>)>,
     /// Read-only inputs.
-    pub reference_inputs: Vec<InputCell>,
+    pub reference_inputs: Vec<AnyCell>,
     /// Script invokations.
     pub invokations: Vec<LinkedScriptInv>,
     /// Statically evaluated outputs.
-    pub evaluated_outputs: Vec<OutputCell>,
+    pub evaluated_outputs: Vec<AnyCell>,
     /// Hash of the original transaction.
     pub hash: Blake2bDigest256,
 }
@@ -157,9 +157,9 @@ pub struct LinkedTransaction {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct EvaluatedTransaction {
     /// Consumed boxes.
-    pub inputs: Vec<InputCell>,
+    pub inputs: Vec<MutCell>,
     /// Evaluated outputs.
-    pub outputs: Vec<OutputCell>,
+    pub outputs: Vec<AnyCell>,
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]

@@ -2,7 +2,7 @@ use nonempty::NonEmpty;
 
 use spectrum_crypto::digest::{Blake2bDigest256, Digest};
 
-use crate::interop::ExtEff;
+use crate::interop::Effect;
 use crate::transaction::Transaction;
 use crate::SlotNo;
 
@@ -58,7 +58,7 @@ impl BlockHeader {
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BlockBody {
     pub id: BlockId,
-    pub effects: Vec<ExtEff>,
+    pub effects: Vec<Effect>,
     pub txs: Vec<Transaction>,
 }
 

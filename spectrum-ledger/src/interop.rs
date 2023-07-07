@@ -3,10 +3,15 @@ use nonempty::NonEmpty;
 use spectrum_crypto::digest::Blake2bDigest256;
 
 use crate::block::BlockId;
-use crate::cell::{CellId, InitCell};
+use crate::cell::{AnyCell, CellId};
+use crate::transaction::TxId;
+use crate::ChainId;
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Point(u64);
+
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Source(ChainId, Point);
 
 /// Identifier derived from external value carrying unit.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
@@ -18,13 +23,13 @@ pub struct CertBundle(NonEmpty<[u8; 32]>);
 pub struct IBlockCert();
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct ExtEffId(Blake2bDigest256);
+pub struct EffectId(Blake2bDigest256);
 
 /// Events observed in external system affecting the state of Spectrum.
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
-pub enum ExtEff {
+pub enum Effect {
     /// Value incoming from external system.
-    Imported(InitCell),
+    Imported(AnyCell),
     /// Elimination of a terminal cell in result of outbound transaction.
     Exported(CellId),
     /// Revokation of an initial cell due to rollback on external system.
@@ -33,34 +38,9 @@ pub enum ExtEff {
     Progressed(Point),
 }
 
-pub struct EffBlockCandidate {
-    pub id: EffBlockId,
-    pub height: u64,
-    pub effects: Vec<ExtEffId>,
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ApplyEffects {
+    pub id: TxId,
+    pub source: Source,
+    pub effects: Vec<EffectId>,
 }
-
-pub struct EffBlock {
-    pub id: EffBlockId,
-    pub height: u64,
-    pub cert: IBlockCert,
-    pub effects: Vec<ExtEff>,
-}
-
-pub struct EffBlockPtr {
-    pub id: EffBlockId,
-    pub block_id: BlockId,
-}
-
-#[derive(
-    Copy,
-    Clone,
-    Eq,
-    PartialEq,
-    Hash,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    derive_more::From,
-    derive_more::Into,
-)]
-pub struct EffBlockId(Blake2bDigest256);

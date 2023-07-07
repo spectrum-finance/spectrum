@@ -1,0 +1,34 @@
+Spectrum's global state includes a pool of value carrying units called \enquote{cells}.
+A \enquote{Cell} encodes monetary value (e.g., fungible or non-fungible tokens) travelling inside the system and across its boards.
+
+\begin{tabular}{ r l }
+    TxId =   & H(Tx)            \\
+    CellId = & H(TxId \times I) \\
+\end{tabular}
+
+Each cell has a unique stable identifier derived from ID of the transaction that produced the cell and its index in transaction outputs.
+
+We distinguish two essential types of cells depending on the state of the value they encode.
+\begin{enumerate}
+    \item Active
+    \enquote{Active} value trvelling inside the system.
+    An Active Cell can be modified while preserving its original stable identifier.
+    This opens the door for more smooth management of shared cells (e.g., stablecoin bank or liquidity pool).
+
+    \item Terminal
+    Value to be exported into an external system.
+\end{enumerate}
+
+
+\section{Authenticators, Addresses and Ownership}\label{sec:authenticators-and-addresses}
+
+\begin{tabular}{ r l }
+    Authenticator = & ProveDlog \uplus Script \\
+    Address =       & H(Authenticator)        \\
+\end{tabular}
+
+Each active cell has an exclusive owner identified by an address.
+Address is derived from an authenticatior by applying collision resistant hash function to it.
+To prove ownership of a cell a party must supply an authenticatior whose hash matches the owning address.
+An authenticator can either be a public key or a script.
+Once authenticated an owner can fleely move value locked withing the cell by either mutation or elimination of it.

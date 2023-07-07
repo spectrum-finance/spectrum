@@ -1,4 +1,4 @@
-use spectrum_ledger::cell::{CellPtr, DatumRef, Owner, ScriptRef};
+use spectrum_ledger::cell::{AnyCell, CellPtr, DatumRef, Owner, ScriptRef};
 use spectrum_ledger::transaction::{
     DatumWitness, LinkedScriptInv, LinkedTransaction, ScriptInv, ScriptWitness, Transaction,
 };
@@ -9,6 +9,7 @@ use crate::state::CellPool;
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum LinkingError {
     MissingInput(CellPtr),
+    NonConsumableInput(CellPtr),
     MissingRefInput(CellPtr),
     MissingScript(),
     MissingDatum(DatumRef),
@@ -41,17 +42,21 @@ where
         } = tx;
         let mut linked_inputs = vec![];
         for (ix, (pt, maybe_sig_ix)) in inputs.into_iter().enumerate() {
-            if let Some(bx) = self.ledger.get(pt) {
-                match (&bx.owner(), maybe_sig_ix) {
-                    (Owner::ProveDlog(_), Some(sig_ix)) => {
-                        if let Some(sig) = witness.signatures.get(sig_ix as usize) {
-                            linked_inputs.push((bx, Some(sig.clone())));
-                        } else {
-                            return Err(LinkingError::MissingSignature(ix));
+            if let Some(cell) = self.ledger.get(pt) {
+                if let AnyCell::Mut(mut_cell) = cell {
+                    match (&mut_cell.core.owner, maybe_sig_ix) {
+                        (Owner::ProveDlog(_), Some(sig_ix)) => {
+                            if let Some(sig) = witness.signatures.get(sig_ix as usize) {
+                                linked_inputs.push((mut_cell, Some(sig.clone())));
+                            } else {
+                                return Err(LinkingError::MissingSignature(ix));
+                            }
                         }
+                        (Owner::ScriptHash(_), None) => linked_inputs.push((mut_cell, None)),
+                        _ => return Err(LinkingError::MalformedInput(ix)),
                     }
-                    (Owner::ScriptHash(_), None) => linked_inputs.push((bx, None)),
-                    _ => return Err(LinkingError::MalformedInput(ix)),
+                } else {
+                    return Err(LinkingError::NonConsumableInput(pt));
                 }
             } else {
                 return Err(LinkingError::MissingInput(pt));
@@ -59,8 +64,8 @@ where
         }
         let mut linked_ref_inputs = vec![];
         for pt in reference_inputs {
-            if let Some(bx) = self.ledger.get(pt) {
-                linked_ref_inputs.push(bx);
+            if let Some(cell) = self.ledger.get(pt) {
+                linked_ref_inputs.push(cell);
             } else {
                 return Err(LinkingError::MissingRefInput(pt));
             }

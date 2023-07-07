@@ -1,7 +1,7 @@
 use nonempty::NonEmpty;
 use spectrum_ledger::block::BlockBody;
 
-use spectrum_ledger::cell::{CellPtr, DatumRef, Cell, ScriptRef, OutputCell, InputCell};
+use spectrum_ledger::cell::{CellPtr, DatumRef, Cell, ScriptRef, AnyCell};
 use spectrum_ledger::transaction::Transaction;
 use spectrum_move::{SerializedModule, SerializedValue};
 
@@ -23,7 +23,7 @@ pub trait LedgerStateWrite {
 /// Sync API to cell pool.
 pub trait CellPool {
     /// Get cell by pointer.
-    fn get(&self, ptr: CellPtr) -> Option<InputCell>;
+    fn get(&self, ptr: CellPtr) -> Option<AnyCell>;
     /// Get reference script.
     fn get_ref_script(&self, script_ref: ScriptRef) -> Option<SerializedModule>;
     /// Get reference datum.
