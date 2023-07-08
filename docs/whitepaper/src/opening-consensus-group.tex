@@ -103,7 +103,7 @@ Once a new consensus group is determined, the lottery process does not stop, but
 must determine the leader of the group.
 
 During the epoch, for every slot ${sl_l \in S}$ every consensus group member separately evaluates\
-${\mathcal{F}}_{VRF}$ with his own input ${x = \eta_j || sl || \emph{nonce}}$ to a random proof  $\pi$
+${\mathcal{F}}_{VRF}$ with his own input ${x = \eta_j || sl || \emph{nonce}}$ to a random proof  $\pi$.
 In response, he receives the associated proofs $\pi$ and $\rho_\pi$ respectively.
 If ${\mathcal{F}}_{L}(state, f, \pi) \rightarrow 1$ then $PK_i$ is a slot leader and he can propose a batch\
 which should be notarized by at least two-thirds of committee members.
