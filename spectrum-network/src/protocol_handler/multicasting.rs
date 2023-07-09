@@ -68,7 +68,6 @@ where
                     }
                 } else {
                     let _ = self.statement.insert(content);
-                    unreachable!()
                 }
             } else {
                 self.outbox
@@ -92,7 +91,7 @@ where
 
         let finished_at = std::time::Instant::now();
         let elapsed = finished_at.sub(self.creation_time);
-        if elapsed > Duration::from_millis(300) {
+        if elapsed > Duration::from_millis(200) {
             if let Some(stmt) = self.statement.take() {
                 return Poll::Ready(Right(stmt));
             }

@@ -126,6 +126,57 @@ where
         self,
         pre_commitments: PreCommitments,
         handel_conf: HandelConfig,
+    ) -> BroadcastPreCommitments<H, PP> {
+        BroadcastPreCommitments {
+            host_sk: self.host_sk,
+            host_ix: self.host_ix,
+            committee: self.committee,
+            individual_inputs: self.individual_inputs,
+            message_digest: self.message_digest,
+            host_secret: self.host_secret,
+            host_commitment: self.host_commitment.clone(),
+            host_explusion_proof: self.host_explusion_proof.clone(),
+            handel_partitions: self.handel.narrow(),
+            mcast_overlay: self.mcast_overlay.clone(),
+            mcast: Box::new(DagMulticasting::new(
+                Some(pre_commitments),
+                (),
+                self.mcast_overlay,
+            )),
+        }
+    }
+}
+
+struct BroadcastPreCommitments<H, PP> {
+    /// `x_i`
+    host_sk: SecretKey,
+    /// Host's index in the Handel overlay.
+    host_ix: PeerIx,
+    /// `{X_1, X_2, ..., X_n}`. Set of public keys of committee members.
+    committee: HashMap<PeerIx, PublicKey>,
+    /// `a_i = H(X_1, X_2, ..., X_n; X_i)`, `{a_1, a_2, ..., a_n}`
+    individual_inputs: HashMap<PeerIx, Scalar>,
+    /// Message that we aggregate signatures for.
+    message_digest: Digest256<H>,
+    /// `y_i`
+    host_secret: CommitmentSecret,
+    /// `Y_i = g^{y_i}`
+    host_commitment: Commitment,
+    /// `σ_i`. Dlog proof of knowledge for `Y_i`.
+    host_explusion_proof: Signature,
+    handel_partitions: PP,
+    mcast_overlay: DagOverlay,
+    mcast: Box<dyn Multicasting<PreCommitments> + Send>,
+}
+
+impl<'a, H, PP> BroadcastPreCommitments<H, PP>
+where
+    PP: PeerPartitions + Send + 'a,
+{
+    fn complete(
+        self,
+        pre_commitments: PreCommitments,
+        handel_conf: HandelConfig,
     ) -> AggregateCommitments<'a, H, PP> {
         let verif_input = CommitmentsVerifInput {
             pre_commitments,
@@ -145,7 +196,7 @@ where
                 handel_conf,
                 Contributions::unit(self.host_ix, (self.host_commitment, self.host_explusion_proof)),
                 verif_input,
-                self.handel.narrow(),
+                self.handel_partitions,
                 self.host_ix,
             )),
         }
@@ -309,6 +360,7 @@ pub struct Aggregated<H> {
 
 enum AggregationState<'a, H, PP> {
     AggregatePreCommitments(AggregatePreCommitments<'a, H, PP>),
+    BroadcastPreCommitments(BroadcastPreCommitments<H, PP>),
     AggregateCommitments(AggregateCommitments<'a, H, PP>),
     BroadcastCommitments(BroadcastCommitments<H, PP>),
     AggregateResponses(AggregateResponses<'a, H, PP>),
@@ -324,8 +376,9 @@ struct AggregationTask<'a, H, PP> {
 enum StageTag {
     PreCommit = 0,
     Commit = 1,
-    Broadcast = 2,
-    Response = 3,
+    BroadcastPreCommitments = 2,
+    BroadcastCommitments = 3,
+    Response = 4,
 }
 
 impl From<&SigmaAggrMessageV1> for StageTag {
@@ -333,18 +386,25 @@ impl From<&SigmaAggrMessageV1> for StageTag {
         match m {
             SigmaAggrMessageV1::PreCommitments(_) => StageTag::PreCommit,
             SigmaAggrMessageV1::Commitments(_) => StageTag::Commit,
-            SigmaAggrMessageV1::Broadcast(_) => StageTag::Broadcast,
+            SigmaAggrMessageV1::BroadcastPreCommitments(_) => StageTag::BroadcastPreCommitments,
+            SigmaAggrMessageV1::BroadcastCommitments(_) => StageTag::BroadcastCommitments,
             SigmaAggrMessageV1::Responses(_) => StageTag::Response,
         }
     }
 }
 
 /// Stash of messages received during improper stage. Messages are groupped by stage.
-struct MessageStash([HashMap<PeerId, SigmaAggrMessageV1>; 4]);
+struct MessageStash([HashMap<PeerId, SigmaAggrMessageV1>; 5]);
 
 impl MessageStash {
     fn new() -> Self {
-        Self([HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new()])
+        Self([
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+        ])
     }
 
     fn stash(&mut self, peer: PeerId, m: SigmaAggrMessageV1) {
@@ -357,7 +417,13 @@ impl MessageStash {
     }
 
     fn flush(&mut self) {
-        self.0 = [HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new()];
+        self.0 = [
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+        ];
     }
 }
 
@@ -452,6 +518,24 @@ where
                 }
             }
             Some(AggregationTask {
+                state: AggregationState::BroadcastPreCommitments(ref mut bcast),
+                ..
+            }) => {
+                if let SigmaAggrMessageV1::BroadcastPreCommitments(commits) = msg {
+                    println!(
+                        "{:?}: Received SigmaAggrMessageV1::BroadcastPreCommitments",
+                        bcast.host_ix
+                    );
+                    bcast.mcast.inject_message(peer_id, commits);
+                } else {
+                    trace!(
+                        "SigmaAggrMessageV1 expected BroadcastPreCommitments, got {:?}",
+                        msg
+                    );
+                    self.stash.stash(peer_id, msg);
+                }
+            }
+            Some(AggregationTask {
                 state: AggregationState::AggregateCommitments(ref mut commitment),
                 ..
             }) => {
@@ -467,11 +551,14 @@ where
                 state: AggregationState::BroadcastCommitments(ref mut bcast),
                 ..
             }) => {
-                if let SigmaAggrMessageV1::Broadcast(commits) = msg {
-                    println!("{:?}: Received SigmaAggrMessageV1::Broadcast", bcast.host_ix);
+                if let SigmaAggrMessageV1::BroadcastCommitments(commits) = msg {
+                    println!(
+                        "{:?}: Received SigmaAggrMessageV1::BroadcastCommitments",
+                        bcast.host_ix
+                    );
                     bcast.mcast.inject_message(peer_id, commits);
                 } else {
-                    //println!("SigmaAggrMessageV1 expected Broadcast, got {:?}", msg);
+                    //println!("SigmaAggrMessageV1 expected BroadcastCommitments, got {:?}", msg);
                     self.stash.stash(peer_id, msg);
                 }
             }
@@ -559,7 +646,7 @@ where
                                 println!("{:?}: PreComm missing: {:?}", host_ix, missing_peers);
                                 self.unstash_stage(StageTag::Commit);
                                 self.task = Some(AggregationTask {
-                                    state: AggregationState::AggregateCommitments(
+                                    state: AggregationState::BroadcastPreCommitments(
                                         st.complete(pre_commitments, self.handel_conf),
                                     ),
                                     channel,
@@ -571,6 +658,42 @@ where
                         Poll::Pending => {
                             self.task = Some(AggregationTask {
                                 state: AggregationState::AggregatePreCommitments(st),
+                                channel,
+                            });
+                        }
+                    },
+                    AggregationTask {
+                        state: AggregationState::BroadcastPreCommitments(mut st),
+                        channel,
+                    } => match st.mcast.poll(cx) {
+                        Poll::Ready(out) => match out {
+                            Either::Left(cmd) => {
+                                self.outbox.push_back(cmd.rmap(|m| {
+                                    SigmaAggrMessage::SigmaAggrMessageV1(
+                                        SigmaAggrMessageV1::BroadcastPreCommitments(m),
+                                    )
+                                }));
+                                self.task = Some(AggregationTask {
+                                    state: AggregationState::BroadcastPreCommitments(st),
+                                    channel,
+                                });
+                                continue;
+                            }
+                            Either::Right(pre_commitments) => {
+                                trace!("[SA] {:?}: Got broadcast precommitments", st.host_ix);
+                                self.unstash_stage(StageTag::Response);
+                                self.task = Some(AggregationTask {
+                                    state: AggregationState::AggregateCommitments(
+                                        st.complete(pre_commitments, self.handel_conf),
+                                    ),
+                                    channel,
+                                });
+                                continue;
+                            }
+                        },
+                        Poll::Pending => {
+                            self.task = Some(AggregationTask {
+                                state: AggregationState::BroadcastPreCommitments(st),
                                 channel,
                             });
                         }
@@ -606,7 +729,7 @@ where
                                 missing_peers.sort();
                                 println!("{:?}: Comm missing: {:?}", st.host_ix, missing_peers);
                                 trace!("[SA] Got commitments");
-                                self.unstash_stage(StageTag::Broadcast);
+                                self.unstash_stage(StageTag::BroadcastCommitments);
                                 self.task = Some(AggregationTask {
                                     state: AggregationState::BroadcastCommitments(st.complete(commitments)),
                                     channel,
@@ -628,7 +751,9 @@ where
                         Poll::Ready(out) => match out {
                             Either::Left(cmd) => {
                                 self.outbox.push_back(cmd.rmap(|m| {
-                                    SigmaAggrMessage::SigmaAggrMessageV1(SigmaAggrMessageV1::Broadcast(m))
+                                    SigmaAggrMessage::SigmaAggrMessageV1(
+                                        SigmaAggrMessageV1::BroadcastCommitments(m),
+                                    )
                                 }));
                                 self.task = Some(AggregationTask {
                                     state: AggregationState::BroadcastCommitments(st),

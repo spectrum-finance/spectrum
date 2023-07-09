@@ -1091,17 +1091,42 @@ async fn sigma_aggregation_normal() {
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
 #[tokio::test]
 async fn sigma_aggregation_byzantine() {
-    let byzantine_nodes = vec![
-        //PeerIx::from(0),
-        PeerIx::from(2),
-        PeerIx::from(3),
-        //PeerIx::from(14),
-    ];
-    run_sigma_aggregation_test(16, byzantine_nodes, Threshold { num: 2, denom: 3 }).await;
+    let total_runs = 200;
+    let mut num_fails = 0;
+    let mut total_passes = 0;
+    for _ in 0..total_runs {
+        let byzantine_nodes = vec![
+            PeerIx::from(0),
+            PeerIx::from(1),
+            //PeerIx::from(2),
+            //PeerIx::from(3)
+        ];
+        let num_passes =
+            run_sigma_aggregation_test(16, byzantine_nodes, Threshold { num: 2, denom: 3 }).await;
+        if num_passes == 0 {
+            num_fails += 1;
+        } else {
+            total_passes += num_passes;
+        }
+    }
+
+    println!(
+        "number of fails: {}, failure rate: {}%",
+        num_fails,
+        (num_fails as f64) / (total_runs as f64) * 100.0
+    );
+    println!(
+        "average number of successful nodes per run: {}",
+        (total_passes as f64) / (total_runs as f64)
+    );
 }
 
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
-async fn run_sigma_aggregation_test(num_nodes: usize, byzantine_nodes: Vec<PeerIx>, threshold: Threshold) {
+async fn run_sigma_aggregation_test(
+    num_nodes: usize,
+    byzantine_nodes: Vec<PeerIx>,
+    threshold: Threshold,
+) -> usize {
     //init_logging_once_for(vec![], LevelFilter::Debug, None);
 
     let (peers, partitioner) = aggregation::setup_nodes(num_nodes, threshold);
@@ -1190,7 +1215,7 @@ async fn run_sigma_aggregation_test(num_nodes: usize, byzantine_nodes: Vec<PeerI
         });
     }
 
-    wasm_timer::Delay::new(Duration::from_secs(10)).await.unwrap();
+    wasm_timer::Delay::new(Duration::from_millis(1500)).await.unwrap();
 
     for abort_handle in abort_handles {
         abort_handle.abort();
@@ -1202,6 +1227,7 @@ async fn run_sigma_aggregation_test(num_nodes: usize, byzantine_nodes: Vec<PeerI
         num_finished,
         (num_finished as f64) / (num_nodes as f64) * 100.0
     );
+    num_finished
 }
 
 fn make_swarm_components<P, F>(

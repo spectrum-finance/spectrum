@@ -16,7 +16,8 @@ pub enum SigmaAggrMessage {
 pub enum SigmaAggrMessageV1 {
     PreCommitments(HandelMessage<PreCommitments>),
     Commitments(HandelMessage<CommitmentsWithProofs>),
-    Broadcast(CommitmentsWithProofs),
+    BroadcastPreCommitments(PreCommitments),
+    BroadcastCommitments(CommitmentsWithProofs),
     Responses(HandelMessage<Responses>),
 }
 
