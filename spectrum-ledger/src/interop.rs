@@ -2,7 +2,6 @@ use nonempty::NonEmpty;
 
 use spectrum_crypto::digest::Blake2bDigest256;
 
-use crate::block::BlockId;
 use crate::cell::{AnyCell, CellId};
 use crate::transaction::TxId;
 use crate::ChainId;

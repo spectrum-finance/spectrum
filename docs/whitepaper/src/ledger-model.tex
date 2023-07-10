@@ -1,34 +1,102 @@
 Spectrum's global state includes a pool of value carrying units called \enquote{cells}.
 A \enquote{Cell} encodes monetary value (e.g., fungible or non-fungible tokens) travelling inside the system and across its boards.
 
-\begin{tabular}{ r l }
-    TxId =   & H(Tx)            \\
-    CellId = & H(TxId \times I) \\
-\end{tabular}
+\begin{center}
+    \begin{tabular}{ | r l | }
+        \hline
+        TxId =   & H(Tx)            \\
+        CellId = & H(TxId \times I) \\
+        \hline
+    \end{tabular}
+\end{center}
 
-Each cell has a unique stable identifier derived from ID of the transaction that produced the cell and its index in transaction outputs.
+Each cell has a unique identifier derived from ID of the transaction that produced the cell and its index in the transaction outputs.
+The identifier remains stable even when cell is modified as we explain below.
+
+\begin{center}
+    \begin{tabular}{ | r l | }
+        \hline
+        Value =         & \blue \texttt{u64}                                                     \\
+        ChainId =       & \blue \texttt{u64}                                                     \\
+        Version =       & \blue \texttt{u64}                                                     \\
+        ProgressPoint = & ChainId \times \blue \texttt{u64}                                      \\
+        ActiveCell =    & CellId \times Address \times Value \times Version \times ProgressPoint \\
+        BridgeInputs =  & [\blue \texttt{u64}]                                                   \\
+        Destination =   & ChainId \times BridgeInputs                                            \\
+        TermCell =      & CellId \times Value \times ProgressPoint \times Destination            \\
+        Cell =          & ActiveCell \uplus TermCell                                             \\
+        \hline
+    \end{tabular}
+\end{center}
 
 We distinguish two essential types of cells depending on the state of the value they encode.
-\begin{enumerate}
-    \item Active
-    \enquote{Active} value trvelling inside the system.
-    An Active Cell can be modified while preserving its original stable identifier.
-    This opens the door for more smooth management of shared cells (e.g., stablecoin bank or liquidity pool).
 
-    \item Terminal
-    Value to be exported into an external system.
-\end{enumerate}
+\subsubsection{Active cells}\label{subsubsec:active-cells}
 
+\enquote{Active Cell} is a value trvelling between owners inside the system.
+An Active Cell can be modified while preserving its original stable identifier.
+With each mutation version of the cell is incremented which is initialized with \texttt{0} when the cell is created.
+This opens the door for smooth management of shared cells (e.g., stablecoin bank or liquidity pool).
 
-\section{Authenticators, Addresses and Ownership}\label{sec:authenticators-and-addresses}
+\subsubsection{Authenticators, Addresses and Ownership}\label{subsubsec:authenticators-and-addresses}
 
-\begin{tabular}{ r l }
-    Authenticator = & ProveDlog \uplus Script \\
-    Address =       & H(Authenticator)        \\
-\end{tabular}
+\begin{center}
+    \begin{tabular}{ | r l | }
+        \hline
+        Authenticator = & ProveDlog \uplus Script \\
+        Address =       & H(Authenticator)        \\
+        \hline
+    \end{tabular}
+\end{center}
 
 Each active cell has an exclusive owner identified by an address.
 Address is derived from an authenticatior by applying collision resistant hash function to it.
 To prove ownership of a cell a party must supply an authenticatior whose hash matches the owning address.
 An authenticator can either be a public key or a script.
 Once authenticated an owner can fleely move value locked withing the cell by either mutation or elimination of it.
+
+\subsubsection{Terminal cells}\label{subsubsec:terminal-cells}
+
+Terminal cells encode value to be exported into external system.
+In contrast to active cells, terminal cells are immutable and value from them cannot be moved within the system anymore.
+
+\subsubsection{Transactions and Effects}\label{subsubsec:transactions-and-effects}
+
+\begin{center}
+    \begin{tabular}{ | r l | }
+        \hline
+        CellRef =          & CellId \times Version                                     \\
+        Inputs =           & CellRef \times [CellId \uplus CellRef]                    \\
+        RefInputs =        & [Cell]                                                    \\
+        EvaluatedOutputs = & [Cell]                                                    \\
+        Tx =               & Inputs \times RefInputs \times EvaluatedOutputs           \\
+        Imported =         & ActiveCell                                                \\
+        Exported =         & CellId                                                    \\
+        Revoked =          & CellId                                                    \\
+        Progressed =       & ProgressPoint                                             \\
+        Eff =              & Imported \uplus Exported \uplus Revoked \uplus Progressed \\
+        \hline
+    \end{tabular}
+\end{center}
+
+Global pool of cells is modified by atomic state modifiers called \enquote{Transactions} and \enquote{Effects}.
+
+\subsubsection{Dealing with finality of imported value}\label{subsubsec:dealing-with-finality-of-imported-value}
+
+Beacause Spectrum is a cross-chain system, monetary value there is usually imported from an external system (e.g.\ Cardano or Ergo).
+Since most of the cryptocurrencies don't provide instant finality of transactions, on-chiain transaction that once imported value into Spectrum's on-chain vault may be rolled-back.
+There are two ways of preventing \enquote{dangling} value inside Spectrum.
+On the one end of spectrum is a conservative aapoach: wait for settlement on the source chain (e.g.\ 120 blocks in Ergo) before import to be 100\percent sure the transaction will not be rolled back.
+On the other end is a reactive approach: import value immediately and revert locally transactions that depend on that piece of value in the case of rollback.
+Conservative approach offers simplicity and is cheaper to execute, while reactive one allows to work with imported value inside spectrum with minimal delays.
+
+\textbf{Observation:} Probability of a rollback at certain height decreses exponentilly as chain extends.
+
+Based on this observation we choose a hybrid approach.
+Value is imported with a small delay $D^c$ which is configured for each chain and is sufficient to keep probability of rollback low.
+If rollback happens after the import all trnsactions directly or transitively depending on the dangling value are reverted.
+
+As long as outbound transactions can not be reverted it is of paramount importance to wait for complete settlement of the imported value before allowing to export it.
+Each cell contains an array of dependencies called \enquote{anchors} represented as unique identifier of a chain and a height which the chain is required to reach in order for the ancor to be deemed as \enquote{unancored}.
+Active ancors leak from cells in inputs into created cells in outputs.
+It is impossible to use terminal cell in outbound transaction until all points it depends on are reached.
