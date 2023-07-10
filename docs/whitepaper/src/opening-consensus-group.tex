@@ -27,13 +27,13 @@ Verifiable Random Function (VRF) has been applied.
 A Verifiable Random Function (VRF)~\cite{Micali1999} is a reliable way to introduce randomness in the protocol.
 By definition the function $\mathcal{F}$ can be attributed to the VRF family if the following methods are defined\
 for the $\mathcal{F}$:
-\begin{enumerate}
+\begin{itemize}
     \item Gen: ${Gen(1^k) \rightarrow (pk, sk)}$, where $pk$ is the public key and $sk$ is the secret key;
     \item Prove: ${Prove(x, sk) \rightarrow \pi}$, where $x$ is an input and $\pi \vcentcolon= \Pi(x, sk)$ is\
     the proof, associated with $x$ and mixed with some random value $r$, sampled from $\{0,1\}^{l_{VRF}}$.
     \item Verify: ${Verify(x, \pi, pk) \rightarrow 0 | 1}$, where the output is $1$ if\
     and only if ${\pi \equiv \Pi(x, sk)}$.
-\end{enumerate}
+\end{itemize}
 
 The most secure nowadays are an Elliptic Curve Verifiable Random Functions (ECVRF).
 Basically, ECVRF is a cryptographic-based VRF that satisfies the trusted uniqueness, trusted collision resistance,\
@@ -67,7 +67,7 @@ The Spectrum protocol initially is running by manually selected opening consensu
 of the predefined size $M$.
 Stakeholders interact with each other and with locally installed ideal functionalities ${\mathcal{F}}_{LB}$,\
 ${\mathcal{F}}_{VRF}, {\mathcal{F}}_{L}$ over a sequence of $L = E \cdot R$ slots\
-${S=\{sl_1,...,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
+${S=\{sl_0,...,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
 Let's clarify what the mentioned above pre-defined primitives are needed for:
 \begin{enumerate}
     \item \emph{Ideal Leaky Beacon} ${\mathcal{F}}_{LB}$: is used to sample an epoch random seed from the\
@@ -102,9 +102,9 @@ The maximum consensus group size is ${M_{\max}=1024}$, this limit arises due to 
 Once a new consensus group is determined, the lottery process does not stop, but this time the members\
 must determine the leader of the group.
 
-During the epoch, for every slot ${sl_l \in S}$ every consensus group member separately evaluates\
-${\mathcal{F}}_{VRF}$ with his own input ${x = \eta_j || sl || \emph{nonce}}$ to a random proof  $\pi$.
-In response, he receives the associated proofs $\pi$ and $\rho_\pi$ respectively.
+During the epoch, for every slot ${sl_l \in S}$ every consensus group member $PK_i$ separately evaluates\
+${\mathcal{F}}_{VRF}$ with his own input ${x = \eta_j || sl || \emph{nonce}}$.
+In response, he receives the associated random proof $\pi$.
 If ${\mathcal{F}}_{L}(state, f, \pi) \rightarrow 1$ then $PK_i$ is a slot leader and he can propose a batch\
 which should be notarized by at least two-thirds of committee members.
 

@@ -3,45 +3,45 @@ consensus properly.
 However, this approach reduces the number of possible consensus participants and limits the scalability of the system.
 Therefore, for the optimal design of our consensus protocol, we will use the following observations:
 \begin{itemize}
-    \item \textbf{Observation 1:} Events coming from independent systems $S_k$ are not serialized.
-    \item \textbf{Observation 2:} Outbound transactions on independent systems $S_k$ can be independently signed.
+    \item[]\textbf{Observation 1:} Events coming from independent chains $c_k$ are not serialized.
+    \item[] \textbf{Observation 2:} Outbound transactions on independent systems $c_k$ can be independently signed.
 \end{itemize}
 
 Utilizing those properties we now introduce committee sharding.
-We modify protocol in a way such that at each epoch $e$, $K$ distinct committees consisting of nodes equipped with\
-functionality unit $F_{S_k}$ relevant to a specific connected chain $S_k$ are selected via the consensus group lottery.
+We modify protocol in a way such that at each epoch $e_n$, $K$ distinct committees consisting of nodes equipped with\
+functionality unit $F_{c_k}$ relevant to a specific connected chain $c_k$ are selected via the consensus group lottery.
 All primitives using in the lottery are equal for different committees, however, lotteries are independent.
 
-We denote one such committee shard as $V^{e}_{S_k}$, which uniquely maps to $S_k$.
-Then, complete mapping of committees to chains at epoch $e$ can be represented as a set of tuples\
-committee-chain $\{(V^{e}_{S_k}, S_k)\}$.
-Throughout epoch $e$ all events and on-chain transactions on $S_k$ are handled exclusively by $V^{e}_{S_k}$.
-Nodes in $V^{e}_{S_k}$ maintain a robust local ledger $L^{local}_k$ of notarized batches of events observed in $S_k$.
+We denote one such committee shard as $V_{n}^k$, which uniquely maps to $c_k$.
+Then, complete mapping of committees to chains at epoch $e_n$ can be represented as a set of tuples\
+committee-chain $\{(V_{n}^k, c_k)\}$.
+Throughout epoch $e_n$ all events and on-chain transactions in $c_k$ are handled exclusively by $V_{n}^k$.
+Nodes in $V_{n}^k$ maintain a robust local ledger $L^{local}_k$ of notarized batches of events observed in $c_k$.
 
 \subsubsection{Syncing Shards}
 
-Each committee forms the notarized batches of events and them into their local ledgers.
+Each committee $V_n^k$ forms the notarized batches of events and them into their local ledgers $L_k$.
 All these batches should be periodically synced and added to a block of the one main super ledger $L^+$\
 in order for the system to be able to compute cross-chain state transition.
 To facilitate this process, batches of the notarized events should be broadcast to other committees.
 The main actors at this stage are:
-\begin{itemize}
+\begin{enumerate}
     \item \emph{Local leader}: local committee leader.
-    \item \emph{Relayer}: any protocol participant, who broadcasts notarized batches to the \emph{Local leader}\
+    \item \emph{Relayer}: any protocol participant, who broadcasts notarized batches to the local leader\
     and to other committees' members.
     Every \emph{Local leader} can be a relayer at the same time.
     \item \emph{General leader}: one of the local leaders who added a block consisted of collected\
     notarized batches and other internal transactions to the $L^+$.
-\end{itemize}
+\end{enumerate}
 
-There is no any separate lottery for the general leadership and any lLocal leader is able to publish his\
+There is no any separate lottery for the general leadership and any local leader is able to publish his\
 block to $L^+$, thus, he can choose from two main strategies:
-\begin{itemize}
+\begin{enumerate}
     \item \emph{Wait}: malicious strategy where local leader waits for broadcasts from other committees\
     members and don't broadcast his own batch to eliminate competitors for adding a block.
     \item \emph{Broadcast and wait}: fair strategy where local leader immediately broadcasts his batch,\
     waits for broadcasts from other committees members and honestly adds a block.
-\end{itemize}
+\end{enumerate}
 Thus, there should be a motivation for the individual local leader to choose the fair strategy instead of keeping\
 his batch for too long and there also should be a motivation for every committee member to act as a relayer.
 This is achieved through the design of the incentive system.
@@ -52,6 +52,7 @@ There are three types of the incentive for the Spectrum protocol participants: $
 guaranteed reward for adding a notarized batch to the block, $R_d$ is given for broadcasting a batch to the\
 general leader and $R_m$ is given personally to the general leader who finally added the block.
 Delivery reward $R_d$ is given if and only if a delivery was made within a predetermined period of time $\Delta t_d$.
+
 Reward amounts are initially configured in such a ratio that if ${R_d=0}$ there is no prior strategy for\
 local leaders, they will either wait for other batches or broadcast their batches with equal probability.
 At the same time, all other committee members are still motivated to act as a relayers to receive an extra reward,
@@ -60,26 +61,26 @@ All the rewards except $R_m$ are shared equally between all committees members w
 the finally added block.
 
 As a result, the syncing shards flow looks as follows:
-\begin{itemize}
+\begin{enumerate}
     \item After notarization, the committee member holding the notarized batch, which contains the local\
-    notarization time $t^N_i$ sends it to his local leader and to other known committees members.
+    notarization time $t^*$, sends it to his local leader and to other known committees members.
     \item All committees members who receive notarized batches from other committees also send it\
     to the local leader.
     \item The local leader collects the received notarized batches.
     \item When waiting time approaches $\Delta t_d$, local leader forms a block\
     from all collected batches and broadcast it.
-    Block contains the set of the notarization times $\{t^{N^j}_i\}_{j=1}^{j=K}$ and block creation time $t^B_s$.
+    Block contains the set of the notarization times and block creation time $t^B$.
     \item After block is reliably settled in the $L^+$, all associated participants can claim their rewards.
-\end{itemize}
+\end{enumerate}
 
 We also introduce another type of authority incentive that increases the chances of participants\
 to be selected in the consensus group lottery.
 When calculating the steak distribution, which is needed to parametrise the lottery function,\
 all stakes are weighted depending on the actions of their holders in the previous epoch,\
-i.e. ${s_i = M \cdot s_i^{real}}$.
+i.e. ${s_i = A_m \cdot s_i^{real}}$, where $A_m$ is an authority multiplier.
 If some authority was a member of a committee and participated in adding of 2/3 of the blocks produced in\
-the considered period of time, then his actual stake ${s_i^{real}}$ is multiplied by ${M = 2}$.
-Multiplier $M$ decreases linearly to 0, which is the case where member was passive during the entire epoch.
+the considered period of time, then his actual stake ${s_i^{real}}$ is multiplied by ${A_m = 2}$.
+Multiplier $A_m$ decreases linearly to 0, which is the case where member was passive during the entire epoch.
 
 With this mechanism, we solve the following problems:
 \begin{itemize}
@@ -87,8 +88,8 @@ With this mechanism, we solve the following problems:
     so that their participation is reflected in each block added in the $L^+$.
     \item Inactive and dishonest members are automatically excluded from the next epoch committee.
     \item Participants are motivated to stay active throughout the entire epoch so that their chances of being\
-    selected in the committee don't decrease due to a multiplier ${M < 1}$, otherwise, in order to even the odds\
-    with new lottery participants, they will either have to increase their real stake, or skip the\
-    lottery until the next one.
+    selected in the committee don't decrease due to an authority multiplier ${A_m < 1}$, otherwise,\
+    in order to even the odds with new lottery participants, they will either have to increase\
+    their real stake, or skip the lottery until the next one.
 \end{itemize}
 

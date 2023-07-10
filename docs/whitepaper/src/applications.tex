@@ -7,15 +7,23 @@ Cross-Chain Oracle is a simple yet solving the cross-chain interoperability solu
 \subsection{Custodial Asset Management}\label{subsec:custodial-asset-management}
 
 In custodial mode of operation the system is capable of managing user assets which are stored on corresponding\
-blockchains in \emph{vaults}.
+blockchains in vaults.
 Each vault stores epoch number $n$, an aggregated public key $aPK_n$ of the current validator set $V_n$ and
 is guarded with a script (smart-contract) capable of performing verification of
 an aggregated signature ${verify: (\sigma_n, m_n, aPK_n) \rightarrow 0 | 1}$.
+
 
 \paragraph{Natively Cross-Chain Applications}
 
 Decentralized custodial management in conjunction with a computational layer can be highly beneficial for expanding\
 the capabilities of the system.
-Moving beyond simple bridges to what we call \emph{Natively Cross-Chain Applications} (NCCAs).
+This moves us beyond simple bridges to what we call Natively Cross-Chain Applications (NCCAs).
+
 NCCAs are applications that are deployed in cross-chain network and are capable of interacting with other blockchains\
 without the need of external oracles or bridges.
+Compared to single-chain dApps, NCCAs unlocks an additional functionality by taking advantage\
+of multiple chains simultaneously.
+They make possible to aggregate fragmented liquidity on different chains\
+into one chain or a coordinated pool of assets and improve the user experience by enabling the localization\
+and customization of parameters and feature sets of the same application on different chains.
+These unique advantages make them the future of web3 dApps.
