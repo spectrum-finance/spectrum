@@ -33,11 +33,16 @@ pub struct DagMulticasting<S, P> {
     creation_time: std::time::Instant,
     processing_delay: Duration,
     next_processing: Option<Pin<Box<tokio::time::Sleep>>>,
+    multicasting_duration: Duration,
 }
 
 impl<S, P> DagMulticasting<S, P> {
-    pub fn new(statement: Option<S>, public_data: P, overlay: DagOverlay) -> Self {
-        let processing_delay = Duration::from_millis(10);
+    pub fn new(
+        statement: Option<S>,
+        public_data: P,
+        overlay: DagOverlay,
+        config: DagMulticastingConfig,
+    ) -> Self {
         Self {
             statement,
             public_data,
@@ -45,8 +50,9 @@ impl<S, P> DagMulticasting<S, P> {
             contacted_peers: HashSet::new(),
             outbox: VecDeque::new(),
             creation_time: std::time::Instant::now(),
-            processing_delay,
-            next_processing: Some(Box::pin(tokio::time::sleep(processing_delay))),
+            processing_delay: config.processing_delay,
+            multicasting_duration: config.multicasting_duration,
+            next_processing: Some(Box::pin(tokio::time::sleep(config.processing_delay))),
         }
     }
 }
@@ -62,6 +68,8 @@ where
                     if let Some(combined) = stmt.try_combine(&content) {
                         if combined.weight() > stmt.weight() {
                             println!("Got new contribution from broadcast");
+                            // Since we have a new contribution, let's broadcast again through
+                            // all nodes in the overlay.
                             self.contacted_peers.clear();
                         }
                         let _ = self.statement.insert(combined);
@@ -91,7 +99,7 @@ where
 
         let finished_at = std::time::Instant::now();
         let elapsed = finished_at.sub(self.creation_time);
-        if elapsed > Duration::from_millis(200) {
+        if elapsed > self.multicasting_duration {
             if let Some(stmt) = self.statement.take() {
                 return Poll::Ready(Right(stmt));
             }
@@ -121,6 +129,14 @@ where
         cx.waker().wake_by_ref();
         Poll::Pending
     }
+}
+
+#[derive(Copy, Clone)]
+pub struct DagMulticastingConfig {
+    pub processing_delay: Duration,
+    pub multicasting_duration: Duration,
+    pub redundancy_factor: usize,
+    pub seed: u64,
 }
 
 struct ApplyStatement<S>(Verified<S>);

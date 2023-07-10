@@ -27,6 +27,7 @@ use spectrum_network::protocol::{
 };
 use spectrum_network::protocol_handler::handel::Weighted;
 use spectrum_network::protocol_handler::multicasting::overlay::DagOverlay;
+use spectrum_network::protocol_handler::multicasting::DagMulticastingConfig;
 use spectrum_network::protocol_handler::multicasting::{DagMulticasting, Multicasting};
 use spectrum_network::protocol_handler::versioning::Versioned;
 use spectrum_network::protocol_handler::void::VoidMessage;
@@ -52,6 +53,7 @@ pub struct MulticastingBehaviour<S> {
     host_ix: usize,
     state: Option<McastTask<S>>,
     inbox: mpsc::Receiver<SetTask<S>>,
+    multicasting_conf: DagMulticastingConfig,
     stash: HashMap<PeerId, S>,
 }
 
@@ -72,13 +74,14 @@ impl<S> AssertKinds for MulticastingBehaviour<S> where
 }
 
 impl<S> MulticastingBehaviour<S> {
-    pub fn new(host_ix: usize) -> (Self, mpsc::Sender<SetTask<S>>) {
+    pub fn new(host_ix: usize, multicasting_conf: DagMulticastingConfig) -> (Self, mpsc::Sender<SetTask<S>>) {
         let (snd, recv) = mpsc::channel(128);
         (
             Self {
                 host_ix,
                 state: None,
                 inbox: recv,
+                multicasting_conf,
                 stash: HashMap::new(),
             },
             snd,
@@ -136,7 +139,12 @@ where
                         self.inject_message(p, s)
                     }
                     self.state = Some(McastTask {
-                        process: Box::new(DagMulticasting::new(initial_statement, (), overlay)),
+                        process: Box::new(DagMulticasting::new(
+                            initial_statement,
+                            (),
+                            overlay,
+                            self.multicasting_conf,
+                        )),
                         on_response,
                     })
                 }
@@ -283,7 +291,13 @@ where
             protocols_allocation: Vec::new(),
             peer_manager_msg_buffer_size: 1000,
         };
-        let (mcast, handler_snd) = MulticastingBehaviour::<S>::new(node_ix);
+        let multicasting_conf = DagMulticastingConfig {
+            processing_delay: Duration::from_millis(10),
+            multicasting_duration: Duration::from_millis(200),
+            redundancy_factor: 5,
+            seed: 42,
+        };
+        let (mcast, handler_snd) = MulticastingBehaviour::<S>::new(node_ix, multicasting_conf);
         let peer_state = PeerRepo::new(netw_config, vec![]);
         let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
         let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(100);

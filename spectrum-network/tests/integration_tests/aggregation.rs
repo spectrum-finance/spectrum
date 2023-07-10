@@ -30,6 +30,7 @@ use spectrum_network::protocol_handler::handel::partitioning::{
 };
 use spectrum_network::protocol_handler::handel::{HandelConfig, Threshold};
 use spectrum_network::protocol_handler::multicasting::overlay::RedundancyDagOverlayBuilder;
+use spectrum_network::protocol_handler::multicasting::DagMulticastingConfig;
 use spectrum_network::protocol_handler::sigma_aggregation::SigmaAggregation;
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::{ProtocolVer, Reputation};
@@ -101,17 +102,25 @@ pub fn setup_nodes<'de>(
             level_activation_delay: Duration::from_millis(50),
             throttle_factor: 5,
         };
+        let multicasting_conf = DagMulticastingConfig {
+            processing_delay: Duration::from_millis(10),
+            multicasting_duration: Duration::from_millis(200),
+            redundancy_factor: 5,
+            seed: 42,
+        };
         let (aggr_handler_snd, aggr_handler_inbox) = mpsc::channel::<AggregationAction<Blake2b>>(100);
+        let overlay_builder = RedundancyDagOverlayBuilder {
+            redundancy_factor: multicasting_conf.redundancy_factor,
+            seed: multicasting_conf.seed,
+        };
         let sig_aggr = SigmaAggregation::new(
             peer_sk.clone(),
             handel_conf,
+            multicasting_conf,
             MakeBinomialPeerPartitions {
                 rng: gen_perm.clone(),
             },
-            RedundancyDagOverlayBuilder {
-                redundancy_factor: 5,
-                seed: 42,
-            },
+            overlay_builder,
             aggr_handler_inbox,
         );
         let peer_state = PeerRepo::new(netw_config, vec![]);

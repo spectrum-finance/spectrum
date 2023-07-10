@@ -36,6 +36,8 @@ use crate::protocol_handler::void::VoidMessage;
 use crate::protocol_handler::ProtocolBehaviourOut;
 use crate::protocol_handler::{ProtocolBehaviour, TemporalProtocolStage};
 
+use super::multicasting::DagMulticastingConfig;
+
 mod crypto;
 mod message;
 pub mod types;
@@ -58,6 +60,7 @@ struct AggregatePreCommitments<'a, H, PP> {
     /// `σ_i`. Dlog proof of knowledge for `Y_i`.
     host_explusion_proof: Signature,
     mcast_overlay: DagOverlay,
+    multicasting_conf: DagMulticastingConfig,
     handel: Box<dyn HandelRound<'a, PreCommitments, PP> + Send>,
 }
 
@@ -72,6 +75,7 @@ where
         partitioner: MPP,
         mcast_overlay_builder: OB,
         handel_conf: HandelConfig,
+        multicasting_conf: DagMulticastingConfig,
     ) -> AggregatePreCommitments<'a, H, PP> {
         let host_pk = PublicKey::from(host_sk.clone());
         let host_pid = PeerId::from(host_pk);
@@ -112,6 +116,7 @@ where
             host_commitment,
             host_explusion_proof: exclusion_proof(host_secret, message_digest),
             mcast_overlay,
+            multicasting_conf,
             handel: Box::new(Handel::new(
                 handel_conf,
                 Contributions::unit(host_ix, host_pre_commitment),
@@ -138,10 +143,12 @@ where
             host_explusion_proof: self.host_explusion_proof.clone(),
             handel_partitions: self.handel.narrow(),
             mcast_overlay: self.mcast_overlay.clone(),
+            multicasting_conf: self.multicasting_conf,
             mcast: Box::new(DagMulticasting::new(
                 Some(pre_commitments),
                 (),
                 self.mcast_overlay,
+                self.multicasting_conf,
             )),
         }
     }
@@ -166,6 +173,7 @@ struct BroadcastPreCommitments<H, PP> {
     host_explusion_proof: Signature,
     handel_partitions: PP,
     mcast_overlay: DagOverlay,
+    multicasting_conf: DagMulticastingConfig,
     mcast: Box<dyn Multicasting<PreCommitments> + Send>,
 }
 
@@ -192,6 +200,7 @@ where
             host_commitment: self.host_commitment.clone(),
             host_explusion_proof: self.host_explusion_proof.clone(),
             mcast_overlay: self.mcast_overlay,
+            multicasting_conf: self.multicasting_conf,
             handel: Box::new(Handel::new(
                 handel_conf,
                 Contributions::unit(self.host_ix, (self.host_commitment, self.host_explusion_proof)),
@@ -221,6 +230,7 @@ struct AggregateCommitments<'a, H, PP> {
     /// `σ_i`. Dlog proof of knowledge for `Y_i`.
     host_explusion_proof: Signature,
     mcast_overlay: DagOverlay,
+    multicasting_conf: DagMulticastingConfig,
     handel: Box<dyn HandelRound<'a, CommitmentsWithProofs, PP> + Send>,
 }
 
@@ -243,6 +253,7 @@ where
                 Some(commitments_with_proofs),
                 (),
                 self.mcast_overlay,
+                self.multicasting_conf,
             )),
         }
     }
@@ -433,6 +444,7 @@ where
 {
     host_sk: SecretKey,
     handel_conf: HandelConfig,
+    multicasting_conf: DagMulticastingConfig,
     task: Option<AggregationTask<'a, H, MPP::PP>>,
     stash: MessageStash,
     partitioner: MPP,
@@ -458,6 +470,7 @@ where
     pub fn new(
         host_sk: SecretKey,
         handel_conf: HandelConfig,
+        multicasting_conf: DagMulticastingConfig,
         partitioner: MPP,
         mcast_overlay_builder: OB,
         inbox: Receiver<AggregationAction<H>>,
@@ -465,6 +478,7 @@ where
         Self {
             host_sk,
             handel_conf,
+            multicasting_conf,
             task: None,
             stash: MessageStash::new(),
             partitioner,
@@ -603,6 +617,7 @@ where
                                 self.partitioner.clone(),
                                 self.mcast_overlay_builder.clone(),
                                 self.handel_conf.clone(),
+                                self.multicasting_conf,
                             )),
                             channel,
                         });
