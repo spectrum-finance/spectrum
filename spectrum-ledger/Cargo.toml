@@ -16,5 +16,7 @@ async-trait = "0.1.68"
 bincode = "1.3.3"
 async-std = "1.12.0"
 nonempty = { version = "0.8.1", features = ["serialize"] }
+higher = "0.2.0"
+higher-derive = "0.2.0"
 
 move-core-types.workspace = true

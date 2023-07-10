@@ -16,15 +16,15 @@ The identifier remains stable even when cell is modified as we explain below.
 \begin{center}
     \begin{tabular}{ | r l | }
         \hline
-        Value =         & \blue \texttt{u64}                                                                                  \\
-        ChainId =       & \blue \texttt{u64}                                                                                  \\
-        Version =       & \blue \texttt{u64}                                                                                  \\
-        ProgressPoint = & ChainId \times \blue \texttt{ u64}                                                                  \\
-        ActiveCell =    & CellId \times \text{ Address} \times \text{Value} \times \text{Version} \times \text{ProgressPoint} \\
-        BridgeInputs =  & [\blue \texttt{u64}]                                                                                \\
-        Destination =   & ChainId \times \text{ BridgeInputs}                                                                 \\
-        TermCell =      & CellId \times \text{ Value} \times \text{ProgressPoint} \times \text{Destination}                   \\
-        Cell =          & ActiveCell \uplus \text{ TermCell}                                                                  \\
+        Value =         & \blue \texttt{u64}                                                      \\
+        ChainId =       & \blue \texttt{u64}                                                      \\
+        Version =       & \blue \texttt{u64}                                                      \\
+        ProgressPoint = & ChainId \times \blue \texttt{ u64}                                      \\
+        ActiveCell =    & CellId \times \text{ Address} \times \text{Value} \times \text{Version} \\
+        BridgeInputs =  & [\blue \texttt{u64}]                                                    \\
+        Destination =   & ChainId \times \text{ BridgeInputs}                                     \\
+        TermCell =      & CellId \times \text{ Value} \times \text{Destination}                   \\
+        Cell =          & ActiveCell \uplus \text{ TermCell}                                      \\
         \hline
     \end{tabular}
 \end{center}
@@ -127,6 +127,6 @@ Value is imported with a small delay $D^c$ which is configured for each chain an
 If rollback happens after the import all trnsactions directly or transitively depending on the dangling value are reverted.
 
 As long as outbound transactions can not be reverted it is of paramount importance to wait for complete settlement of the imported value before allowing to export it.
-Each cell contains an array of dependencies called \enquote{anchors} represented as unique identifier of a chain and a height which the chain is required to reach in order for the ancor to be deemed as \enquote{unancored}.
+Each cell is assotiated with a set of dependencies called \enquote{anchors} represented as unique identifier of a chain and a height which the chain is required to reach in order for the ancor to be deemed as \enquote{unancored}.
 Active ancors leak from cells in inputs into created cells in outputs.
-It is impossible to use terminal cell in outbound transaction until all points it depends on are reached.
+It is impossible to for terminal cell to be exported until all ancors it depends on are reached.

@@ -34,7 +34,7 @@ impl TxValidator for ConsensusTxValidator {
             effects.push(TransactionEffect::Drop(i.cref()))
         }
         for o in outputs {
-            effects.push(TransactionEffect::Create(AnyCell::from(o)))
+            effects.push(TransactionEffect::Create(o.cell))
         }
         Ok(effects)
     }

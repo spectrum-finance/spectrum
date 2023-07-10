@@ -1,11 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use k256::schnorr::signature::Verifier;
 use k256::schnorr::VerifyingKey;
 
-use spectrum_ledger::cell::{AnyCell, Cell, MutCell, Owner, ScriptHash};
+use spectrum_ledger::cell::{AnyCell, Cell, CellMeta, MutCell, Owner, ProgressPoint, ScriptHash};
+use spectrum_ledger::interop::Point;
 use spectrum_ledger::transaction::{EvaluatedTransaction, LinkedTransaction};
+use spectrum_ledger::ChainId;
 use spectrum_move::{GasUnits, SerializedModule};
+
+use crate::state::CellPool;
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub struct EvaluationError {
@@ -35,9 +39,14 @@ impl InvokationScope {
     }
 }
 
-pub struct ProgrammableTxEvaluator {}
+pub struct ProgrammableTxEvaluator<P> {
+    pub pool: P,
+}
 
-impl TxEvaluator for ProgrammableTxEvaluator {
+impl<P> TxEvaluator for ProgrammableTxEvaluator<P>
+where
+    P: CellPool,
+{
     fn evaluate_transaction(
         &self,
         LinkedTransaction {
@@ -58,7 +67,16 @@ impl TxEvaluator for ProgrammableTxEvaluator {
                 )
             })
             .collect();
-        for (ix, (i, maybe_sig)) in inputs.into_iter().enumerate() {
+        let mut converged_ancors: HashMap<ChainId, Point> = HashMap::new();
+        for (ix, (CellMeta { cell: i, ancors }, maybe_sig)) in inputs.into_iter().enumerate() {
+            for ProgressPoint { chain_id, point } in ancors {
+                if let Some(max_point) = converged_ancors.get(&chain_id) {
+                    if *max_point >= point {
+                        continue;
+                    }
+                }
+                converged_ancors.insert(chain_id, point);
+            }
             if let Some(sig) = maybe_sig {
                 match i.core.owner {
                     Owner::ProveDlog(pk) => {
@@ -80,10 +98,22 @@ impl TxEvaluator for ProgrammableTxEvaluator {
                 }
             }
         }
+        let converged_ancors = converged_ancors
+            .into_iter()
+            .filter(|(chain_id, point)| self.pool.progress_of(*chain_id) < *point) // remove reached ancors.
+            .map(|(chain_id, point)| ProgressPoint { chain_id, point })
+            .collect::<Vec<_>>();
+        let outputs = evaluated_outputs
+            .into_iter()
+            .map(|cell| CellMeta {
+                cell,
+                ancors: converged_ancors.clone(),
+            })
+            .collect();
         // todo: perform invokations, add computed outputs to `evaluated_outputs`;
         Ok(EvaluatedTransaction {
             inputs: verified_inputs,
-            outputs: evaluated_outputs,
+            outputs,
         })
     }
 }

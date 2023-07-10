@@ -1,4 +1,4 @@
-use spectrum_ledger::cell::{AnyCell, CellPtr, DatumRef, Owner, ScriptRef};
+use spectrum_ledger::cell::{AnyCell, CellMeta, CellPtr, DatumRef, Owner, ScriptRef};
 use spectrum_ledger::transaction::{
     DatumWitness, LinkedScriptInv, LinkedTransaction, ScriptInv, ScriptWitness, Transaction,
 };
@@ -23,13 +23,13 @@ pub trait TxLinker {
     fn link_transaction(&self, tx: Transaction) -> Result<LinkedTransaction, LinkingError>;
 }
 
-pub struct LedgerTxLinker<L> {
-    pub ledger: L,
+pub struct LedgerTxLinker<P> {
+    pub pool: P,
 }
 
-impl<L> TxLinker for LedgerTxLinker<L>
+impl<P> TxLinker for LedgerTxLinker<P>
 where
-    L: CellPool,
+    P: CellPool,
 {
     fn link_transaction(&self, tx: Transaction) -> Result<LinkedTransaction, LinkingError> {
         let digest = tx.digest();
@@ -42,17 +42,33 @@ where
         } = tx;
         let mut linked_inputs = vec![];
         for (ix, (pt, maybe_sig_ix)) in inputs.into_iter().enumerate() {
-            if let Some(cell) = self.ledger.get(pt) {
-                if let AnyCell::Mut(mut_cell) = cell {
+            if let Some(cell) = self.pool.get(pt) {
+                if let CellMeta {
+                    cell: AnyCell::Mut(mut_cell),
+                    ancors,
+                } = cell
+                {
                     match (&mut_cell.core.owner, maybe_sig_ix) {
                         (Owner::ProveDlog(_), Some(sig_ix)) => {
                             if let Some(sig) = witness.signatures.get(sig_ix as usize) {
-                                linked_inputs.push((mut_cell, Some(sig.clone())));
+                                linked_inputs.push((
+                                    CellMeta {
+                                        cell: mut_cell,
+                                        ancors,
+                                    },
+                                    Some(sig.clone()),
+                                ));
                             } else {
                                 return Err(LinkingError::MissingSignature(ix));
                             }
                         }
-                        (Owner::ScriptHash(_), None) => linked_inputs.push((mut_cell, None)),
+                        (Owner::ScriptHash(_), None) => linked_inputs.push((
+                            CellMeta {
+                                cell: mut_cell,
+                                ancors,
+                            },
+                            None,
+                        )),
                         _ => return Err(LinkingError::MalformedInput(ix)),
                     }
                 } else {
@@ -64,8 +80,8 @@ where
         }
         let mut linked_ref_inputs = vec![];
         for pt in reference_inputs {
-            if let Some(cell) = self.ledger.get(pt) {
-                linked_ref_inputs.push(cell);
+            if let Some(mcell) = self.pool.get(pt) {
+                linked_ref_inputs.push(mcell.cell);
             } else {
                 return Err(LinkingError::MissingRefInput(pt));
             }
@@ -85,7 +101,7 @@ where
                     if let Some(datum_wit) = witness.data.get(datum_ix as usize) {
                         match datum_wit {
                             DatumWitness::DatumRef(datum_ref) => {
-                                if let Some(datum) = self.ledger.get_ref_datum(*datum_ref) {
+                                if let Some(datum) = self.pool.get_ref_datum(*datum_ref) {
                                     maybe_datum = Some(datum);
                                 }
                             }
@@ -95,7 +111,7 @@ where
                 }
                 let script = match script_wit {
                     ScriptWitness::ScriptRef(sc_ref) => {
-                        if let Some(script) = self.ledger.get_ref_script(*sc_ref) {
+                        if let Some(script) = self.pool.get_ref_script(*sc_ref) {
                             script
                         } else {
                             return Err(LinkingError::UnresolvedScriptRef(*sc_ref));

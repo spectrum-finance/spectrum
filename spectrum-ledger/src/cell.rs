@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use higher::Functor;
 use k256::PublicKey;
 
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
@@ -103,10 +104,10 @@ pub struct BoxDestination {
 }
 
 /// Progress point on external chain.
-#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Eq, PartialEq, Clone, Debug, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ProgressPoint {
-    chain_id: ChainId,
-    point: Point,
+    pub chain_id: ChainId,
+    pub point: Point,
 }
 
 /// Main and the only value carrying unit in the system.
@@ -126,9 +127,6 @@ pub struct Cell {
     pub tx_id: TxId,
     /// Index of the cell inside the TX which created it.
     pub index: u32,
-    /// Until external systems which this cell depends on reach those progress points
-    /// the cell is not confirmed.
-    pub confirmed_after: Vec<ProgressPoint>,
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -198,4 +196,13 @@ impl AnyCell {
             AnyCell::Term(tc) => tc.core.owner,
         }
     }
+}
+
+/// Representation of a cell with associated metadata attached to it.
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize, higher::Functor)]
+pub struct CellMeta<C> {
+    pub cell: C,
+    /// Until external systems which this cell depends on reach those progress points
+    /// the cell is not confirmed.
+    pub ancors: Vec<ProgressPoint>,
 }
