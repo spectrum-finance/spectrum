@@ -46,38 +46,35 @@ where
         statement: Option<S>,
         public_data: P,
         overlay: DagOverlay,
-        partitions: PP,
         config: DagMulticastingConfig,
+        partitions: PP,
     ) -> Self {
-        pub fn new(statement: Option<S>, public_data: P, overlay: DagOverlay) -> Self {
-            let parent_nodes: Vec<_> = overlay
-                .parent_nodes
-                .iter()
-                .map(|id| partitions.try_index_peer(*id).unwrap())
-                .collect();
-            let children_nodes: Vec<_> = overlay
-                .child_nodes
-                .iter()
-                .map(|(id, _)| partitions.try_index_peer(*id).unwrap())
-                .collect();
-            trace!(
-                "Overlay info: parent_nodes: {:?}, children_nodes: {:?}",
-                parent_nodes,
-                children_nodes
-            );
-            let processing_delay = Duration::from_millis(10);
-            Self {
-                statement,
-                public_data,
-                overlay,
-                contacted_peers: HashSet::new(),
-                outbox: VecDeque::new(),
-                partitions,
-                creation_time: std::time::Instant::now(),
-                processing_delay: config.processing_delay,
-                multicasting_duration: config.multicasting_duration,
-                next_processing: Some(Box::pin(tokio::time::sleep(config.processing_delay))),
-            }
+        let parent_nodes: Vec<_> = overlay
+            .parent_nodes
+            .iter()
+            .map(|id| partitions.try_index_peer(*id).unwrap())
+            .collect();
+        let children_nodes: Vec<_> = overlay
+            .child_nodes
+            .iter()
+            .map(|(id, _)| partitions.try_index_peer(*id).unwrap())
+            .collect();
+        trace!(
+            "Overlay info: parent_nodes: {:?}, children_nodes: {:?}",
+            parent_nodes,
+            children_nodes
+        );
+        Self {
+            statement,
+            public_data,
+            overlay,
+            contacted_peers: HashSet::new(),
+            outbox: VecDeque::new(),
+            partitions,
+            creation_time: std::time::Instant::now(),
+            processing_delay: config.processing_delay,
+            multicasting_duration: config.multicasting_duration,
+            next_processing: Some(Box::pin(tokio::time::sleep(config.processing_delay))),
         }
     }
 }

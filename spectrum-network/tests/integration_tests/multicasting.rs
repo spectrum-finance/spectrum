@@ -78,10 +78,11 @@ impl<S> AssertKinds for MulticastingBehaviour<S> where
 }
 
 impl<S> MulticastingBehaviour<S> {
-    pub fn new(host_ix: usize, 
-
+    pub fn new(
+        host_ix: usize,
         partitions: BinomialPeerPartitions<PseudoRandomGenPerm>,
-               multicasting_conf: DagMulticastingConfig) -> (Self, mpsc::Sender<SetTask<S>>) {
+        multicasting_conf: DagMulticastingConfig,
+    ) -> (Self, mpsc::Sender<SetTask<S>>) {
         let (snd, recv) = mpsc::channel(128);
         (
             Self {
@@ -285,81 +286,13 @@ where
         assert_eq!(peer_id, other_peer_id);
         let peer_addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", 8000 + node_ix).parse().unwrap();
 
-        let bb = peer_sk.to_bytes().to_vec();
-        let key = SecretKey::from_slice(&bb).unwrap();
-        assert_eq!(key, peer_sk);
-
-        let one_shot_proto_conf = OneShotProtocolConfig {
-            version: ProtocolVer::default(),
-            spec: OneShotProtocolSpec {
-                max_message_size: 5000,
-            },
-        };
-        let peer_conn_handler_conf = PeerConnHandlerConf {
-            async_msg_buffer_size: 100,
-            sync_msg_buffer_size: 100,
-            open_timeout: Duration::from_secs(60),
-            initial_keep_alive: Duration::from_secs(120),
-        };
-        let netw_config = NetworkingConfig {
-            min_known_peers: 1,
-            min_outbound: 1,
-            max_inbound: 10,
-            max_outbound: 20,
-        };
-        let peer_manager_conf = PeerManagerConfig {
-            min_acceptable_reputation: Reputation::from(-50),
-            min_reputation: Reputation::from(-20),
-            conn_reset_outbound_backoff: Duration::from_secs(120),
-            conn_alloc_interval: Duration::from_secs(30),
-            prot_alloc_interval: Duration::from_secs(30),
-            protocols_allocation: Vec::new(),
-            peer_manager_msg_buffer_size: 1000,
-        };
-        let multicasting_conf = DagMulticastingConfig {
-            processing_delay: Duration::from_millis(10),
-            multicasting_duration: Duration::from_millis(200),
-            redundancy_factor: 5,
-            seed: 42,
-        };
-        let (mcast, handler_snd) = MulticastingBehaviour::<S>::new(node_ix, multicasting_conf);
-        let peer_state = PeerRepo::new(netw_config, vec![]);
-        let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
-        let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(100);
-        let network_api = NetworkMailbox {
-            mailbox_snd: requests_snd,
-        };
-        let (mut aggr_handler, aggr_mailbox) =
-            ProtocolHandler::new(mcast, network_api, SIGMA_AGGR_PROTOCOL_ID, 10);
-        let nc = NetworkController::new(
-            peer_conn_handler_conf,
-            HashMap::from([(
-                SIGMA_AGGR_PROTOCOL_ID,
-                (ProtocolConfig::OneShot(one_shot_proto_conf.clone()), aggr_mailbox),
-            )]),
-            peers,
-            peer_manager,
-            requests_recv,
-        );
-        let (abortable_peer, handle) =
-            futures::future::abortable(create_swarm(peer_key.clone(), nc, peer_addr.clone(), node_ix));
-        tokio::task::spawn(async move {
-            println!("[Peer-{}] :: spawning protocol handler..", node_ix);
-            loop {
-                aggr_handler.select_next_some().await;
-            }
-        });
-        tokio::task::spawn(async move {
-            println!("[Peer-{}] :: spawning peer..", node_ix);
-            abortable_peer.await
-        });
-        Peer {
+        PeerInfo {
             peer_id,
             peer_key,
             peer_addr,
             peer_pk: peer_sk.public_key(),
             peer_sk,
-        });
+        }
     };
 
     for i in 0..n {
@@ -414,7 +347,14 @@ where
             let host_pid = PeerId::from(pk);
             let partitions = partitioner.make(host_pid, peers_and_addr.clone());
 
-            let (mcast, handler_snd) = MulticastingBehaviour::<S>::new(node_ix, partitions);
+            let multicasting_conf = DagMulticastingConfig {
+                processing_delay: Duration::from_millis(10),
+                multicasting_duration: Duration::from_millis(200),
+                redundancy_factor: 5,
+                seed: 42,
+            };
+            let (mcast, handler_snd) =
+                MulticastingBehaviour::<S>::new(node_ix, partitions, multicasting_conf);
             let peer_state = PeerRepo::new(netw_config, vec![]);
             let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
             let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(100);

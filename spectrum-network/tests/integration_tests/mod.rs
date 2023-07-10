@@ -1105,7 +1105,7 @@ async fn sigma_aggregation_byzantine() {
     for _ in 0..total_runs {
         let byzantine_nodes = vec![PeerIx::from(0), PeerIx::from(1), PeerIx::from(2), PeerIx::from(3)];
         let num_passes =
-            run_sigma_aggregation_test(32, byzantine_nodes, Threshold { num: 2, denom: 3 }).await;
+            run_sigma_aggregation_test(16, byzantine_nodes, Threshold { num: 2, denom: 3 }).await;
         if num_passes == 0 {
             num_fails += 1;
         } else {
@@ -1218,9 +1218,7 @@ async fn run_sigma_aggregation_test(
         });
     }
 
-    wasm_timer::Delay::new(Duration::from_millis(60000))
-        .await
-        .unwrap();
+    wasm_timer::Delay::new(Duration::from_millis(1200)).await.unwrap();
 
     for abort_handle in abort_handles {
         abort_handle.abort();
