@@ -1,4 +1,4 @@
-use spectrum_ledger::cell::{AnyCell, CellRef, MutCell};
+use spectrum_ledger::cell::{AnyCell, CellRef, ActiveCell};
 use spectrum_ledger::transaction::EvaluatedTransaction;
 
 pub enum TransactionEffect {

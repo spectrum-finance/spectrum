@@ -44,16 +44,16 @@ where
         for (ix, (pt, maybe_sig_ix)) in inputs.into_iter().enumerate() {
             if let Some(cell) = self.pool.get(pt) {
                 if let CellMeta {
-                    cell: AnyCell::Mut(mut_cell),
+                    cell: AnyCell::Mut(active_cell),
                     ancors,
                 } = cell
                 {
-                    match (&mut_cell.core.owner, maybe_sig_ix) {
+                    match (&active_cell.owner, maybe_sig_ix) {
                         (Owner::ProveDlog(_), Some(sig_ix)) => {
                             if let Some(sig) = witness.signatures.get(sig_ix as usize) {
                                 linked_inputs.push((
                                     CellMeta {
-                                        cell: mut_cell,
+                                        cell: active_cell,
                                         ancors,
                                     },
                                     Some(sig.clone()),
@@ -64,7 +64,7 @@ where
                         }
                         (Owner::ScriptHash(_), None) => linked_inputs.push((
                             CellMeta {
-                                cell: mut_cell,
+                                cell: active_cell,
                                 ancors,
                             },
                             None,

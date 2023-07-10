@@ -8,7 +8,7 @@ use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::signature::Signature;
 use spectrum_move::{SerializedModule, SerializedValue};
 
-use crate::cell::{AnyCell, CellMeta, CellPtr, CellRef, DatumRef, MutCell, ScriptRef};
+use crate::cell::{ActiveCell, AnyCell, CellMeta, CellPtr, CellRef, DatumRef, ScriptRef};
 use crate::SystemDigest;
 
 #[derive(
@@ -141,7 +141,7 @@ impl SystemDigest for Transaction {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct LinkedTransaction {
     /// Consumed boxes.
-    pub inputs: Vec<(CellMeta<MutCell>, Option<Signature>)>,
+    pub inputs: Vec<(CellMeta<ActiveCell>, Option<Signature>)>,
     /// Read-only inputs.
     pub reference_inputs: Vec<AnyCell>,
     /// Script invokations.
@@ -157,7 +157,7 @@ pub struct LinkedTransaction {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct EvaluatedTransaction {
     /// Consumed boxes.
-    pub inputs: Vec<MutCell>,
+    pub inputs: Vec<ActiveCell>,
     /// Evaluated outputs.
     pub outputs: Vec<CellMeta<AnyCell>>,
 }

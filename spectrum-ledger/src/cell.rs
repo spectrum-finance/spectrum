@@ -130,14 +130,26 @@ pub struct Cell {
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct MutCell {
-    /// Core cell
-    pub core: Cell,
+pub struct ActiveCell {
+    /// Monetary value attached to the cell.
+    pub value: SValue,
+    /// Owner that can mutate/consume the cell.
+    pub owner: Owner,
+    /// Data attached to the cell.
+    pub datum: Option<DatumHash>,
+    /// Script that can be referenced by other transactions.
+    pub reference_script: Option<SerializedModule>,
+    /// Datum that can be referenced by other transactions.
+    pub reference_datum: Option<SerializedValue>,
+    /// ID of a transaction which created the cell.
+    pub tx_id: TxId,
+    /// Index of the cell inside the TX which created it.
+    pub index: u32,
     /// Monotonically increasing version of the box.
     pub ver: Serial,
 }
 
-impl MutCell {
+impl ActiveCell {
     pub fn id(&self) -> CellId {
         CellId::from(self.digest())
     }
@@ -147,12 +159,16 @@ impl MutCell {
     }
 }
 
-impl DigestViaEncoder for MutCell {}
+impl DigestViaEncoder for ActiveCell {}
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TermCell {
-    /// Core cell
-    pub core: Cell,
+    /// Monetary value attached to the cell.
+    pub value: SValue,
+    /// ID of a transaction which created the cell.
+    pub tx_id: TxId,
+    /// Index of the cell inside the TX which created it.
+    pub index: u32,
     /// Destination chain of the cell (where the value of the cell is supposed to settle in the end).
     pub dst: BoxDestination,
 }
@@ -167,7 +183,7 @@ impl DigestViaEncoder for TermCell {}
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AnyCell {
-    Mut(MutCell),
+    Mut(ActiveCell),
     Term(TermCell),
 }
 
@@ -188,13 +204,6 @@ impl AnyCell {
 
     pub fn cref(&self) -> CellRef {
         CellRef(self.id(), self.ver())
-    }
-
-    pub fn owner(&self) -> Owner {
-        match self {
-            AnyCell::Mut(mc) => mc.core.owner,
-            AnyCell::Term(tc) => tc.core.owner,
-        }
     }
 }
 

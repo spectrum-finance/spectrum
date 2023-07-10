@@ -1,9 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use k256::schnorr::signature::Verifier;
 use k256::schnorr::VerifyingKey;
 
-use spectrum_ledger::cell::{AnyCell, Cell, CellMeta, MutCell, Owner, ProgressPoint, ScriptHash};
+use spectrum_ledger::cell::{ActiveCell, CellMeta, Owner, ProgressPoint, ScriptHash};
 use spectrum_ledger::interop::Point;
 use spectrum_ledger::transaction::{EvaluatedTransaction, LinkedTransaction};
 use spectrum_ledger::ChainId;
@@ -24,7 +24,7 @@ pub trait TxEvaluator {
 
 pub struct InvokationScope {
     pub script: SerializedModule,
-    pub owned_inputs: Vec<MutCell>,
+    pub owned_inputs: Vec<ActiveCell>,
 }
 
 impl InvokationScope {
@@ -34,7 +34,7 @@ impl InvokationScope {
             owned_inputs: Vec::new(),
         }
     }
-    pub fn add_owned_input(&mut self, cell: MutCell) {
+    pub fn add_owned_input(&mut self, cell: ActiveCell) {
         self.owned_inputs.push(cell);
     }
 }
@@ -78,7 +78,7 @@ where
                 converged_ancors.insert(chain_id, point);
             }
             if let Some(sig) = maybe_sig {
-                match i.core.owner {
+                match i.owner {
                     Owner::ProveDlog(pk) => {
                         let vk = VerifyingKey::try_from(pk).unwrap();
                         if vk.verify(hash.as_ref(), &sig.into()).is_ok() {
