@@ -4,8 +4,8 @@ A \enquote{Cell} encodes monetary value (e.g., fungible or non-fungible tokens) 
 \begin{center}
     \begin{tabular}{ | r l | }
         \hline
-        TxId =   & H(Tx)            \\
-        CellId = & H(TxId \times I) \\
+        TxId =   & H(Tx)                    \\
+        CellId = & H(TxId \times \text{ I}) \\
         \hline
     \end{tabular}
 \end{center}
@@ -16,15 +16,15 @@ The identifier remains stable even when cell is modified as we explain below.
 \begin{center}
     \begin{tabular}{ | r l | }
         \hline
-        Value =         & \blue \texttt{u64}                                                     \\
-        ChainId =       & \blue \texttt{u64}                                                     \\
-        Version =       & \blue \texttt{u64}                                                     \\
-        ProgressPoint = & ChainId \times \blue \texttt{u64}                                      \\
-        ActiveCell =    & CellId \times Address \times Value \times Version \times ProgressPoint \\
-        BridgeInputs =  & [\blue \texttt{u64}]                                                   \\
-        Destination =   & ChainId \times BridgeInputs                                            \\
-        TermCell =      & CellId \times Value \times ProgressPoint \times Destination            \\
-        Cell =          & ActiveCell \uplus TermCell                                             \\
+        Value =         & \blue \texttt{u64}                                                                                  \\
+        ChainId =       & \blue \texttt{u64}                                                                                  \\
+        Version =       & \blue \texttt{u64}                                                                                  \\
+        ProgressPoint = & ChainId \times \blue \texttt{ u64}                                                                  \\
+        ActiveCell =    & CellId \times \text{ Address} \times \text{Value} \times \text{Version} \times \text{ProgressPoint} \\
+        BridgeInputs =  & [\blue \texttt{u64}]                                                                                \\
+        Destination =   & ChainId \times \text{ BridgeInputs}                                                                 \\
+        TermCell =      & CellId \times \text{ Value} \times \text{ProgressPoint} \times \text{Destination}                   \\
+        Cell =          & ActiveCell \uplus \text{ TermCell}                                                                  \\
         \hline
     \end{tabular}
 \end{center}
@@ -43,8 +43,8 @@ This opens the door for smooth management of shared cells (e.g., stablecoin bank
 \begin{center}
     \begin{tabular}{ | r l | }
         \hline
-        Authenticator = & ProveDlog \uplus Script \\
-        Address =       & H(Authenticator)        \\
+        Authenticator = & ProveDlog \uplus \text{ Script} \\
+        Address =       & H(Authenticator)                \\
         \hline
     \end{tabular}
 \end{center}
@@ -65,11 +65,11 @@ In contrast to active cells, terminal cells are immutable and value from them ca
 \begin{center}
     \begin{tabular}{ | r l | }
         \hline
-        Imported =   & ActiveCell                                                \\
-        Exported =   & CellId                                                    \\
-        Revoked =    & CellId                                                    \\
-        Progressed = & ProgressPoint                                             \\
-        Eff =        & Imported \uplus Exported \uplus Revoked \uplus Progressed \\
+        Imported =   & ActiveCell                                                                      \\
+        Exported =   & CellId                                                                          \\
+        Revoked =    & CellId                                                                          \\
+        Progressed = & ProgressPoint                                                                   \\
+        Eff =        & Imported \uplus \text{ Exported} \uplus \text{Revoked} \uplus \text{Progressed} \\
         \hline
     \end{tabular}
 \end{center}
@@ -90,11 +90,11 @@ Below we list possible effects:
 \begin{center}
     \begin{tabular}{ | r l | }
         \hline
-        CellRef =          & CellId \times Version                           \\
-        Inputs =           & CellRef \times [CellId \uplus CellRef]          \\
-        RefInputs =        & [Cell]                                          \\
-        EvaluatedOutputs = & [Cell]                                          \\
-        Tx =               & Inputs \times RefInputs \times EvaluatedOutputs \\
+        CellRef =          & CellId \times \text{ Version}                                  \\
+        Inputs =           & CellRef \times \text{ [}\text{CellId} \uplus \text{CellRef}]   \\
+        RefInputs =        & [Cell]                                                         \\
+        EvaluatedOutputs = & [Cell]                                                         \\
+        Tx =               & Inputs \times \text{ RefInputs} \times \text{EvaluatedOutputs} \\
         \hline
     \end{tabular}
 \end{center}
