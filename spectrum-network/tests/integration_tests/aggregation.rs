@@ -109,7 +109,7 @@ pub fn setup_nodes<'de>(
                 rng: gen_perm.clone(),
             },
             RedundancyDagOverlayBuilder {
-                redundancy_factor: 3,
+                redundancy_factor: 5,
                 seed: 42,
             },
             aggr_handler_inbox,

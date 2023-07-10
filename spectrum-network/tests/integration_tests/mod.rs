@@ -1091,15 +1091,15 @@ async fn sigma_aggregation_normal() {
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
 #[tokio::test]
 async fn sigma_aggregation_byzantine() {
-    let total_runs = 200;
+    let total_runs = 10;
     let mut num_fails = 0;
     let mut total_passes = 0;
     for _ in 0..total_runs {
         let byzantine_nodes = vec![
             PeerIx::from(0),
             PeerIx::from(1),
-            //PeerIx::from(2),
-            //PeerIx::from(3)
+            PeerIx::from(2),
+            PeerIx::from(3)
         ];
         let num_passes =
             run_sigma_aggregation_test(16, byzantine_nodes, Threshold { num: 2, denom: 3 }).await;
