@@ -12,54 +12,80 @@ use libp2p_identity::PeerId;
 
 use algebra_core::{CommutativePartialSemigroup, CommutativeSemigroup};
 use spectrum_crypto::{AsyncVerifiable, VerifiableAgainst, Verified};
+use tracing::trace;
 
 use crate::protocol_handler::multicasting::overlay::DagOverlay;
 use crate::protocol_handler::pool::{FromTask, TaskPool};
 use crate::protocol_handler::void::VoidMessage;
 use crate::protocol_handler::{NetworkAction, ProtocolBehaviourOut, TemporalProtocolStage};
 
-use super::handel::partitioning::PeerIx;
+use super::handel::partitioning::{PeerIx, PeerPartitions};
 use super::handel::Weighted;
 
 pub mod overlay;
 
 /// DAG based multicasting that accumulates received statements along the way.
-pub struct DagMulticasting<S, P> {
+pub struct DagMulticasting<S, P, PP> {
     pub statement: Option<S>,
     pub public_data: P,
     pub overlay: DagOverlay,
     pub contacted_peers: HashSet<PeerId>,
     pub outbox: VecDeque<ProtocolBehaviourOut<VoidMessage, S>>,
+    partitions: PP,
     creation_time: std::time::Instant,
     processing_delay: Duration,
     next_processing: Option<Pin<Box<tokio::time::Sleep>>>,
     multicasting_duration: Duration,
 }
 
-impl<S, P> DagMulticasting<S, P> {
+impl<S, P, PP> DagMulticasting<S, P, PP>
+where
+    PP: PeerPartitions + Send + Clone,
+{
     pub fn new(
         statement: Option<S>,
         public_data: P,
         overlay: DagOverlay,
+        partitions: PP,
         config: DagMulticastingConfig,
     ) -> Self {
-        Self {
-            statement,
-            public_data,
-            overlay,
-            contacted_peers: HashSet::new(),
-            outbox: VecDeque::new(),
-            creation_time: std::time::Instant::now(),
-            processing_delay: config.processing_delay,
-            multicasting_duration: config.multicasting_duration,
-            next_processing: Some(Box::pin(tokio::time::sleep(config.processing_delay))),
+        pub fn new(statement: Option<S>, public_data: P, overlay: DagOverlay) -> Self {
+            let parent_nodes: Vec<_> = overlay
+                .parent_nodes
+                .iter()
+                .map(|id| partitions.try_index_peer(*id).unwrap())
+                .collect();
+            let children_nodes: Vec<_> = overlay
+                .child_nodes
+                .iter()
+                .map(|(id, _)| partitions.try_index_peer(*id).unwrap())
+                .collect();
+            trace!(
+                "Overlay info: parent_nodes: {:?}, children_nodes: {:?}",
+                parent_nodes,
+                children_nodes
+            );
+            let processing_delay = Duration::from_millis(10);
+            Self {
+                statement,
+                public_data,
+                overlay,
+                contacted_peers: HashSet::new(),
+                outbox: VecDeque::new(),
+                partitions,
+                creation_time: std::time::Instant::now(),
+                processing_delay: config.processing_delay,
+                multicasting_duration: config.multicasting_duration,
+                next_processing: Some(Box::pin(tokio::time::sleep(config.processing_delay))),
+            }
         }
     }
 }
 
-impl<S, P> TemporalProtocolStage<VoidMessage, S, S> for DagMulticasting<S, P>
+impl<S, P, PP> TemporalProtocolStage<VoidMessage, S, S> for DagMulticasting<S, P, PP>
 where
     S: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone,
+    PP: PeerPartitions + Send + Clone,
 {
     fn inject_message(&mut self, peer_id: PeerId, content: S) {
         if self.overlay.parent_nodes.contains(&peer_id) {
@@ -67,10 +93,24 @@ where
                 if let Some(stmt) = self.statement.take() {
                     if let Some(combined) = stmt.try_combine(&content) {
                         if combined.weight() > stmt.weight() {
-                            println!("Got new contribution from broadcast");
+                            let previously_contacted_peers: Vec<_> = self
+                                .contacted_peers
+                                .iter()
+                                .map(|id| self.partitions.try_index_peer(*id).unwrap())
+                                .collect();
+                            trace!(
+                                "Got new broadcast contribution from {:?}. Previously contacted peers: {:?}",
+                                self.partitions.try_index_peer(peer_id).unwrap(),
+                                previously_contacted_peers,
+                            );
                             // Since we have a new contribution, let's broadcast again through
                             // all nodes in the overlay.
                             self.contacted_peers.clear();
+                        } else {
+                            trace!(
+                                "Got broadcast contribution from {:?} (nothing new)",
+                                self.partitions.try_index_peer(peer_id).unwrap(),
+                            );
                         }
                         let _ = self.statement.insert(combined);
                     }
@@ -248,7 +288,9 @@ where
 
 pub trait Multicasting<S>: TemporalProtocolStage<VoidMessage, S, S> {}
 
-impl<S, P> Multicasting<S> for DagMulticasting<S, P> where
-    S: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone
+impl<S, P, PP> Multicasting<S> for DagMulticasting<S, P, PP>
+where
+    S: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone,
+    PP: PeerPartitions + Send + Clone,
 {
 }

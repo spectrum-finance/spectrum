@@ -53,6 +53,7 @@ use spectrum_network::{
     },
     types::{ProtocolId, ProtocolVer, Reputation},
 };
+use tracing::{info, trace};
 
 use crate::integration_tests::fake_sync_behaviour::{FakeSyncBehaviour, FakeSyncMessage, FakeSyncMessageV1};
 use crate::integration_tests::multicasting::{SetTask, Statements};
@@ -970,10 +971,10 @@ async fn create_swarm<P>(
 
     loop {
         match swarm.select_next_some().await {
-            SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {:?}", address),
+            SwarmEvent::NewListenAddr { address, .. } => trace!("Listening on {:?}", address),
             SwarmEvent::Behaviour(event) => tx.try_send((peer, Msg::NetworkController(event))).unwrap(),
             ce => {
-                //println!("{:?} :: Recv event :: {:?}", peer, ce);
+                //trace!("{:?} :: Recv event :: {:?}", peer, ce);
             }
         }
     }
@@ -1013,7 +1014,7 @@ async fn multicasting_normal() {
     };
 
     wasm_timer::Delay::new(Duration::from_secs(1)).await.unwrap();
-    println!("Starting testing ..");
+    trace!("Starting testing ..");
 
     let root_pid = peers[0].peer_id;
     let mut result_futures = Vec::new();
@@ -1036,7 +1037,7 @@ async fn multicasting_normal() {
             })
             .await
             .unwrap();
-        println!("Assigned task to peer {:?}", peer.peer_addr);
+        trace!("Assigned task to peer {:?}", peer.peer_addr);
     }
 
     let started_at = Instant::now();
@@ -1055,7 +1056,7 @@ async fn multicasting_normal() {
                 let elapsed = finished_at.sub(started_at);
                 match res {
                     Ok(_) => {
-                        println!(
+                        trace!(
                             "[Peer-{}] :: Finished mcast in {} millis",
                             ix,
                             elapsed.as_millis()
@@ -1063,7 +1064,7 @@ async fn multicasting_normal() {
                         stats.lock().await.num_succ += 1;
                     }
                     Err(_) => {
-                        println!("[Peer-{}] :: Failed mcast in {} millis", ix, elapsed.as_millis());
+                        trace!("[Peer-{}] :: Failed mcast in {} millis", ix, elapsed.as_millis());
                         stats.lock().await.num_fail += 1;
                     }
                 }
@@ -1073,13 +1074,13 @@ async fn multicasting_normal() {
 
     wasm_timer::Delay::new(Duration::from_secs(5)).await.unwrap();
 
-    println!("Timeout");
+    trace!("Timeout");
 
     for peer in &peers {
         peer.peer_handle.abort();
     }
 
-    println!("Finished. {:?}", stats.lock().await);
+    trace!("Finished. {:?}", stats.lock().await);
 }
 
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
@@ -1091,18 +1092,20 @@ async fn sigma_aggregation_normal() {
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
 #[tokio::test]
 async fn sigma_aggregation_byzantine() {
-    let total_runs = 10;
+    //console_subscriber::init();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_ansi(false)
+        .finish();
+    // use that subscriber to process traces emitted after this point
+    tracing::subscriber::set_global_default(subscriber).unwrap();
+    let total_runs = 5;
     let mut num_fails = 0;
     let mut total_passes = 0;
     for _ in 0..total_runs {
-        let byzantine_nodes = vec![
-            PeerIx::from(0),
-            PeerIx::from(1),
-            PeerIx::from(2),
-            PeerIx::from(3)
-        ];
+        let byzantine_nodes = vec![PeerIx::from(0), PeerIx::from(1), PeerIx::from(2), PeerIx::from(3)];
         let num_passes =
-            run_sigma_aggregation_test(16, byzantine_nodes, Threshold { num: 2, denom: 3 }).await;
+            run_sigma_aggregation_test(32, byzantine_nodes, Threshold { num: 2, denom: 3 }).await;
         if num_passes == 0 {
             num_fails += 1;
         } else {
@@ -1110,12 +1113,12 @@ async fn sigma_aggregation_byzantine() {
         }
     }
 
-    println!(
+    info!(
         "number of fails: {}, failure rate: {}%",
         num_fails,
         (num_fails as f64) / (total_runs as f64) * 100.0
     );
-    println!(
+    info!(
         "average number of successful nodes per run: {}",
         (total_passes as f64) / (total_runs as f64)
     );
@@ -1163,7 +1166,7 @@ async fn run_sigma_aggregation_test(
         let host_ix = partitions.try_index_peer(host_pid).unwrap();
 
         if byzantine_nodes.contains(&host_ix) {
-            println!(
+            trace!(
                 "PEER:{} IS BYZANTINE ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
                 node_ix
             );
@@ -1171,13 +1174,13 @@ async fn run_sigma_aggregation_test(
             abort_handles.push(handle);
             aggr_handler_mailboxes.push(peer.aggr_handler_mailbox);
             tokio::task::spawn(async move {
-                println!("PEER:{} :: spawning protocol handler..", node_ix);
+                trace!("PEER:{} :: spawning protocol handler..", node_ix);
                 loop {
                     peer.aggr_handler.select_next_some().await;
                 }
             });
             tokio::task::spawn(async move {
-                println!("PEER:{} :: spawning peer..", node_ix);
+                trace!("PEER:{} :: spawning peer..", node_ix);
                 abortable_peer.await
             });
         }
@@ -1208,21 +1211,23 @@ async fn run_sigma_aggregation_test(
             match res {
                 Ok(_) => {
                     *num_finished.lock().await += 1;
-                    println!("PEER:{} :: Finished aggr in {} millis", ix, elapsed.as_millis())
+                    trace!("PEER:{} :: Finished aggr in {} millis", ix, elapsed.as_millis())
                 }
-                Err(_) => println!("PEER:{} :: Failed aggr in {} millis", ix, elapsed.as_millis()),
+                Err(_) => trace!("PEER:{} :: Failed aggr in {} millis", ix, elapsed.as_millis()),
             }
         });
     }
 
-    wasm_timer::Delay::new(Duration::from_millis(1500)).await.unwrap();
+    wasm_timer::Delay::new(Duration::from_millis(60000))
+        .await
+        .unwrap();
 
     for abort_handle in abort_handles {
         abort_handle.abort();
     }
 
     let num_finished = *num_finished.lock().await;
-    println!(
+    trace!(
         "num_finished aggr: {}, {}%",
         num_finished,
         (num_finished as f64) / (num_nodes as f64) * 100.0
