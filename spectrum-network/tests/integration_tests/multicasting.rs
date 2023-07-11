@@ -286,13 +286,13 @@ where
         assert_eq!(peer_id, other_peer_id);
         let peer_addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", 8000 + node_ix).parse().unwrap();
 
-        PeerInfo {
+        peers_info.push(PeerInfo {
             peer_id,
             peer_key,
             peer_addr,
             peer_pk: peer_sk.public_key(),
             peer_sk,
-        }
+        });
     };
 
     for i in 0..n {

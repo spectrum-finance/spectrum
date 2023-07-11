@@ -370,7 +370,7 @@ where
     THandler: ProtocolEvents + Clone + 'static,
 {
     type ConnectionHandler = PeerConnHandler;
-    type OutEvent = NetworkControllerOut;
+    type ToSwarm = NetworkControllerOut;
 
     fn handle_established_inbound_connection(
         &mut self,
@@ -533,11 +533,14 @@ where
             FromSwarm::ListenerClosed(e) => {
                 info!("[NC] ListerClosed({:?}", e.reason);
             }
-            FromSwarm::NewExternalAddr(_) => {
-                info!("[NC] NewExternalAddr");
+            FromSwarm::NewExternalAddrCandidate(e) => {
+                info!("[NC] NewExternalAddrCandidate({:?}", e.addr);
             }
-            FromSwarm::ExpiredExternalAddr(_) => {
-                info!("[NC] ExpiredExternalAddr");
+            FromSwarm::ExternalAddrConfirmed(e) => {
+                info!("[NC] ExternalAddrConfirmed({:?}", e.addr);
+            }
+            FromSwarm::ExternalAddrExpired(e) => {
+                info!("[NC] ExternalAddrExpired({:?}", e.addr);
             }
         }
     }
