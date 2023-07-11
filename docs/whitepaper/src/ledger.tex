@@ -1,0 +1,35 @@
+Spectrum network is complex since it works with multiple connected blockchains.
+In order to accurately describe and verify all the necessary properties of the Spectrum ledger, we should agree on the\
+semantics and introduce data types that satisfy some validity conditions which we will describe in this section.
+
+\subsubsection{Model formalization}
+We will start with a semantics needed to describe our system:
+\begin{itemize}
+    \item \textbf{State}: the underlying data type of the Spectrum ledger, the validity of which must be proven.
+
+    \item \textbf{Local state}: auxiliary data type describing the state on one of the connected chains.
+
+    \item \textbf{Transition}: the means by which system is moved from one valid \textit{state} to another valid\
+    \textit{state} or from one valid \textit{local state} to another valid \textit{local state}.
+
+    \item \textbf{Signal}: the means by which \textit{transitions} are triggered.
+
+    \item \textbf{Rule}: algorithm that describes how to derive a valid \textit{states},\
+    \textit{local states} or \textit{transitions}.The rule has an \textit{antecedent}\
+    (sometimes called \textit{premise}) and a
+    \textit{consequent} (sometimes called \textit{conclusion}), such that if the
+    conditions in the antecedent hold, the consequent is assumed to be a valid
+    \textit{state}, \textit{local state} or \textit{transition}.
+
+    \item \textbf{Environment}: sometimes network may implicitly rely on some additional information being present\
+    in the system to evaluate the \textit{rules}.
+    An environment does not have to exist (or, equivalently, we may have an empty environment), but crucially\
+    an environment is not modified by \textit{transitions}.
+\end{itemize}
+
+The whole set of the above concepts forms a state transition system ${\Psi = (S, L, T, \Sigma, R, E)}$,\
+where $S$ is a set of \textit{states}, $L$ is a set of \textit{local states}, $T$ is a set of \textit{transitions},\
+$\Sigma$ is a set of \textit{signals}, $R$ is a set of \textit{rules} and $E$ is a set of \textit{environment} values.
+
+\subsubsection{State Transition System}
+todo
