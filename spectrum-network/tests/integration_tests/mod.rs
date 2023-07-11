@@ -1092,6 +1092,7 @@ async fn sigma_aggregation_normal() {
 #[cfg_attr(feature = "test_peer_punish_too_slow", ignore)]
 #[tokio::test]
 async fn sigma_aggregation_byzantine() {
+    //init_logging_once_for(vec![], LevelFilter::Trace, None);
     //console_subscriber::init();
     let subscriber = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::TRACE)
@@ -1130,8 +1131,6 @@ async fn run_sigma_aggregation_test(
     byzantine_nodes: Vec<PeerIx>,
     threshold: Threshold,
 ) -> usize {
-    //init_logging_once_for(vec![], LevelFilter::Debug, None);
-
     let (peers, partitioner) = aggregation::setup_nodes(num_nodes, threshold);
     let md = blake2b256_hash(b"foo");
     let committee: HashMap<PublicKey, Option<Multiaddr>> = peers

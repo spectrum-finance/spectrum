@@ -36,8 +36,8 @@ impl From<PublicKey> for PeerId {
     fn from(pk: PublicKey) -> Self {
         let k256point = pk.0.to_encoded_point(true);
         let encoded_pk = k256point.as_bytes();
-        PeerId::from_public_key(&libp2p_identity::PublicKey::Secp256k1(
-            libp2p_identity::secp256k1::PublicKey::decode(encoded_pk).unwrap(),
+        PeerId::from_public_key(&libp2p_identity::PublicKey::from(
+            libp2p_identity::secp256k1::PublicKey::try_from_bytes(encoded_pk).unwrap(),
         ))
     }
 }
