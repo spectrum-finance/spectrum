@@ -32,7 +32,7 @@ use spectrum_network::protocol::{
 };
 use spectrum_network::protocol_api::ProtocolMailbox;
 use spectrum_network::protocol_handler::discovery::message::DiscoverySpec;
-use spectrum_network::protocol_handler::discovery::{NodeStatus, DiscoveryBehaviour};
+use spectrum_network::protocol_handler::discovery::{DiscoveryBehaviour, NodeStatus};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
 
@@ -62,7 +62,7 @@ impl std::ops::DerefMut for CustomProtoWithAddr {
 
 impl NetworkBehaviour for CustomProtoWithAddr {
     type ConnectionHandler = <NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox> as NetworkBehaviour>::ConnectionHandler;
-    type OutEvent = <NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox> as NetworkBehaviour>::OutEvent;
+    type ToSwarm = <NetworkController<PeersMailbox, PeerManager<PeerRepo>, ProtocolMailbox> as NetworkBehaviour>::ToSwarm;
 
     fn handle_established_inbound_connection(
         &mut self,
@@ -104,7 +104,7 @@ impl NetworkBehaviour for CustomProtoWithAddr {
         &mut self,
         cx: &mut Context,
         params: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::OutEvent, THandlerInEvent<Self>>> {
+    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         self.inner.poll(cx, params)
     }
 }
@@ -118,14 +118,10 @@ pub fn build_node<'de>(
     Swarm<CustomProtoWithAddr>,
     ProtocolHandler<DiscoveryBehaviour<PeersMailbox>, NetworkMailbox>,
 ) {
-    let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
-        .into_authentic(&keypair)
-        .unwrap();
-
     let transport = MemoryTransport::new()
         .upgrade(upgrade::Version::V1)
-        .authenticate(noise::NoiseConfig::xx(noise_keys).into_authenticated())
-        .multiplex(yamux::YamuxConfig::default())
+        .authenticate(noise::Config::new(&keypair).unwrap())
+        .multiplex(yamux::Config::default())
         .timeout(Duration::from_secs(20))
         .boxed();
 
@@ -171,7 +167,8 @@ pub fn build_node<'de>(
     let network_api = NetworkMailbox {
         mailbox_snd: requests_snd,
     };
-    let (sync_handler, sync_mailbox) = ProtocolHandler::new(sync_behaviour, network_api, DISCOVERY_PROTOCOL_ID, 10);
+    let (sync_handler, sync_mailbox) =
+        ProtocolHandler::new(sync_behaviour, network_api, DISCOVERY_PROTOCOL_ID, 10);
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(

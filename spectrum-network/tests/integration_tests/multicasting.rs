@@ -25,7 +25,12 @@ use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerC
 use spectrum_network::protocol::{
     OneShotProtocolConfig, OneShotProtocolSpec, ProtocolConfig, SIGMA_AGGR_PROTOCOL_ID,
 };
+use spectrum_network::protocol_handler::handel::partitioning::{
+    BinomialPeerPartitions, MakeBinomialPeerPartitions, MakePeerPartitions, PseudoRandomGenPerm,
+};
+use spectrum_network::protocol_handler::handel::Weighted;
 use spectrum_network::protocol_handler::multicasting::overlay::DagOverlay;
+use spectrum_network::protocol_handler::multicasting::DagMulticastingConfig;
 use spectrum_network::protocol_handler::multicasting::{DagMulticasting, Multicasting};
 use spectrum_network::protocol_handler::versioning::Versioned;
 use spectrum_network::protocol_handler::void::VoidMessage;
@@ -51,6 +56,8 @@ pub struct MulticastingBehaviour<S> {
     host_ix: usize,
     state: Option<McastTask<S>>,
     inbox: mpsc::Receiver<SetTask<S>>,
+    multicasting_conf: DagMulticastingConfig,
+    partitions: BinomialPeerPartitions<PseudoRandomGenPerm>,
     stash: HashMap<PeerId, S>,
 }
 
@@ -60,6 +67,7 @@ impl<S> AssertKinds for MulticastingBehaviour<S> where
         + CommutativePartialSemigroup
         + serde::Serialize
         + for<'de> serde::Deserialize<'de>
+        + Weighted
         + Versioned
         + Debug
         + Send
@@ -70,13 +78,19 @@ impl<S> AssertKinds for MulticastingBehaviour<S> where
 }
 
 impl<S> MulticastingBehaviour<S> {
-    pub fn new(host_ix: usize) -> (Self, mpsc::Sender<SetTask<S>>) {
+    pub fn new(
+        host_ix: usize,
+        partitions: BinomialPeerPartitions<PseudoRandomGenPerm>,
+        multicasting_conf: DagMulticastingConfig,
+    ) -> (Self, mpsc::Sender<SetTask<S>>) {
         let (snd, recv) = mpsc::channel(128);
         (
             Self {
                 host_ix,
                 state: None,
                 inbox: recv,
+                multicasting_conf,
+                partitions,
                 stash: HashMap::new(),
             },
             snd,
@@ -90,6 +104,7 @@ where
         + CommutativePartialSemigroup
         + serde::Serialize
         + for<'de> serde::Deserialize<'de>
+        + Weighted
         + Versioned
         + Debug
         + Send
@@ -133,7 +148,13 @@ where
                         self.inject_message(p, s)
                     }
                     self.state = Some(McastTask {
-                        process: Box::new(DagMulticasting::new(initial_statement, (), overlay)),
+                        process: Box::new(DagMulticasting::new(
+                            initial_statement,
+                            (),
+                            overlay,
+                            self.multicasting_conf,
+                            self.partitions.clone(),
+                        )),
                         on_response,
                     })
                 }
@@ -201,6 +222,12 @@ impl<S: Clone + Eq> CommutativePartialSemigroup for Statements<S> {
     }
 }
 
+impl<S> Weighted for Statements<S> {
+    fn weight(&self) -> usize {
+        self.0.len()
+    }
+}
+
 impl<S> VerifiableAgainst<()> for Statements<S> {
     fn verify(&self, _: &()) -> bool {
         true
@@ -219,6 +246,7 @@ where
         + CommutativePartialSemigroup
         + serde::Serialize
         + for<'de> serde::Deserialize<'de>
+        + Weighted
         + Versioned
         + Debug
         + Send
@@ -227,7 +255,23 @@ where
         + 'static,
 {
     let mut rng = OsRng;
-    let mut spawn_node = move |node_ix| {
+
+    struct PeerInfo {
+        peer_id: PeerId,
+        peer_key: identity::Keypair,
+        peer_addr: Multiaddr,
+        peer_pk: k256::PublicKey,
+        peer_sk: SecretKey,
+    }
+
+    let seed = [0_u8; 32];
+    let gen_perm = PseudoRandomGenPerm::new(seed);
+    let gen_perm_cloned = gen_perm.clone();
+
+    let partitioner = MakeBinomialPeerPartitions { rng: gen_perm_cloned };
+
+    let mut peers_info: Vec<PeerInfo> = vec![];
+    let mut gen_peer_info = |node_ix| {
         let peer_sk = SecretKey::random(&mut rng);
         let peer_key = identity::Keypair::from(identity::secp256k1::Keypair::from(k256_to_libsecp256k1(
             peer_sk.clone(),
@@ -242,79 +286,112 @@ where
         assert_eq!(peer_id, other_peer_id);
         let peer_addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", 8000 + node_ix).parse().unwrap();
 
-        let bb = peer_sk.to_bytes().to_vec();
-        let key = SecretKey::from_slice(&bb).unwrap();
-        assert_eq!(key, peer_sk);
-
-        let one_shot_proto_conf = OneShotProtocolConfig {
-            version: ProtocolVer::default(),
-            spec: OneShotProtocolSpec {
-                max_message_size: 5000,
-            },
-        };
-        let peer_conn_handler_conf = PeerConnHandlerConf {
-            async_msg_buffer_size: 100,
-            sync_msg_buffer_size: 100,
-            open_timeout: Duration::from_secs(60),
-            initial_keep_alive: Duration::from_secs(120),
-        };
-        let netw_config = NetworkingConfig {
-            min_known_peers: 1,
-            min_outbound: 1,
-            max_inbound: 10,
-            max_outbound: 20,
-        };
-        let peer_manager_conf = PeerManagerConfig {
-            min_acceptable_reputation: Reputation::from(-50),
-            min_reputation: Reputation::from(-20),
-            conn_reset_outbound_backoff: Duration::from_secs(120),
-            conn_alloc_interval: Duration::from_secs(30),
-            prot_alloc_interval: Duration::from_secs(30),
-            protocols_allocation: Vec::new(),
-            peer_manager_msg_buffer_size: 1000,
-        };
-        let (mcast, handler_snd) = MulticastingBehaviour::<S>::new(node_ix);
-        let peer_state = PeerRepo::new(netw_config, vec![]);
-        let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
-        let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(100);
-        let network_api = NetworkMailbox {
-            mailbox_snd: requests_snd,
-        };
-        let (mut aggr_handler, aggr_mailbox) =
-            ProtocolHandler::new(mcast, network_api, SIGMA_AGGR_PROTOCOL_ID, 10);
-        let nc = NetworkController::new(
-            peer_conn_handler_conf,
-            HashMap::from([(
-                SIGMA_AGGR_PROTOCOL_ID,
-                (ProtocolConfig::OneShot(one_shot_proto_conf.clone()), aggr_mailbox),
-            )]),
-            peers,
-            peer_manager,
-            requests_recv,
-        );
-        let (abortable_peer, handle) =
-            futures::future::abortable(create_swarm(peer_key.clone(), nc, peer_addr.clone(), node_ix));
-        tokio::task::spawn(async move {
-            println!("[Peer-{}] :: spawning protocol handler..", node_ix);
-            loop {
-                aggr_handler.select_next_some().await;
-            }
-        });
-        tokio::task::spawn(async move {
-            println!("[Peer-{}] :: spawning peer..", node_ix);
-            abortable_peer.await
-        });
-        Peer {
+        peers_info.push(PeerInfo {
             peer_id,
+            peer_key,
             peer_addr,
             peer_pk: peer_sk.public_key(),
-            peer_handle: handle,
-            aggr_handler_mailbox: handler_snd,
-        }
+            peer_sk,
+        });
     };
-    let mut nodes = vec![];
+
     for i in 0..n {
-        nodes.push(spawn_node(i));
+        gen_peer_info(i);
     }
-    nodes
+
+    let peers_and_addr: Vec<_> = peers_info
+        .iter()
+        .map(|info| (info.peer_id.clone(), Some(info.peer_addr.clone())))
+        .collect();
+
+    peers_info
+        .into_iter()
+        .enumerate()
+        .map(|(node_ix, info)| {
+            let PeerInfo {
+                peer_id,
+                peer_key,
+                peer_addr,
+                peer_pk,
+                peer_sk,
+            } = info;
+            let one_shot_proto_conf = OneShotProtocolConfig {
+                version: ProtocolVer::default(),
+                spec: OneShotProtocolSpec {
+                    max_message_size: 5000,
+                },
+            };
+            let peer_conn_handler_conf = PeerConnHandlerConf {
+                async_msg_buffer_size: 100,
+                sync_msg_buffer_size: 100,
+                open_timeout: Duration::from_secs(60),
+                initial_keep_alive: Duration::from_secs(120),
+            };
+            let netw_config = NetworkingConfig {
+                min_known_peers: 1,
+                min_outbound: 1,
+                max_inbound: 10,
+                max_outbound: 20,
+            };
+            let peer_manager_conf = PeerManagerConfig {
+                min_acceptable_reputation: Reputation::from(-50),
+                min_reputation: Reputation::from(-20),
+                conn_reset_outbound_backoff: Duration::from_secs(120),
+                conn_alloc_interval: Duration::from_secs(30),
+                prot_alloc_interval: Duration::from_secs(30),
+                protocols_allocation: Vec::new(),
+                peer_manager_msg_buffer_size: 1000,
+            };
+
+            let pk: spectrum_crypto::pubkey::PublicKey = info.peer_pk.into();
+            let host_pid = PeerId::from(pk);
+            let partitions = partitioner.make(host_pid, peers_and_addr.clone());
+
+            let multicasting_conf = DagMulticastingConfig {
+                processing_delay: Duration::from_millis(10),
+                multicasting_duration: Duration::from_millis(200),
+                redundancy_factor: 5,
+                seed: 42,
+            };
+            let (mcast, handler_snd) =
+                MulticastingBehaviour::<S>::new(node_ix, partitions, multicasting_conf);
+            let peer_state = PeerRepo::new(netw_config, vec![]);
+            let (peer_manager, peers) = PeerManager::new(peer_state, peer_manager_conf);
+            let (requests_snd, requests_recv) = mpsc::channel::<NetworkControllerIn>(100);
+            let network_api = NetworkMailbox {
+                mailbox_snd: requests_snd,
+            };
+            let (mut aggr_handler, aggr_mailbox) =
+                ProtocolHandler::new(mcast, network_api, SIGMA_AGGR_PROTOCOL_ID, 10);
+            let nc = NetworkController::new(
+                peer_conn_handler_conf,
+                HashMap::from([(
+                    SIGMA_AGGR_PROTOCOL_ID,
+                    (ProtocolConfig::OneShot(one_shot_proto_conf.clone()), aggr_mailbox),
+                )]),
+                peers,
+                peer_manager,
+                requests_recv,
+            );
+            let (abortable_peer, handle) =
+                futures::future::abortable(create_swarm(peer_key.clone(), nc, peer_addr.clone(), node_ix));
+            tokio::task::spawn(async move {
+                println!("[Peer-{}] :: spawning protocol handler..", node_ix);
+                loop {
+                    aggr_handler.select_next_some().await;
+                }
+            });
+            tokio::task::spawn(async move {
+                println!("[Peer-{}] :: spawning peer..", node_ix);
+                abortable_peer.await
+            });
+            Peer {
+                peer_id,
+                peer_addr,
+                peer_pk: peer_sk.public_key(),
+                peer_handle: handle,
+                aggr_handler_mailbox: handler_snd,
+            }
+        })
+        .collect()
 }
