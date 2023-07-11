@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use higher::Functor;
 use k256::PublicKey;
 
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
