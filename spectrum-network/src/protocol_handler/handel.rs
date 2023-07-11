@@ -6,12 +6,12 @@ use std::ops::{Add, Mul};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+use tracing::trace;
 
 use either::{Either, Left, Right};
 use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use libp2p::PeerId;
-use log::trace;
 
 use algebra_core::CommutativePartialSemigroup;
 use spectrum_crypto::VerifiableAgainst;
@@ -153,6 +153,7 @@ where
     }
 
     /// Run aggregation on the specified level.
+    #[tracing::instrument(skip(self), level = "trace")]
     fn run_aggregation(&mut self, level: usize) {
         if let Some(lvl) = &mut self.levels[level] {
             // Prioritize contributions
@@ -266,6 +267,7 @@ where
     }
 
     /// Activates the given level (if possible).
+    #[tracing::instrument(skip(self), level = "trace")]
     fn try_activate_level(&mut self, level: usize) {
         if self.levels.get(level).is_some() {
             if !self.is_active(level) {
@@ -286,6 +288,10 @@ where
         }
     }
 
+    #[tracing::instrument(
+        skip(self, peer_id, aggregate_contribution, individual_contribution),
+        level = "trace"
+    )]
     fn handle_contribution(
         &mut self,
         peer_id: PeerId,
@@ -315,12 +321,7 @@ where
                 self.unverified_contributions[level as usize].insert(peer_ix, contrib);
                 Ok(())
             } else {
-                trace!(
-                    "{:?}: got unneeded contribution from {:?} @ level {}",
-                    self.own_peer_ix,
-                    peer_ix,
-                    level,
-                );
+                trace!("Got unneeded contribution from {:?}", peer_ix,);
                 Err(())
             }
         } else {
@@ -328,6 +329,7 @@ where
         }
     }
 
+    #[tracing::instrument(skip(self), fields(self.own_peer_ix), level = "trace")]
     fn run_fast_path(&mut self, level: usize) {
         let own_contrib = self.levels[0]
             .as_ref()
@@ -336,11 +338,7 @@ where
             assert!(lvl.is_completed);
             let offset = lvl.last_contacted_peer_ix.map(|x| x + 1).unwrap_or(0);
             let nodes_at_level = self.peer_partitions.peers_at_level(level, PeerOrd::CVP);
-            trace!(
-                "RFP ({:?}): CVP_nodes_at_level: {:?}",
-                self.own_peer_ix,
-                nodes_at_level
-            );
+            trace!("CVP_nodes_at_level: {:?}", nodes_at_level);
             let indexes = (0..self.conf.fast_path_window)
                 .map(|ix| (ix + offset) % nodes_at_level.len())
                 .collect::<Vec<_>>();
@@ -361,9 +359,9 @@ where
                 .collect::<Vec<_>>();
             nodes.sort();
             nodes.dedup();
-            trace!("RFP ({:?}): nodes_to_message: {:?}", self.own_peer_ix, nodes);
+            trace!("nodes_to_message: {:?}", nodes);
             for pix in nodes {
-                trace!("RFP ({:?}): sending contribution to {:?}", self.own_peer_ix, pix);
+                trace!("Sending contribution to {:?}", pix);
                 let pid = self.peer_partitions.identify_peer(pix);
                 let maybe_own_contrib = if !self.own_contribution_recvs.contains(&pix) {
                     own_contrib.clone()
@@ -389,6 +387,7 @@ where
     }
 
     /// Sends messages for one node from each active level.
+    #[tracing::instrument(skip(self), fields(self.own_peer_ix), level = "trace")]
     fn run_dissemination(&mut self) {
         let own_contrib = self.get_own_contribution();
         for (lix, lvl) in &mut self.levels.iter_mut().enumerate().skip(1) {
@@ -402,13 +401,12 @@ where
                         false
                     }
                 }) {
-                    trace!("{:?}: all peers @ level {} completed", self.own_peer_ix, lix);
+                    trace!("All peers @ level {} completed", lix);
                     continue;
                 }
 
                 trace!(
-                    "{:?} run_dissemination. peers_at_level: {:?}, last_contacted_peer_ix: {:?}",
-                    self.own_peer_ix,
+                    "run_dissemination. peers_at_level: {:?}, last_contacted_peer_ix: {:?}",
                     peers_at_level,
                     active_lvl.last_contacted_peer_ix,
                 );
@@ -487,19 +485,13 @@ where
                 let Verified(best_contrib) = active_lvl.best_contribution.clone();
                 if active_lvl.sent_contribution_scores[next_peer_level_ix] < best_contrib.score {
                     trace!(
-                        "{:?} Set best score to {}, sending to {:?}",
-                        self.own_peer_ix,
+                        "Set best score to {}, sending to {:?}",
                         best_contrib.score,
                         next_peer_ix
                     );
                     active_lvl.sent_contribution_scores[next_peer_level_ix] = best_contrib.score;
                 }
-                trace!(
-                    "[Handel] {:?} disseminating @ level {} to {:?}",
-                    self.own_peer_ix,
-                    lix,
-                    next_peer_ix
-                );
+                trace!("Disseminating @ level {} to {:?}", lix, next_peer_ix);
                 self.outbox.push_back(ProtocolBehaviourOut::NetworkAction(
                     NetworkAction::SendOneShotMessage {
                         peer: next_peer,
@@ -626,6 +618,7 @@ where
     C: CommutativePartialSemigroup + Weighted + VerifiableAgainst<P> + Clone + Eq + Debug,
     PP: PeerPartitions,
 {
+    #[tracing::instrument(skip(self, msg, peer_id), level = "trace")]
     fn inject_message(&mut self, peer_id: PeerId, msg: HandelMessage<C>) {
         if self
             .handle_contribution(
@@ -638,8 +631,7 @@ where
             .is_ok()
         {
             trace!(
-                "[Handel] {:?}: contribution from {:?} @ level {}",
-                self.own_peer_ix,
+                "Contribution from {:?} @ level {}",
                 self.peer_partitions.try_index_peer(peer_id).unwrap(),
                 msg.level
             );
@@ -647,6 +639,7 @@ where
         }
     }
 
+    #[tracing::instrument(skip(self, cx), level = "trace")]
     fn poll(
         &mut self,
         cx: &mut Context,
@@ -680,11 +673,6 @@ where
         }
 
         if let Some(out) = self.outbox.pop_front() {
-            trace!(
-                "[Handel] {:?}: outbox.pop(), # outbox items left: {}",
-                self.own_peer_ix,
-                self.outbox.len()
-            );
             self.next_processing = Some(Box::pin(tokio::time::sleep(BASE_THROTTLE_DURATION)));
             return Poll::Ready(Left(out));
         }

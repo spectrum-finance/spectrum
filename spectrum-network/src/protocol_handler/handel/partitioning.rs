@@ -85,6 +85,7 @@ pub trait MakePeerPartitions {
     fn make(&self, host_peer_id: PeerId, peers: Vec<(PeerId, Option<Multiaddr>)>) -> Self::PP;
 }
 
+#[derive(Clone)]
 pub struct BinomialPeerPartitions<R> {
     /// Peers ordered within Handel overlay.
     peers: Vec<PeerId>,

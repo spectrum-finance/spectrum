@@ -17,6 +17,6 @@ serde = { version = "1.0.147", features = ["derive"] }
 serde_with = "3.0.0"
 elliptic-curve = "0.13.*"
 k256 = { version = "0.13.*", features = ["serde"] }
-libp2p-identity = { version = "0.1.*", features = ["peerid", "secp256k1"] }
+libp2p-identity = { version = "0.2.*", features = ["peerid", "secp256k1"] }
 libsecp256k1 = "0.7.1"
 async-trait = "0.1.68"
