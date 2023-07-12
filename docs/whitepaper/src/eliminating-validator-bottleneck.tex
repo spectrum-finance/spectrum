@@ -1,35 +1,35 @@
-So far each member of the consensus group had to track changes on all connected chains in order to participate in\
+So far, each member of the consensus group had to track changes on all connected chains in order to participate in\
 consensus properly.
 However, this approach reduces the number of possible consensus participants and limits the scalability of the system.
 Therefore, for the optimal design of our consensus protocol, we will use the following observations:
 \begin{itemize}
-    \item[]\textbf{Observation 1:} Events coming from independent chains $c_k$ are not serialized.
-    \item[] \textbf{Observation 2:} Outbound transactions on independent systems $c_k$ can be independently signed.
+    \item[]\textbf{Observation 1:} Events coming from independent systems $S_k$ are not serialized.
+    \item[] \textbf{Observation 2:} Outbound transactions on independent systems $S_k$ can be independently signed.
 \end{itemize}
 
-Utilizing those properties we now introduce committee sharding.
+Utilizing those properties, we now introduce committee sharding.
 We modify protocol in a way such that at each epoch $e_n$, $K$ distinct committees consisting of nodes equipped with\
-functionality unit $F_{c_k}$ relevant to a specific connected chain $c_k$ are selected via the consensus group lottery.
+functionality unit $F_{L_k}$ relevant to a specific connected system $S_k$ are selected via the consensus group lottery.
 All primitives using in the lottery are equal for different committees, however, lotteries are independent.
 
-We denote one such committee shard as $V_{n}^k$, which uniquely maps to $c_k$.
+We denote one such committee shard as $V_n^k$, which uniquely maps to $S_k$.
 Then, complete mapping of committees to chains at epoch $e_n$ can be represented as a set of tuples\
-committee-chain $\{(V_{n}^k, c_k)\}$.
-Throughout epoch $e_n$ all events and on-chain transactions in $c_k$ are handled exclusively by $V_{n}^k$.
-Nodes in $V_{n}^k$ maintain a robust local ledger $L^{local}_k$ of notarized batches of events observed in $c_k$.
+committee-chain $\{(V_n^k, S_k)\}$.
+Throughout epoch $e_n$ all events and on-chain transactions in $S_k$ are handled exclusively by $V_n^k$.
+Nodes in $V_n^k$ maintain a robust local ledger $L^{local}_k$ of notarized batches of events observed in $S_k$.
 
 \subsubsection{Syncing Shards}
 
-Each committee $V_n^k$ forms the notarized batches of events and them into their local ledgers $L_k$.
-All these batches should be periodically synced and added to a block of the one main super ledger $L^+$\
-in order for the system to be able to compute cross-chain state transition.
+Each committee $V_n^k$ forms the notarized batches of events and adds them into their local ledgers $L_k$.
+All these batches should be periodically synced and added to a block of the main super ledger $L^+$\
+in order the system to be able to compute a cross-chain state transition.
 To facilitate this process, batches of the notarized events should be broadcast to other committees.
 The main actors at this stage are:
 \begin{enumerate}
     \item \emph{Local leader}: local committee leader.
-    \item \emph{Relayer}: any protocol participant, who broadcasts notarized batches to the local leader\
+    \item \emph{Relayer}: any protocol participant that broadcasts notarized batches to the local leader\
     and to other committees' members.
-    Every \emph{Local leader} can be a relayer at the same time.
+    Every local leader can be a relayer at the same time.
     \item \emph{General leader}: one of the local leaders who added a block consisted of collected\
     notarized batches and other internal transactions to the $L^+$.
 \end{enumerate}
@@ -40,9 +40,9 @@ block to $L^+$, thus, he can choose from two main strategies:
     \item \emph{Wait}: malicious strategy where local leader waits for broadcasts from other committees\
     members and don't broadcast his own batch to eliminate competitors for adding a block.
     \item \emph{Broadcast and wait}: fair strategy where local leader immediately broadcasts his batch,\
-    waits for broadcasts from other committees members and honestly adds a block.
+    waits for broadcasts from other committees' and then competes honestly for adding a block.
 \end{enumerate}
-Thus, there should be a motivation for the individual local leader to choose the fair strategy instead of keeping\
+There should be a motivation for an individual local leader to choose the fair strategy instead of keeping\
 his batch for too long and there also should be a motivation for every committee member to act as a relayer.
 This is achieved through the design of the incentive system.
 
@@ -50,35 +50,34 @@ This is achieved through the design of the incentive system.
 
 There are three types of the incentive for the Spectrum protocol participants: ${\{R_b, R_d, R_m\}}$, where $R_b$ is a\
 guaranteed reward for adding a notarized batch to the block, $R_d$ is given for broadcasting a batch to the\
-general leader and $R_m$ is given personally to the general leader who finally added the block.
+general leader and $R_m$ is given personally to the general leader who will finally add the block.
 Delivery reward $R_d$ is given if and only if a delivery was made within a predetermined period of time $\Delta t_d$.
 
 Reward amounts are initially configured in such a ratio that if ${R_d=0}$ there is no prior strategy for\
 local leaders, they will either wait for other batches or broadcast their batches with equal probability.
-At the same time, all other committee members are still motivated to act as a relayers to receive an extra reward,
+At the same time, all other committee members are motivated to act as a relayers to receive an extra reward,
 since the notarized batch can be firstly generated by any member of the committee.
 All the rewards except $R_m$ are shared equally between all committees members whose signatures are included in\
 the finally added block.
 
 As a result, the syncing shards flow looks as follows:
 \begin{enumerate}
-    \item After notarization, the committee member holding the notarized batch, which contains the local\
-    notarization time $t^*$, sends it to his local leader and to other known committees members.
-    \item All committees members who receive notarized batches from other committees also send it\
+    \item After notarization, a committee member holding the notarized batch which contains the local\
+    notarization time, sends it to his local leader and to other known committees members.
+    \item All committees members who receive notarized batches from other committees also send them\
     to the local leader.
     \item The local leader collects the received notarized batches.
-    \item When waiting time approaches $\Delta t_d$, local leader forms a block\
-    from all collected batches and broadcast it.
-    Block contains the set of the notarization times and block creation time $t^B$.
+    \item When waiting time approaches $\Delta t_d$, the local leader forms and broadcasts a block consisting\
+    of all external collected batches and batches from the local $L_k$ that have not yet been added to $L^+$.
     \item After block is reliably settled in the $L^+$, all associated participants can claim their rewards.
 \end{enumerate}
 
 We also introduce another type of authority incentive that increases the chances of participants\
 to be selected in the consensus group lottery.
-When calculating the steak distribution, which is needed to parametrise the lottery function,\
+When calculating the steak distribution which is needed to parametrise the lottery function,\
 all stakes are weighted depending on the actions of their holders in the previous epoch,\
 i.e. ${s_i = A_m \cdot s_i^{real}}$, where $A_m$ is an authority multiplier.
-If some authority was a member of a committee and participated in adding of 2/3 of the blocks produced in\
+If some authority was a member of the previous committee and participated in adding of 2/3 of the blocks produced in\
 the considered period of time, then his actual stake ${s_i^{real}}$ is multiplied by ${A_m = 2}$.
 Multiplier $A_m$ decreases linearly to 0, which is the case where member was passive during the entire epoch.
 
@@ -90,6 +89,59 @@ With this mechanism, we solve the following problems:
     \item Participants are motivated to stay active throughout the entire epoch so that their chances of being\
     selected in the committee don't decrease due to an authority multiplier ${A_m < 1}$, otherwise,\
     in order to even the odds with new lottery participants, they will either have to increase\
-    their real stake, or skip the lottery until the next one.
+    their real stake or skip the lottery until the next one.
 \end{itemize}
+
+\subsubsection{Forks and Integrity}\label{subsubsec:resolving-forks}
+
+Protocol flow implies that there can be a several local leaders\
+in every connected $S_k$ committee, which leads to forks.
+This type of fork is a normal part of the protocol lifecycle, however, total possible number of the normal forks in\
+our protocol is greater than in other blockchains, since any of the local leaders can append their blocks to $L^+$.
+The chance of occurring a malicious forks produced by an adversary is minimized due to the lottery\
+and the incentive mechanism design.
+In addition, the task for an adversary becomes more difficult by virtue of the interaction between the protocol\
+participants during the syncing shards process.
+
+For the above reasons, the main rules for resolving forks are simple and are\
+followed by members of all committees when validating a proposed blocks:
+\begin{enumerate}
+    \item \textit{Max valid}: choose the longest appropriate chain given a set of valid chains that are available\
+    in the network.
+    \item \textit{Max stake}: if the max valid rule doesn't resolve a slot battle, then the valid chain\
+    chooses according to the real stake size of the battled leaders, the maximum stake is the winner.
+    Stake distribution is picked from the actual blockchain snapshot for the current committee.
+\end{enumerate}
+
+However, a large number fo forks still significantly affect properties that maintain the integrity of the $L^+$:
+\begin{enumerate}
+    \item \textit{Latency}: the number of elapsed slots required for a transaction to appear in a block on the $L^+$.
+    \item \textit{Finality}: the number of elapsed slots required for a transaction to become settled and immutable.
+\end{enumerate}
+The latency of the protocol is good enough due to the short duration of the slots, while the finality,\
+as a result of the functional features of our protocol, depends on the connected $S_k$ integrity properties.
+
+Most ledgers do not guarantee instant finality of transaction, that means that any (or all) transactions may not\
+be applied to the corresponding $S_k$ ledgers in the end.
+Different blockchains has different finality parameters, and the Spectrum finality time $U_f$ should be greater\
+than all of them.
+Thus, the $U_f$ should be set with a margin and, therefore, using the number of slots $\Delta sl$ that have\
+passed in the Spectrum network, developers should be able to receive information about the number of blocks that\
+have passed in any connected blockchain during this period of time.
+The duration of block creation in each $S_k$ is different, but the average values are preserved for a certain period of\
+time ${\Delta T >> d_s}$, where $d_s$ is the duration of Spectrum's slot.
+Thus, after each $\Delta T$ time interval, Spectrum network will update the set of constants:\
+${(\{d_k, U_k\}_{r=1}^{K})}$, where $d_k$ is a block duration in the $S_k$ and $r_k$ is the default\
+reliable number of confirmations in the $S_k$ and $K$ is the total number of the connected systems.
+
+Using the data above, each Spectrum's $\Delta sl$ can be associated with the delta of blocks that have passed in\
+any connected blockchain: ${\{\lfloor \Delta sl \cdot d_s \mathbin{/} d_k)\rfloor\}_{k=1}^{K}}$.
+When forming transaction, developers can specify a reliability factor $r^*$.
+This factor will be compared with the ratio of the number of blocks passed on the associated $S_k$ to\
+the default reliable number of confirmations $r_k$ of this system.
+
+The ability to access this information is important for tracking the status of value carrying units in\
+the Spectrum's global state.
+The aspects of the implementation of our ledger is described in detail in the next section.
+
 

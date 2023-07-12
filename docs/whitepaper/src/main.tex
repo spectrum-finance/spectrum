@@ -14,9 +14,18 @@
 \usepackage{csquotes}
 \usepackage{textcomp}
 \usepackage{amsfonts}
-\usepackage{amsmath}
-\usepackage{enumitem}
 \usepackage{amssymb}
+\usepackage{enumitem}
+\usepackage[T1]{fontenc}
+\usepackage{inconsolata}
+
+\newenvironment{tttabular}[1]%
+{\ttfamily \begin{tabular}{#1}}%
+{\end{tabular}}
+
+\newcommand{\lt}{<}
+\newcommand{\gt}{>}
+\newcommand{\blue}{\color{blue}}
 
 \newlist{legal}{enumerate}{10}
 \setlist[legal]{label*=\arabic*.}
@@ -52,10 +61,6 @@
 
         \section{Applications}\label{sec:applications}
         \input{applications.tex}
-
-
-        \section{Appendix}\label{sec:appendix}
-        todo
 
         \newpage
         \printbibliography

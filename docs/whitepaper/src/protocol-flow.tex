@@ -1,59 +1,62 @@
 Let's summarize all of the above and describe the full flow of the Spectrum protocol.
-Protocol is running by a set of manually selected opening consensus groups $\{V^k_0\}_{k=0}^K$\
-for $K$ connected chains $\{c_k\}_{k=0}^K$.
-Stakeholders interact with each other and with the ideal functionalities ${\mathcal{F}}_{LB}$,\
-${\mathcal{F}}_{VRF}$, ${\mathcal{F}}_{L}$, ${\mathcal{F}}_{KES}$, ${\mathcal{F}}_{DSIG}$\
-over a sequence of $L = E \cdot R$ slots ${S=\{sl_0,...,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
+Protocol is running by a set of manually selected opening consensus groups $\{V^k_1\}_{k=1}^K$\
+for $K$ connected distributed systems $\{S_k\}_{k=1}^K$.
+Each group consists of at least $M$ stakeholders interacting with each other and with the ideal\
+functionalities ${\mathcal{F}}_{LB}$, ${\mathcal{F}}_{VRF}$, ${\mathcal{F}}_{L}$, ${\mathcal{F}}_{KES}$,\
+${\mathcal{F}}_{DSIG}$ over a sequence of $L = E \cdot R$ slots ${S=\{sl_1,...,sl_L\}}$\
+consisting of $E$ epochs with $R$ slots each.
 The above not previously mentioned functionality ${\mathcal{F}}_{KES}$ is a key evolving signature scheme\
 that is used by the current leader to sign a new block.
+Also, each protocol participant maintains at least one functionality unit $F_{S_k}$ that allows him\
+to interact with the connected $S_k$.
 
 \subsubsection{Bootstrapping}\label{subsubsec:bootstrapping}
 
 The system is bootstrapped in a trusted way.
-All members of $V^k_0$ committees then perform the following procedure:
+All members of $\{V^k_1\}_{k=1}^K$ committees then perform the following procedure:
 \begin{enumerate}
-    \item On-chain vaults are initialized with an aggregated public key $aPK^k_0$ of the initial committee.
+    \item On-chain vaults are initialized with an aggregated public key $aPK^k_1$ of the initial committee.
 
-    \item All committee $V^k_0$ members i.e. $\forall PK_i \in V^k_0$ must generate the tuple of verification keys\
+    \item All committee $V^k_1$ members i.e. $\forall PK_i \in V^k_1$ must generate the tuple of verification keys\
     ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$, using the ideal functionalities ${\mathcal_{F}}_{VRF}$,\
-    ${\mathcal{F}}_{KES}$, ${\mathcal{F}}_{DSIG}$ instances, running on their machines.
+    ${\mathcal{F}}_{KES}$, ${\mathcal{F}}_{DSIG}$ instances running on their machines.
 
-    \item Full set of the verification keys tuples ${V_{init} = \{(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})\}_{i=0}^M}$\
-    with the initial stakes $\{s_i\}_{i=0}^M$ must be stored in the blockchain and\
+    \item Full set of the verification keys tuples ${V_{init} = \{(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})\}_{i=1}^M}$\
+    with the initial stakes $\{s_i\}_{i=1}^M$ must be stored in the blockchain and\
     acknowledged by all members of the initial consensus group (meaning members of all $K$ committees and\
-    a full set is $\{V_{init\_k}\}_{k=0}^{K}$).
+    a full set is $\{V_{init\_k}\}_{k=1}^{K}$).
 
-    \item ${\mathcal{F}}_{LB}$, parameterized with the confirmed $\{V_{init\_k}\}_{k=0}^{K}$\
+    \item Functionality ${\mathcal{F}}_{LB}$, parameterized with the confirmed $\{V_{init\_k}\}_{k=1}^{K}$\
     is evaluated independently by every\
     participant to sample an initial random seed value $\eta \leftarrow \{0, 1\}^\lambda$.
 
     \item Finally, all approved stakeholders should agree on the genesis block\
-    ${B_0=\left(\{V_{init\_k}\}_{k=0}^{K}, \{stakes\_k\}_{k=0}^{K}, \eta\right)}$.
+    ${B_0=\left(\{V_{init\_k}\}_{k=1}^{K}, \{stakes\_k\}_{k=1}^{K}, \eta\right)}$.
 \end{enumerate}
 
 \subsubsection{Normal Flow}\label{subsubsec:normal-flow}
-Once the system is bootstrapped, protocol is running in a normal flow:
+Once the system is bootstrapped, the Spectrum protocol is running in a normal flow:
 \begin{legal}
     \item \textbf{Registration}.
-    Any Spectrum stakeholder can register to become a committee member of his local chain $c_k$.
-    To get a chance to be included in the set of validators $V^k_n$ in the epoch $e_n$\
+    Any Spectrum stakeholder can register to become a committee member of his local system $S_k$.
+    To get a chance to be included in the set of validators $V^k_n$ of the epoch $e_n$\
     participant $PK_i$ should register in the lottery during the epoch $e_{n-2}$ by publishing his verification tuple\
     ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$ into the $L^+$.
-    Once number of slots $K_f$ has elapsed to meet the reliable confirmation threshold for the $L^+$,\
+    Once number of slots corresponding to the Spectrum's finality time $U_f$ has elapsed,\
     the participant is considered as verified.
 
     \item \textbf{Consensus Group Lottery}.
-    At the end of the epoch ${e_j \gt 1}$ every verified $PK_i$ receives new epoch seed $\eta_n$\
+    At the end of the epoch ${e_{n-1} \gt 2}$ every verified $PK_i$ receives new epoch seed $\eta_n$\
     from the ${\mathcal{F}}_{LB}$.
     When every $PK_i$ evaluates ${\mathcal{F}}_{VRF}$ with the input, which includes new $\eta_n$\
     and passes the received proof $\pi_i$ to the ${\mathcal{F}}_{L}$.
-    Function ${\mathcal{F}}_{L}$ is parameterized with the $\mathbf{C}^i$ lottery params and uses the same\
+    Function ${\mathcal{F}}_{L}$ is parameterized with the $S^k$ lottery params and uses the same\
     stake distribution which was in the last block used by ${\mathcal{F}}_{LB}$ to calculate the threshold.
     Also, all participants must multiply all stakes by the corresponding multipliers, calculated from the activity\
     of participants in the previous epoch.
     If successful, i.e. ${\mathcal{F}}_{L}$ returns $1$, then $PK_i$ is a member of $V^k_n$.
     Functionality ${\mathcal{F}}_{LB}$ is parameterized with the history, including blocks with release times up to\
-    ${-R_f}$ from the actual slot.
+    ${-U_f}$ from the actual slot.
     Therefore, even in case of a rollback, the currently selected members of the consensus group remain legitimate.
 
     \item \textbf{Committee key aggregation}.
@@ -70,7 +73,7 @@ Once the system is bootstrapped, protocol is running in a normal flow:
     \begin{legal}
 
         \item Every online $V^k_n$ member collects en existed chains related to the $L^+$ and verifying\
-        that for every chain, every block, produced up to $R_f$ blocks before contains correct data about the\
+        that for every chain, every block, produced up to $U_f$ blocks before contains correct data about the\
         corresponding slot $sl'$ leader $PK'$.
         To verify a valid slot leader, responses from the ${\mathcal{F}}_{VRF}$ and ${\mathcal{F}}_{L}$\
         with the relevant inputs must equal $1$.
@@ -84,22 +87,24 @@ Once the system is bootstrapped, protocol is running in a normal flow:
         The associated proofs $\pi_i$ and $\rho_i$ are included in the block, which will be added to the $L^+$.
         Random proof $\rho_i$ will be used by ${\mathcal{F}}_{LB}$ to sample a random seeds for next epochs.
 
-        \item All committee $V^k_n$ members observe events in their local chains $c_k$ and in the $L+$ mempool.
-        If $PK_i$ is a slot $sl$ leader, then he is able to propose a batch $B^i_j$ of events from $c_k$,\
-        which should be notarized by other members of the $V^k_n$ with an aggregated signature.
+        \item All committee $V^k_n$ members observe events in their systems $S_k$ and in the $L+$ mempool.
+        If $PK_i$ is a slot $sl$ leader, then he is able to propose a batch $b^*$ of events observed in $S_k$,\
+        which should be notarized by other members of the $V^k_n$ with an aggregated signature and then added to\
+        the local ledger $L_k$.
 
-        \item Notarized batch $B^i_j$ can first be formed by any member of the $V^k_n$.
+        \item Notarized batch $b^*$ can first be formed by any member of the $V^k_n$.
         The batch must be immediately sent to the leader who initiated its notarization and to the\
         members of other committees.
-        After the leader receives enough batches, he forms the block $B_m$ with updates\
-        from the $L^+$ mempool included, sign it with ${\mathcal{F}}_{KES}$,\
-        includes all hist proofs and broadcasts it to all committees.
+        After the leader receives enough batches he forms a block  $B^*$ consisting\
+        of all external collected batches and batches from the local $L_k$ that have not yet been added to $L^+$.
+        He includes all the leadership proofs, signs it with ${\mathcal{F}}_{KES}$, and broadcasts it to all committees.
 
-        \item After $K_f$ reliable slots number has passed, all members of all committees\
-        that participated in the formation of the block $B_m$ can claim their rewards.
+        \item After the finality time $U_f$ is passed since $B^*$ settlement in the $L^+$,\
+        all members of all committees that participated in the formation of the block $B^*$ can claim their rewards.
     \end{legal}
 \end{legal}
 
 In this way, the Spectrum protocol reaches consensus and implements the cross-chain interoperability.
-The solution is truly decentralized, fast and scalable, thus, it can be used in\
+
+The solution is fairly decentralized, fast and scalable, thus, it can be used in\
 a large number of applications and scenarios.
