@@ -8,9 +8,10 @@ Therefore, for the optimal design of our consensus protocol, we will use the fol
 \end{itemize}
 
 Utilizing those properties, we now introduce committee sharding.
-We modify protocol in a way such that at each epoch $e_n$, $K$ distinct committees consisting of nodes equipped with\
+We modify the protocol in a way such that at each epoch $e_n$,\
+$K$ distinct committees consisting of nodes equipped with\
 functionality unit $F_{L_k}$ relevant to a specific connected system $S_k$ are selected via the consensus group lottery.
-All primitives using in the lottery are equal for different committees, however, lotteries are independent.
+All primitives used in the lottery are equal for different committees, however, lotteries are independent.
 
 We denote one such committee shard as $V_n^k$, which uniquely maps to $S_k$.
 Then, complete mapping of committees to chains at epoch $e_n$ can be represented as a set of tuples\
@@ -22,7 +23,7 @@ Nodes in $V_n^k$ maintain a robust local ledger $L^{local}_k$ of notarized batch
 
 Each committee $V_n^k$ forms the notarized batches of events and adds them into their local ledgers $L_k$.
 All these batches should be periodically synced and added to a block of the main super ledger $L^+$\
-in order the system to be able to compute a cross-chain state transition.
+in order for the system to be able to compute a cross-chain state transition.
 To facilitate this process, batches of the notarized events should be broadcast to other committees.
 The main actors at this stage are:
 \begin{enumerate}
@@ -34,11 +35,11 @@ The main actors at this stage are:
     notarized batches and other internal transactions to the $L^+$.
 \end{enumerate}
 
-There is no any separate lottery for the general leadership and any local leader is able to publish his\
+There is no separate lottery for the general leadership and any local leader is able to publish his\
 block to $L^+$, thus, he can choose from two main strategies:
 \begin{enumerate}
     \item \emph{Wait}: malicious strategy where local leader waits for broadcasts from other committees\
-    members and don't broadcast his own batch to eliminate competitors for adding a block.
+    members and doesn't broadcast his own batch to eliminate competitors for adding a block.
     \item \emph{Broadcast and wait}: fair strategy where local leader immediately broadcasts his batch,\
     waits for broadcasts from other committees' and then competes honestly for adding a block.
 \end{enumerate}
@@ -74,8 +75,8 @@ As a result, the syncing shards flow looks as follows:
 
 We also introduce another type of authority incentive that increases the chances of participants\
 to be selected in the consensus group lottery.
-When calculating the steak distribution which is needed to parametrise the lottery function,\
-all stakes are weighted depending on the actions of their holders in the previous epoch,\
+When calculating the stake distribution which is needed to parametrise the lottery function,\
+all stakes are weighed depending on the actions of their holders in the previous epoch,\
 i.e. ${s_i = A_m \cdot s_i^{real}}$, where $A_m$ is an authority multiplier.
 If some authority was a member of the previous committee and participated in adding of 2/3 of the blocks produced in\
 the considered period of time, then his actual stake ${s_i^{real}}$ is multiplied by ${A_m = 2}$.
@@ -113,7 +114,7 @@ followed by members of all committees when validating a proposed blocks:
     Stake distribution is picked from the actual blockchain snapshot for the current committee.
 \end{enumerate}
 
-However, a large number fo forks still significantly affect properties that maintain the integrity of the $L^+$:
+However, a large number of forks still significantly affect properties that maintain the integrity of the $L^+$:
 \begin{enumerate}
     \item \textit{Latency}: the number of elapsed slots required for a transaction to appear in a block on the $L^+$.
     \item \textit{Finality}: the number of elapsed slots required for a transaction to become settled and immutable.

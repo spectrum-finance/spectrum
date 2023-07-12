@@ -55,11 +55,11 @@ Each active cell has an exclusive owner identified by an address.
 Address is derived from an authenticator by applying collision resistant hash function to it.
 To prove ownership of a cell a party must supply an authenticator whose hash matches the owning address.
 An authenticator can either be a public key or a script.
-Once authenticated an owner can freely move value locked withing the cell by either mutation or elimination of it.
+Once authenticated an owner can freely move value locked within the cell by either mutation or elimination of it.
 
 \subsubsection{Terminal cells}\label{subsubsec:terminal-cells}
 
-Terminal cells encode value to be exported into external system.
+Terminal cells encode value to be exported into an external system.
 In contrast to active cells, terminal cells are immutable and value from them cannot be moved within the system anymore.
 
 \subsubsection{Transactions and Effects}\label{subsubsec:transactions-and-effects}
@@ -108,7 +108,7 @@ Therefore, scope of transaction is restricted to its inputs and outputs.
 
 \textbf{Transactions: Referencing inputs.} Transaction can reference cells to use as inputs either by\
 cell ref (fully qualified reference) or only by stable identifier.
-In the latter case concrete version of the cell with the given stable identifier will be resolved in\
+In the latter case, a concrete version of the cell with the given stable identifier will be resolved in\
 the runtime of the transaction.
 Importantly, each transaction must have at least one fully qualified input, this guarantees that each\
 transaction is unique.
@@ -147,4 +147,4 @@ Each cell is associated with a set of dependencies called \emph{ancors} represen
 as unique identifier of a chain and a height which the chain is required to reach in order\
 for the anchor to be deemed as \emph{unancored}.
 Active ancors leak from cells in inputs into created cells in outputs.
-It is impossible to for terminal cell to be exported until all ancors it depends on are reached.
+It is impossible for a terminal cell to be exported until all ancors it depends on are reached.

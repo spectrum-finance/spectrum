@@ -14,7 +14,7 @@ to interact with the connected $S_k$.
 \subsubsection{Bootstrapping}\label{subsubsec:bootstrapping}
 
 The system is bootstrapped in a trusted way.
-All members of $\{V^k_1\}_{k=1}^K$ committees then perform the following procedure:
+All members of $\{V^k_1\}_{k=1}^K$ committees perform the following procedure:
 \begin{enumerate}
     \item On-chain vaults are initialized with an aggregated public key $aPK^k_1$ of the initial committee.
 
@@ -36,7 +36,7 @@ All members of $\{V^k_1\}_{k=1}^K$ committees then perform the following procedu
 \end{enumerate}
 
 \subsubsection{Normal Flow}\label{subsubsec:normal-flow}
-Once the system is bootstrapped, the Spectrum protocol is running in a normal flow:
+Once the system is bootstrapped, the Spectrum protocol will run in a normal flow:
 \begin{legal}
     \item \textbf{Registration}.
     Any Spectrum stakeholder can register to become a committee member of his local system $S_k$.
@@ -51,7 +51,7 @@ Once the system is bootstrapped, the Spectrum protocol is running in a normal fl
     from the ${\mathcal{F}}_{LB}$.
     When every $PK_i$ evaluates ${\mathcal{F}}_{VRF}$ with the input, which includes new $\eta_n$\
     and passes the received proof $\pi_i$ to the ${\mathcal{F}}_{L}$.
-    Function ${\mathcal{F}}_{L}$ is parameterized with the $S^k$ lottery params and uses the same\
+    Function ${\mathcal{F}}_{L}$ is parameterized with the $S^k$ lottery parameters and uses the same\
     stake distribution which was in the last block used by ${\mathcal{F}}_{LB}$ to calculate the threshold.
     Also, all participants must multiply all stakes by the corresponding multipliers, calculated from the activity\
     of participants in the previous epoch.
@@ -61,7 +61,7 @@ Once the system is bootstrapped, the Spectrum protocol is running in a normal fl
     Therefore, even in case of a rollback, the currently selected members of the consensus group remain legitimate.
 
     \item \textbf{Committee key aggregation}.
-    Once new committee is selected, nodes in the $V^k_n$ aggregate their individual public keys $\{PK_i\}$ into
+    Once the new committee is selected, nodes in the $V^k_n$ aggregate their individual public keys $PK_i$ into
     a joint one $aPK_n$, which is needed to sign the batch applying transactions with the external events:\
     inbound value transfers, outbound value transfers, boxes eliminations.
 
@@ -73,7 +73,7 @@ Once the system is bootstrapped, the Spectrum protocol is running in a normal fl
     \item \textbf{Chain extension}.
     \begin{legal}
 
-        \item Every online $V^k_n$ member collects en existed chains related to the $L^+$ and verifying\
+        \item Every online $V^k_n$ member collects existing chains from $L^+$ and verifying\
         that for every chain, every block, produced up to $U_f$ blocks before contains correct data about the\
         corresponding slot $sl'$ leader $PK'$.
         To verify a valid slot leader, responses from the ${\mathcal{F}}_{VRF}$ and ${\mathcal{F}}_{L}$\
