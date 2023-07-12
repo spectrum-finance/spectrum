@@ -12,10 +12,8 @@ pub use futures::prelude::*;
 use libp2p::swarm::handler::{
     ConnectionEvent, DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound,
 };
-use libp2p::swarm::{
-    ConnectionHandler, ConnectionHandlerEvent, KeepAlive, NegotiatedSubstream, SubstreamProtocol,
-};
-use libp2p::PeerId;
+use libp2p::swarm::{ConnectionHandler, ConnectionHandlerEvent, KeepAlive, SubstreamProtocol};
+use libp2p::{PeerId, Stream};
 use log::{error, trace};
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -62,21 +60,21 @@ pub enum ProtocolState {
     Opening,
     /// Inbound stream is negotiated by peer. The stream hasn't been approved yet.
     PartiallyOpenedByPeer {
-        substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
+        substream_in: ProtocolSubstreamIn<Stream>,
     },
     /// Inbound stream is accepted, negotiating outbound upgrade.
     Accepting {
         /// None in the case when peer closed inbound substream.
-        substream_in: Option<ProtocolSubstreamIn<NegotiatedSubstream>>,
+        substream_in: Option<ProtocolSubstreamIn<Stream>>,
     },
     /// Outbound stream is negotiated with peer.
     PartiallyOpened {
-        substream_out: ProtocolSubstreamOut<NegotiatedSubstream>,
+        substream_out: ProtocolSubstreamOut<Stream>,
     },
     /// Protocol is negotiated
     Opened {
-        substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
-        substream_out: ProtocolSubstreamOut<NegotiatedSubstream>,
+        substream_in: ProtocolSubstreamIn<Stream>,
+        substream_out: ProtocolSubstreamOut<Stream>,
         pending_messages_recv: stream::Peekable<
             stream::Select<
                 stream::Fuse<mpsc::Receiver<StreamNotification>>,
@@ -88,7 +86,7 @@ pub enum ProtocolState {
     InboundClosedByPeer {
         /// None in the case when the peer closed inbound substream while outbound one
         /// hasn't been negotiated yet.
-        substream_out: ProtocolSubstreamOut<NegotiatedSubstream>,
+        substream_out: ProtocolSubstreamOut<Stream>,
         pending_messages_recv: stream::Peekable<
             stream::Select<
                 stream::Fuse<mpsc::Receiver<StreamNotification>>,
@@ -98,7 +96,7 @@ pub enum ProtocolState {
     },
     /// Outbound substream is closed by peer.
     OutboundClosedByPeer {
-        substream_in: ProtocolSubstreamIn<NegotiatedSubstream>,
+        substream_in: ProtocolSubstreamIn<Stream>,
     },
 }
 
@@ -249,8 +247,8 @@ impl PeerConnHandler {
 }
 
 impl ConnectionHandler for PeerConnHandler {
-    type InEvent = ConnHandlerIn;
-    type OutEvent = ConnHandlerOut;
+    type FromBehaviour = ConnHandlerIn;
+    type ToBehaviour = ConnHandlerOut;
     type Error = ConnHandlerError;
     type InboundProtocol = AnyUpgradeOf<Either<ProtocolUpgradeIn, OneShotUpgradeIn>>;
     type OutboundProtocol = Either<ProtocolUpgradeOut, OneShotUpgradeOut>;
@@ -351,7 +349,7 @@ impl ConnectionHandler for PeerConnHandler {
                 if let Some(protocol) = self.stateful_protocols.get_mut(&protocol_id) {
                     protocol.state = Some(ProtocolState::Closed);
                     self.pending_events
-                        .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::Closed(
+                        .push_back(ConnectionHandlerEvent::NotifyBehaviour(ConnHandlerOut::Closed(
                             protocol_id,
                         )))
                 }
@@ -361,7 +359,9 @@ impl ConnectionHandler for PeerConnHandler {
                     protocol.state = Some(ProtocolState::Closed);
                 }
                 self.pending_events
-                    .push_back(ConnectionHandlerEvent::Custom(ConnHandlerOut::ClosedAllProtocols));
+                    .push_back(ConnectionHandlerEvent::NotifyBehaviour(
+                        ConnHandlerOut::ClosedAllProtocols,
+                    ));
             }
         }
     }
@@ -381,12 +381,13 @@ impl ConnectionHandler for PeerConnHandler {
                 ..
             }) => {
                 trace!("Received inbound one-shot message");
-                self.pending_events.push_back(ConnectionHandlerEvent::Custom(
-                    ConnHandlerOut::OneShotMessage {
-                        protocol_tag: message.protocol,
-                        content: message.content,
-                    },
-                ));
+                self.pending_events
+                    .push_back(ConnectionHandlerEvent::NotifyBehaviour(
+                        ConnHandlerOut::OneShotMessage {
+                            protocol_tag: message.protocol,
+                            content: message.content,
+                        },
+                    ));
             }
             ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
                 protocol: (future::Either::Left(mut upgrade), _),
@@ -401,10 +402,11 @@ impl ConnectionHandler for PeerConnHandler {
                         trace!("Current protocol state is {:?}", state);
                         let state_next = match state {
                             ProtocolState::Closed => {
-                                let event = ConnectionHandlerEvent::Custom(ConnHandlerOut::OpenedByPeer {
-                                    protocol_tag: negotiated_tag,
-                                    handshake: upgrade.handshake,
-                                });
+                                let event =
+                                    ConnectionHandlerEvent::NotifyBehaviour(ConnHandlerOut::OpenedByPeer {
+                                        protocol_tag: negotiated_tag,
+                                        handshake: upgrade.handshake,
+                                    });
                                 self.pending_events.push_back(event);
                                 ProtocolState::PartiallyOpenedByPeer {
                                     substream_in: upgrade.substream,
@@ -426,13 +428,14 @@ impl ConnectionHandler for PeerConnHandler {
                                 let (sync_msg_snd, sync_msg_recv) =
                                     mpsc::channel::<StreamNotification>(self.conf.sync_msg_buffer_size);
                                 let sink = MessageSink::new(self.peer_id, async_msg_snd, sync_msg_snd);
-                                self.pending_events.push_back(ConnectionHandlerEvent::Custom(
-                                    ConnHandlerOut::Opened {
-                                        protocol_tag: negotiated_tag,
-                                        out_channel: sink,
-                                        handshake: upgrade.handshake,
-                                    },
-                                ));
+                                self.pending_events
+                                    .push_back(ConnectionHandlerEvent::NotifyBehaviour(
+                                        ConnHandlerOut::Opened {
+                                            protocol_tag: negotiated_tag,
+                                            out_channel: sink,
+                                            handshake: upgrade.handshake,
+                                        },
+                                    ));
                                 ProtocolState::Opened {
                                     substream_out,
                                     substream_in: upgrade.substream,
@@ -491,13 +494,14 @@ impl ConnectionHandler for PeerConnHandler {
                                 let (sync_msg_snd, sync_msg_recv) =
                                     mpsc::channel::<StreamNotification>(self.conf.sync_msg_buffer_size);
                                 let sink = MessageSink::new(self.peer_id, async_msg_snd, sync_msg_snd);
-                                self.pending_events.push_back(ConnectionHandlerEvent::Custom(
-                                    ConnHandlerOut::Opened {
-                                        protocol_tag: negotiated_tag,
-                                        out_channel: sink,
-                                        handshake: None,
-                                    },
-                                ));
+                                self.pending_events
+                                    .push_back(ConnectionHandlerEvent::NotifyBehaviour(
+                                        ConnHandlerOut::Opened {
+                                            protocol_tag: negotiated_tag,
+                                            out_channel: sink,
+                                            handshake: None,
+                                        },
+                                    ));
                                 ProtocolState::Opened {
                                     substream_in,
                                     substream_out: upgrade.substream,
@@ -529,9 +533,10 @@ impl ConnectionHandler for PeerConnHandler {
                         match state {
                             ProtocolState::Opening | ProtocolState::Accepting { .. } => {
                                 trace!("Failed to open protocol {:?}, {:?}", protocol_id, error);
-                                self.pending_events.push_back(ConnectionHandlerEvent::Custom(
-                                    ConnHandlerOut::RefusedToOpen(protocol_id),
-                                ))
+                                self.pending_events
+                                    .push_back(ConnectionHandlerEvent::NotifyBehaviour(
+                                        ConnHandlerOut::RefusedToOpen(protocol_id),
+                                    ))
                             }
                             _ => {}
                         }
@@ -544,6 +549,8 @@ impl ConnectionHandler for PeerConnHandler {
             ConnectionEvent::ListenUpgradeError(_) => {
                 error!("[PCH] ListenUpgradeError");
             }
+            ConnectionEvent::LocalProtocolsChange(e) => {}
+            ConnectionEvent::RemoteProtocolsChange(_) => {}
         }
     }
 
@@ -570,7 +577,12 @@ impl ConnectionHandler for PeerConnHandler {
         &mut self,
         cx: &mut Context,
     ) -> Poll<
-        ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::OutEvent, Self::Error>,
+        ConnectionHandlerEvent<
+            Self::OutboundProtocol,
+            Self::OutboundOpenInfo,
+            Self::ToBehaviour,
+            Self::Error,
+        >,
     > {
         // Process pending outbound one-shot requests.
         for (id, req) in &mut self.pending_one_shots {
@@ -683,7 +695,7 @@ impl ConnectionHandler for PeerConnHandler {
                                     protocol.state = Some(ProtocolState::Closed)
                                 }
                                 let event = ConnHandlerOut::ClosedByPeer(*protocol_id);
-                                return Poll::Ready(ConnectionHandlerEvent::Custom(event));
+                                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(event));
                             }
                         }
                     }
@@ -696,14 +708,14 @@ impl ConnectionHandler for PeerConnHandler {
                     match state {
                         ProtocolState::Opened { substream_in, .. }
                         | ProtocolState::OutboundClosedByPeer { substream_in } => {
-                            match Stream::poll_next(Pin::new(substream_in), cx) {
+                            match futures::Stream::poll_next(Pin::new(substream_in), cx) {
                                 Poll::Pending => {}
                                 Poll::Ready(Some(Ok(msg))) => {
                                     let event = ConnHandlerOut::Message {
                                         protocol_tag: ProtocolTag::new(*protocol_id, protocol.ver),
                                         content: msg,
                                     };
-                                    return Poll::Ready(ConnectionHandlerEvent::Custom(event));
+                                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(event));
                                 }
                                 Poll::Ready(None) | Poll::Ready(Some(Err(_))) => {
                                     if let Some(ProtocolState::Opened {
@@ -732,7 +744,7 @@ impl ConnectionHandler for PeerConnHandler {
                                 Poll::Ready(Ok(void)) => match void {},
                                 Poll::Ready(Err(_)) => {
                                     protocol.state = Some(ProtocolState::Closed);
-                                    return Poll::Ready(ConnectionHandlerEvent::Custom(
+                                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                                         ConnHandlerOut::ClosedByPeer(*protocol_id),
                                     ));
                                 }
