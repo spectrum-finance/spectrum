@@ -1,6 +1,5 @@
-Spectrum's global state includes a pool of value carrying units called \emph{cells}.
-A \emph{Cell} encodes monetary value (e.g., fungible or non-fungible tokens)\
-travelling inside the system and across its boards.
+Spectrum's global state includes a pool of value carrying units called \enquote{cells}.
+A \enquote{Cell} encodes monetary value (e.g., fungible or non-fungible tokens) travelling inside the system and across its boards.
 
 \begin{center}
     \begin{tabular}{ | r l | }
@@ -11,8 +10,7 @@ travelling inside the system and across its boards.
     \end{tabular}
 \end{center}
 
-Each cell has a unique identifier derived from ID of the transaction that produced the\
-cell and its index in the transaction outputs.
+Each cell has a unique identifier derived from ID of the transaction that produced the cell and its index in the transaction outputs.
 The identifier remains stable even when cell is modified as we explain below.
 
 \begin{center}
@@ -35,7 +33,7 @@ We distinguish two essential types of cells depending on the state of the value 
 
 \subsubsection{Active cells}\label{subsubsec:active-cells}
 
-\emph{Active Cell} is a value travelling between owners inside the system.
+\enquote{Active Cell} is a value trvelling between owners inside the system.
 An Active Cell can be modified while preserving its original stable identifier.
 With each mutation version of the cell is incremented which is initialized with \texttt{0} when the cell is created.
 This opens the door for smooth management of shared cells (e.g., stablecoin bank or liquidity pool).
@@ -52,14 +50,14 @@ This opens the door for smooth management of shared cells (e.g., stablecoin bank
 \end{center}
 
 Each active cell has an exclusive owner identified by an address.
-Address is derived from an authenticator by applying collision resistant hash function to it.
-To prove ownership of a cell a party must supply an authenticator whose hash matches the owning address.
+Address is derived from an authenticatior by applying collision resistant hash function to it.
+To prove ownership of a cell a party must supply an authenticatior whose hash matches the owning address.
 An authenticator can either be a public key or a script.
-Once authenticated an owner can freely move value locked within the cell by either mutation or elimination of it.
+Once authenticated an owner can fleely move value locked withing the cell by either mutation or elimination of it.
 
 \subsubsection{Terminal cells}\label{subsubsec:terminal-cells}
 
-Terminal cells encode value to be exported into an external system.
+Terminal cells encode value to be exported into external system.
 In contrast to active cells, terminal cells are immutable and value from them cannot be moved within the system anymore.
 
 \subsubsection{Transactions and Effects}\label{subsubsec:transactions-and-effects}
@@ -76,7 +74,7 @@ In contrast to active cells, terminal cells are immutable and value from them ca
     \end{tabular}
 \end{center}
 
-Global pool of cells is modified by atomic state modifiers called \emph{Effects} and \emph{Transactions}.
+Global pool of cells is modified by atomic state modifiers called \enquote{Effects} and \enquote{Transactions}.
 
 Effects are state transitions imported from external systems exclusively by local committees.
 Below we list possible effects:
@@ -85,7 +83,7 @@ Below we list possible effects:
     A deposit into one of Spectrum's on-chain vaults which results in creation of a new cell.
     \item Export of value.
     An outbound transaction that transfers value from Spectrum's on-chain vault to user address on particular blockchain.
-    \item Revocation of previously imported value due to roll-back on the source chain.
+    \item Revokation of previously imported value due to roll-back on the source chain.
     \item Signalisation that external system reached particular progress point.
 \end{enumerate}
 
@@ -102,49 +100,33 @@ Below we list possible effects:
 \end{center}
 
 In contrast to effects, transactions are state transitions triggered by Spectrum users.
-A transaction accepts cells that it wants to mutate or eliminate as inputs and\
-outputs new cells or upgraded versions of mutated cells.
+A transaction accepts cells that it wants to mutate or eliminate as inputs and outputs new cells or upgraded versions of mutated cells.
 Therefore, scope of transaction is restricted to its inputs and outputs.
 
-\textbf{Transactions: Referencing inputs.} Transaction can reference cells to use as inputs either by\
-cell ref (fully qualified reference) or only by stable identifier.
-In the latter case, a concrete version of the cell with the given stable identifier will be resolved in\
-the runtime of the transaction.
-Importantly, each transaction must have at least one fully qualified input, this guarantees that each\
-transaction is unique.
+\textbf{Transactions: Referencing inputs.} Transaction can reference cells to use as inputs either by cell ref (fully qualified reference) or only by stable identifier.
+In the latter case concrete version of the cell with the given stable identifier will be resolved in the runtime of the transaction.
+Importantly, each transaction must have at least one fully qualified input, this qurantees that each transaction is unique.
 
-\textbf{Transactions: Programmability.} Some outputs may be computed in the runtime of a transaction as\
-a result of script(s) execution.
+\textbf{Transactions: Programmability.} Some outputs may be computed in the runtime of a transaction as a result of script(s) execution.
 It is also possible to include pre-evaluated outputs into transaction in order to save on on-chain computations.
 This design allows dApp developers to choose the amount of on-chain computations of their apps.
 
 \subsubsection{Dealing with finality of imported value}\label{subsubsec:dealing-with-finality-of-imported-value}
 
-Beacause Spectrum is a cross-chain system, monetary value there is usually imported from an external system\
-(e.g.\ Cardano or Ergo).
-Since most of the cryptocurrencies don't provide instant finality of transactions, on-chain transaction\
-that once imported value into Spectrum's on-chain vault may be rolled-back.
+Beacause Spectrum is a cross-chain system, monetary value there is usually imported from an external system (e.g.\ Cardano or Ergo).
+Since most of the cryptocurrencies don't provide instant finality of transactions, on-chiain transaction that once imported value into Spectrum's on-chain vault may be rolled-back.
 There are two ways of preventing \enquote{dangling} value inside Spectrum.
-On the one end of spectrum is a conservative approach: wait for settlement on the source chain\
-(e.g.\ 120 blocks in Ergo) before import to be 100\% sure the transaction will not be rolled back.
-On the other end is a reactive approach: import value immediately and revert locally transactions that\
-depend on that piece of value in the case of rollback.
-Conservative approach offers simplicity and is cheaper to execute, while reactive one allows to work\
-with imported value inside spectrum with minimal delays.
+On the one end of spectrum is a conservative aapoach: wait for settlement on the source chain (e.g.\ 120 blocks in Ergo) before import to be 100\% sure the transaction will not be rolled back.
+On the other end is a reactive approach: import value immediately and revert locally transactions that depend on that piece of value in the case of rollback.
+Conservative approach offers simplicity and is cheaper to execute, while reactive one allows to work with imported value inside spectrum with minimal delays.
 
-\textbf{Observation:} Probability of a rollback at a certain height decreases exponentially with square\
-root scaling in the exponent as chain extends ~\cite{cryptoeprint:2017/573}.
+\textbf{Observation:} Probability of a rollback at a certain height decreses exponentilly as chain extends.
 
 Based on this observation we choose a hybrid approach.
-Value is imported with a small delay $D^c$ which is configured for each chain and\
-is sufficient to keep probability of rollback low.
-If rollback happens after the import all transactions directly or transitively depending\
-on the dangling value are reverted.
+Value is imported with a small delay $D^c$ which is configured for each chain and is sufficient to keep probability of rollback low.
+If rollback happens after the import all trnsactions directly or transitively depending on the dangling value are reverted.
 
-As long as outbound transactions can not be reverted it is of paramount importance to wait\
-for complete settlement of the imported value before allowing to export it.
-Each cell is associated with a set of dependencies called \emph{ancors} represented\
-as unique identifier of a chain and a height which the chain is required to reach in order\
-for the anchor to be deemed as \emph{unancored}.
+As long as outbound transactions can not be reverted it is of paramount importance to wait for complete settlement of the imported value before allowing to export it.
+Each cell is assotiated with a set of dependencies called \enquote{anchors} represented as unique identifier of a chain and a height which the chain is required to reach in order for the ancor to be deemed as \enquote{unancored}.
 Active ancors leak from cells in inputs into created cells in outputs.
-It is impossible for a terminal cell to be exported until all ancors it depends on are reached.
+It is impossible to for terminal cell to be exported until all ancors it depends on are reached.

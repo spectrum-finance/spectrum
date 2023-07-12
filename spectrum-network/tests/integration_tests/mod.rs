@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Instant;
@@ -20,7 +19,7 @@ use libp2p::{
 use log::LevelFilter;
 use log4rs_test_utils::test_logging::init_logging_once_for;
 
-use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
+use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_crypto::pubkey::PublicKey;
 use spectrum_network::protocol::{OneShotProtocolConfig, OneShotProtocolSpec, ProtocolConfig};
 use spectrum_network::protocol_api::ProtocolEvent;
@@ -32,7 +31,6 @@ use spectrum_network::protocol_handler::handel::{
 use spectrum_network::protocol_handler::multicasting::overlay::{
     MakeDagOverlay, RedundancyDagOverlayBuilder,
 };
-use spectrum_network::protocol_handler::sigma_aggregation::types::Contributions;
 use spectrum_network::types::{ProtocolTag, RawMessage};
 use spectrum_network::{
     network_controller::{NetworkController, NetworkControllerIn, NetworkControllerOut, NetworkMailbox},
