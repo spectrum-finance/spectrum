@@ -1,0 +1,58 @@
+\subsubsection{Forks}\label{subsec:resolving-forks}
+
+Protocol flow implies that any of the local leaders can append their blocks to $L^+$, which leads to forks.
+This type of forks is a normal part of the protocol lifecycle, however, total possible number of the normal forks in\
+our protocol is much larger than in other blockchains, since there can also be a several local leaders in every\
+connected $L_k$ committee.
+The chance of occurring a malicious forks produced by adversary is minimized by the lottery design.
+In addition, the task for an adversary becomes more difficult by virtue of the interaction between the protocol\
+participants during the Syncing Shards process.
+
+The main rules for resolving forks are simple and are performed by the members of all committees when\
+validating a proposed blocks:
+\begin{itemize}
+    \item \textbf{Max valid}: choose the longest appropriate chain given a set of valid chains that are available\
+    in the network.
+    The depth of any block broadcast by a protocol member during the protocol must exceed the depths of any\
+    honestly-generated blocks from slots at least $K$ in the past.
+    \item \textbf{Max stake}: if the \emph{Max valid} rule doesn't resolve a slot battle, then the valid chain\
+    chooses according to the stake size of the battled leaders, the maximum stake is the winner.
+    Stake distribution is picked from the actual blockchain snapshot for the current committee.
+\end{itemize}
+
+A large number of the normal forks, however, still significantly affect properties, that maintain the\
+integrity of the $L^+$:
+\begin{itemize}
+    \item \textbf{Latency}: the number of elapsed slots required for a transaction to appear in a block on the $L^+$.
+    \item \textbf{Finality}: the number of elapsed slots required for a transaction to become settled and immutable.
+\end{itemize}
+The Latency of the protocol is good enough due to the short duration of the slots.
+Finality is guaranteed after $K_F$ slots, where $K_F$ is a pre-defined protocol parameter.
+As a result of the functional features of our protocol, $K_F$ depends on the connected $L_k$ integrity properties.
+
+Most ledgers do not guarantee instant finality of transaction, that means that any (or all) transactions may not\
+be applied to corresponding $L_k$ ledgers in the end.
+Different blockchains however has different Finality parameters, and time of elapsing $K_F$ should be longer\
+than all of them.
+Thus, the $K_F$ should be set with a margin and therefore using the number of slots $\Delta Sl$ that have\
+passed in the Spectrum network, developers should be able to receive information about the number of blocks that\
+have passed in all connected $L_k$ blockchains during this period of time.
+The duration of the block in each $L_k$ is different, but the average values are preserved for a certain period of\
+time ${\Delta T >> d_s}$, where $d_s$ is the duration of Spectrum's slot.
+Thus, after each $\Delta T$ time interval, Spectrum network will update the set of constants:\
+${(\{d_{k}\}_{k=1}^{K},\{c_{k}\}_{k=1}^{K})}$, where $d_k$ is a block duration in the $L_k$, $c_k$ is the default\
+reliable number of confirmations in the $L_k$, $M$ is the total number of the connected $L_k$.
+
+Using the data above, each Spectrum's $\Delta Sl$ can be associated with the delta of blocks that have passed in\
+any connected blockchain: ${\{\lfloor \Delta Sl \cdot d_s \mathbin{/} d_k)\rfloor\}_{k=1}^{K}}$.
+When forming transaction, developers can specify a reliability factor $C$.
+This factor will be compared with the ratio of the number of blocks passed on the associated $L_k$ blockchain to\
+the default reliable number of confirmations $c_k$ of this network:
+\begin{equation}
+    \theta(k-L_k^{id})\cdot \left\{\frac{1}{c_k} \cdot \left\lfloor \Delta Sl \cdot
+    \frac{d_s}{d_k}\right\rfloor\right\}_{k=1}^{K} >= C,\label{eq:equation2}
+\end{equation}
+where $\theta(x)$ is an indicator function which is 1 at $x = 0$, otherwise 0.
+
+\subsubsection{Handling Rollbacks}\label{subsec:rollbacks}
+todo

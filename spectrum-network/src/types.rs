@@ -129,9 +129,9 @@ impl From<ProtocolTag> for ProtocolVer {
     }
 }
 
-impl upgrade::ProtocolName for ProtocolTag {
-    fn protocol_name(&self) -> &[u8] {
-        &self.0
+impl AsRef<str> for ProtocolTag {
+    fn as_ref(&self) -> &str {
+        std::str::from_utf8(&self.0).unwrap()
     }
 }
 

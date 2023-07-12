@@ -1,15 +1,14 @@
-use spectrum_crypto::digest::{Blake2b, Blake2bDigest256, Digest256};
+use serde::Serialize;
 
-use crate::block::{BlockHeader, BlockId, BlockPayload};
-use crate::transaction::Transaction;
+use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
+
+use crate::block::{BlockBody, BlockHeader, BlockId};
+use crate::transaction::{Transaction, TxId};
 
 pub mod block;
-pub mod eval;
-pub mod ledger_view;
-pub mod linking;
-pub mod sbox;
+pub mod cell;
+pub mod interop;
 pub mod transaction;
-pub mod validation;
 
 #[derive(
     Eq,
@@ -76,6 +75,12 @@ impl From<BlockId> for ModifierId {
     }
 }
 
+impl From<TxId> for ModifierId {
+    fn from(id: TxId) -> Self {
+        Self(Blake2bDigest256::from(id))
+    }
+}
+
 impl Into<BlockId> for ModifierId {
     fn into(self) -> BlockId {
         BlockId::from(self.0)
@@ -85,16 +90,16 @@ impl Into<BlockId> for ModifierId {
 #[derive(Clone, Eq, PartialEq, Debug, derive_more::From)]
 pub enum Modifier {
     BlockHeader(BlockHeader),
-    // BlockBody(BlockPayload),
-    // Transaction(Transaction),
+    BlockBody(BlockBody),
+    Transaction(Transaction),
 }
 
 impl Modifier {
     pub fn id(&self) -> ModifierId {
         match self {
             Modifier::BlockHeader(bh) => ModifierId::from(bh.id),
-            // Modifier::BlockBody(bb) => ModifierId::from(bb.id),
-            // Modifier::Transaction(tx) => tx.id(),
+            Modifier::BlockBody(bb) => ModifierId::from(bb.id),
+            Modifier::Transaction(tx) => ModifierId::from(tx.id()),
         }
     }
 }
@@ -109,6 +114,17 @@ pub enum ModifierType {
 /// Provides digest used across the system for authentication.
 pub trait SystemDigest {
     fn digest(&self) -> Blake2bDigest256;
+}
+
+/// Marker trait for stucts whose hashes can be derived from serialised repr.
+trait DigestViaEncoder: Serialize {}
+
+impl<T: DigestViaEncoder> SystemDigest for T {
+    fn digest(&self) -> Blake2bDigest256 {
+        let mut encoded = Vec::new();
+        ciborium::ser::into_writer(self, &mut encoded).unwrap();
+        blake2b256_hash(&*encoded)
+    }
 }
 
 #[derive(

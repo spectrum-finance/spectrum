@@ -52,7 +52,7 @@ impl FakeSyncSpec {
     }
 }
 
-impl<'de> spectrum_network::protocol_handler::ProtocolSpec for FakeSyncSpec {
+impl spectrum_network::protocol_handler::ProtocolSpec for FakeSyncSpec {
     type THandshake = DiscoveryHandshake;
     type TMessage = FakeSyncMessage;
 }
@@ -128,7 +128,7 @@ where
     }
 }
 
-impl<'de, TPeers> ProtocolBehaviour for FakeSyncBehaviour<TPeers>
+impl<TPeers> ProtocolBehaviour for FakeSyncBehaviour<TPeers>
 where
     TPeers: Peers,
 {
@@ -176,9 +176,7 @@ where
     fn inject_protocol_enabled(
         &mut self,
         peer_id: PeerId,
-        _handshake: Option<
-            <Self::TProto as spectrum_network::protocol_handler::ProtocolSpec>::THandshake,
-        >,
+        _handshake: Option<<Self::TProto as spectrum_network::protocol_handler::ProtocolSpec>::THandshake>,
     ) {
         self.send_fake_msg(peer_id);
     }

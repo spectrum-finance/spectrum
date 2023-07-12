@@ -32,6 +32,7 @@ mod pool;
 pub mod sigma_aggregation;
 pub mod versioning;
 pub mod void;
+pub mod multicasting;
 
 #[derive(Debug)]
 pub enum NetworkAction<THandshake, TMessage> {

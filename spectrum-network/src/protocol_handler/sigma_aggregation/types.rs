@@ -185,6 +185,12 @@ impl VerifiableAgainst<CommitmentsVerifInput> for CommitmentsWithProofs {
     }
 }
 
+impl VerifiableAgainst<()> for CommitmentsWithProofs {
+    fn verify(&self, _: &()) -> bool {
+        true
+    }
+}
+
 pub type Responses = Contributions<Scalar>;
 
 pub struct ResponsesVerifInput {
@@ -251,7 +257,7 @@ mod tests {
         let k256_pk = host_secret.public_key();
         let k256_point = k256_pk.to_encoded_point(true);
         let k256_encoded = k256_point.as_bytes();
-        let libp2p_pk = libp2p_identity::secp256k1::PublicKey::decode(k256_encoded).unwrap();
-        assert_eq!(libp2p_pk.encode(), k256_encoded)
+        let libp2p_pk = libp2p_identity::secp256k1::PublicKey::try_from_bytes(k256_encoded).unwrap();
+        assert_eq!(libp2p_pk.to_bytes(), k256_encoded)
     }
 }

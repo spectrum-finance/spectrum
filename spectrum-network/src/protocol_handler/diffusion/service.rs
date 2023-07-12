@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use spectrum_ledger::block::{BlockId, BlockSectionType};
-use spectrum_ledger::ledger_view::history::HistoryReadAsync;
 use spectrum_ledger::{ModifierId, ModifierType, SerializedModifier, SlotNo};
+use spectrum_view::history::LedgerHistoryReadAsync;
 
 use crate::protocol_handler::diffusion::message::{
     DiffusionHandshake, DiffusionSpec, HandshakeV1, SyncStatus,
@@ -47,7 +47,7 @@ impl<THistory> Clone for RemoteSync<THistory> {
 
 impl<THistory> RemoteSync<THistory>
 where
-    THistory: HistoryReadAsync,
+    THistory: LedgerHistoryReadAsync,
 {
     pub fn new(history: Arc<THistory>) -> Self {
         Self { history }
@@ -187,8 +187,8 @@ pub(crate) mod tests {
     use spectrum_ledger::block::{
         BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType, BlockVer,
     };
-    use spectrum_ledger::ledger_view::history::HistoryReadAsync;
     use spectrum_ledger::{ModifierId, SerializedModifier, SlotNo};
+    use spectrum_view::history::LedgerHistoryReadAsync;
 
     use crate::protocol_handler::diffusion::message::SyncStatus;
     use crate::protocol_handler::diffusion::service::{RemoteChainCmp, RemoteSync};
@@ -198,7 +198,7 @@ pub(crate) mod tests {
     }
 
     #[async_trait::async_trait]
-    impl HistoryReadAsync for EphemeralHistory {
+    impl LedgerHistoryReadAsync for EphemeralHistory {
         async fn member(&self, id: &BlockId) -> bool {
             self.db.contains_key(id)
         }
