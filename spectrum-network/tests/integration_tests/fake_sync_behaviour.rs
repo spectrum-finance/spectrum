@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 
 use spectrum_network::{
     peer_manager::Peers,
-    protocol::DISCOVERY_PROTOCOL_ID,
     protocol_handler::{
         discovery::{
             message::{DiscoveryHandshake, DiscoverySpec, HandshakeV1},
