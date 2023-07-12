@@ -9,13 +9,19 @@
     natbib
 ]{biblatex}
 \usepackage[dvipsnames]{xcolor}
+\newcommand{\blue}{\color{blue}}
 \usepackage{color}
 \usepackage{csquotes}
 \usepackage{textcomp}
 \usepackage{amsfonts}
-\usepackage{amsmath}
-\usepackage{enumitem}
 \usepackage{amssymb}
+\usepackage{enumitem}
+\usepackage[T1]{fontenc}
+\usepackage{inconsolata}
+
+\newenvironment{tttabular}[1]%
+{\ttfamily \begin{tabular}{#1}}%
+{\end{tabular}}
 
 \addbibresource{references.bib}
 
