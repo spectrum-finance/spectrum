@@ -1,0 +1,26 @@
+[package]
+name = "spectrum-sigma-aggregation"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures = "0.3.21"
+libp2p = { version = "0.52.0", features = ["websocket", "noise", "yamux", "ping", "tcp", "dns", "async-std", "secp256k1"] }
+libp2p-identity = { version = "0.2.*", features = ["peerid", "secp256k1"] }
+async-std = { version = "1.10.0", features = ["attributes"] }
+spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
+spectrum-network = { version = "0.1.0", path = "../spectrum-network" }
+rand = "0.8.5"
+log = "0.4.17"
+log4rs = "1.2.0"
+k256 = { version = "0.13.*", features = ["serde", "arithmetic"] }
+serde = { version = "1.0.147", features = ["derive"] }
+base16 = "0.2.1"
+serde_yaml = "0.9.21"
+tokio = { version = "1.28.*", features = ["rt-multi-thread"] }
+clap = { version = "4.0", features = ["derive"] }
+axum = "0.6"
+tracing = "0.1"
+tracing-subscriber = "0.3"
