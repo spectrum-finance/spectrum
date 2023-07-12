@@ -1,280 +1,81 @@
-This section presents Spectrum protocol design starting from a naive approach based on PBFT and gradually\
-addressing the challenges.
+This section presents Spectrum protocol design starting from a naive approach based on\
+Practical Byzantine Fault Tolerance (PBFT)~\cite{Castro2001} and gradually addressing the challenges.
 
 \subsection{Strawman Design: PBFTNetwork}\label{subsec:strawman-design}
 
-For simplicity we begin with a notarization protocol based on PBFT, then iteratively refine it into Spectrum.
+For simplicity we begin with a notarization protocol based on PBFT\
+and then iteratively refine it into the Spectrum protocol.
 
-PBFTNetwork assumes that a group of ${n = 3f + 1}$ trusted nodes has been pre-selected upfront and fixed and at most\
-$f$ of these nodes are byzantine.
-At any given time one of these nodes is the \emph{leader}, who observes events on connected blockchains,
-batch them and initiate round of notarization within the consensus group.
-Remaining members of the consensus group verify the proposed batches by checking the presence of updates on\
-corresponding blockchains.
-Upon successful verification each node signs the batch with its secret key and sends the signature to the leader.
+PBFTNetwork assumes that a fixed consensus group of ${n = 3f + 1}$ nodes has been pre-selected upfront\
+and at most $f$ of these nodes are Byzantine.
+The PBFT protocol is designed in such a way that there is no need to trust each individual notary,\
+but only two-thirds of the set.
+This approach has proved its reliability in practice and has been widely used in various\
+blockchain protocols for many years.
 
-Under simplifying assumptions that at most $f$ nodes are byzantine the PBFTNetwork guarantees livness and safety.
-However, the assumption of a fixed trusted committee is not realistic for open decentralized systems.
-Moreover, as PBFT consensus members authenticate each other via non-transferable symmetric-key MACs, each consensus
-member has to communicate with others directly, what results in $O(n^2)$ communication complexity.
-Quadratic communication complexity imposes a hard limit on scalability of the system.
-Such a design also scales poorly in terms of adding support for more chains.
-The workload of each validator grows linearly with each added chain.
+At any given moment of time, one of the nodes is the leader who observes the events on the connected blockchains,\
+batch them and initiate a notarization round within the consensus group.
+All validators verify the proposed batch by checking for relevant updates on the connected chains.
+Upon successful verification each node signs the batch with a secret key and sends the signature to the leader.
 
-In the subsequent sections we address these limitations in four steps:
+Liveness and safety of the PBFTNetwork is guaranteed under the simplifying assumptions already mentioned above\
+that at most $f$ nodes are Byzantine.
+However, the assumption of a fixed trusted committee is unrealistic for open decentralized systems.
+Moreover, as PBFT consensus members authenticate each other via non-transferable symmetric-key MACs, each consensus\
+member has to communicate with others directly, what results in the $O(n^2)$ communication complexity.
+Quadratic communication complexity imposes a hard limit on the scalability of the system.
+Such a design is not suitable for building a multi-chain system, since the workload of\
+each validator grows linearly with each added chain.
+
+In the subsequent sections, we address these limitations in four steps:
 \begin{enumerate}
-    \item \textbf{Opening consensus group and leaders.} We introduce a lottery-based mechanism for selecting consensus\
-    group and leaders dynamically.
+    \item \textbf{Opening the Consensus Group.} We introduce a lottery-based mechanism to \emph{select the consensus\
+        group dynamically}.
     \item \textbf{Replacing MACs by Digital Signatures.} We replace MACs by digital signatures to make authentication\
-    transferable and thus opening the door for sparser communication patterns that can help to reduce\
-    the communication complexity.
+    transferable and thus opening the door for \emph{sparser communication patterns} that can help reduce\
+    communication complexity.
     \item \textbf{Scalable Collective Signature Aggregation.} We utilize Byzantine-tolerant aggregation\
-    protocol that allows for quick aggregation of cryptographic signatures to reduce communication complexity\
-    to $O(\log n)$.
-    \item \textbf{Eliminating Validator Bottleneck.} We shard consensus groups into units by the type of chain\
-    each node is able to handle.
+    protocol that allows for \emph{quick aggregation of cryptographic signatures} and reduces communication complexity\
+    to $O(\log{n})$.
+    \item \textbf{Eliminating Validator Bottleneck.} We shard consensus groups into local committees\
+    by the type of chain that each node is able to handle to \emph{improve system scalability}.
 \end{enumerate}
 
-\subsection{Opening Consensus Group}\label{subsec:opening-consensus-group-and-leaders}
+\subsection{Opening the Consensus Group}\label{subsec:opening-consensus-group}
 \input{opening-consensus-group}
 
 \subsection{Replacing MACs by Digital Signatures}\label{subsec:replacing-macs-by-digital-signatures}
 
-The main issue with MACs is that any node capable of validating MAC is also capable of generating new messages with
-valid MACs as the secret key used for MAC generation is also necessary for validation. Digital signatures, on the other
-hand, use asymmetric protocols for signature generation and signature verification powered by public-key cryptography. A
-valid secure digital signature for the message can only be generated with the knowledge of the secret key
-(unforgeability requirement), and verified with the corresponding public key (correctness requirement), and the secret
-key never leaves the signer's node. The authenticity of the message from the network node can be verified by any party
-knowing the node public key. Moreover, given the full history of communication, the malicious actor is still not able to
-forge the new message with valid signature of the node. This gives a way finer control over the set of permissions and
+The main issue with MACs is that any node capable of validating MAC is also capable of generating new messages with\
+valid MACs as the secret key used for MAC generation is also necessary for validation.
+Digital signatures, on the other\
+hand, use asymmetric protocols for signature generation and signature verification powered by public-key cryptography.
+A valid secure digital signature for the message can only be generated with the knowledge of the secret key\
+(non-forgery requirement), and verified with the corresponding public key (correctness requirement), and the secret\
+key never leaves the signer's node.
+The authenticity of the message from the network node can be verified by any party\
+knowing the node public key.
+Moreover, given the full history of communication, the malicious actor is still not able to\
+forge the new message with valid signature of the node.
+This gives a way finer control over the set of permissions and\
 provides a strong authentication method.
 
-Spectrum utilizes the specific subset of signatures based on so-called sigma-protocols. The benefits of these protocols
-are numerous, including the possibility of proving complex logical statements inside the scheme, provable
-zero-knowledge, and use of standardized and well-estabilished crypto-primitives, namely conventional cryptographic hash
-functions and standard elliptic curves with hard discrete logarithm problem. This means the high level of support in the
+Spectrum utilizes the specific subset of signatures based on so-called sigma-protocols.
+The benefits of these protocols\
+are numerous, including the possibility of proving complex logical statements inside the scheme, provable\
+zero-knowledge, and use of standardized and well-established crypto-primitives, namely conventional cryptographic hash\
+functions and standard elliptic curves with hard discrete logarithm problem.
+This means the high level of support in the\
 existing chains without modification of the core opcodes or writing supplementary on-chain routines.
 
 \subsection{Scalable Collective Signature Aggregation}\label{subsec:scalable-collective-signature-aggregation}
-
-\subsubsection{Problem Statement and Review}
-
-In this section we describe our approach to the following problem. The naive approach to writing the consensus values on
-the blockchain in a verifiable way would be simply write the resulting values together with the signatures from every
-node which successfully participated in the consensus protocol. Spectrum consensus groups can contain thousands of
-nodes. If one takes Schnorr signature scheme with 256-bit keys, every signature is 64 bytes long. That means thousands
-of kilobytes of data needed to be written on the blockchain and consuming valuable storage space, not speaking on the
-computational efforts from the blockchain validating node to actually verify all these signatures. Therefore, a method
-of signature aggregation is a must under these circumstances. The aggregation allows one to write a single shorter
-signature instead of the list of signatures while preserving similar security level. There are few signature aggregation
-schemes for the sigma-protocol based signatures, such as CoSi and MuSig. These protocols perform extremely well if all
-the keys of the predifined set of co-signers are included in the resulting signature generation. In this case instead of
-having thousands of separate signatures one has only one of the size of single Schnorr signature. But this is not the
-case with many realistic situations with large consensus groups (such as Spectrum). It would be too optimistic to
-assume that all the nodes are always online, and every single node is following the protocol honestly to every letter.
-One needs the mechanism to process these failures. Whereas CoSi proposes the method to process such failures, it comes
-at cost of significant increase in the size of the resulting signature. Our scheme relies on the similar ideas, however
-we tend to provide better scaling with faulty nodes and more compact constructions than the original CoSi.
-
-In short, we construct a compact aggregated signature scheme with potential node failures based on standard cryptographic
-primitives. It must have constant small size in the absence of failures and provide reasonably small space and
-computational overheads in the presence of failures. The signing protocol must be performed in a distributed fashion
-providing the defence from the malicious co-signers.
-
-\subsubsection{General Overview}
-
-We start with the MuSig scheme and modify it to the meet the criteria listed above. We assume the Discrete Logarithm group to be the subgroup of the elliptic curve as usual. That is, elliptic curve is
-defined over finite field, we consider subgroup of its points with coordinates in thes field of prime order with
-fixed generator $g$ and identity element being the point at infinity if the curve is written in the form $y^2=f(x)$, $f$
-is the third degree polynomial. Nothing prevents one from using another group with hard discrete logarithm problem. We use multiplicative notation for
-the group operation, and the group elements except for generator are written in capital letters. The secret keys are the integers
-modulo group order. We write them in small letters. $H$ is the cryptographic hash function. When we write $H(A,B)$, we
-assume that there is a deterministic way of serializing the tuple $(A,B)$, and this serialization is used as an argument
-for $H$. The public key corresponding to the private key $x$ is the group element $X=g^x$.
-
-Any interactive sigma-protocol consists of three stages in strict order: commitment (when one or more group elements are sent from
-prover to verifier), challenge (when the the random number is sent from verifier to prover), response (when one or more
-numbers calclated from the previous stages and the secret key are sent from prover to verifier). This triple constitutes the proof-of knowledge of the secret key. To turn the interactive
-protocol in non-interactive one, Fiat-Shamir heuristic is used, when the challenge is replaced by the hash value of all
-the preceeding public data. 
-
-The takeaways from this setting, which are important for the understanding of our construction are the following:
-\begin{itemize}
-    \item In case of $n$ nodes one must have $n$ commitments. They must be aggregated, and the list should not change
-        till the end of the protocol
-    \item As the commitments from different nodes come at potentially different time, there can be an attack on this
-        stage. Say, one node does not pick the commitment based on random, but rather calculates it based on the
-        commitments received from the other nodes. This kind of attack is known as $k$-list attack, as to forge the
-        upcoming signatures the malicious node solves the $k$-list problem, which is tractable with the sufficient
-        amount of data. To exclude this possibility one needs all the node to ``commit to Schnorr commitment''
-        beforehand. One can use hash function with no homomorphic properties for that purpose.
-    \item All the steps are strictly sequential. Hence, the every stage must complete with the full aggregation of
-        individual contributions. There does not seem to be a simple way to perform it fully asynchronously.
-    \item Instead of the last step (response) it is sufficient to provide the proof of knowledge for the response. This
-        brings no additional value to the conventional signatures, but it helps wit the processing of the node failures
-        during the execution. Namely, the consensus group may demonstrate that somebody in the group knew the discrete
-        logarithms of the commitments not accounted for in the response stage. Therefore, the group as a whole could
-        compute the full response if the failure had not occur.
-    \item There must be the way to count the failures above, such that the signature verifier could decide whether it
-        tolerates this number or not.
-\end{itemize}
-
-\subsubsection{Aggregation Rounds and Structures}
-Here we list the overall structure of aggregation to give a grasp on the overall process. The detailed explanation is in
-the subsection below.
-\begin{itemize}
-    \item Round 1. Collect Commitments for Schnorr commitments.  Structure: list of hashes of elliptic curve points
-    \item Distribute all the hashes after aggregation
-    \item Round 2. Collect and aggregate Schnorr commitments. Structures: list of signatures (proofs of discrete
-        logarithms for the commitments) together with Schnorr commitments
-    \item Distribute among all the nodes. Upon receiving every node verifies that the hashes of the points are those
-        provided on round 1, and verifies the proofs of discrete logarithms. The commitments with the checks passed are
-        aggregated to get the overall commitment. It is used to compute the challenge and the individual responses in
-        the sigma--protocol.
-    \item Round 3. Collect and aggregate the responses. Structure: list of individual responses. Upon receiving every
-        individual response is verified. The responses which passed the verification are added together. If the response
-        is invalid or missing, the corresponding discrete logarithm proof from round 2 is appended to the output.
-    \item Output. Aggregate signature $(Y,z)$ together with the set
-        \[
-            \{(Y_i, DlogProof(Y_i)\}\,,
-        \]
-        where $i$ rubs over the set of node which have not provided valid responses.
-\end{itemize}
-
-\subsubsection{Signature Generation}
-\begin{enumerate}
-    \item Each signer computes $a_i\leftarrow(X_1,X_2,\dots,X_n;X_i)$ and the aggregate public key $\tilde{X}\leftarrow\prod_i X_i^{a_i}$
-    \item Each signer generates a pair $Y_i=g^{y_i}$ to commit to, commitment $t_i\leftarrow H(Y_i)$ and the signature $\sigma_i$ of
-        some predefined message with secret key $y_i$.
-    \item The commitments $t_i$ are aggregated in the list $L_1$
-    \item After every participating co--signer received $L_1$, the tuples $(Y_i,\sigma_i)$ are aggregated in the list
-        $L_2$.
-    \item Upon receiving the tuple $(Y_i,\sigma_i)$, verify $t_i = H(Y_i)$, and verify that $\sigma_i$ is a valid
-        signature corresponding to $Y_i$. The failed records are excluded form $L_2$, the next steps and communication round.
-    \item Every node computes the aggregate commitment $Y=\prod_i Y_i$ using all the valid records in $L_2$.
-    \item Every node computes the challenge $c\leftarrow H(\tilde{X}, Y, m)$ and the responses $z_i\leftarrow y_i + ca_ix_i$
-    \item The responses $z_i$ are aggregated into list $L_3$.
-    \item Initialize $z\leftarrow 0$ and empty set $R\leftarrow\{\}$.
-    \item Upon receiving the response $z_i$, verify that $g^{z_i} = Y_i X_i^{a_ic}$. If this is the case, set $z\leftarrow
-        z+z_i$. Otherwise, insert corresponding entry from $L_2$ in $R$ as $(i, Y_i, \sigma_i)$.
-    \item Output triple $(Y,z,R)$
-\end{enumerate}
-
-\subsubsection{Signature Verification}
-\begin{enumerate}
-    \item Compute $a_i\leftarrow H(X_1,X_2,\dots,X_n;X_i)$
-    \item Compute $\tilde{X}\leftarrow\prod_i X_i^{a_i}$
-    \item Compute $X' = \prod_{i\notin R.0}X_i^{a_i}$
-    \item Compute $Y' = \prod_{i\in R.0} Y_i$
-    \item Compute $c\leftarrow H(\tilde{X}, Y, m)$
-    \item Verify $g^z=X'^cYY'^{-1}$
-    \item Verify all of $\sigma_i\in R.2$ with respect to $Y_i\in R.1$
-    \item Compare the $n-k$ (where $k$ is the size of $R$) with the required threshold value
-\end{enumerate}
-
-\subsection{Consensus}\label{subsec:consensus}
-\input{consensus.tex}
-
-\subsection{Ledger}\label{subsec:ledger}
-\input{ledger.tex}
+\input{signature-aggregation}
 
 \subsection{Eliminating Validator Bottleneck}\label{subsec:eliminating-validator-bottleneck}
-\input{eliminating-validator-bottleneck.tex}
+\input{eliminating-validator-bottleneck}
 
-\subsection{Ledger Model}\label{subsec:ledger-model}
-\input{ledger-model.tex}
-
-\subsection{System integrity}\label{subsec:system-integrity}
-\input{integrity.tex}
+\subsection{Ledger}\label{subsec:ledger-model}
+\input{ledger-model}
 
 \subsection{Protocol Flow}\label{subsec:protocol-flow}
-let's summarize all of the above and describe the full flow of the Spectrum protocol.
-Protocol is running by manually selected opening consensus group $V_0$.
-Stakeholders interact with each other and with the ideal functionalities ${\mathcal{F}}_{RLB}$,\
-${\mathcal{F}}_{VRF}$, ${\mathcal{F}}_{KES}$, ${\mathcal{F}}_{DSIG}$ over a sequence of $L = E \cdot R$ slots\
-${S=\{sl_1,...,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
-
-\subsubsection{Bootstrapping}\label{subsubsec:bootstrapping}
-
-The system is bootstrapped in a trusted way.
-A manually picked set of validators $V_0$ of the predefined size $M$ is assigned to the first epoch $e_0$.
-\begin{enumerate}
-    \item On-chain vaults are initialized with an aggregated public key $aPK_0$ of the initial committee.
-
-    \item All consensus group members i.e. $\forall PK_i \in V_0$ should generate the tuple of verification keys\
-    ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$, using the ideal functionalities ${\mathcal_{F}}_{VRF}$,\
-    ${\mathcal{F}}_{KES}$, ${\mathcal{F}}_{DSIG}$ instances, running on their machines.
-
-    \item Full set of the verification\
-    keys tuples ${V_{init} = \{(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig})\}_{i=0}^M}$ with the initial stakes $\{s_i\}_{i=0}^M$
-    must be stored in the blockchain and acknowledged by all members of the initial consensus group.
-
-    \item ${\mathcal{F}}_{LB}$, parameterized with confirmed $V_{init}$ is evaluated independently by every\
-    participant to sample an initial random seed value $\eta \leftarrow \{0, 1\}^\lambda$.
-
-    \item Finally, all approved stakeholders should agree on the genesis block\
-    ${B_0=\left(\{(PK_i, v_i^{vrf}, v_i^{kes}, v_i^{dsig}, s_i)\}_{i=0}^M, \eta\right)}$.
-\end{enumerate}
-
-\subsubsection{Normal Flow}\label{subsubsec:normal-flow}
-Once the system is bootstrapped, protocol is running in a normal flow:
-\begin{legal}
-    \item \textbf{Registration}.
-    Any Spectrum stakeholder can register to become a committee member of his local chain $c_i$.
-    To get a chance to be included in the set of validators $\mathbf{C}^n_i$ in the epoch $e_n$\
-    participant $PK_i$ should register in the lottery during the epoch $e_{n-2}$ by publishing his verification tuple\
-    ${(v_i^{vrf}, v_i^{kes}, v_i^{dsig})}$ into the $L^+$.
-    Once enough time (number of slots) has elapsed to meet the reliable confirmation threshold $R^+$ for the $L^+$,\
-    the participant is considered as \textit{verified}.
-
-    \item \textbf{Consensus Lottery}.
-    At the end of the epoch ${e_j \geq 1}$ every \textit{verified} $PK_i$ receives new epoch seed $\eta_n$\
-    from the ${\mathcal{F}}_{LB}$.
-    When every $PK_i$ evaluates ${\mathcal{F}}_{VRF}$ with the input, which includes new $\eta_n$\
-    and passes the received proof $\pi_i$ to the ${\mathcal{F}}_{L}$.
-    Function ${\mathcal{F}}_{L}$ is parameterized with the $\mathbf{C}^i$ lottery params and uses the same\
-    stake distribution which was in the last block used by ${\mathcal{F}}_{LB}$ to calculate the threshold.
-    If successful, i.e. ${\mathcal{F}}_{L}$ returns $1$, then publish the associated proofs into the $L^+$.
-    Functionality ${\mathcal{F}}_{LB}$ is parameterized with the history, including blocks with release times up to\
-    ${-R^+}$ from the actual slot.
-    Therefore, even in case of a rollback, the currently selected members of the consensus group remain legitimate
-
-    \item \textbf{Committee key aggregation}.
-    Once new committee is selected, nodes in the $\mathbf{C}_i^n$ aggregate their individual public keys $\{PK_i\}$ into
-    a joint one $aPK_n$, which is needed to sign the \textit{Batch Applying Transactions} with the external events\
-    (\textit{Inbound Value Transfers}, \textit{Outbound Value Transfers}, \textit{Boxes Eliminations}).
-
-    \item \textbf{Committee transition}.
-    Nodes in the $\mathbf{C}_i^{n-1}$ publish cross-chain message ${M_n : (aPK_n, \sigma_{n-1})}$ , where $aPK_n$ is\
-    an aggregated public key of the new committee $\mathbf{C}_i^n$ , $\sigma_{n-1}$ is an aggregated signature of
-    $M_n$ such that ${Verify(\sigma_{n-1}, aPK_{n-1}, Mn) = 1}$.
-    Vaults are updated such that ${Vault\{(e_{n-1}, aPK_{n-1})\} \coloneqq(e_n, aPK_n)}$.
-
-    \item \textbf{Chain extension}.
-    \begin{legal}
-
-        \item Every online consensus group member collects en existed chains related to the $L^+$ and verifying that for every chain every block,\
-        produced up to $R^+$ blocks before contains correct data about the corresponding slot $sl'$ leader $PK'$.
-        To verify a valid slot leader, responses from the ${\mathcal{F}}_{VRF}$ and ${\mathcal{F}}_{L}$ with the relevant inputs must equal $1$. Leader $PK'$ must be also a member of the committee, legal at $sl'$, this is checked in the same way. All forks are resolved by the rules of the longest chain and the largest stake in the corresponding priority.
-
-        \item During the epoch, for every slot $sl$ every committee $\mathbf{C}_i^n$ member $PK_i$ separately evaluates\
-        ${\mathcal{F}}_{VRF}$ with his own input ${x = \eta_n || sl || \textbf{nonce}}$\, where \textbf{nonce} is an arbitrary predefined string.
-        If successful ${\mathcal{F}}_{L}$ returns $1$, then $PK_i$ is the slot $sl$ leader he evaluates ${\mathcal{F}}_{VRF}$ one more time with the input ${x' = \eta_n || sl || \textbf{test}}$, where \textbf{test} is another arbitrary predefined string.
-        The associated proofs $\pi_i$ and $\rho_i$ will be included in the block, which will be added to the $L^+$.
-
-        \textbf{Note:} The ${\mathcal{F}}_{VRF}$ is designed in such a way that not every slot has a leader,\
-        moreover, most of the slots remain empty to serve protocol synchronization.
-        If there are $P$ several elected leaders for this slot, they all can add new blocks
-        $\{B_p\}_{p=0}^P$ with included proofs ${(v_i^{vrf}, \pi_i, \rho_i)}$.
-
-        \item All committee $\mathbf{C}_i^n$ members observe events in their local chains $c_i$ and in the $L+$ mempool.
-        If $PK_i$ is a slot $sl$ leader, then he is able to propose a batch $B^i_j$ of events from $c_i$ in a form of the \textit{Batch Applying Transaction}, which should be notarized by other members of the $\mathbf{C}_i^n$ with an aggregated signature.
-
-        \item Notarized batch $B^i*_j$ can first of all be formed by any member of the $\mathbf{C}_i^n$.
-        He should immediately send it to the leader, who proposed it and to the members of other committees $\mathbf{C}_{j\neq i}^n$.
-        After the leader receives set of batches ${B^k*_j}$, he forms the block $\mathbf{B}_m$ with updates from the $L^+$ mempool included, sign it with ${\mathcal{F}}_{KES}$, includes all proofs and broadcasts it to all committees.
-
-        \item After $R^+$ reliable slots number has passed all members of all committees that participated in the formation of the block $\mathbf{B}_m$ receive rewards proportional to their status.
-    \end{legal}
-\end{legal}
+\input{protocol-flow}

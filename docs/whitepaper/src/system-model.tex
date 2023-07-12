@@ -1,94 +1,76 @@
-\subsection{Transaction Ledger}\label{subsec:transaction-ledger}
+In this section we will describe the main components and general assumptions which is essential to\
+conceptualize and construct the Spectrum protocol.
 
-To be an appropriate for our goals we adopt the definition of transaction ledger from~\cite{cryptoeprint:2016/889}.
-A protocol $\Pi$ implements a robust transaction ledger provided that $\Pi$ is divided into blocks that determine the order\
-in which transactions are incorporated into the ledger.
-Blocks are assigned to time slots.
-It should also satisfy the following properties:
+\subsection{Transaction Ledger}\label{subsec:transaction-ledger.}
+We adopt the definition of transaction ledger from~\cite{cryptoeprint:2016/889}.
+A protocol $\Pi$ implements a robust transaction ledger, provided that $\Pi$ is divided into blocks that determine\
+the order in which transactions are incorporated into the ledger.
+Each block in this model is assigned to a specific time slot and the ledger must satisfy the following properties:
 \begin{enumerate}
-    \item \textbf{Persistence.} Once a node of the system proclaims a certain transaction tx as stable, the remaining
+    \item \emph{Persistence.} Once a node of the system proclaims a certain transaction tx as stable, the remaining\
     nodes, if queried, will either report tx in the same position in the ledger or will not report as stable any\
     transaction in conflict to tx.
-    Here the notion of stability is a predicate that is parameterized by a security parameter $k$; specifically, a\
+    Here the notion of stability is a predicate that is parameterized by a security parameter $k$, specifically, a\
     transaction is declared stable if and only if it is in a block that is more than $k$ blocks deep in the ledger.
-    \item \textbf{Liveness.} If all honest nodes in the system attempt to include a certain transaction then, after\
-    the passing of time corresponding to u slots (called the transaction confirmation time), all nodes, if queried\
+    \item \emph{Liveness.} If all honest nodes in the system attempt to include a certain transaction then,\
+    after time expires corresponding to $u$ slots (called the transaction confirmation time), all nodes, if queried\
     and responding honestly, will report the transaction as stable.
 \end{enumerate}
 
-\subsection{Time and Slots.}\label{subsec:time-and-slots.}
-We consider a setting where time is divided into discrete units called slots.
-A ledger, which is described in more details in another section, associates one ledger block with\
-each time slot (at most).
-Participants are equipped with (roughly synchronized) clocks that indicates the current slot.
-This will permit them to carry out a distributed protocol intending to collectively assign a block to this current
-slot.
-In general, each slot $sl_r$ is indexed by an integer $r \subseteq \{1, 2, ..\}$, and we assume that the real
+\subsection{Semi-Synchronous Model Preliminaries}\label{subsec:the-semi-synchronous-model-preliminaries.}
+We consider the security model in a semi-synchronous setting with simple modifications to account for\
+adversarially-controlled message delays and immediate adaptive corruption.
+
+\textbf{Time and Slots.}
+In our setting time is divided into discrete units called slots.
+The ledger associates one ledger block with each time slot (at most).
+Participants are equipped with roughly synchronized clocks.
+This will permit them to carry out a distributed protocol intending to collectively assign a block to this current slot.
+In general, each slot $sl_r$ is indexed by an integer $r \in \{1, 2, ..\}$, and we assume that the real\
 time window that corresponds to each slot has the following two properties:
-\begin{enumerate}
+\begin{itemize}
     \item The current slot is determined by a publicly-known and monotonically increasing function of the current time.
     \item Each participant has access to the current time.
     Any discrepancies between parties' local time are insignificant in comparison with the slot duration.
-\end{enumerate}
+\end{itemize}
 
-\subsection{Synchrony.}\label{subsec:synchrony.}
+\textbf{Synchrony.}
 We consider an untrustworthy network environment that allows for adversarial-controlled message delays and immediate\
 adaptive corruption.
 Namely, we allow the adversary $A$ to selectively delay any messages sent by an honest party for up to $\Delta \subseteq \mathbb{K}$\
 slots and corrupt parties without delay.
 
-At any time $t$ a subset ${V \subseteq N}$ of nodes is controlled by an adversary and are considered faulty.
+\textbf{Random Oracle.}
+We assume that a random oracle is available to each node $n \in N$.
+The random oracle is designed in such a way that it is able to produce uniformly-distributed pseudo-random numbers\
+which correctness must be verifiable for all participants of the protocol.
+
+\textbf{Security Model.}\label{subsec:security-model.}
+The system is composed of a set of nodes $N$ and each node $n \in N$:
+\begin{itemize}
+    \item Is associated with a unique wallet holding a stake of tokens $s_n$.
+    \item Able to generate key-pairs ${(PK, SK)}$ without trusted public key infrastructure.
+    \item Is able to sign messages ${sign: (SK, m) \rightarrow \sigma}$.
+    \item Is able to verify signatures ${verify: (\sigma, PK, m) \rightarrow 0 | 1}$.
+    \item Has access to random oracle functionality.
+    \item Has access to key evolving signature functionality.
+\end{itemize}
+
+At any time $t$ a subset ${V \subseteq N}$ of nodes can be controlled by an adversary and are considered faulty.
 Byzantine nodes can divert from the protocol and collude to attack the system while the remaining honest nodes follow\
 the protocol.
-We assume that the total stake of all faulty nodes is less than 1/3 of the total stake $s$ of all nodes.
+We assume that the total stake of all faulty nodes is less than 1/3 of the total stake of all nodes.
 
-\subsection{Random Oracle.}\label{subsec:random-oracle.}
-We assume that a random oracle is available to each node $n \in N$.
-Random oracle is designed in such a way that it is able to:
-\begin{itemize}
-    \item Generate the key-pairs ${(PK^r_n, SK^r_n)}$.
-    \item Generate uniformly-distributed pseudo-random numbers ${random: (seed || x; PK^r_n, SK^r_n) \rightarrow y}$, where\
-    ${seed, x \in \{0,1\}^*}$, ${y \in \{0,1\}^\omega}$ and all the repeated queries are answered consistently.
-    \item Verify the correctness of the generated random number $y$ given some $proof$, i.e.\
-    ${verify: (y, seed, proof, PK^r_n) \rightarrow 0 | 1}$.
-\end{itemize}
-
-\subsection{Key Evolving Signature scheme.}\label{subsec:key-evolving.}
-We also assume that each node $n \in N$ is equipped with the Key Evolving Signature functionality.
-And this functionality is able to:
-\begin{itemize}
-    \item Generate the key-pairs ${(PK^k_n, SK^k_n)}$.
-    \item Update secret keys $SK^k_n$ and associate it with the concrete time slots\
-    ${update: (SK^k_n, sl*; PK^k_n) \rightarrow SK^k*_n}$.
-    \item Sign messages with an actual secret key ${sign: (SK^k*_n, m, sl*) \rightarrow \sigma}$.
-    \item Verify the correctness of the signature created at the concrete time slot\
-    ${verify: (\sigma, PK^k_n, m, sl*) \rightarrow 0 | 1}$.
-\end{itemize}
-
-\subsection{Security Model.}\label{subsec:security-model.}
-The system is composed of a set of nodes $N$.
-
-Each node $n \in N$:
-\begin{itemize}
-    \item is associated with a unique wallet holding a stake of tokens $s_n$.
-    \item Able to generate the key-pairs ${(PK_n, SK_n)}$, ${(PK^r_n, SK^r_n)}$ and ${(PK^k_n, SK^k_n)}$\
-    without trusted public key infrastructure.
-    \item Is able to sign messages ${sign: (SK_n, m) \rightarrow \sigma}$.
-    \item Is able to Verify signatures ${verify: (\sigma, PK_n, m) \rightarrow 0 | 1}$.
-    \item Has the ability to use all the features of the \textit{Random Oracle}\
-    and \textit{Key Evolving Signature} functionalities.
-\end{itemize}
-
-\subsection{External Systems.}\label{subsec:external-systems.}
-We also assume multiple independent distributed systems ${S_1, \dots, S_k}$ with underlying ledgers ${L_1, \dots, L_k}$\
+\subsection{External Systems}\label{subsec:external-systems.}
+We also assume multiple independent distributed systems ${S_1, \dots, S_K}$ with underlying ledgers ${L_1, \dots, L_K}$\
 as defined in~\cite{cryptoeprint:2019/1128}.
-For each ledger there is a process $P_k$ that can influence the state evolution of the underlying ledger $L_k$ by\
-committing a transaction $TX_k$ into it.
+For each ledger ${L_k, k \in K}$ there is a process $P_k$ that can influence the state evolution\
+of the underlying ledger $L_k$ by committing a transaction $TX_k$ into it.
 We extend the model defined in~\cite{cryptoeprint:2019/1128} by assuming that all ledgers allow for execution of\
 simple predicates upon validation of transactions: ${verify: C \rightarrow 0 | 1}$, where $C$ is\
-a \enquote{context} that contains description of state the transaction interacts with.
+a \emph{context} that contains description of state the transaction interacts with.
 There is also a function ${desc: TX_k \rightarrow DESC^{TX_k}}$ that maps transaction $TX_k$ to\
-some \enquote{description}, e.g.\ specifying the transaction value, recipient address, etc.
-For each  $S_k$ there is a corresponding functionality unit $F_{S_k}$ that allows any $n$ equipped with the unit\
+some \emph{description}, e.g.\ specifying the transaction value, recipient address, etc.
+For each $S_k$ there is a corresponding functionality unit $F_{S_k}$ that allows any node equipped with the unit\
 to interact with $S_k$.
-Each node $n \in N$ is equipped with at least one such functionality unit and at most $k$ functionality units.
+Each node $n \in N$ is equipped with at least one such functionality unit and at most $K$ functionality units.

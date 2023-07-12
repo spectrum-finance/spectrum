@@ -3,18 +3,17 @@
 \usepackage{mathtools}
 \usepackage[
     backend=biber,
-    style=authoryear,
-    sorting=nyt,
-    style=alphabetic,
+    style=numeric,
+    sorting=none,
     natbib
 ]{biblatex}
+\addbibresource{references.bib}
+
 \usepackage[dvipsnames]{xcolor}
-\newcommand{\blue}{\color{blue}}
 \usepackage{color}
 \usepackage{csquotes}
 \usepackage{textcomp}
 \usepackage{amsfonts}
-\usepackage{amssymb}
 \usepackage{enumitem}
 \usepackage[T1]{fontenc}
 \usepackage{inconsolata}
@@ -23,7 +22,9 @@
 {\ttfamily \begin{tabular}{#1}}%
 {\end{tabular}}
 
-\addbibresource{references.bib}
+\newcommand{\lt}{<}
+\newcommand{\gt}{>}
+\newcommand{\blue}{\color{blue}}
 
 \newlist{legal}{enumerate}{10}
 \setlist[legal]{label*=\arabic*.}
@@ -42,7 +43,7 @@
 
 
         \section{Related Work}\label{sec:related-work}
-        todo
+        \input{related-work}
 
 
         \section{Goals}\label{sec:goals}
@@ -62,5 +63,6 @@
 
         \newpage
         \printbibliography
+
     \end{sloppypar}
 \end{document}
