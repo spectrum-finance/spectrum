@@ -30,7 +30,7 @@ each validator grows linearly with each added chain.
 In the subsequent sections, we address these limitations in four steps:
 \begin{enumerate}
     \item \textbf{Opening the Consensus Group.} We introduce a lottery-based mechanism to \emph{select the consensus\
-    group dynamically}.
+        group dynamically}.
     \item \textbf{Replacing MACs by Digital Signatures.} We replace MACs by digital signatures to make authentication\
     transferable and thus opening the door for \emph{sparser communication patterns} that can help reduce\
     communication complexity.
@@ -46,11 +46,30 @@ In the subsequent sections, we address these limitations in four steps:
 
 \subsection{Replacing MACs by Digital Signatures}\label{subsec:replacing-macs-by-digital-signatures}
 
-todo
+The main issue with MACs is that any node capable of validating MAC is also capable of generating new messages with\
+valid MACs as the secret key used for MAC generation is also necessary for validation.
+Digital signatures, on the other\
+hand, use asymmetric protocols for signature generation and signature verification powered by public-key cryptography.
+A valid secure digital signature for the message can only be generated with the knowledge of the secret key\
+(non-forgery requirement), and verified with the corresponding public key (correctness requirement), and the secret\
+key never leaves the signer's node.
+The authenticity of the message from the network node can be verified by any party\
+knowing the node public key.
+Moreover, given the full history of communication, the malicious actor is still not able to\
+forge the new message with valid signature of the node.
+This gives a way finer control over the set of permissions and\
+provides a strong authentication method.
+
+Spectrum utilizes the specific subset of signatures based on so-called sigma-protocols.
+The benefits of these protocols\
+are numerous, including the possibility of proving complex logical statements inside the scheme, provable\
+zero-knowledge, and use of standardized and well-established crypto-primitives, namely conventional cryptographic hash\
+functions and standard elliptic curves with hard discrete logarithm problem.
+This means the high level of support in the\
+existing chains without modification of the core opcodes or writing supplementary on-chain routines.
 
 \subsection{Scalable Collective Signature Aggregation}\label{subsec:scalable-collective-signature-aggregation}
-
-todo
+\input{signature-aggregation}
 
 \subsection{Eliminating Validator Bottleneck}\label{subsec:eliminating-validator-bottleneck}
 \input{eliminating-validator-bottleneck.tex}

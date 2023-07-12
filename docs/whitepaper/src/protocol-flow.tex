@@ -3,10 +3,11 @@ Protocol is running by a set of manually selected opening consensus groups $\{V^
 for $K$ connected distributed systems $\{S_k\}_{k=1}^K$.
 Each group consists of at least $M$ stakeholders interacting with each other and with the ideal\
 functionalities ${\mathcal{F}}_{LB}$, ${\mathcal{F}}_{VRF}$, ${\mathcal{F}}_{L}$, ${\mathcal{F}}_{KES}$,\
-${\mathcal{F}}_{DSIG}$ over a sequence of $L = E \cdot R$ slots ${S=\{sl_1,...,sl_L\}}$\
+${\mathcal{F}}_{SIG}$ over a sequence of $L = E \cdot R$ slots ${S=\{sl_1,...,sl_L\}}$\
 consisting of $E$ epochs with $R$ slots each.
 The above not previously mentioned functionality ${\mathcal{F}}_{KES}$ is a key evolving signature scheme\
 that is used by the current leader to sign a new block.
+Functionality ${\mathcal{F}}_{SIG}$ implements the presented aggregated signature scheme logic.
 Also, each protocol participant maintains at least one functionality unit $F_{S_k}$ that allows him\
 to interact with the connected $S_k$.
 
@@ -89,8 +90,8 @@ Once the system is bootstrapped, the Spectrum protocol is running in a normal fl
 
         \item All committee $V^k_n$ members observe events in their systems $S_k$ and in the $L+$ mempool.
         If $PK_i$ is a slot $sl$ leader, then he is able to propose a batch $b^*$ of events observed in $S_k$,\
-        which should be notarized by other members of the $V^k_n$ with an aggregated signature and then added to\
-        the local ledger $L_k$.
+        which should be notarized by other members of the $V^k_n$ with an aggregated signature\
+        using ${\mathcal{F}}_{SIG}$ and then added to the local ledger $L_k$.
 
         \item Notarized batch $b^*$ can first be formed by any member of the $V^k_n$.
         The batch must be immediately sent to the leader who initiated its notarization and to the\
@@ -105,6 +106,5 @@ Once the system is bootstrapped, the Spectrum protocol is running in a normal fl
 \end{legal}
 
 In this way, the Spectrum protocol reaches consensus and implements the cross-chain interoperability.
-
 The solution is fairly decentralized, fast and scalable, thus, it can be used in\
 a large number of applications and scenarios.

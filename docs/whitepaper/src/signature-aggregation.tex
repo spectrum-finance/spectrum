@@ -1,0 +1,156 @@
+\subsubsection{Problem Statement and Review}
+
+In this section we describe our approach to the following problem.
+The naive approach to writing the consensus values on\
+the blockchain in a verifiable way would be simply write the resulting values together with the signatures from every\
+node which successfully participated in the consensus protocol.
+Spectrum consensus groups can contain thousands of nodes.
+If one takes Schnorr signature scheme~\cite{Schnorr1991} with 256-bit keys, every signature is 64 bytes long.
+That means thousands of kilobytes of data needed to be written on the blockchain and consuming\
+valuable storage space, not speaking on the computational efforts from the blockchain\
+validating node to actually verify all these signatures.
+Therefore, in these circumstances, the signature aggregation method is mandatory.
+
+The aggregation allows one to write a single shorter signature instead of the list of signatures\
+while preserving similar security level.
+There are few signature aggregation schemes for the sigma-protocol based signatures, such as CoSi~\cite{Syta2016}\
+and MuSig~\cite{Itakura1983APC}.
+These protocols perform extremely well if all the keys of the predefined set of co-signers are included\
+in the resulting signature generation.
+In this case instead of having thousands of separate signatures one has only one of\
+the size of single Schnorr signature.
+But this is not the case with many realistic situations with large consensus groups (such as Spectrum).
+It would be too optimistic to assume that all the nodes are always online,\
+and every single node is following the protocol honestly to every letter.
+One needs the mechanism to process these failures.
+Whereas CoSi proposes the method to process such failures, it comes at cost of significant increase\
+in the size of the resulting signature.
+Our scheme relies on the similar ideas, however we tend to provide better scaling with faulty nodes and\
+more compact constructions than the original CoSi.
+
+In short, we construct a compact aggregated signature scheme with potential node failures based\
+on standard cryptographic primitives.
+It must have constant small size in the absence of failures and provide reasonably small space and\
+computational overheads in the presence of failures.
+The signing protocol must be performed in a distributed fashion\
+providing the defence from the malicious co-signers.
+
+\subsubsection{General Overview}
+
+We start with the MuSig scheme and modify it to the meet the criteria listed above.
+We assume the Discrete Logarithm group to be the subgroup of the elliptic curve as usual.
+That is, elliptic curve is defined over finite field, we consider subgroup of its points\
+with coordinates in this field of prime order with\
+fixed generator $g$ and identity element being the point at infinity if the curve\
+is written in the form $y^2=f(x)$, $f$ is the third degree polynomial.
+Nothing prevents one from using another group with hard discrete logarithm problem.
+We use multiplicative notation for the group operation,\
+and the group elements except for generator are written in capital letters.
+The secret keys are the integers modulo group order, we will denote them by lowercase letters.
+$H$ is the cryptographic hash function.
+When we write $H(A,B)$, we assume that there is a deterministic way of serializing the tuple $(A,B)$,\
+and this serialization is used as an argument for $H$.
+The public key corresponding to the private key $x$ is the group element $X=g^x$.
+
+Any interactive sigma-protocol consists of three stages in strict order:\
+commitment (when one or more group elements are sent from prover to verifier),\
+challenge (when the random number is sent from verifier to prover), response (when one or more\
+numbers calculated from the previous stages and the secret key are sent from prover to verifier).
+This triple constitutes the Proof-of-Knowledge of the secret key.
+To turn the interactive protocol in non-interactive one, Fiat-Shamir heuristic is used, when the challenge\
+is replaced by the hash value of all the preceding public data.
+
+The takeaways from this setting, which are important for the understanding of our construction are the following:
+\begin{itemize}
+    \item In case of $n$ nodes one must have $n$ commitments to aggregate and the list should not be changed\
+    till the end of the protocol.
+    \item As the commitments from different nodes come at potentially different time,\
+    there can be an attack on this stage.
+    Say, one node does not pick the commitment based on random, but rather calculates it based on the\
+    commitments received from the other nodes.
+    This kind of attack is known as $k$-list attack, as to forge the\
+    upcoming signatures the malicious node solves the $k$-list problem, which is tractable with the sufficient\
+    amount of data.
+    To exclude this possibility one needs all the node to \enquote{commit to Schnorr commitment} beforehand.
+    One can use hash function with no homomorphic properties for that purpose.
+    \item All the steps are strictly sequential.
+    Hence, the every stage must complete with the full aggregation of
+    individual contributions.
+    There does not seem to be a simple way to perform it fully asynchronously.
+    \item Instead of the last step (response) it is sufficient to provide the proof of knowledge for the response.
+    This brings no additional value to the conventional signatures, but it helps wit the processing\
+    of the node failures during the execution.
+    Namely, the consensus group may demonstrate that somebody in the group knew the discrete\
+    logarithms of the commitments not accounted for in the response stage.
+    Therefore, the group as a whole could
+    compute the full response if the failure had not occur.
+    \item There must be the way to count the failures above, such that the signature verifier could decide whether it\
+    tolerates this number or not.
+\end{itemize}
+
+\subsubsection{Aggregation Rounds and Structures}
+Here we list the overall structure of aggregation to give a grasp on the overall process.
+The detailed explanation is presented below:
+\begin{itemize}
+    \item [] \textbf{Round 1.} Collect Commitments for Schnorr commitments.
+    Structure: list of hashes of elliptic curve points.
+    Distribute all the hashes after the aggregation.
+    \item [] \textbf{Round 2.} Collect and aggregate Schnorr commitments.
+    Structures: list of signatures (proofs of discrete\
+    logarithms for the commitments) together with Schnorr commitments.
+    Distribute among all the nodes.
+    Upon receiving every node verifies that the hashes of the points are those\
+    provided on round 1, and verifies the proofs of discrete logarithms.
+    The commitments with the checks passed are aggregated to get the overall commitment.
+    It is used to compute the challenge and the individual responses in
+    the sigma--protocol.
+    \item [] \textbf{Round 3.} Collect and aggregate the responses.
+    Structure: list of individual responses.
+    Upon receiving every individual response is verified.
+    The responses which passed the verification are added together.
+    If the response is invalid or missing, the corresponding discrete logarithm proof\
+    from round 2 is appended to the output.
+
+    \item [] \textbf{Output.} Aggregate signature $(Y,z)$ together with the set\
+    \[
+        \{(Y_i, DlogProof(Y_i)\}\,,
+    \]
+    where $i$ rubs over the set of node which have not provided valid responses.
+\end{itemize}
+
+\subsubsection{Signature Generation}
+The signature generation algorithm is as follows:
+\begin{enumerate}
+    \item Each signer computes $a_i\leftarrow(X_1,X_2,\dots,X_n;X_i)$ and the aggregate\
+    public key $\tilde{X}\leftarrow\prod_i X_i^{a_i}$.
+    \item Each signer generates a pair $Y_i=g^{y_i}$ to commit to, commitment $t_i\leftarrow H(Y_i)$\
+    and the signature $\sigma_i$ of some predefined message with secret key $y_i$.
+    \item The commitments $t_i$ are aggregated in the list $L_1$.
+    \item After every participating co--signer received $L_1$, the tuples $(Y_i,\sigma_i)$ are aggregated in the list\
+    $L_2$.
+    \item Upon receiving the tuple $(Y_i,\sigma_i)$, verify $t_i = H(Y_i)$, and verify that $\sigma_i$ is a valid\
+    signature corresponding to $Y_i$.
+    The failed records are excluded form $L_2$, the next steps and communication round.
+    \item Every node computes the aggregate commitment $Y=\prod_i Y_i$ using all the valid records in $L_2$.
+    \item Every node computes the challenge $c\leftarrow H(\tilde{X}, Y, m)$\
+    and the responses $z_i\leftarrow y_i + ca_ix_i$.
+    \item The responses $z_i$ are aggregated into list $L_3$.
+    \item Initialize $z\leftarrow 0$ and empty set $R\leftarrow\{\}$.
+    \item Upon receiving the response $z_i$, verify that $g^{z_i} = Y_i X_i^{a_ic}$.
+    \item If this is the case, set $z\leftarrow z+z_i$.
+    Otherwise, insert corresponding entry from $L_2$ in $R$ as $(i, Y_i, \sigma_i)$.
+    \item Output the triple $(Y,z,R)$.
+\end{enumerate}
+
+\subsubsection{Signature Verification}
+The signature verification is carried out as follows:
+\begin{enumerate}
+    \item Compute $a_i\leftarrow H(X_1,X_2,\dots,X_n;X_i)$.
+    \item Compute $\tilde{X}\leftarrow\prod_i X_i^{a_i}$.
+    \item Compute $X' = \prod_{i\notin R.0}X_i^{a_i}$.
+    \item Compute $Y' = \prod_{i\in R.0} Y_i$.
+    \item Compute $c\leftarrow H(\tilde{X}, Y, m)$.
+    \item Verify $g^z=X'^cYY'^{-1}$.
+    \item Verify all of $\sigma_i\in R.2$ with respect to $Y_i\in R.1$.
+    \item Compare the $n-k$ (where $k$ is the size of $R$) with the required threshold value.
+\end{enumerate}
