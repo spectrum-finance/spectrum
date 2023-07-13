@@ -62,13 +62,13 @@ Once the system is bootstrapped, the Spectrum protocol will run in a normal flow
 
     \item \textbf{Committee key aggregation}.
     Once the new committee is selected, nodes in the $V^k_n$ aggregate their individual public keys $PK_i$ into
-    a joint one $aPK_n$, which is needed to sign the batch applying transactions with the external events:\
+    a joint one $aPK^k_n$, which is needed to sign the batch applying transactions with the external events:\
     inbound value transfers, outbound value transfers, boxes eliminations.
 
     \item \textbf{Committee transition}.
-    Nodes in the $V^k_{n - 1}$ publish cross-chain message ${M_n : (aPK_n, \sigma_{n-1})}$, where $\sigma_{n-1}$ is\
-    an aggregated signature such that ${Verify(\sigma_{n-1}, aPK_{n-1}, M_n) = 1}$.
-    Finally, vaults are updated such that ${Vault\{(e_{n-1}, aPK_{n-1})\} \coloneqq(e_n, aPK_n)}$.
+    Nodes in the $V^k_{n - 1}$ publish cross-chain message ${M^k_n : (aPK^k_n, \sigma^k_{n-1})}$, where $\sigma^k_{n-1}$ is\
+    an aggregated signature such that ${Verify(\sigma^k_{n-1}, aPK^k_{n-1}, M^k_n) = 1}$.
+    Finally, vaults are updated such that ${Vault^k\{(e_{n-1}, aPK^k_{n-1})\} \coloneqq(e_n, aPK^k_n)}$.
 
     \item \textbf{Chain extension}.
     \begin{legal}
