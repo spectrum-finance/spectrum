@@ -1,0 +1,15 @@
+In order to lift on-chain assets to cross-chain level, Spectrum has to take control over them.
+Thus, all assets that Spectrum operates on are stored in on-chain \emph{vaults} which are ruled by the consensus.
+
+Each vault corresponding to the connected system $S_k$ stores an epoch number $n$,\
+an aggregated public key $\alpha{PK^k_n}$ of the current validator set $V^k_n$ and\
+is guarded with a smart-contract capable of performing\
+an aggregated signature verification ${verify: (\sigma^k_n, \alpha{PK^k_n}, m^k_n) \rightarrow 0 | 1}$.
+
+\subsubsection{Rotating Authorized Committees in Vaults}
+
+As explained before, committees in Spectrum are constantly rotated.
+Thus, vaults have to be updated accordingly.
+The transition is performed with the help of \enquote{retiring} committee,\
+that must call ${changeEpoch: (\sigma^k_n, \alpha{PK^k_{n+1}})}$\
+on the vault contract, where $\alpha{PK^k_{n+1}}$ is the aggregated public key of the next commitee.
