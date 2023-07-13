@@ -17,10 +17,10 @@ log = "0.4.17"
 log4rs = "1.2.0"
 k256 = { version = "0.13.*", features = ["serde", "arithmetic"] }
 serde = { version = "1.0.147", features = ["derive"] }
-base16 = "0.2.1"
+serde_json = "1.0"
 serde_yaml = "0.9.21"
+base16 = "0.2.1"
 tokio = { version = "1.28.*", features = ["rt-multi-thread"] }
-clap = { version = "4.0", features = ["derive"] }
 axum = "0.6"
 tracing = "0.1"
 tracing-subscriber = "0.3"

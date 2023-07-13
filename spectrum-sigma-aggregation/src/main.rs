@@ -1,13 +1,12 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
 use std::time::{Duration, Instant};
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::{get, post};
+use axum::routing::post;
 use axum::{Json, Router};
-use clap::Parser;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, StreamExt};
 use libp2p::core::upgrade::Version;
@@ -43,13 +42,13 @@ async fn main() {
         .with_ansi(false)
         .finish();
     tracing::subscriber::set_global_default(subscriber).unwrap();
-    let args = Args::parse();
+    let data = std::fs::read_to_string("config.yaml").unwrap();
+    let config: Config = serde_yaml::from_str(&data).unwrap();
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], args.port_to_listen_on));
+    let addr = SocketAddr::from((config.ip_address, config.rest_api_port));
     let app: Router<(), _> = Router::new()
-        //.route("/", get(root))
         .route("/aggregate", post(aggregate))
-        .with_state(args);
+        .with_state(config);
 
     tracing::debug!("listening on {}", addr);
     axum::Server::bind(&addr)
@@ -58,7 +57,7 @@ async fn main() {
         .unwrap();
 }
 
-async fn aggregate(State(args): State<Args>, Json(request): Json<SigmaAggregationRequest>) -> StatusCode {
+async fn aggregate(State(config): State<Config>, Json(request): Json<SigmaAggregationRequest>) -> StatusCode {
     let one_shot_proto_conf = OneShotProtocolConfig {
         version: ProtocolVer::default(),
         spec: OneShotProtocolSpec {
@@ -107,7 +106,7 @@ async fn aggregate(State(args): State<Args>, Json(request): Json<SigmaAggregatio
         seed: multicasting_conf.seed,
     };
     let gen_perm = PseudoRandomGenPerm::new(request.public_seed);
-    let peer_sk_bytes = base16::decode(&args.peer_sk_base_16).unwrap();
+    let peer_sk_bytes = base16::decode(&config.peer_sk_base_16).unwrap();
     let peer_sk = k256::SecretKey::from_slice(&peer_sk_bytes).unwrap();
     let sig_aggr = SigmaAggregation::new(
         peer_sk.clone(),
@@ -152,10 +151,12 @@ async fn aggregate(State(args): State<Args>, Json(request): Json<SigmaAggregatio
         k256_to_libsecp256k1(peer_sk.clone()),
     ));
 
-    let (abortable_peer, abort_handle) =
-        futures::future::abortable(create_swarm(peer_key.clone(), nc, args.peer_addr.clone()));
+    let mut peer_addr = Multiaddr::from(config.ip_address);
+    peer_addr.push(libp2p::multiaddr::Protocol::Tcp(config.peer_port));
 
-    //aggr_handler_mailboxes.push(peer.aggr_handler_mailbox);
+    let (abortable_peer, abort_handle) =
+        futures::future::abortable(create_swarm(peer_key.clone(), nc, peer_addr));
+
     tokio::task::spawn(async move {
         trace!("Spawning protocol handler..");
         loop {
@@ -196,10 +197,6 @@ async fn aggregate(State(args): State<Args>, Json(request): Json<SigmaAggregatio
     StatusCode::OK
 }
 
-//async fn root(State(peer_sk_base_16): State<String>) -> &'static str {
-//    "Send request to /aggregate"
-//}
-
 pub fn k256_to_libsecp256k1(secret_key: k256::SecretKey) -> libp2p::identity::secp256k1::SecretKey {
     libp2p::identity::secp256k1::SecretKey::try_from_bytes(secret_key.to_bytes().as_mut_slice()).unwrap()
 }
@@ -229,12 +226,15 @@ pub async fn create_swarm(
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Parser)]
-pub struct Args {
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Config {
     pub peer_id: PeerId,
-    pub peer_addr: Multiaddr,
     pub peer_sk_base_16: String,
-    pub port_to_listen_on: u16,
+    pub ip_address: IpAddr,
+    /// Port used for REST API.
+    pub rest_api_port: u16,
+    /// Port used by node for sigma-aggregation
+    pub peer_port: u16,
 }
 
 #[derive(Serialize, Deserialize)]
