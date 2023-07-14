@@ -116,11 +116,11 @@ mod tests {
             let tx = receiver.recv().await.unwrap();
             match tx {
                 TxEvent::AppliedTx(tx) => {
-                    let height = tx.outputs[0].creation_height;
+                    let height = tx.outputs.first().creation_height;
                     println!("AppliedTx: {:?}, height: {}", tx.id(), height);
                 }
                 TxEvent::UnappliedTx(tx) => {
-                    let height = tx.outputs[0].creation_height;
+                    let height = tx.outputs.first().creation_height;
                     println!("UnappliedTx: {:?}, height: {}", tx.id(), height);
                 }
             }
