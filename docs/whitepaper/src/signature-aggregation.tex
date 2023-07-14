@@ -154,3 +154,14 @@ The signature verification is carried out as follows:
     \item Verify all of ${\sigma_i\in R.2}$ with respect to ${Y_i\in R.1}$.
     \item Compare ${(n-k)}$ (where $k$ is the size of $R$) with the required threshold value.
 \end{enumerate}
+
+\subsection{Instantiation of Signature Aggregation}\label{subsec:instantiation-of-signature-aggregation}
+
+We instantitate our signature aggregation protocol on top of Handel~\cite{bégassat2019handel}, a Byzantine-tolerant aggregation protocol that allows for the quick aggregation of cryptographic signatures over a WAN\@.
+Handel has polylogarithmic time, communication and processing complexity.
+
+Our signature aggregation protocol involves aggregation of three lists: $L1$, $L2$ and $L3$.
+As long as Handel requires that the partial aggregation function satisfies both \empth{commutativity} and \empth{associativity} conditions we have to replace \empth{lists} with \empth{sets}.
+We instantiate each of three aggregation rounds on top of Handel round.
+Because of parallel nature of Handel we have to run multicasting between chained rounds of aggregation in order to consistently aggregate.
+The resulted construction consists of three Handel rounds and two multicasting rounds in between.
