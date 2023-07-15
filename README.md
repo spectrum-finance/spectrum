@@ -1,4 +1,5 @@
 # Spectrum Network
+[White Paper V1](https://spectrum.fi/spectrum_wp_v1.pdf)
 
 <p align="center">
     <img src="./docs/assets/spectrum.png" title="Spectrum Network" alt="drawing" width="100%"/>
