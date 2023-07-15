@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::cmp::{max, Ordering};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
@@ -29,7 +30,7 @@ pub trait Weighted {
     fn weight(&self) -> usize;
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
 pub struct Threshold {
     pub num: usize,
     pub denom: usize,

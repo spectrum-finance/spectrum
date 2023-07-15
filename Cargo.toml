@@ -7,6 +7,7 @@ members = [
     "spectrum-crypto",
     "spectrum-vrf",
     "spectrum-move",
+    "spectrum-sigma-aggregation",
     "algebra-core",
     "futures-util"
 ]
