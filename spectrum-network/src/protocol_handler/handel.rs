@@ -30,7 +30,7 @@ pub trait Weighted {
     fn weight(&self) -> usize;
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 pub struct Threshold {
     pub num: usize,
     pub denom: usize,

@@ -1,0 +1,17 @@
+members:
+- - 0
+  - ip_address: 127.0.0.1
+    rest_api_port: 8000
+    peer_port: 3000
+- - 1
+  - ip_address: 127.0.0.1
+    rest_api_port: 8001
+    peer_port: 3001
+- - 2
+  - ip_address: 127.0.0.1
+    rest_api_port: 8002
+    peer_port: 3002
+- - 3
+  - ip_address: 127.0.0.1
+    rest_api_port: 8003
+    peer_port: 3003
