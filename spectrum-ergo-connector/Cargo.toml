@@ -1,0 +1,15 @@
+[package]
+name = "spectrum-ergo-connector"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.68"
+ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
+spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
+isahc = { version = "1.7.2", features = ["json"] }
+futures = "0.3.28"
+tokio = { version = "1.27.0", features = ["full"] }
+ergo-lib = "0.24.0"
