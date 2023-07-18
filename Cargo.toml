@@ -8,7 +8,7 @@ members = [
     "spectrum-vrf",
     "spectrum-move",
     "spectrum-sigma-aggregation",
-    "spectrum-data-bridge",
+    "spectrum-ergo-connector",
     "algebra-core",
     "futures-util"
 ]
