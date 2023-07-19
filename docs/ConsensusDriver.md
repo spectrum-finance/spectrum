@@ -1,4 +1,4 @@
-# Consensus Handler
+# Consensus Driver
 
 ```mermaid
 flowchart TD
