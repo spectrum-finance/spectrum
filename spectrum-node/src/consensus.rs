@@ -6,15 +6,16 @@ struct Member {}
 
 struct Leader {}
 
-enum Role {
+enum State {
     Idle(Idle),
     Member(Member),
     Leader(Leader),
 }
 
 /// Consensus driver for one of committees.
-pub struct Consensus<BR> {
+pub struct Consensus<BR, Clock> {
     identity: PublicKey,
     bridge: BR,
-    role: Role,
+    state: State,
+    clock: Clock,
 }

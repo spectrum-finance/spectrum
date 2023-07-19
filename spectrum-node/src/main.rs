@@ -24,8 +24,6 @@ use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
 
 mod consensus;
-mod bridge;
-mod credentials;
 
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn Error>> {
