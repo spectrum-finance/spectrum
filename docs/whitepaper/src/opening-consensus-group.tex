@@ -1,11 +1,10 @@
 Spectrum is an open-membership protocol, so PBFTNetwork's assumption on a closed consensus group is not valid.
 Sybil attacks can break any protocol with security thresholds and an appropriate dynamic selection of\
 the consensus group becomes crucial for preserving network's liveness and safety.
-Consensus group members selection should be performed in a random and trusted way to ensure that a sufficient fraction\
-(at most $f$ out of ${3 f + 1}$) of the selected members are honest and of course\
-the selection procedure must be independent of any internal or external advisers.
+Election of consensus group members should be performed in a random and trustless way to ensure that a sufficient fraction\
+(at most $f$ out of ${3 f + 1}$) of members are honest.
 
-Similar selection mechanics are required in most blockchain protocols.
+Similar selection mechanics is required in most blockchain protocols.
 Bitcoin~\cite{nakamoto2009bitcoin} and many its successors are using Proof-of-Work (PoW) consensus,\
 which, in essence, is a robust mechanism that facilitates randomized selection of a leader who is\
 eligible to produce a new block.
@@ -35,8 +34,8 @@ for the $\mathcal{F}$:
     and only if ${\pi \equiv \Pi(x, SK)}$.
 \end{itemize}
 
-The most secure nowadays are an Elliptic Curve Verifiable Random Functions (ECVRFs).
-Basically, ECVRF is a cryptographic-based VRF that satisfies the trusted uniqueness, trusted collision resistance,\
+The most secure implementations of VRF nowadays are Elliptic Curve Verifiable Random Functions (ECVRFs).
+Basically, ECVRF is a cryptographic-based VRF that satisfies the uniqueness, collision resistance,\
 and full pseudorandomness properties ~\cite{cryptoeprint:2014/905}.
 The security of ECVRF follows from the decisional Diffie-Hellman assumption in the random oracle model, thus\
 ECVRF is a good source of randomness for a blockchain protocol.
@@ -83,8 +82,8 @@ Let's clarify what the mentioned above pre-defined primitives are needed for:
 More extended formal definition of ${\mathcal{F}}_{LB}$ and ${\mathcal{F}}_{VRF}$ can be found in the original\
 Ouroboros Praos paper ~\cite{cryptoeprint:2017/573}.
 
-Each new epoch ${e_j \gt 1}$ has a new consensus group and any protocol participant\
-can try to become a member if he is verified.
+Consensus group is constantly rotated each epoch ${e_j \gt 1}$.
+Any verified protocol participant can try to become a temporal member of consensus group.
 Participant is verified if his verification key tuple is published and stored in the blockchain for a\
 reliable period of time equals to $U_f$ slots.
 
@@ -96,10 +95,6 @@ To calculate an appropriate threshold ${T_i^j}$, ${\mathcal{F}}_{L}$ should be p
 stake distribution which was in the last block used by ${\mathcal{F}}_{LB}$ to sample the new $\eta_j$.
 Argument of the winning probability function $p$ is ${f = M /\/ N}$, where $M$ is a number of new consensus group\
 members to select and $N$ is the total number of the verified stakeholders.
-
-For security purposes, a lower bound number of committee members $M$ is required.
-If the number of verified participants is less than ${M_{\min}=256}$, then the consensus group lottery is not held.
-The maximum consensus group size is ${M_{\max}=1024}$, this limit arises due to the complexity of communication.
 
 \textbf{Leader Lottery}.
 Once a new consensus group is determined, the lottery process does not stop, but this time\
@@ -125,7 +120,7 @@ Regarding the security it is important to note, that participants use their publ
 VRF functionality evaluation in the consensus group lottery and secret VRF-keys in the leader lottery.
 This way, slot leaders don't become publicly known in advance.
 An attacker can't see who is a slot leader until he initializes batch notarization, thus an attacker can't know\
-who specifically to attack in order to control a certain slot.
+who specifically to attack in order to try to subvert a certain slot.
 Opening consensus group members on the over hand should be known ahead of time for the synchronization.
 There are hundreds of consensus members in every epoch, so denial of service attacks are difficult to succeed.
 Grinding attacks are limited because an adversary can't arbitrarily control $\eta_j$ values,

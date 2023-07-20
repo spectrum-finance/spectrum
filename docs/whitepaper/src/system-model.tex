@@ -22,8 +22,8 @@ We consider the security model in a semi-synchronous setting with simple modific
 adversarially-controlled message delays and immediate adaptive corruption.
 
 \textbf{Time and Slots.}
-In our setting time is divided into discrete units called slots.
-The ledger associates one ledger block with each time slot (at most).
+We consider a setting where time is divided into discrete units called slots.
+The ledger associates one time slot with at most one block.
 Participants are equipped with roughly synchronized clocks.
 This will permit them to carry out a distributed protocol intending to collectively assign a block to this current slot.
 In general, each slot $sl_r$ is indexed by an integer $r \in \{1, 2, ..\}$, and we assume that the real\
