@@ -13,9 +13,9 @@ enum State {
 }
 
 /// Consensus driver for one of committees.
-pub struct Consensus<BR, Clock> {
+pub struct Consensus<BR, L> {
     identity: PublicKey,
     bridge: BR,
     state: State,
-    clock: Clock,
+    ledger: L,
 }
