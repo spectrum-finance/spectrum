@@ -16,7 +16,7 @@ cannot be recovered.
 Each block must include the leaders' signature.
 | Header | Type |
 | ------------- | ------------- |
-| `Signature`  | `(Signature, PublicKey, Vec\<PublicKey\>)`  |
+| `Signature`  | `(Signature, PublicKey, Vec<PublicKey>)`  |
 
 There are `2^N` Secret Keys that can be securely restored using this scheme. Number of `PublicKeys` that must be stored
-in the `Vec\<PublicKey\>` is `N`.
+in the `Vec<PublicKey>` is `N`.
