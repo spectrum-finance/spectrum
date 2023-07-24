@@ -1,0 +1,15 @@
+[package]
+name = "spectrum-cardano-connector"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+pallas-network = "0.19.0-alpha.2"
+pallas-primitives = "0.19.0-alpha.2"
+pallas-codec = "0.19.0-alpha.2"
+pallas-traverse = "0.19.0-alpha.2"
+futures = "0.3.28"
+tokio = { version = "1", features = ["full"] }
+hex = "0.4.3"
