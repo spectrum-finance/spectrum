@@ -11,6 +11,7 @@ integration_tests = []
 [dependencies]
 algebra-core = { version = "0.1.0", path = "../algebra-core" }
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
+spectrum-kes = { version = "0.1.0", path = "../spectrum-kes" }
 spectrum-ledger = { version = "0.1.0", path = "../spectrum-ledger" }
 spectrum-view = { version = "0.1.0", path = "../spectrum-view" }
 libp2p = { version = "0.52.0", features = ["noise", "yamux", "secp256k1", "serde"] }

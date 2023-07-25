@@ -6,6 +6,7 @@ members = [
     "spectrum-ledger",
     "spectrum-crypto",
     "spectrum-vrf",
+    "spectrum-kes",
     "spectrum-move",
     "spectrum-sigma-aggregation",
     "spectrum-ergo-connector",
