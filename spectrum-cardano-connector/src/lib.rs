@@ -1,3 +1,5 @@
+mod rocksdb;
+
 #[cfg(test)]
 mod tests {
     use pallas_network::facades::PeerClient;
@@ -36,7 +38,7 @@ mod tests {
         assert!(matches!(client.state(), chainsync::State::Idle));
 
         let mut points = vec![];
-        for _ in 0..5 {
+        for _ in 0..30 {
             let next = client.request_next().await.unwrap();
 
             match next {
@@ -71,7 +73,9 @@ mod tests {
             .await;
         println!("GET BLOCKS -----------------");
         let mut ix = 0;
+        let mut block_bytes = vec![];
         while let Ok(Some(next_block_bytes)) = blockfetch_client.recv_while_streaming().await {
+            block_bytes.push(next_block_bytes.clone());
             let block = MultiEraBlock::decode(&next_block_bytes).expect("block");
             let points_hash = if let Point::Specific(_, ref hash_bytes) = points[ix] {
                 hash_bytes.clone()
@@ -83,6 +87,10 @@ mod tests {
             println!("{:?}, # TXs: {}", block.hash(), block.tx_count());
             ix += 1;
         }
+        let blocks_serialized_bytes = bincode::serialize(&block_bytes).unwrap();
+        tokio::fs::write("blocks.bin", base16::encode_lower(&blocks_serialized_bytes))
+            .await
+            .unwrap();
         blockfetch_client.send_done().await.unwrap();
         client.send_done().await.unwrap();
 
