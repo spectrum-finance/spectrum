@@ -1,10 +1,9 @@
-use nonempty::NonEmpty;
-
 use spectrum_crypto::digest::{Blake2bDigest256, Digest};
+use spectrum_crypto::pubkey::PublicKey;
 
 use crate::interop::Effect;
 use crate::transaction::Transaction;
-use crate::SlotNo;
+use crate::{BlockNo, SlotNo, VRFProof};
 
 #[derive(
     Copy,
@@ -28,10 +27,10 @@ impl BlockId {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct BlockVer(u16);
+pub struct ProtocolVer(u16);
 
-impl BlockVer {
-    pub const INITIAL: BlockVer = BlockVer(1);
+impl ProtocolVer {
+    pub const INITIAL: ProtocolVer = ProtocolVer(1);
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
@@ -41,18 +40,22 @@ pub enum BlockSectionId {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
-pub struct BlockHeader {
-    pub id: BlockId,
-    pub slot: SlotNo,
-    pub version: BlockVer,
+pub struct HeaderBody {
+    pub prev_id: BlockId,
+    pub block_num: BlockNo,
+    pub slot_num: SlotNo,
+    pub vrf_pk: PublicKey,
+    pub leader_proof: VRFProof,
+    pub seed_proof: VRFProof,
+    pub block_body_hash: Blake2bDigest256,
+    pub protocol_version: ProtocolVer,
 }
 
-impl BlockHeader {
-    pub const ORIGIN: BlockHeader = BlockHeader {
-        id: BlockId::ORIGIN,
-        slot: SlotNo::ORIGIN,
-        version: BlockVer::INITIAL,
-    };
+#[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct BlockHeader {
+    pub id: BlockId,
+    pub body: HeaderBody,
+    pub body_signature: Vec<u8>,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]

@@ -7,16 +7,19 @@ rust-version = "1.65.0"
 [dependencies]
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
 spectrum-move = { version = "0.1.0", path = "../spectrum-move" }
+spectrum-vrf = { version = "0.1.0", path = "../spectrum-vrf" }
 ciborium = "0.2.1"
 futures = "0.3.21"
 serde = { version = "1.0.147", features = ["derive"] }
 derive_more = "0.99.17"
 k256 = { version = "0.13.*", features = ["serde"] }
+elliptic-curve = { version = "0.13.*", features = ["serde", "arithmetic"] }
 async-trait = "0.1.68"
 bincode = "1.3.3"
 async-std = "1.12.0"
 nonempty = { version = "0.8.1", features = ["serialize"] }
 higher = "0.2.0"
 higher-derive = "0.2.0"
+sec1 = "0.7.2"
 
 move-core-types.workspace = true
