@@ -9,9 +9,8 @@ use ergo_chain_sync::{
 };
 use futures::StreamExt;
 use isahc::{prelude::Configurable, HttpClient};
+use spectrum_chain_connector::{DataBridge, DataBridgeComponents, TxEvent};
 use spectrum_offchain::event_source::{data::LedgerTxEvent, event_source_ledger};
-
-use crate::{DataBridge, DataBridgeComponents, TxEvent};
 
 pub struct ErgoDataBridge {
     pub receiver: tokio::sync::mpsc::Receiver<TxEvent<ergo_lib::chain::transaction::Transaction>>,
@@ -91,11 +90,9 @@ async fn run_bridge(
 #[cfg(test)]
 mod tests {
     use ergo_chain_sync::client::types::Url;
+    use spectrum_chain_connector::{DataBridge, DataBridgeComponents, TxEvent};
 
-    use crate::{
-        data_bridge::ergo::{ErgoDataBridge, ErgoDataBridgeConfig},
-        DataBridge, DataBridgeComponents, TxEvent,
-    };
+    use crate::data_bridge::ergo::{ErgoDataBridge, ErgoDataBridgeConfig};
 
     #[tokio::test]
     async fn test_data_bridge() {

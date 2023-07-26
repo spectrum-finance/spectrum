@@ -10,6 +10,7 @@ members = [
     "spectrum-sigma-aggregation",
     "spectrum-ergo-connector",
     "spectrum-cardano-connector",
+    "spectrum-chain-connector",
     "algebra-core",
     "futures-util"
 ]
