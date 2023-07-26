@@ -1,4 +1,3 @@
-use ::void::Void;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -25,10 +24,9 @@ use crate::types::{ProtocolId, ProtocolTag, ProtocolVer, RawMessage};
 pub mod aggregation;
 pub mod codec;
 pub mod cosi;
-pub mod diffusion;
 pub mod discovery;
 pub mod handel;
-mod pool;
+pub mod pool;
 pub mod sigma_aggregation;
 pub mod versioning;
 pub mod void;

@@ -18,7 +18,7 @@ pub struct Sha2;
 /// N-bytes array in a box. Usually a hash.`Digest32` is most type synonym.
 #[serde_as]
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct Digest<const N: usize, H>(#[serde_as(as = "[_; N]")] [u8; N], PhantomData<H>);
+pub struct Digest<const N: usize, H>(#[serde_as(as = "[_; N]")] [u8; N], #[serde(skip)] PhantomData<H>);
 
 impl<const N: usize, H> Clone for Digest<N, H> {
     fn clone(&self) -> Self {

@@ -126,7 +126,7 @@ impl Modifier {
     pub fn id(&self) -> ModifierId {
         match self {
             Modifier::BlockHeader(bh) => ModifierId::from(bh.id),
-            Modifier::BlockBody(bb) => ModifierId::from(bb.id),
+            Modifier::BlockBody(bb) => todo!(),
             Modifier::Transaction(tx) => ModifierId::from(tx.id()),
         }
     }

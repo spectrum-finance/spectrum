@@ -11,20 +11,19 @@ use libp2p_identity::PeerId;
 
 use spectrum_ledger::block::BlockHeader;
 use spectrum_ledger::{Modifier, ModifierId, ModifierType, SerializedModifier};
+use spectrum_network::protocol_handler::pool::{FromTask, TaskPool};
+use spectrum_network::protocol_handler::{
+    NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec,
+};
 use spectrum_view::chain::HeaderLike;
 use spectrum_view::history::LedgerHistoryReadAsync;
 use spectrum_view::node_view::NodeViewWriteAsync;
 
-use crate::protocol_handler::diffusion::message::{
+use crate::message::{
     DiffusionHandshake, DiffusionMessage, DiffusionMessageV1, DiffusionSpec, HandshakeV1, Modifiers,
     SyncStatus,
 };
-use crate::protocol_handler::diffusion::service::{RemoteChainCmp, RemoteSync, SyncState};
-use crate::protocol_handler::pool::{FromTask, TaskPool};
-use crate::protocol_handler::{NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec};
-
-pub mod message;
-mod service;
+use crate::service::{RemoteChainCmp, RemoteSync, SyncState};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum ModifierStatus {
@@ -422,14 +421,12 @@ mod tests {
 
     use spectrum_ledger::block::BlockId;
     use spectrum_ledger::{ModifierId, ModifierType, SlotNo};
+    use spectrum_network::protocol_handler::{BehaviourStream, ProtocolBehaviour, ProtocolBehaviourOut};
     use spectrum_view::node_view::NodeViewMailbox;
 
-    use crate::protocol_handler::diffusion::message::{
-        DiffusionHandshake, DiffusionMessage, HandshakeV1, SyncStatus,
-    };
-    use crate::protocol_handler::diffusion::service::tests::{EphemeralHistory, Header};
-    use crate::protocol_handler::diffusion::{DiffusionBehaviour, DiffusionConfig};
-    use crate::protocol_handler::{BehaviourStream, ProtocolBehaviour, ProtocolBehaviourOut};
+    use crate::behaviour::{DiffusionBehaviour, DiffusionConfig};
+    use crate::message::{DiffusionHandshake, DiffusionMessage, HandshakeV1, SyncStatus};
+    use crate::service::tests::{EphemeralHistory, Header};
 
     #[async_std::test]
     async fn process_inv() {

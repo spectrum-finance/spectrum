@@ -6,6 +6,7 @@ rust-version = "1.65.0"
 
 [dependencies]
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
+spectrum-sigma = { version = "0.1.0", path = "../spectrum-sigma" }
 spectrum-move = { version = "0.1.0", path = "../spectrum-move" }
 spectrum-vrf = { version = "0.1.0", path = "../spectrum-vrf" }
 ciborium = "0.2.1"

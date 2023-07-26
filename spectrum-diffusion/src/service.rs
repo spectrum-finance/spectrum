@@ -3,13 +3,11 @@ use std::sync::Arc;
 
 use spectrum_ledger::block::{BlockId, BlockSectionType};
 use spectrum_ledger::{ModifierId, ModifierType, SerializedModifier, SlotNo};
+use spectrum_network::types::ProtocolVer;
 use spectrum_view::chain::HeaderLike;
 use spectrum_view::history::LedgerHistoryReadAsync;
 
-use crate::protocol_handler::diffusion::message::{
-    DiffusionHandshake, DiffusionSpec, HandshakeV1, SyncStatus,
-};
-use crate::types::ProtocolVer;
+use crate::message::{DiffusionHandshake, DiffusionSpec, HandshakeV1, SyncStatus};
 
 /// Peer chain in comparison to the local one.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -197,8 +195,8 @@ pub(crate) mod tests {
     use spectrum_view::chain::HeaderLike;
     use spectrum_view::history::LedgerHistoryReadAsync;
 
-    use crate::protocol_handler::diffusion::message::SyncStatus;
-    use crate::protocol_handler::diffusion::service::{RemoteChainCmp, RemoteSync};
+    use crate::message::SyncStatus;
+    use crate::service::{RemoteChainCmp, RemoteSync};
 
     pub(crate) struct EphemeralHistory {
         pub(crate) db: HashMap<BlockId, Header>,

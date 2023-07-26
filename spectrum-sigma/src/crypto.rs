@@ -11,11 +11,9 @@ use k256::{ProjectivePoint, Scalar, SecretKey};
 
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest256};
 use spectrum_crypto::pubkey::PublicKey;
+use spectrum_handel::Threshold;
 
-use crate::protocol_handler::handel::Threshold;
-use crate::protocol_handler::sigma_aggregation::types::{
-    AggregateCommitment, Commitment, CommitmentSecret, Signature,
-};
+use crate::{AggregateCommitment, Commitment, CommitmentSecret, Signature};
 
 type Blake2b256 = Blake2b<U32>;
 

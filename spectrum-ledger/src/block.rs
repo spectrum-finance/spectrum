@@ -60,7 +60,6 @@ pub struct BlockHeader {
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BlockBody {
-    pub id: BlockId,
     pub effects: Vec<Effect>,
     pub txs: Vec<Transaction>,
 }
