@@ -347,7 +347,7 @@ struct BlockRecord {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{path::PathBuf, sync::Arc};
 
     use async_std::task::spawn_blocking;
     use pallas_crypto::hash::Hash;
@@ -461,7 +461,9 @@ mod tests {
 
     /// Loads 30 cardano testnet blocks from file.
     async fn load_cardano_blocks() -> Vec<Vec<u8>> {
-        let base16_bytes = tokio::fs::read("blocks.bin").await.unwrap();
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("resources/serialized_cardano_blocks");
+        let base16_bytes = tokio::fs::read(path).await.unwrap();
         let bytes = base16::decode(&base16_bytes).unwrap();
         let serialized_blocks: Vec<Vec<u8>> = bincode::deserialize(&bytes).unwrap();
         serialized_blocks
