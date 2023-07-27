@@ -1,4 +1,4 @@
-use crate::rocksdb::{serialize_tx, Block, BlockRecord, ChainCacheRocksDB, RocksConfig};
+use crate::rocksdb::{serialize_tx, Block, ChainCacheRocksDB, RocksConfig};
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::{
@@ -96,6 +96,8 @@ async fn run_bridge(
     while let Ok(next_response) = client.request_next().await {
         match next_response {
             NextResponse::RollForward(h, _) => {
+                // Tag and subtag arguments are inferred from `HeaderContent`. I couldn't find any
+                // CDDL documentation about this though.
                 let header =
                     MultiEraHeader::decode(h.variant, h.byron_prefix.map(|(a, _)| a), &h.cbor).unwrap();
 
@@ -224,9 +226,6 @@ mod tests {
 
             match next {
                 NextResponse::RollForward(h, _) => {
-                    // Tag and subtag arguments are inferred from
-                    // `HeaderContent`. I couldn't find any CDDL documentation
-                    // about this though.
                     let header =
                         MultiEraHeader::decode(h.variant, h.byron_prefix.map(|(a, _)| a), &h.cbor).unwrap();
 

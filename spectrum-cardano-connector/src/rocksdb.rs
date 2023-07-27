@@ -30,6 +30,7 @@ fn postfixed_key(block_id: &Hash<32>, s: &str) -> Vec<u8> {
 ///  - {HB}:p is the key which maps to the hex-representation of B's parent block ID.
 ///  - {HB}:c is the key which maps to the hex-representation of B's child block ID, if it currently
 ///    exists.
+///  - {HB}:b is the key which maps to the block number of `B`.
 ///  - {HB}:s is the key which maps to the slot of `B`.
 ///  - {HB}:t is the key which maps to a binary-encoding of a Vec containing the hex-representation
 ///    `HT` of the transaction ID of every transaction of `B`.
@@ -239,7 +240,6 @@ impl ChainCacheRocksDB {
                         let mut transactions = vec![];
                         let tx_ids: Vec<Hash<32>> = bincode::deserialize(&tx_ids_bytes).unwrap();
                         for tx_id in tx_ids {
-                            //let tx_key = bincode::serialize(&tx_id).unwrap();
                             let tx_bytes = db_tx.get(tx_id.as_slice()).unwrap().unwrap();
 
                             // Don't need transaction anymore, delete
