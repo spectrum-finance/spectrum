@@ -13,6 +13,7 @@ pallas-primitives = "0.19.0-alpha.2"
 pallas-codec = "0.19.0-alpha.2"
 pallas-crypto = "0.19.0-alpha.2"
 pallas-traverse = "0.19.0-alpha.2"
+spectrum-chain-connector = { version = "0.1.0", path = "../spectrum-chain-connector" }
 futures = "0.3.28"
 rocksdb = "0.21.0"
 tokio = { version = "1", features = ["full"] }

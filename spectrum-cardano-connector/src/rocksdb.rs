@@ -126,7 +126,7 @@ impl ChainCacheRocksDB {
                 } = bincode::deserialize(&bytes).unwrap();
 
                 // Replace OLDEST_BLOCK if the persistent store is at capacity.
-                if block.block_number - oldest_block_number == max_rollback_depth as usize {
+                if block.block_number - oldest_block_number == max_rollback_depth as u64 {
                     let new_oldest_hash = bincode::deserialize(
                         &db_tx
                             .get(&postfixed_key(&oldest_id, CHILD_POSTFIX))
@@ -134,7 +134,7 @@ impl ChainCacheRocksDB {
                             .unwrap(),
                     )
                     .unwrap();
-                    let new_oldest_slot: usize = bincode::deserialize(
+                    let new_oldest_slot: u64 = bincode::deserialize(
                         &db_tx
                             .get(&postfixed_key(&new_oldest_hash, SLOT_POSTFIX))
                             .unwrap()
@@ -142,7 +142,7 @@ impl ChainCacheRocksDB {
                     )
                     .unwrap();
 
-                    let new_oldest_block_number: usize = bincode::deserialize(
+                    let new_oldest_block_number: u64 = bincode::deserialize(
                         &db_tx
                             .get(&postfixed_key(&new_oldest_hash, BLOCK_NUMBER_POSTFIX))
                             .unwrap()
@@ -207,7 +207,7 @@ impl ChainCacheRocksDB {
         spawn_blocking(move || db.get(postfixed_key(&block_id, SLOT_POSTFIX)).unwrap().is_some()).await
     }
 
-    pub async fn get_best_block(&mut self) -> Option<BlockRecord> {
+    pub async fn get_best_block(&self) -> Option<BlockRecord> {
         let db = self.db.clone();
         spawn_blocking(move || {
             if let Ok(Some(bytes)) = db.get(bincode::serialize(BEST_BLOCK).unwrap()) {
@@ -318,11 +318,11 @@ impl ChainCacheRocksDB {
 
 #[derive(Clone)]
 pub struct Block {
-    id: Hash<32>,
-    parent_id: Hash<32>,
-    slot: usize,
-    block_number: usize,
-    transactions: Vec<Vec<u8>>,
+    pub id: Hash<32>,
+    pub parent_id: Hash<32>,
+    pub slot: u64,
+    pub block_number: u64,
+    pub transactions: Vec<Vec<u8>>,
 }
 
 pub fn serialize_tx(tx: &MultiEraTx<'_>) -> Vec<u8> {
@@ -339,10 +339,10 @@ pub fn deserialize_tx(bytes: &'_ [u8]) -> MultiEraTx<'_> {
 }
 
 #[derive(Serialize, Deserialize)]
-struct BlockRecord {
-    id: Hash<32>,
-    slot: usize,
-    block_number: usize,
+pub struct BlockRecord {
+    pub id: Hash<32>,
+    pub slot: u64,
+    pub block_number: u64,
 }
 
 #[cfg(test)]
@@ -386,8 +386,8 @@ mod tests {
             let transactions: Vec<_> = blocks[i].txs().iter().map(serialize_tx).collect();
             let id = blocks[i].hash();
             let parent_id = blocks[i].header().previous_hash().unwrap();
-            let slot = blocks[i].slot() as usize;
-            let block_number = blocks[i].number() as usize;
+            let slot = blocks[i].slot();
+            let block_number = blocks[i].number();
 
             let block = Block {
                 id,
@@ -400,10 +400,10 @@ mod tests {
             client.append_block(block).await;
             assert!(client.exists(id).await);
             if i <= (max_rollback_depth as usize) {
-                verify_oldest_block(blocks[1].hash(), blocks[1].number() as usize, client.db.clone()).await;
+                verify_oldest_block(blocks[1].hash(), blocks[1].number(), client.db.clone()).await;
             } else {
                 let ix = i + 1 - (max_rollback_depth as usize);
-                verify_oldest_block(blocks[ix].hash(), blocks[ix].number() as usize, client.db.clone()).await;
+                verify_oldest_block(blocks[ix].hash(), blocks[ix].number(), client.db.clone()).await;
             }
         }
 
@@ -417,14 +417,17 @@ mod tests {
                 ..
             } = client.take_best_block().await.unwrap();
             assert_eq!(blocks[i].hash(), id);
-            assert_eq!(blocks[i].slot() as usize, slot);
-            assert_eq!(blocks[i].number() as usize, block_number);
+            assert_eq!(blocks[i].slot(), slot);
+            assert_eq!(blocks[i].number(), block_number);
         }
+
+        // We've rolled back all stored blocks
+        assert!(client.get_best_block().await.is_none());
     }
 
     async fn verify_oldest_block(
         expected_block_id: Hash<32>,
-        expected_block_number: usize,
+        expected_block_number: u64,
         db: Arc<rocksdb::OptimisticTransactionDB>,
     ) {
         spawn_blocking::<_, ()>(move || {
