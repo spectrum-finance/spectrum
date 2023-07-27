@@ -61,12 +61,12 @@ where
 
     pub async fn local_status(&self) -> SyncStatus {
         let tail = self.history.get_tail(SYNC_HEADERS).await;
-        let height = tail.last().slot_num();
-        let mut tail = Vec::from(self.history.get_tail(SYNC_HEADERS).await);
+        let height = tail.last().modifier.slot_num();
+        let mut tail = Vec::from(self.history.get_tail(SYNC_HEADERS).await.map(|r| r.id.into()));
         tail.reverse(); // newer blocks first
         SyncStatus {
             height,
-            last_blocks: tail.into_iter().map(|h| h.id()).collect(),
+            last_blocks: tail,
         }
     }
 
@@ -100,14 +100,15 @@ where
                 self.history
                     .multi_get_raw(BlockSectionType::Header, modifiers)
                     .await
-            } // ModifierType::BlockBody => {
-              //     self.history
-              //         .multi_get_raw(BlockSectionType::Body, modifiers)
-              //         .await
-              // }
-              // ModifierType::Transaction => {
-              //     todo!("Go to mempool")
-              // }
+            }
+            ModifierType::BlockBody => {
+                self.history
+                    .multi_get_raw(BlockSectionType::Body, modifiers)
+                    .await
+            }
+            ModifierType::Transaction => {
+                todo!("Go to mempool")
+            }
         }
     }
 
@@ -121,7 +122,7 @@ where
         if peer_tail.is_empty() {
             RemoteChainCmp::Shorter(BlockId::ORIGIN)
         } else {
-            let delta = <u64>::from(peer_height).saturating_sub(<u64>::from(local_tip.slot_num()));
+            let delta = <u64>::from(peer_height).saturating_sub(<u64>::from(local_tip.modifier.slot_num()));
             let num_shared_blocks = peer_tail.len() as u64;
             if delta > num_shared_blocks {
                 RemoteChainCmp::Longer(None)
@@ -130,13 +131,13 @@ where
                 let mut optimistic_common_point = None;
                 let peer_tip = peer_tail[0];
                 for blk in &peer_tail {
-                    if *blk == local_tip.id() {
+                    if *blk == local_tip.id.into() {
                         optimistic_common_point = Some(*blk);
                         break;
                     }
                 }
                 match optimistic_common_point {
-                    Some(common_sl) if peer_height >= local_tip.slot_num() =>
+                    Some(common_sl) if peer_height >= local_tip.modifier.slot_num() =>
                     // Equal | Longer(Some(wanted_suffix))
                     {
                         if common_sl == peer_tip {

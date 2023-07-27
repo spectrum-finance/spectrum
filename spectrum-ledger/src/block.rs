@@ -1,9 +1,9 @@
-use spectrum_crypto::digest::{Blake2bDigest256, Digest};
+use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest};
 use spectrum_crypto::pubkey::PublicKey;
 
-use crate::interop::Effect;
+use crate::interop::Report;
 use crate::transaction::Transaction;
-use crate::{BlockNo, SlotNo, VRFProof};
+use crate::{BlockNo, KESSignature, SlotNo, SystemDigest, VRFProof};
 
 #[derive(
     Copy,
@@ -51,17 +51,30 @@ pub struct HeaderBody {
     pub protocol_version: ProtocolVer,
 }
 
+impl SystemDigest for HeaderBody {
+    fn digest(&self) -> Blake2bDigest256 {
+        let mut encoded = Vec::new();
+        ciborium::ser::into_writer(&self, &mut encoded).unwrap();
+        blake2b256_hash(&*encoded)
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BlockHeader {
-    pub id: BlockId,
     pub body: HeaderBody,
-    pub body_signature: Vec<u8>,
+    pub body_signature: KESSignature,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BlockBody {
-    pub effects: Vec<Effect>,
+    pub reports: Vec<Report>,
     pub txs: Vec<Transaction>,
+}
+
+impl SystemDigest for BlockBody {
+    fn digest(&self) -> Blake2bDigest256 {
+        todo!()
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize, derive_more::From)]

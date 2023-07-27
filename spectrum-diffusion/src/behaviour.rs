@@ -9,7 +9,8 @@ use futures::channel::oneshot;
 use futures::{stream, Stream, StreamExt};
 use libp2p_identity::PeerId;
 
-use spectrum_ledger::block::BlockHeader;
+use spectrum_ledger::block::{BlockBody, BlockHeader};
+use spectrum_ledger::transaction::Transaction;
 use spectrum_ledger::{Modifier, ModifierId, ModifierType, SerializedModifier};
 use spectrum_network::protocol_handler::pool::{FromTask, TaskPool};
 use spectrum_network::protocol_handler::{
@@ -314,6 +315,12 @@ fn decode_modifier(
     let res = match mod_type {
         ModifierType::BlockHeader => {
             ciborium::de::from_reader::<BlockHeader, _>(&bf[..]).map(|h| Modifier::from(h))
+        }
+        ModifierType::BlockBody => {
+            ciborium::de::from_reader::<BlockBody, _>(&bf[..]).map(|h| Modifier::from(h))
+        }
+        ModifierType::Transaction => {
+            ciborium::de::from_reader::<Transaction, _>(&bf[..]).map(|h| Modifier::from(h))
         }
     };
     res.map_err(|_| ())

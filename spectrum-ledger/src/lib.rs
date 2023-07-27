@@ -1,3 +1,5 @@
+use std::fmt::{Debug, Formatter};
+
 use elliptic_curve::ScalarPrimitive;
 use k256::elliptic_curve::group::GroupEncoding;
 use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
@@ -115,6 +117,13 @@ impl Into<BlockId> for ModifierId {
     }
 }
 
+/// Modifier with precomputed identifier.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ModifierRecord<M> {
+    pub id: ModifierId,
+    pub modifier: M,
+}
+
 #[derive(Clone, Eq, PartialEq, Debug, derive_more::From)]
 pub enum Modifier {
     BlockHeader(BlockHeader),
@@ -123,10 +132,12 @@ pub enum Modifier {
 }
 
 impl Modifier {
+    /// Compute ID of a modifier.
+    /// Prefer to use this method only on new/unverified modifiers to avoid redundant computations.
     pub fn id(&self) -> ModifierId {
         match self {
-            Modifier::BlockHeader(bh) => ModifierId::from(bh.id),
-            Modifier::BlockBody(bb) => todo!(),
+            Modifier::BlockHeader(bh) => ModifierId::from(bh.body.digest()),
+            Modifier::BlockBody(bb) => ModifierId::from(bb.digest()),
             Modifier::Transaction(tx) => ModifierId::from(tx.id()),
         }
     }
@@ -135,8 +146,8 @@ impl Modifier {
 #[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ModifierType {
     BlockHeader,
-    // BlockBody,
-    // Transaction,
+    BlockBody,
+    Transaction,
 }
 
 /// Provides digest used across the system for authentication.
@@ -159,6 +170,17 @@ impl<T: DigestViaEncoder> SystemDigest for T {
     Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
 )]
 pub struct SerializedModifier(pub Vec<u8>);
+
+#[derive(
+    Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
+)]
+pub struct KESSignature(spectrum_kes::KESSignature<Secp256k1>);
+
+impl Debug for KESSignature {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("sig")
+    }
+}
 
 #[derive(
     Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,

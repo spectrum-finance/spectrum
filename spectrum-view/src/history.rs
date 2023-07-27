@@ -6,7 +6,7 @@ use nonempty::NonEmpty;
 use spectrum_ledger::block::{
     BlockBody, BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType,
 };
-use spectrum_ledger::{ModifierId, SerializedModifier};
+use spectrum_ledger::{ModifierId, ModifierRecord, SerializedModifier};
 
 use crate::chain::HeaderLike;
 use crate::state::LedgerStateError;
@@ -39,9 +39,9 @@ pub trait LedgerHistoryReadAsync<H: HeaderLike>: Send + Sync {
     /// Check if the given modifier exists in history.
     async fn contains(&self, id: &ModifierId) -> bool;
     /// Get chain tip header (best block header).
-    async fn get_tip(&self) -> H;
+    async fn get_tip(&self) -> ModifierRecord<H>;
     /// Get tail of the chain. Chain always has at least origin block.
-    async fn get_tail(&self, n: usize) -> NonEmpty<H>;
+    async fn get_tail(&self, n: usize) -> NonEmpty<ModifierRecord<H>>;
     /// Follow best chain starting from `pre_start` until either the local tip
     /// is reached or `n` blocks are collected..
     async fn follow(&self, pre_start: BlockId, cap: usize) -> Vec<BlockId>;
@@ -123,11 +123,11 @@ impl LedgerHistoryReadAsync<BlockHeader> for LedgerHistoryRocksDB {
         todo!()
     }
 
-    async fn get_tip(&self) -> BlockHeader {
+    async fn get_tip(&self) -> ModifierRecord<BlockHeader> {
         todo!()
     }
 
-    async fn get_tail(&self, n: usize) -> NonEmpty<BlockHeader> {
+    async fn get_tail(&self, n: usize) -> NonEmpty<ModifierRecord<BlockHeader>> {
         todo!()
     }
 

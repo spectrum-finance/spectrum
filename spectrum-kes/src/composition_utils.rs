@@ -8,7 +8,7 @@ use elliptic_curve::{CurveArithmetic, PrimeCurve, PublicKey, SecretKey};
 
 use spectrum_crypto::digest::Sha2Digest256;
 
-use crate::kes::KeSignature;
+use crate::KESSignature;
 use crate::utils::{double_seed, key_pair_gen, merge_public_keys};
 
 #[derive(Debug)]
@@ -66,7 +66,7 @@ where
 }
 
 pub fn calculate_scheme_pk_from_signature<TCurve: CurveArithmetic + PrimeCurve + PointCompression>(
-    signature: &KeSignature<TCurve>,
+    signature: &KESSignature<TCurve>,
     signing_period: &u32,
 ) -> PublicKey<TCurve>
 where
@@ -74,10 +74,10 @@ where
     <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
     <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
 {
-    let mut scheme_pk = (*signature).pk_actual;
-    for i in (0..(*signature).scheme_public_keys.len()).rev() {
-        let pk_ = (*signature).scheme_public_keys[i].clone();
-        let right = (*signing_period & (1 << (*signature).scheme_public_keys.len() - i - 1)) != 0;
+    let mut scheme_pk = (*signature).hot_pk;
+    for i in (0..(*signature).other_pks.len()).rev() {
+        let pk_ = (*signature).other_pks[i].clone();
+        let right = (*signing_period & (1 << (*signature).other_pks.len() - i - 1)) != 0;
         if right {
             scheme_pk = merge_public_keys::<TCurve>(&pk_, &scheme_pk);
         } else {

@@ -39,7 +39,7 @@ pub enum AggregationAction<H> {
     Reset {
         new_committee: HashMap<PublicKey, Option<Multiaddr>>,
         new_message: Digest256<H>,
-        channel: Sender<Result<MultiCertificate<H>, ()>>,
+        channel: Sender<Result<AggregateCertificate<H>, ()>>,
     },
 }
 
@@ -356,7 +356,7 @@ struct AggregateResponses<'a, H, PP> {
 }
 
 impl<'a, H, PP> AggregateResponses<'a, H, PP> {
-    fn complete(self, responses: Responses) -> MultiCertificate<H> {
+    fn complete(self, responses: Responses) -> AggregateCertificate<H> {
         let mut exclusion_set = HashMap::new();
         for (pix, (yi, sig)) in self.commitments_with_proofs.entries() {
             if responses.get(&pix).is_none() {
@@ -364,7 +364,7 @@ impl<'a, H, PP> AggregateResponses<'a, H, PP> {
             }
         }
         let aggr_resp = aggregate_response(responses.values().into_iter().collect());
-        MultiCertificate {
+        AggregateCertificate {
             message_digest: self.message_digest,
             aggregate_commitment: self.aggr_commitment,
             aggregate_response: aggr_resp,
@@ -376,7 +376,7 @@ impl<'a, H, PP> AggregateResponses<'a, H, PP> {
 /// Result of an aggregation.
 #[derive(Debug, Eq, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(bound = "H: Debug")]
-pub struct MultiCertificate<H> {
+pub struct AggregateCertificate<H> {
     pub message_digest: Digest256<H>,
     pub aggregate_commitment: AggregateCommitment,
     pub aggregate_response: Scalar,
@@ -393,7 +393,7 @@ enum AggregationState<'a, H, PP> {
 
 struct AggregationTask<'a, H, PP> {
     state: AggregationState<'a, H, PP>,
-    channel: Sender<Result<MultiCertificate<H>, ()>>,
+    channel: Sender<Result<AggregateCertificate<H>, ()>>,
 }
 
 #[repr(usize)]
