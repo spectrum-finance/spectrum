@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 
 use elliptic_curve::ScalarPrimitive;
 use k256::elliptic_curve::group::GroupEncoding;
-use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
+use k256::elliptic_curve::sec1::FromEncodedPoint;
 use k256::elliptic_curve::Error;
 use k256::{elliptic_curve, EncodedPoint, ProjectivePoint, Secp256k1};
 use serde::Serialize;
