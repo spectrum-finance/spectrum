@@ -11,12 +11,12 @@ use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
 use elliptic_curve::{AffinePoint, CurveArithmetic, FieldBytesSize, PublicKey, SecretKey};
 
-use spectrum_crypto::digest::{sha256_hash, Digest256, Sha2Digest256};
+use spectrum_crypto::digest::{sha256_hash, Sha2Digest256, Digest};
 
 use crate::composition_utils::{
     calculate_scheme_pk_from_signature, get_left_merkle_tree_branch, insert_in_vec, sum_composition_pk_gen,
 };
-use crate::utils::{associate_message_with_slot, key_pair_gen, merge_public_keys, projective_point_to_bytes};
+use crate::utils::{concat, key_pair_gen, merge_public_keys, projective_point_to_bytes};
 
 mod composition_utils;
 mod tests;
@@ -183,8 +183,8 @@ where
     })
 }
 
-pub fn kes_sign<TCurve>(
-    message: &Sha2Digest256,
+pub fn kes_sign<const N: usize, H, TCurve>(
+    message: &Digest<N, H>,
     secret: &KESSecret<TCurve>,
     current_slot: &u32,
 ) -> Result<KESSignature<TCurve>, Error>
@@ -197,7 +197,7 @@ where
 {
     // Sign the message with an actual Secret Key (message is associated with slot)
     let signing_key = SigningKey::from(&secret.hot_sk);
-    let sig = signing_key.sign(&associate_message_with_slot(&current_slot, &message));
+    let sig = signing_key.sign(&concat(&current_slot, &message));
 
     let mut leaf_related_public_keys = Vec::new();
     let mut h = current_slot.clone();
@@ -205,7 +205,7 @@ where
     // Aggregate the corresponding leafs' Public Key
     for i in 0..secret.merkle_public_keys.len() {
         let leaf_high = secret.initial_merkle_tree_high.clone() - i as u32;
-        let actual_high = (2 as u32).pow((leaf_high as u32 - 1) as u32);
+        let actual_high = (2u32).pow((leaf_high - 1));
         if h >= actual_high {
             h -= actual_high;
             leaf_related_public_keys.push(secret.merkle_public_keys[i].0.clone());
@@ -221,9 +221,9 @@ where
     })
 }
 
-pub fn kes_verify<H, TCurve: CurveArithmetic + ecdsa::PrimeCurve + PointCompression>(
+pub fn kes_verify<const N: usize, H, TCurve: CurveArithmetic + ecdsa::PrimeCurve + PointCompression>(
     signature: &KESSignature<TCurve>,
-    message: &Digest256<H>,
+    message: &Digest<N, H>,
     all_scheme_pk: &PublicKey<TCurve>,
     signing_slot: &u32,
 ) -> Result<bool, Error>
@@ -235,13 +235,12 @@ where
 {
     // Verify message
     let ver_key: VerifyingKey<TCurve> = VerifyingKey::from(signature.hot_pk.clone());
-    let message_is_verified = match ver_key.verify(
-        &associate_message_with_slot(&signing_slot, &message),
-        &signature.sig,
-    ) {
-        Ok(_) => true,
-        Err(_) => false,
-    };
+    let message_is_verified = ver_key
+        .verify(
+            &concat(&signing_slot, &message),
+            &signature.sig,
+        )
+        .is_ok();
 
     // Verify scheme Public Key
     let sig_scheme_pk = calculate_scheme_pk_from_signature(signature, signing_slot);

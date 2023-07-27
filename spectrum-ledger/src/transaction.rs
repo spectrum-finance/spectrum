@@ -71,7 +71,7 @@ impl From<TxInputs> for NonEmpty<(CellPtr, Option<u16>)> {
 /// This is the only form of transaction that travels over the wire and goes on-chain,
 /// that's why the size of this representation is optimized.
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Transaction {
+pub struct TransactionBody {
     /// Consumed boxes.
     pub inputs: TxInputs,
     /// Read-only inputs.
@@ -80,46 +80,23 @@ pub struct Transaction {
     pub invokations: Vec<ScriptInv>,
     /// Statically evaluated outputs.
     pub evaluated_outputs: Vec<AnyCell>,
+}
+
+/// Unverified transaction possibly containing yet unresolved inputs.
+/// This is the only form of transaction that travels over the wire and goes on-chain,
+/// that's why the size of this representation is optimized.
+#[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Transaction {
+    /// Consumed boxes.
+    pub body: TransactionBody,
     /// Aux data requred for transaction execution (e.g. scripts, data ..).
     pub witness: Witness,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct TransactionWithoutWitness {
-    /// Consumed boxes.
-    pub inputs: TxInputs,
-    /// Read-only inputs.
-    pub reference_inputs: Vec<CellPtr>,
-    /// Script invokations.
-    pub invokations: Vec<ScriptInv>,
-    /// Statically evaluated outputs.
-    pub evaluated_outputs: Vec<AnyCell>,
-}
-
-impl From<Transaction> for TransactionWithoutWitness {
-    fn from(
-        Transaction {
-            inputs,
-            reference_inputs,
-            invokations,
-            evaluated_outputs,
-            ..
-        }: Transaction,
-    ) -> Self {
-        Self {
-            inputs,
-            reference_inputs,
-            invokations,
-            evaluated_outputs,
-        }
-    }
-}
-
 impl Transaction {
     fn bytes_without_witness(&self) -> Vec<u8> {
-        let tx = TransactionWithoutWitness::from(self.clone());
         let mut encoded = Vec::new();
-        ciborium::ser::into_writer(&tx, &mut encoded).unwrap();
+        ciborium::ser::into_writer(&self.body, &mut encoded).unwrap();
         encoded
     }
 }

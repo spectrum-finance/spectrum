@@ -8,7 +8,7 @@ use elliptic_curve::{
     CurveArithmetic, NonZeroScalar, ProjectivePoint, PublicKey, Scalar, ScalarPrimitive, SecretKey,
 };
 
-use spectrum_crypto::digest::{sha256_hash, Digest256, Sha2Digest256};
+use spectrum_crypto::digest::{sha256_hash, Sha2Digest256};
 
 pub type Blake2b256 = Blake2b<U32>;
 
@@ -85,8 +85,11 @@ where
     hash_to_public_key::<TCurve>(res)
 }
 
-pub fn associate_message_with_slot<H>(current_slot: &u32, message: &Digest256<H>) -> Vec<u8> {
-    [message.as_ref(), (*current_slot).to_string().as_bytes()].concat()
+pub fn concat<const N: usize, H>(
+    current_slot: &u32,
+    message: &spectrum_crypto::digest::Digest<N, H>,
+) -> Vec<u8> {
+    [message.as_ref(), &current_slot.to_be_bytes()].concat()
 }
 
 #[cfg(test)]

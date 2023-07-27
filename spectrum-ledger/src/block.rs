@@ -1,8 +1,8 @@
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest};
 use spectrum_crypto::pubkey::PublicKey;
 
-use crate::interop::Report;
-use crate::transaction::Transaction;
+use crate::interop::{ReportBody, ReportCertificate};
+use crate::transaction::{TransactionBody, Witness};
 use crate::{BlockNo, KESSignature, SlotNo, SystemDigest, VRFProof};
 
 #[derive(
@@ -47,7 +47,8 @@ pub struct HeaderBody {
     pub vrf_pk: PublicKey,
     pub leader_proof: VRFProof,
     pub seed_proof: VRFProof,
-    pub block_body_hash: Blake2bDigest256,
+    /// Merkle Tree root hash of the block body.
+    pub block_body_root: Blake2bDigest256,
     pub protocol_version: ProtocolVer,
 }
 
@@ -67,13 +68,17 @@ pub struct BlockHeader {
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BlockBody {
-    pub reports: Vec<Report>,
-    pub txs: Vec<Transaction>,
+    /// ID of the header this body belongs to.
+    pub header_id: BlockId,
+    pub reports: Vec<ReportBody>,
+    pub certificates: Vec<ReportCertificate>,
+    pub txs: Vec<TransactionBody>,
+    pub witnesses: Vec<Witness>,
 }
 
 impl SystemDigest for BlockBody {
     fn digest(&self) -> Blake2bDigest256 {
-        todo!()
+        todo!("Use root hash of the Merkle Tree here")
     }
 }
 
