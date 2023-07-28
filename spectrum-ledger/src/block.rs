@@ -36,7 +36,7 @@ impl ProtocolVer {
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum BlockSectionId {
     Header(BlockId),
-    Payload(BlockId),
+    Body(BlockId),
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
@@ -68,8 +68,6 @@ pub struct BlockHeader {
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BlockBody {
-    /// ID of the header this body belongs to.
-    pub header_id: BlockId,
     pub reports: Vec<ReportBody>,
     pub certificates: Vec<ReportCertificate>,
     pub txs: Vec<TransactionBody>,
