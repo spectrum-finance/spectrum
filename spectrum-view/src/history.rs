@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
-use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use nonempty::NonEmpty;
 
 use spectrum_ledger::block::{
     BlockBody, BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType,
 };
-use spectrum_ledger::{ModifierId, SerializedModifier};
+use spectrum_ledger::{ModifierId, ModifierRecord, SerializedModifier};
 
+use crate::chain::HeaderLike;
 use crate::state::LedgerStateError;
 use crate::validation::{CanValidate, RecoverableModifier, ValidModifier, ValidationResult};
 
@@ -33,16 +33,15 @@ pub trait LedgerHistoryReadSync {
 
 /// Read-only async API to ledger history.
 #[async_trait]
-pub trait LedgerHistoryReadAsync: Send + Sync {
+pub trait LedgerHistoryReadAsync<H: HeaderLike>: Send + Sync {
     /// Check if the given block is in the best chain.
     async fn member(&self, id: &BlockId) -> bool;
     /// Check if the given modifier exists in history.
     async fn contains(&self, id: &ModifierId) -> bool;
-    async fn get_section(&self, id: &BlockSectionId) -> Option<BlockSection>;
     /// Get chain tip header (best block header).
-    async fn get_tip(&self) -> BlockHeader;
+    async fn get_tip(&self) -> ModifierRecord<H>;
     /// Get tail of the chain. Chain always has at least origin block.
-    async fn get_tail(&self, n: usize) -> NonEmpty<BlockHeader>;
+    async fn get_tail(&self, n: usize) -> NonEmpty<ModifierRecord<H>>;
     /// Follow best chain starting from `pre_start` until either the local tip
     /// is reached or `n` blocks are collected..
     async fn follow(&self, pre_start: BlockId, cap: usize) -> Vec<BlockId>;
@@ -115,7 +114,7 @@ impl LedgerHistoryReadSync for LedgerHistoryRocksDB {
 }
 
 #[async_trait]
-impl LedgerHistoryReadAsync for LedgerHistoryRocksDB {
+impl LedgerHistoryReadAsync<BlockHeader> for LedgerHistoryRocksDB {
     async fn member(&self, id: &BlockId) -> bool {
         todo!()
     }
@@ -124,17 +123,11 @@ impl LedgerHistoryReadAsync for LedgerHistoryRocksDB {
         todo!()
     }
 
-    async fn get_section(&self, id: &BlockSectionId) -> Option<BlockSection> {
-        let db = self.db.clone();
-        let key = bincode::serialize(id).unwrap();
-        spawn_blocking(move || db.get(key).unwrap().and_then(|bs| bincode::deserialize(&bs).ok())).await
-    }
-
-    async fn get_tip(&self) -> BlockHeader {
+    async fn get_tip(&self) -> ModifierRecord<BlockHeader> {
         todo!()
     }
 
-    async fn get_tail(&self, n: usize) -> NonEmpty<BlockHeader> {
+    async fn get_tail(&self, n: usize) -> NonEmpty<ModifierRecord<BlockHeader>> {
         todo!()
     }
 

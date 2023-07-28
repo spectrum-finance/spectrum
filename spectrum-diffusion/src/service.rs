@@ -1,13 +1,13 @@
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use spectrum_ledger::block::{BlockId, BlockSectionType};
 use spectrum_ledger::{ModifierId, ModifierType, SerializedModifier, SlotNo};
+use spectrum_network::types::ProtocolVer;
+use spectrum_view::chain::HeaderLike;
 use spectrum_view::history::LedgerHistoryReadAsync;
 
-use crate::protocol_handler::diffusion::message::{
-    DiffusionHandshake, DiffusionSpec, HandshakeV1, SyncStatus,
-};
-use crate::types::ProtocolVer;
+use crate::message::{DiffusionHandshake, DiffusionSpec, HandshakeV1, SyncStatus};
 
 /// Peer chain in comparison to the local one.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -33,34 +33,40 @@ pub(super) struct SyncState {
     pub cmp: RemoteChainCmp,
 }
 
-pub(super) struct RemoteSync<THistory> {
+pub(super) struct RemoteSync<THeader, THistory> {
     history: Arc<THistory>,
+    pd: PhantomData<THeader>,
 }
 
-impl<THistory> Clone for RemoteSync<THistory> {
+impl<THistory, THeader> Clone for RemoteSync<THistory, THeader> {
     fn clone(&self) -> Self {
         Self {
             history: self.history.clone(),
+            pd: PhantomData::default(),
         }
     }
 }
 
-impl<THistory> RemoteSync<THistory>
+impl<THeader, THistory> RemoteSync<THeader, THistory>
 where
-    THistory: LedgerHistoryReadAsync,
+    THeader: HeaderLike,
+    THistory: LedgerHistoryReadAsync<THeader>,
 {
     pub fn new(history: Arc<THistory>) -> Self {
-        Self { history }
+        Self {
+            history,
+            pd: PhantomData::default(),
+        }
     }
 
     pub async fn local_status(&self) -> SyncStatus {
         let tail = self.history.get_tail(SYNC_HEADERS).await;
-        let height = tail.last().slot;
-        let mut tail = Vec::from(self.history.get_tail(SYNC_HEADERS).await);
+        let height = tail.last().modifier.slot_num();
+        let mut tail = Vec::from(self.history.get_tail(SYNC_HEADERS).await.map(|r| r.id.into()));
         tail.reverse(); // newer blocks first
         SyncStatus {
             height,
-            last_blocks: tail.into_iter().map(|h| h.id).collect(),
+            last_blocks: tail,
         }
     }
 
@@ -94,14 +100,15 @@ where
                 self.history
                     .multi_get_raw(BlockSectionType::Header, modifiers)
                     .await
-            } // ModifierType::BlockBody => {
-              //     self.history
-              //         .multi_get_raw(BlockSectionType::Body, modifiers)
-              //         .await
-              // }
-              // ModifierType::Transaction => {
-              //     todo!("Go to mempool")
-              // }
+            }
+            ModifierType::BlockBody => {
+                self.history
+                    .multi_get_raw(BlockSectionType::Body, modifiers)
+                    .await
+            }
+            ModifierType::Transaction => {
+                todo!("Go to mempool")
+            }
         }
     }
 
@@ -115,7 +122,7 @@ where
         if peer_tail.is_empty() {
             RemoteChainCmp::Shorter(BlockId::ORIGIN)
         } else {
-            let delta = <u64>::from(peer_height).saturating_sub(<u64>::from(local_tip.slot));
+            let delta = <u64>::from(peer_height).saturating_sub(<u64>::from(local_tip.modifier.slot_num()));
             let num_shared_blocks = peer_tail.len() as u64;
             if delta > num_shared_blocks {
                 RemoteChainCmp::Longer(None)
@@ -124,13 +131,13 @@ where
                 let mut optimistic_common_point = None;
                 let peer_tip = peer_tail[0];
                 for blk in &peer_tail {
-                    if *blk == local_tip.id {
+                    if *blk == local_tip.id.into() {
                         optimistic_common_point = Some(*blk);
                         break;
                     }
                 }
                 match optimistic_common_point {
-                    Some(common_sl) if peer_height >= local_tip.slot =>
+                    Some(common_sl) if peer_height >= local_tip.modifier.slot_num() =>
                     // Equal | Longer(Some(wanted_suffix))
                     {
                         if common_sl == peer_tip {
@@ -184,21 +191,42 @@ pub(crate) mod tests {
 
     use nonempty::NonEmpty;
 
-    use spectrum_ledger::block::{
-        BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType, BlockVer,
-    };
+    use spectrum_ledger::block::{BlockId, BlockSectionType};
     use spectrum_ledger::{ModifierId, SerializedModifier, SlotNo};
+    use spectrum_view::chain::HeaderLike;
     use spectrum_view::history::LedgerHistoryReadAsync;
 
-    use crate::protocol_handler::diffusion::message::SyncStatus;
-    use crate::protocol_handler::diffusion::service::{RemoteChainCmp, RemoteSync};
+    use crate::message::SyncStatus;
+    use crate::service::{RemoteChainCmp, RemoteSync};
 
-    pub struct EphemeralHistory {
-        pub db: HashMap<BlockId, BlockSection>,
+    pub(crate) struct EphemeralHistory {
+        pub(crate) db: HashMap<BlockId, Header>,
+    }
+
+    #[derive(Debug, Clone)]
+    pub(crate) struct Header {
+        pub(crate) id: BlockId,
+        pub(crate) slot: SlotNo,
+    }
+
+    impl Header {
+        pub(crate) const ORIGIN: Header = Header {
+            id: BlockId::ORIGIN,
+            slot: SlotNo::ORIGIN,
+        };
+    }
+
+    impl HeaderLike for Header {
+        fn id(&self) -> BlockId {
+            self.id
+        }
+        fn slot_num(&self) -> SlotNo {
+            self.slot
+        }
     }
 
     #[async_trait::async_trait]
-    impl LedgerHistoryReadAsync for EphemeralHistory {
+    impl LedgerHistoryReadAsync<Header> for EphemeralHistory {
         async fn member(&self, id: &BlockId) -> bool {
             self.db.contains_key(id)
         }
@@ -207,51 +235,27 @@ pub(crate) mod tests {
             self.db.contains_key(&<ModifierId as Into<BlockId>>::into(*id))
         }
 
-        async fn get_section(&self, id: &BlockSectionId) -> Option<BlockSection> {
-            match id {
-                BlockSectionId::Header(id) | BlockSectionId::Payload(id) => self.db.get(id).cloned(),
-            }
-        }
-
-        async fn get_tip(&self) -> BlockHeader {
+        async fn get_tip(&self) -> Header {
             self.db
                 .values()
-                .filter_map(|s| match s {
-                    BlockSection::Header(bh) => Some(bh),
-                    _ => None,
-                })
                 .max_by_key(|hd| hd.slot)
                 .cloned()
-                .unwrap_or(BlockHeader::ORIGIN)
+                .unwrap_or(Header::ORIGIN)
         }
 
-        async fn get_tail(&self, n: usize) -> NonEmpty<BlockHeader> {
-            let mut headers = self
-                .db
-                .values()
-                .filter_map(|s| match s {
-                    BlockSection::Header(bh) => Some(bh),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
+        async fn get_tail(&self, n: usize) -> NonEmpty<Header> {
+            let mut headers = self.db.values().collect::<Vec<_>>();
             headers.sort_by_key(|hd| hd.slot);
             NonEmpty::collect(
                 headers[headers.len().saturating_sub(n)..]
                     .into_iter()
                     .map(|&hd| hd.clone()),
             )
-            .unwrap_or(NonEmpty::singleton(BlockHeader::ORIGIN))
+            .unwrap_or(NonEmpty::singleton(Header::ORIGIN))
         }
 
         async fn follow(&self, pre_start: BlockId, cap: usize) -> Vec<BlockId> {
-            let mut headers = self
-                .db
-                .values()
-                .filter_map(|s| match s {
-                    BlockSection::Header(bh) => Some(bh),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
+            let mut headers = self.db.values().collect::<Vec<_>>();
             headers.sort_by_key(|hd| hd.slot);
             let blocks = headers.into_iter().map(|hd| hd.id).collect::<Vec<_>>();
             let pos = blocks.iter().position(|blk| *blk == pre_start).unwrap();
@@ -270,10 +274,9 @@ pub(crate) mod tests {
     #[async_std::test]
     async fn equal_chains() {
         let local_chain = (0..32)
-            .map(|i| BlockHeader {
+            .map(|i| Header {
                 id: BlockId::random(),
                 slot: SlotNo::from(i as u64),
-                version: BlockVer::INITIAL,
             })
             .collect::<Vec<_>>();
         let mut remote_chain = local_chain
@@ -287,24 +290,18 @@ pub(crate) mod tests {
             last_blocks: remote_chain,
         };
         let history = EphemeralHistory {
-            db: local_chain
-                .into_iter()
-                .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
-                .collect(),
+            db: local_chain.into_iter().map(|hdr| (hdr.id, hdr)).collect(),
         };
-        let service = RemoteSync {
-            history: Arc::new(history),
-        };
+        let service = RemoteSync::new(Arc::new(history));
         assert_eq!(service.compare_remote(remote_ss).await, RemoteChainCmp::Equal);
     }
 
     #[async_std::test]
     async fn shorter_chain() {
         let local_chain = (0..32)
-            .map(|i| BlockHeader {
+            .map(|i| Header {
                 id: BlockId::random(),
                 slot: SlotNo::from(i as u64),
-                version: BlockVer::INITIAL,
             })
             .collect::<Vec<_>>();
         let mut remote_chain = local_chain.clone()[..30]
@@ -317,14 +314,9 @@ pub(crate) mod tests {
             last_blocks: remote_chain.clone(),
         };
         let history = EphemeralHistory {
-            db: local_chain
-                .into_iter()
-                .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
-                .collect(),
+            db: local_chain.into_iter().map(|hdr| (hdr.id, hdr)).collect(),
         };
-        let service = RemoteSync {
-            history: Arc::new(history),
-        };
+        let service = RemoteSync::new(Arc::new(history));
         assert_eq!(
             service.compare_remote(remote_ss).await,
             RemoteChainCmp::Shorter(remote_chain[0])
@@ -334,10 +326,9 @@ pub(crate) mod tests {
     #[async_std::test]
     async fn nonsense() {
         let local_chain = (0..32)
-            .map(|i| BlockHeader {
+            .map(|i| Header {
                 id: BlockId::random(),
                 slot: SlotNo::from(i as u64),
-                version: BlockVer::INITIAL,
             })
             .collect::<Vec<_>>();
         let mut remote_chain = local_chain
@@ -351,24 +342,18 @@ pub(crate) mod tests {
             last_blocks: remote_chain,
         };
         let history = EphemeralHistory {
-            db: local_chain
-                .into_iter()
-                .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
-                .collect(),
+            db: local_chain.into_iter().map(|hdr| (hdr.id, hdr)).collect(),
         };
-        let service = RemoteSync {
-            history: Arc::new(history),
-        };
+        let service = RemoteSync::new(Arc::new(history));
         assert_eq!(service.compare_remote(remote_ss).await, RemoteChainCmp::Nonsense);
     }
 
     #[async_std::test]
     async fn unresolved_fork() {
         let local_chain = (0..32)
-            .map(|i| BlockHeader {
+            .map(|i| Header {
                 id: BlockId::random(),
                 slot: SlotNo::from(i as u64),
-                version: BlockVer::INITIAL,
             })
             .collect::<Vec<_>>();
         let mut remote_chain = (0..16).map(|_| BlockId::random()).collect::<Vec<_>>();
@@ -378,14 +363,9 @@ pub(crate) mod tests {
             last_blocks: remote_chain,
         };
         let history = EphemeralHistory {
-            db: local_chain
-                .into_iter()
-                .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
-                .collect(),
+            db: local_chain.into_iter().map(|hdr| (hdr.id, hdr)).collect(),
         };
-        let service = RemoteSync {
-            history: Arc::new(history),
-        };
+        let service = RemoteSync::new(Arc::new(history));
         assert_eq!(
             service.compare_remote(remote_ss).await,
             RemoteChainCmp::Fork(None)
@@ -395,18 +375,16 @@ pub(crate) mod tests {
     #[async_std::test]
     async fn resolved_fork() {
         let remote_chain = (0..32)
-            .map(|i| BlockHeader {
+            .map(|i| Header {
                 id: BlockId::random(),
                 slot: SlotNo::from(i as u64),
-                version: BlockVer::INITIAL,
             })
             .collect::<Vec<_>>();
         let mut local_chain = remote_chain.clone()[..25].to_vec();
         let pre_fork_hdr = local_chain[24].id;
-        let fork_hdr = BlockHeader {
+        let fork_hdr = Header {
             id: BlockId::random(),
             slot: SlotNo::from(25),
-            version: BlockVer::INITIAL,
         };
         local_chain.push(fork_hdr.clone());
         let mut remote_chain_rev = remote_chain.clone();
@@ -428,14 +406,9 @@ pub(crate) mod tests {
                 .collect::<Vec<_>>(),
         };
         let history = EphemeralHistory {
-            db: local_chain
-                .into_iter()
-                .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
-                .collect(),
+            db: local_chain.into_iter().map(|hdr| (hdr.id, hdr)).collect(),
         };
-        let service = RemoteSync {
-            history: Arc::new(history),
-        };
+        let service = RemoteSync::new(Arc::new(history));
         assert_eq!(
             service.compare_remote(remote_ss).await,
             RemoteChainCmp::Fork(Some(pre_fork_hdr))
@@ -445,10 +418,9 @@ pub(crate) mod tests {
     #[async_std::test]
     async fn significantly_longer_chain() {
         let local_chain = (0..32)
-            .map(|i| BlockHeader {
+            .map(|i| Header {
                 id: BlockId::random(),
                 slot: SlotNo::from(i as u64),
-                version: BlockVer::INITIAL,
             })
             .collect::<Vec<_>>();
         let mut remote_chain = (0..16).map(|_| BlockId::random()).collect::<Vec<_>>();
@@ -458,14 +430,9 @@ pub(crate) mod tests {
             last_blocks: remote_chain,
         };
         let history = EphemeralHistory {
-            db: local_chain
-                .into_iter()
-                .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
-                .collect(),
+            db: local_chain.into_iter().map(|hdr| (hdr.id, hdr)).collect(),
         };
-        let service = RemoteSync {
-            history: Arc::new(history),
-        };
+        let service = RemoteSync::new(Arc::new(history));
         assert_eq!(
             service.compare_remote(remote_ss).await,
             RemoteChainCmp::Longer(None)
@@ -475,10 +442,9 @@ pub(crate) mod tests {
     #[async_std::test]
     async fn longer_chain() {
         let remote_chain = (0..32)
-            .map(|i| BlockHeader {
+            .map(|i| Header {
                 id: BlockId::random(),
                 slot: SlotNo::from(i as u64),
-                version: BlockVer::INITIAL,
             })
             .collect::<Vec<_>>();
         let local_chain = remote_chain.clone()[..25].to_vec();
@@ -501,14 +467,9 @@ pub(crate) mod tests {
                 .collect::<Vec<_>>(),
         };
         let history = EphemeralHistory {
-            db: local_chain
-                .into_iter()
-                .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
-                .collect(),
+            db: local_chain.into_iter().map(|hdr| (hdr.id, hdr)).collect(),
         };
-        let service = RemoteSync {
-            history: Arc::new(history),
-        };
+        let service = RemoteSync::new(Arc::new(history));
         assert_eq!(
             service.compare_remote(remote_ss).await,
             RemoteChainCmp::Longer(Some(

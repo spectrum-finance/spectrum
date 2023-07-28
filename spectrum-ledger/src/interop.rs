@@ -1,9 +1,7 @@
-use nonempty::NonEmpty;
-
-use spectrum_crypto::digest::Blake2bDigest256;
+use spectrum_crypto::digest::{Blake2b, Blake2bDigest256};
+use spectrum_sigma::sigma_aggregation::AggregateCertificate;
 
 use crate::cell::{AnyCell, CellId};
-use crate::transaction::TxId;
 use crate::ChainId;
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
@@ -11,15 +9,6 @@ pub struct Point(u64);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Source(ChainId, Point);
-
-/// Identifier derived from external value carrying unit.
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct PeriferalId(Blake2bDigest256);
-
-// Bundled outbound transactions
-pub struct CertBundle(NonEmpty<[u8; 32]>);
-
-pub struct IBlockCert();
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct EffectId(Blake2bDigest256);
@@ -37,9 +26,19 @@ pub enum Effect {
     Progressed(Point),
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct ApplyEffects {
-    pub id: TxId,
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum ReportCertificate {
+    SchnorrK256(AggregateCertificate<Blake2b>),
+}
+
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Report {
+    pub body: ReportBody,
+    pub body_certificate: ReportCertificate,
+}
+
+#[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ReportBody {
     pub source: Source,
-    pub effects: Vec<EffectId>,
+    pub effects: Vec<Effect>,
 }

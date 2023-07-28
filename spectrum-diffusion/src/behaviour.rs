@@ -9,21 +9,22 @@ use futures::channel::oneshot;
 use futures::{stream, Stream, StreamExt};
 use libp2p_identity::PeerId;
 
-use spectrum_ledger::block::BlockHeader;
+use spectrum_ledger::block::{BlockBody, BlockHeader};
+use spectrum_ledger::transaction::Transaction;
 use spectrum_ledger::{Modifier, ModifierId, ModifierType, SerializedModifier};
+use spectrum_network::protocol_handler::pool::{FromTask, TaskPool};
+use spectrum_network::protocol_handler::{
+    NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec,
+};
+use spectrum_view::chain::HeaderLike;
 use spectrum_view::history::LedgerHistoryReadAsync;
 use spectrum_view::node_view::NodeViewWriteAsync;
 
-use crate::protocol_handler::diffusion::message::{
+use crate::message::{
     DiffusionHandshake, DiffusionMessage, DiffusionMessageV1, DiffusionSpec, HandshakeV1, Modifiers,
     SyncStatus,
 };
-use crate::protocol_handler::diffusion::service::{RemoteChainCmp, RemoteSync, SyncState};
-use crate::protocol_handler::pool::{FromTask, TaskPool};
-use crate::protocol_handler::{NetworkAction, ProtocolBehaviour, ProtocolBehaviourOut, ProtocolSpec};
-
-pub mod message;
-mod service;
+use crate::service::{RemoteChainCmp, RemoteSync, SyncState};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum ModifierStatus {
@@ -121,23 +122,24 @@ pub struct DiffusionConfig {
     task_timeout: Duration,
 }
 
-pub struct DiffusionBehaviour<'a, THistory, TLedgerView> {
+pub struct DiffusionBehaviour<'a, THeader, THistory, TLedgerView> {
     conf: DiffusionConfig,
     from_tasks: Receiver<FromTask<DiffusionBehaviourIn, DiffusionBehaviourOut>>,
     outbox: VecDeque<DiffusionBehaviourOut>,
     tasks: TaskPool<'a, DiffusionBehaviourIn, DiffusionBehaviourOut, ()>,
     peers: HashMap<PeerId, SyncState>,
     delivery: HashMap<ModifierId, ModifierStatus>,
-    remote_sync: RemoteSync<THistory>,
+    remote_sync: RemoteSync<THeader, THistory>,
     history: Arc<THistory>,
     ledger_view: TLedgerView,
 }
 
 const FROM_TASK_BUFFER_SIZE: usize = 1000;
 
-impl<'a, THistory, TLedgerView> DiffusionBehaviour<'a, THistory, TLedgerView>
+impl<'a, THeader, THistory, TLedgerView> DiffusionBehaviour<'a, THeader, THistory, TLedgerView>
 where
-    THistory: LedgerHistoryReadAsync + 'a,
+    THeader: HeaderLike + 'a,
+    THistory: LedgerHistoryReadAsync<THeader> + 'a,
     TLedgerView: NodeViewWriteAsync + 'a,
 {
     pub fn new(conf: DiffusionConfig, history: Arc<THistory>, ledger_view: TLedgerView) -> Self {
@@ -287,7 +289,11 @@ where
 }
 
 /// Select desired modifiers from the given list of proposed modifiers.
-async fn select_wanted<THistory: LedgerHistoryReadAsync, TDiffusion: DiffusionStateRead>(
+async fn select_wanted<
+    THeader: HeaderLike,
+    THistory: LedgerHistoryReadAsync<THeader>,
+    TDiffusion: DiffusionStateRead,
+>(
     history: &Arc<THistory>,
     diffusion: &TDiffusion,
     proposed_modifiers: Vec<ModifierId>,
@@ -310,13 +316,21 @@ fn decode_modifier(
         ModifierType::BlockHeader => {
             ciborium::de::from_reader::<BlockHeader, _>(&bf[..]).map(|h| Modifier::from(h))
         }
+        ModifierType::BlockBody => {
+            ciborium::de::from_reader::<BlockBody, _>(&bf[..]).map(|h| Modifier::from(h))
+        }
+        ModifierType::Transaction => {
+            ciborium::de::from_reader::<Transaction, _>(&bf[..]).map(|h| Modifier::from(h))
+        }
     };
     res.map_err(|_| ())
 }
 
-impl<'a, THistory, TLedgerView> ProtocolBehaviour for DiffusionBehaviour<'a, THistory, TLedgerView>
+impl<'a, THeader, THistory, TLedgerView> ProtocolBehaviour
+    for DiffusionBehaviour<'a, THeader, THistory, TLedgerView>
 where
-    THistory: LedgerHistoryReadAsync + 'a,
+    THeader: HeaderLike + 'a,
+    THistory: LedgerHistoryReadAsync<THeader> + 'a,
     TLedgerView: NodeViewWriteAsync + 'a,
 {
     type TProto = DiffusionSpec;
@@ -412,16 +426,14 @@ mod tests {
     use futures::StreamExt;
     use libp2p_identity::PeerId;
 
-    use spectrum_ledger::block::{BlockHeader, BlockId, BlockSection, BlockVer};
+    use spectrum_ledger::block::BlockId;
     use spectrum_ledger::{ModifierId, ModifierType, SlotNo};
+    use spectrum_network::protocol_handler::{BehaviourStream, ProtocolBehaviour, ProtocolBehaviourOut};
     use spectrum_view::node_view::NodeViewMailbox;
 
-    use crate::protocol_handler::diffusion::message::{
-        DiffusionHandshake, DiffusionMessage, HandshakeV1, SyncStatus,
-    };
-    use crate::protocol_handler::diffusion::service::tests::EphemeralHistory;
-    use crate::protocol_handler::diffusion::{DiffusionBehaviour, DiffusionConfig};
-    use crate::protocol_handler::{BehaviourStream, ProtocolBehaviour, ProtocolBehaviourOut};
+    use crate::behaviour::{DiffusionBehaviour, DiffusionConfig};
+    use crate::message::{DiffusionHandshake, DiffusionMessage, HandshakeV1, SyncStatus};
+    use crate::service::tests::{EphemeralHistory, Header};
 
     #[async_std::test]
     async fn process_inv() {
@@ -501,13 +513,10 @@ mod tests {
     }
 
     fn make_behaviour(
-        chain: Vec<BlockHeader>,
-    ) -> DiffusionBehaviour<'static, EphemeralHistory, NodeViewMailbox> {
+        chain: Vec<Header>,
+    ) -> DiffusionBehaviour<'static, EphemeralHistory, NodeViewMailbox, Header> {
         let history = Arc::new(EphemeralHistory {
-            db: chain
-                .into_iter()
-                .map(|hdr| (hdr.id, BlockSection::Header(hdr)))
-                .collect(),
+            db: chain.into_iter().map(|hdr| (hdr.id, hdr)).collect(),
         });
 
         let conf = DiffusionConfig {
@@ -519,12 +528,11 @@ mod tests {
         DiffusionBehaviour::new(conf, history, lv)
     }
 
-    fn make_chain(n: usize) -> Vec<BlockHeader> {
+    fn make_chain(n: usize) -> Vec<Header> {
         (0..n)
-            .map(|i| BlockHeader {
+            .map(|i| Header {
                 id: BlockId::random(),
                 slot: SlotNo::from(i as u64),
-                version: BlockVer::INITIAL,
             })
             .collect::<Vec<_>>()
     }

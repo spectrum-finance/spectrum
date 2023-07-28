@@ -2,10 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use spectrum_ledger::block::BlockId;
 use spectrum_ledger::{ModifierId, ModifierType, SerializedModifier, SlotNo};
-
-use crate::protocol_handler::versioning::Versioned;
-use crate::protocol_handler::ProtocolSpec;
-use crate::types::ProtocolVer;
+use spectrum_network::protocol_handler::versioning::Versioned;
+use spectrum_network::protocol_handler::ProtocolSpec;
+use spectrum_network::types::ProtocolVer;
 
 /// Sync handshake provides initial node status.
 #[derive(Serialize, Deserialize, Debug)]

@@ -1,6 +1,6 @@
 use spectrum_ledger::cell::{AnyCell, CellMeta, CellPtr, DatumRef, Owner, ScriptRef};
 use spectrum_ledger::transaction::{
-    DatumWitness, LinkedScriptInv, LinkedTransaction, ScriptInv, ScriptWitness, Transaction,
+    DatumWitness, LinkedScriptInv, LinkedTransaction, ScriptInv, ScriptWitness, Transaction, TransactionBody,
 };
 use spectrum_ledger::SystemDigest;
 
@@ -34,10 +34,13 @@ where
     fn link_transaction(&self, tx: Transaction) -> Result<LinkedTransaction, LinkingError> {
         let digest = tx.digest();
         let Transaction {
-            inputs,
-            reference_inputs,
-            invokations,
-            evaluated_outputs,
+            body:
+                TransactionBody {
+                    inputs,
+                    reference_inputs,
+                    invokations,
+                    evaluated_outputs,
+                },
             witness,
         } = tx;
         let mut linked_inputs = vec![];
