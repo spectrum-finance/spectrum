@@ -176,7 +176,7 @@ where
         let service = self.remote_sync.clone();
         let conf = self.conf;
         self.tasks.spawn(|to_behaviour| {
-            Box::pin(async move {
+            async move {
                 let peer_state = service.remote_state(peer_status).await;
                 to_behaviour.update_peer(peer_id, peer_state.clone()).await;
                 if initial {
@@ -230,23 +230,21 @@ where
                             .unwrap();
                     }
                 }
-            })
+            }
         })
     }
 
     fn on_modifiers_request(&mut self, peer_id: PeerId, mod_type: ModifierType, modifiers: Vec<ModifierId>) {
         let service = self.remote_sync.clone();
-        self.tasks.spawn(|to_behaviour| {
-            Box::pin(async move {
-                let raw_modifiers = service.get_modifiers(mod_type, modifiers).await;
-                to_behaviour
-                    .send(FromTask::ToHandler(ProtocolBehaviourOut::Send {
-                        peer_id,
-                        message: DiffusionMessage::modifiers_v1(mod_type, raw_modifiers),
-                    }))
-                    .await
-                    .unwrap();
-            })
+        self.tasks.spawn(|to_behaviour| async move {
+            let raw_modifiers = service.get_modifiers(mod_type, modifiers).await;
+            to_behaviour
+                .send(FromTask::ToHandler(ProtocolBehaviourOut::Send {
+                    peer_id,
+                    message: DiffusionMessage::modifiers_v1(mod_type, raw_modifiers),
+                }))
+                .await
+                .unwrap();
         })
     }
 
@@ -257,33 +255,31 @@ where
         raw_modifiers: Vec<SerializedModifier>,
     ) {
         let ledger_view = self.ledger_view.clone();
-        self.tasks.spawn(|to_behaviour| {
-            Box::pin(async move {
-                let mut modifiers = vec![];
-                for m in raw_modifiers {
-                    if let Ok(md) = decode_modifier(mod_type, &m) {
-                        to_behaviour
-                            .update_modifier(md.id(), ModifierStatus::Received)
-                            .await;
-                        modifiers.push(md)
-                    } else {
-                        to_behaviour
-                            .send(FromTask::ToHandler(ProtocolBehaviourOut::NetworkAction(
-                                NetworkAction::BanPeer(peer_id),
-                            )))
-                            .await
-                            .unwrap();
-                        break;
-                    }
+        self.tasks.spawn(|to_behaviour| async move {
+            let mut modifiers = vec![];
+            for m in raw_modifiers {
+                if let Ok(md) = decode_modifier(mod_type, &m) {
+                    to_behaviour
+                        .update_modifier(md.id(), ModifierStatus::Received)
+                        .await;
+                    modifiers.push(md)
+                } else {
+                    to_behaviour
+                        .send(FromTask::ToHandler(ProtocolBehaviourOut::NetworkAction(
+                            NetworkAction::BanPeer(peer_id),
+                        )))
+                        .await
+                        .unwrap();
+                    break;
                 }
-                stream::iter(modifiers)
-                    .then(|md| {
-                        let mut ledger = ledger_view.clone();
-                        async move { ledger.apply_modifier(md).await }
-                    })
-                    .collect::<Vec<_>>()
-                    .await;
-            })
+            }
+            stream::iter(modifiers)
+                .then(|md| {
+                    let mut ledger = ledger_view.clone();
+                    async move { ledger.apply_modifier(md).await }
+                })
+                .collect::<Vec<_>>()
+                .await;
         })
     }
 }
@@ -331,19 +327,17 @@ where
         match msg {
             DiffusionMessageV1::Inv(Modifiers { mod_type, modifiers }) => {
                 let history = self.history.clone();
-                self.tasks.spawn(|to_behaviour| {
-                    Box::pin(async move {
-                        let wanted = select_wanted(&history, &to_behaviour, modifiers).await;
-                        if !wanted.is_empty() {
-                            to_behaviour
-                                .send(FromTask::ToHandler(DiffusionBehaviourOut::Send {
-                                    peer_id,
-                                    message: DiffusionMessage::request_modifiers_v1(mod_type, wanted),
-                                }))
-                                .await
-                                .unwrap();
-                        }
-                    })
+                self.tasks.spawn(|to_behaviour| async move {
+                    let wanted = select_wanted(&history, &to_behaviour, modifiers).await;
+                    if !wanted.is_empty() {
+                        to_behaviour
+                            .send(FromTask::ToHandler(DiffusionBehaviourOut::Send {
+                                peer_id,
+                                message: DiffusionMessage::request_modifiers_v1(mod_type, wanted),
+                            }))
+                            .await
+                            .unwrap();
+                    }
                 })
             }
             DiffusionMessageV1::RequestModifiers(Modifiers { mod_type, modifiers }) => {
@@ -364,18 +358,16 @@ where
 
     fn inject_protocol_requested_locally(&mut self, peer_id: PeerId) {
         let service = self.remote_sync.clone();
-        self.tasks.spawn(|to_behaviour| {
-            Box::pin(async move {
-                to_behaviour
-                    .send(FromTask::ToHandler(DiffusionBehaviourOut::NetworkAction(
-                        NetworkAction::EnablePeer {
-                            peer_id,
-                            handshakes: service.make_poly_handshake().await,
-                        },
-                    )))
-                    .await
-                    .unwrap();
-            })
+        self.tasks.spawn(|to_behaviour| async move {
+            to_behaviour
+                .send(FromTask::ToHandler(DiffusionBehaviourOut::NetworkAction(
+                    NetworkAction::EnablePeer {
+                        peer_id,
+                        handshakes: service.make_poly_handshake().await,
+                    },
+                )))
+                .await
+                .unwrap();
         })
     }
 
