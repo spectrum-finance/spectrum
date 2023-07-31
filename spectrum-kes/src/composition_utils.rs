@@ -8,9 +8,10 @@ use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
 
 use spectrum_crypto::digest::Digest;
+use spectrum_vrf::utils::key_pair_gen;
 
 use crate::KESSignature;
-use crate::utils::{double_the_seed, key_pair_gen, merge_public_keys};
+use crate::utils::{double_the_seed, merge_public_keys};
 
 #[derive(Debug)]
 pub struct Error;

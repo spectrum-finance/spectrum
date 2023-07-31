@@ -6,10 +6,10 @@ mod test {
     use sha2::Sha256;
 
     use spectrum_crypto::digest::{Blake2b as B2b, blake2b256_hash, Digest, Sha2, sha256_hash};
+    use spectrum_vrf::utils::key_pair_gen;
 
     use crate::{kes_gen, kes_sign, kes_update, kes_verify};
     use crate::composition_utils::calculate_scheme_pk_from_signature;
-    use crate::utils::key_pair_gen;
 
     #[test]
     fn kes_gen_test() {

@@ -5,7 +5,7 @@ use std::fmt::Formatter;
 use std::marker::PhantomData;
 
 use rand::{thread_rng, RngCore};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use thiserror::Error;
 

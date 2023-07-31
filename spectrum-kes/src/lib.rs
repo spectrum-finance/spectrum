@@ -11,11 +11,12 @@ use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
 
 use spectrum_crypto::digest::Digest;
+use spectrum_vrf::utils::{key_pair_gen, hash_bytes, projective_point_to_bytes};
 
 use crate::composition_utils::{
     calculate_scheme_pk_from_signature, get_left_merkle_tree_branch, insert_in_vec, sum_composition_pk_gen,
 };
-use crate::utils::{concat, hash_bytes, key_pair_gen, merge_public_keys, projective_point_to_bytes};
+use crate::utils::{concat, merge_public_keys};
 
 mod composition_utils;
 mod tests;
