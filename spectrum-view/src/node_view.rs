@@ -7,7 +7,7 @@ use futures::{SinkExt, Stream, StreamExt};
 use spectrum_ledger::Modifier;
 
 use crate::history::{InvalidBlockSection, LedgerHistory};
-use crate::state::{CellPool, LedgerStateWrite};
+use crate::state::{Cells, LedgerStateWrite};
 
 #[derive(Clone, Debug)]
 pub enum NodeViewIn {
@@ -34,7 +34,7 @@ pub struct NodeView<TState, THistory, TMempool, TErrh> {
 
 impl<TState, THistory, TMempool, TErrh> NodeView<TState, THistory, TMempool, TErrh>
 where
-    TState: CellPool + LedgerStateWrite,
+    TState: Cells + LedgerStateWrite,
     THistory: LedgerHistory,
     TErrh: ErrorHandler,
 {
@@ -71,7 +71,7 @@ where
 
 impl<TState, THistory, TMempool, TErrh> Stream for NodeView<TState, THistory, TMempool, TErrh>
 where
-    TState: CellPool + LedgerStateWrite + Unpin,
+    TState: Cells + LedgerStateWrite + Unpin,
     THistory: LedgerHistory + Unpin,
     TMempool: Unpin,
     TErrh: ErrorHandler + Unpin,

@@ -1,10 +1,8 @@
-use nonempty::NonEmpty;
-
 use spectrum_ledger::block::BlockBody;
-use spectrum_ledger::cell::{AnyCell, Cell, CellMeta, CellPtr, DatumRef, ScriptRef};
-use spectrum_ledger::interop::Point;
-use spectrum_ledger::transaction::Transaction;
+use spectrum_ledger::cell::{AnyCell, CellMeta, CellPtr, DatumRef, NativeCoin, ScriptRef};
 use spectrum_ledger::ChainId;
+use spectrum_ledger::consensus::{DomainVKey, KESVKey, StakePoolId};
+use spectrum_ledger::interop::Point;
 use spectrum_move::{SerializedModule, SerializedValue};
 
 pub mod eval;
@@ -22,8 +20,8 @@ pub trait LedgerStateWrite {
     fn apply_block(&self, blk: &BlockBody) -> Result<(), LedgerStateError>;
 }
 
-/// Sync API to cell pool.
-pub trait CellPool {
+/// Pool of cells.
+pub trait Cells {
     /// Get cell by pointer.
     fn get(&self, ptr: CellPtr) -> Option<CellMeta<AnyCell>>;
     /// Get progress of the given chain.
@@ -32,4 +30,16 @@ pub trait CellPool {
     fn get_ref_script(&self, script_ref: ScriptRef) -> Option<SerializedModule>;
     /// Get reference datum.
     fn get_ref_datum(&self, datum_ref: DatumRef) -> Option<SerializedValue>;
+}
+
+/// Registered validator credentials.
+pub trait ValidatorCredentials {
+    /// Query validator credentials by his public VRF key.
+    fn get(&self, pool_id: StakePoolId) -> Option<(KESVKey, Vec<(ChainId, DomainVKey)>)>;
+}
+
+/// Stake distribution.
+pub trait StakeDistribution {
+    /// Query current stake managed by the given pool.
+    fn get(&self, pool_id: StakePoolId) -> NativeCoin;
 }
