@@ -1,10 +1,10 @@
 use std::fmt::{Debug, Formatter};
 
-use elliptic_curve::sec1::ToEncodedPoint;
 use elliptic_curve::{Error, ScalarPrimitive};
+use elliptic_curve::sec1::ToEncodedPoint;
+use k256::{EncodedPoint, ProjectivePoint, Secp256k1};
 use k256::elliptic_curve::group::GroupEncoding;
 use k256::elliptic_curve::sec1::FromEncodedPoint;
-use k256::{EncodedPoint, ProjectivePoint, Secp256k1};
 
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::pubkey::PublicKey;
@@ -24,7 +24,7 @@ pub struct VRFVKey(PublicKey);
 
 impl SystemDigest for VRFVKey {
     fn digest(&self) -> Blake2bDigest256 {
-        blake2b256_hash(k256::PublicKey::from(vk.0).to_encoded_point(true).as_bytes())
+        blake2b256_hash(<&k256::PublicKey>::from(&self.0).to_encoded_point(true).as_bytes())
     }
 }
 
