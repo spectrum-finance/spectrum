@@ -2,31 +2,33 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::ops::Range;
 
+use ecdsa::signature::digest::{FixedOutput, HashMarker, Update};
+use elliptic_curve::{CurveArithmetic, PrimeCurve, PublicKey, SecretKey};
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
-use elliptic_curve::{CurveArithmetic, PrimeCurve, PublicKey, SecretKey};
 
-use spectrum_crypto::digest::Sha2Digest256;
+use spectrum_crypto::digest::Digest;
 
 use crate::KESSignature;
-use crate::utils::{double_seed, key_pair_gen, merge_public_keys};
+use crate::utils::{double_the_seed, key_pair_gen, merge_public_keys};
 
 #[derive(Debug)]
 pub struct Error;
 
-pub fn get_left_merkle_tree_branch<TCurve: CurveArithmetic>(
+pub fn get_left_merkle_tree_branch<const N: usize, H, Hs, TCurve: CurveArithmetic>(
     merkle_tree_high: &u32,
-    seed: &Sha2Digest256,
-) -> Result<(SecretKey<TCurve>, PublicKey<TCurve>, Vec<Sha2Digest256>), Error> {
+    seed: &Digest<N, H>,
+) -> Result<(SecretKey<TCurve>, PublicKey<TCurve>, Vec<Digest<N, H>>), Error>
+    where Hs: Default, Hs: FixedOutput, Hs: HashMarker, Hs: Update {
     let mut branch_seeds = Vec::new();
     let mut actual_seed = (*seed).clone();
     let mut h = (*merkle_tree_high).clone();
 
     loop {
-        let (seed_0, seed_1) = double_seed(&actual_seed);
+        let (seed_0, seed_1) = double_the_seed::<N, H, Hs>(&actual_seed);
         branch_seeds.push(seed_1.clone());
         if h == 1 {
-            let (sk, pk) = key_pair_gen::<TCurve>(&seed_0);
+            let (sk, pk) = key_pair_gen(&seed_0);
             return Ok((sk, pk, branch_seeds));
         } else {
             actual_seed = seed_0;
@@ -35,53 +37,56 @@ pub fn get_left_merkle_tree_branch<TCurve: CurveArithmetic>(
     }
 }
 
-pub fn sum_composition_pk_gen<TCurve: CurveArithmetic + PointCompression>(
+pub fn sum_composition_pk_gen<const N: usize, H, Hs, TCurve: CurveArithmetic + PointCompression>(
     merkle_tree_high: &u32,
-    seed: &Sha2Digest256,
+    seed: &Digest<N, H>,
 ) -> Result<PublicKey<TCurve>, Error>
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+    where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+        Hs: Default, Hs: FixedOutput, Hs: HashMarker, Hs: Update
 {
     if *merkle_tree_high == 0 {
-        return Ok(key_pair_gen::<TCurve>(seed).1);
+        return Ok(key_pair_gen::<N, H, TCurve>(seed).1);
     }
 
-    let (_, pk0, branch_seeds) = get_left_merkle_tree_branch::<TCurve>(merkle_tree_high, seed).unwrap();
+    let (_, pk0, branch_seeds) = get_left_merkle_tree_branch::<N, H, Hs, TCurve>(merkle_tree_high, seed).unwrap();
 
     let mut pk = pk0.clone();
     let mut high = 0;
 
     for seed in branch_seeds.iter().rev() {
         let pk_right = if high == 0 {
-            key_pair_gen::<TCurve>(&seed).1
+            key_pair_gen(&seed).1
         } else {
-            sum_composition_pk_gen::<TCurve>(&high, &seed).unwrap()
+            sum_composition_pk_gen::<N, H, Hs, TCurve>(&high, &seed).unwrap()
         };
         high += 1;
-        pk = merge_public_keys::<TCurve>(&pk, &pk_right);
+        pk = merge_public_keys::<N, H, Hs, TCurve>(&pk, &pk_right);
     }
     Ok(pk)
 }
 
-pub fn calculate_scheme_pk_from_signature<TCurve: CurveArithmetic + PrimeCurve + PointCompression>(
+pub fn calculate_scheme_pk_from_signature<const N: usize, H, Hs, TCurve: CurveArithmetic + PrimeCurve + PointCompression>(
     signature: &KESSignature<TCurve>,
     signing_period: &u32,
 ) -> PublicKey<TCurve>
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+    where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+        Hs: Default, Hs: FixedOutput, Hs: HashMarker, Hs: Update
+
 {
     let mut scheme_pk = (*signature).hot_pk;
     for i in (0..(*signature).other_pks.len()).rev() {
         let pk_ = (*signature).other_pks[i].clone();
         let right = (*signing_period & (1 << (*signature).other_pks.len() - i - 1)) != 0;
         if right {
-            scheme_pk = merge_public_keys::<TCurve>(&pk_, &scheme_pk);
+            scheme_pk = merge_public_keys::<N, H, Hs, TCurve>(&pk_, &scheme_pk);
         } else {
-            scheme_pk = merge_public_keys::<TCurve>(&scheme_pk, &pk_);
+            scheme_pk = merge_public_keys::<N, H, Hs, TCurve>(&scheme_pk, &pk_);
         }
     }
     scheme_pk
