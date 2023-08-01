@@ -1,141 +1,163 @@
 //! Digest types for various sizes
+use std::cmp::Ordering;
 use std::convert::TryFrom;
-use std::convert::TryInto;
 use std::fmt::Formatter;
-use std::marker::PhantomData;
+use std::hash::{Hash, Hasher};
 
-use rand::{thread_rng, RngCore};
+use blake2::Blake2b;
+use digest::{FixedOutput, HashMarker, OutputSizeUser, Update};
+use digest::consts::U32;
+use digest::generic_array::{ArrayLength, GenericArray};
+use digest::generic_array::sequence::GenericSequence;
+use digest::typenum::Unsigned;
+use rand::{RngCore, thread_rng};
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+use sha2::Sha256;
 use thiserror::Error;
 
-#[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd, Hash, Debug)]
-pub struct Blake2b;
+pub type Blake2b256 = Blake2b<U32>;
 
-#[derive(Eq, PartialEq, Copy, Clone, Ord, PartialOrd, Hash, Debug)]
-pub struct Sha2;
+pub type Blake2bDigest256 = Digest<Blake2b<U32>>;
 
-/// N-bytes array in a box. Usually a hash.`Digest32` is most type synonym.
-#[serde_as]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct Digest<const N: usize, H>(#[serde_as(as = "[_; N]")] [u8; N], #[serde(skip)] PhantomData<H>);
+pub type Sha2Digest256 = Digest<Sha256>;
 
-impl<const N: usize, H> Clone for Digest<N, H> {
-    fn clone(&self) -> Self {
-        *self
+#[repr(transparent)]
+#[derive(Serialize, Deserialize, derive_more::From)]
+pub struct Digest<HF: HashMarker + FixedOutput>(GenericArray<u8, HF::OutputSize>);
+
+impl<HF: HashMarker + FixedOutput> Hash for Digest<HF> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state)
     }
 }
 
-impl<const N: usize, H> Copy for Digest<N, H> {}
+impl<HF: HashMarker + FixedOutput> Ord for Digest<HF> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&other.0)
+    }
+}
 
-pub type Digest256<H> = Digest<32, H>;
+impl<HF: HashMarker + FixedOutput> PartialOrd for Digest<HF> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
 
-pub type Blake2bDigest256 = Digest<32, Blake2b>;
+impl<HF: HashMarker + FixedOutput> PartialEq for Digest<HF> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq(&other.0)
+    }
+}
 
-pub type Sha2Digest256 = Digest<32, Sha2>;
+impl<HF: HashMarker + FixedOutput> Eq for Digest<HF> {}
 
-impl<const N: usize, H> Digest<N, H> {
+impl<HF: HashMarker + FixedOutput> Clone for Digest<HF> {
+    fn clone(&self) -> Self {
+        Digest(self.0.clone())
+    }
+}
+
+impl<HF: HashMarker + FixedOutput> Copy for Digest<HF>
+where
+    HF::OutputSize: ArrayLength<u8>,
+    <HF::OutputSize as ArrayLength<u8>>::ArrayType: Copy,
+{
+}
+
+impl<HF: HashMarker + FixedOutput> Digest<HF> {
     /// Digest size 32 bytes
-    pub const SIZE: usize = N;
+    pub const SIZE: usize = HF::OutputSize::USIZE;
 
     /// All zeros
-    pub const fn zero() -> Digest<N, H> {
-        Digest([0u8; N], PhantomData)
+    pub fn zero() -> Self {
+        Digest(GenericArray::generate(|_| 0u8))
     }
 
-    pub fn from_base16(s: &str) -> Result<Digest<N, H>, DigestNError> {
+    pub fn from_base16(s: &str) -> Result<Self, DigestNError> {
         let bytes = base16::decode(s)?;
-        let arr: [u8; N] = bytes.as_slice().try_into()?;
-        Ok(Digest(arr, PhantomData))
+        match GenericArray::from_exact_iter(bytes) {
+            Some(arr) => Ok(Digest(arr)),
+            None => Err(DigestNError::InvalidSize()),
+        }
     }
+}
 
-    pub fn random() -> Digest<N, H> {
-        let mut bf = [0u8; N];
+impl<HF: HashMarker + FixedOutput<OutputSize = U32>> Digest<HF> {
+    pub fn random() -> Self {
+        let mut bf = [0u8; 32];
         thread_rng().fill_bytes(&mut bf);
-        Digest(bf, PhantomData)
+        Digest(bf.into())
     }
 }
 
-impl<const N: usize, H> std::fmt::Debug for Digest<N, H> {
+impl<HF: HashMarker + FixedOutput> std::fmt::Debug for Digest<HF> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         base16::encode_lower(&(self.0)).fmt(f)
     }
 }
 
-impl<const N: usize, H> std::fmt::Display for Digest<N, H> {
+impl<HF: HashMarker + FixedOutput> std::fmt::Display for Digest<HF> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         base16::encode_lower(&(self.0)).fmt(f)
     }
+}
+
+pub fn hash<H>(bytes: &[u8]) -> Digest<H>
+where
+    H: HashMarker + FixedOutput + Default + Update,
+{
+    use digest::Digest;
+    let mut hasher = H::new();
+    hasher.update(bytes);
+    crate::digest::Digest::from(hasher.finalize_fixed())
 }
 
 /// Blake2b256 hash (256 bit)
 pub fn blake2b256_hash(bytes: &[u8]) -> Blake2bDigest256 {
-    Digest(*crate::hash::blake2b256_hash(bytes), PhantomData::default())
+    hash(bytes)
 }
 
 /// Sha256 hash (256 bit)
 pub fn sha256_hash(bytes: &[u8]) -> Sha2Digest256 {
-    Digest(*crate::hash::sha256_hash(bytes), PhantomData::default())
+    hash(bytes)
 }
 
-impl<const N: usize, H> From<[u8; N]> for Digest<N, H> {
-    fn from(bytes: [u8; N]) -> Self {
-        Digest(bytes, PhantomData::default())
-    }
-}
-
-impl<const N: usize, H> From<Box<[u8; N]>> for Digest<N, H> {
-    fn from(bytes: Box<[u8; N]>) -> Self {
-        Digest(*bytes, PhantomData::default())
-    }
-}
-
-impl<const N: usize, H> From<Digest<N, H>> for Vec<u8> {
-    fn from(v: Digest<N, H>) -> Self {
+impl<HF: HashMarker + FixedOutput> From<Digest<HF>> for Vec<u8> {
+    fn from(v: Digest<HF>) -> Self {
         v.0.to_vec()
     }
 }
 
-impl<const N: usize, H> From<Digest<N, H>> for [u8; N] {
-    fn from(v: Digest<N, H>) -> Self {
-        v.0
-    }
-}
-
-impl<const N: usize, H> From<Digest<N, H>> for String {
-    fn from(v: Digest<N, H>) -> Self {
+impl<HF: HashMarker + FixedOutput> From<Digest<HF>> for String {
+    fn from(v: Digest<HF>) -> Self {
         base16::encode_lower(&v.0.as_ref())
     }
 }
 
-impl<const N: usize, H> TryFrom<String> for Digest<N, H> {
+impl<HF: HashMarker + FixedOutput> TryFrom<String> for Digest<HF> {
     type Error = DigestNError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let bytes = base16::decode(&value)?;
-        let arr: [u8; N] = bytes.as_slice().try_into()?;
-        Ok(Digest(arr, PhantomData::default()))
+        match GenericArray::from_exact_iter(bytes) {
+            Some(arr) => Ok(Digest(arr)),
+            None => Err(DigestNError::InvalidSize()),
+        }
     }
 }
 
-impl<const N: usize, H> TryFrom<Vec<u8>> for Digest<N, H> {
+impl<HF: HashMarker + FixedOutput> TryFrom<Vec<u8>> for Digest<HF> {
     type Error = DigestNError;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        let bytes: [u8; N] = value.as_slice().try_into()?;
-        Ok(Digest::from(bytes))
+        match GenericArray::from_exact_iter(value) {
+            Some(arr) => Ok(Digest(arr)),
+            None => Err(DigestNError::InvalidSize()),
+        }
     }
 }
 
-impl<const N: usize, H> TryFrom<&[u8]> for Digest<N, H> {
-    type Error = DigestNError;
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let bytes: [u8; N] = value.try_into()?;
-        Ok(Digest::from(bytes))
-    }
-}
-
-impl<const N: usize, H> AsRef<[u8]> for Digest<N, H> {
+impl<HF: HashMarker + FixedOutput> AsRef<[u8]> for Digest<HF> {
     fn as_ref(&self) -> &[u8] {
         &self.0[..]
     }
@@ -148,8 +170,8 @@ pub enum DigestNError {
     #[error("error decoding from Base16: {0}")]
     Base16DecodingError(#[from] base16::DecodeError),
     /// Invalid byte array size
-    #[error("Invalid byte array size ({0})")]
-    InvalidSize(#[from] std::array::TryFromSliceError),
+    #[error("Invalid byte array size")]
+    InvalidSize(),
 }
 
 /// Arbitrary
@@ -158,8 +180,8 @@ pub enum DigestNError {
 pub(crate) mod arbitrary {
     use std::convert::TryInto;
 
-    use proptest::prelude::{Arbitrary, BoxedStrategy};
     use proptest::{collection::vec, prelude::*};
+    use proptest::prelude::{Arbitrary, BoxedStrategy};
 
     use super::Digest;
 
@@ -183,5 +205,13 @@ mod tests {
     fn test_from_base16() {
         let s = "769a48bdb72d0f7bade76a120982b6d479fda6084c84d40957ae9f935f3b99ac";
         assert!(Blake2bDigest256::from_base16(s).is_ok());
+    }
+
+    #[test]
+    fn is_copy() {
+        let s = "769a48bdb72d0f7bade76a120982b6d479fda6084c84d40957ae9f935f3b99ac";
+        let hs = Blake2bDigest256::from_base16(s).unwrap();
+        let _hs2 = hs;
+        let _hs3 = hs;
     }
 }

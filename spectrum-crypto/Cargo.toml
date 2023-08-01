@@ -10,6 +10,8 @@ smallvec = "1.10.0"
 derive_more = "0.99.17"
 either = "1.8.1"
 base16 = "0.2.1"
+generic-array = { version = "0.14.7", features = ["serde"] }
+digest = "0.10.6"
 sha2 = "0.10.6"
 blake2 = "0.10.6"
 thiserror = "1.0.34"

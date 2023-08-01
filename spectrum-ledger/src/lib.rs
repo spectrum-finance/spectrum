@@ -8,7 +8,7 @@ use k256::{elliptic_curve, EncodedPoint, ProjectivePoint, Secp256k1};
 use serde::Serialize;
 
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
-use spectrum_vrf::vrf::ECVRFProof;
+use spectrum_vrf::ECVRFProof;
 
 use crate::block::{BlockBody, BlockHeader, BlockId};
 use crate::transaction::{Transaction, TxId};

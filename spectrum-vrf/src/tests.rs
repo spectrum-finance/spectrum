@@ -5,7 +5,7 @@ mod tests {
     use k256::Secp256k1;
     use sha2::Sha256;
 
-    use spectrum_crypto::digest::{Sha2, sha256_hash};
+    use spectrum_crypto::digest::{sha256_hash};
     use spectrum_crypto::digest::Sha2Digest256;
 
     use crate::{ECVRFProof, vrf_gen, vrf_prove, vrf_verify};

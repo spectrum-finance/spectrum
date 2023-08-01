@@ -31,6 +31,7 @@ ciborium = "0.2.1"
 smallvec = "1.10.0"
 derive_more = "0.99.17"
 either = { version = "1.8.1", features = ["serde"] }
+digest = "0.10.6"
 sha2 = "0.10.6"
 blake2 = "0.10.6"
 elliptic-curve = { version = "0.13.*", features = ["serde", "arithmetic"] }
