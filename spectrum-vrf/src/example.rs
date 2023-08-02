@@ -65,8 +65,8 @@ mod tests {
 
         //Verify the validity of the 'proof':
         let valid_proof =
-            vrf_verify::<32, Sha256, Secp256k1>(vrf_pk, m_hash.clone(),
-                                                proof).unwrap();
+            vrf_verify::<Sha256, Secp256k1>(vrf_pk, m_hash.clone(),
+                                            proof).unwrap();
         assert!(valid_proof);
     }
 }

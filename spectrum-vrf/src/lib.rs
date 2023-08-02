@@ -73,7 +73,7 @@ pub fn vrf_prove<HF, TCurve>(
     })
 }
 
-pub fn vrf_verify<const N: usize, HF, TCurve: CurveArithmetic + PointCompression>
+pub fn vrf_verify<HF, TCurve: CurveArithmetic + PointCompression>
 (
     pk: PublicKey<TCurve>,
     message_hash: Digest<HF>,
@@ -101,13 +101,9 @@ pub fn vrf_verify<const N: usize, HF, TCurve: CurveArithmetic + PointCompression
         hasher.update(&projective_point_to_bytes::<TCurve>(&u_point).as_slice());
         hasher.update(&projective_point_to_bytes::<TCurve>(&v_point).as_slice());
 
-        let mut local_c = [0u8; N];
-        let hres = hasher.finalize();
-        for i in 0..hres.len() {
-            local_c[i] = hres[i];
-        }
+        let h_res = hasher.finalize_fixed();
         let local_c_scalar: Scalar<TCurve> =
-            ScalarPrimitive::<TCurve>::from_bytes(GenericArray::from_slice(&local_c))
+            ScalarPrimitive::<TCurve>::from_bytes(GenericArray::from_slice(&h_res))
                 .unwrap()
                 .into();
         Ok(local_c_scalar == proof.c)

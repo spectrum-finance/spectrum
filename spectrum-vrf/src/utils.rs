@@ -1,5 +1,3 @@
-use std::convert::TryInto;
-
 use ecdsa::signature::digest::{FixedOutput, HashMarker};
 use elliptic_curve::{
     CurveArithmetic, NonZeroScalar, ProjectivePoint, PublicKey, Scalar, ScalarPrimitive, SecretKey,

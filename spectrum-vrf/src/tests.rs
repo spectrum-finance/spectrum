@@ -18,7 +18,7 @@ mod tests {
         let m_hash: Sha2Digest256 = sha256_hash("Test_tx".as_bytes());
 
         let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
-        let valid = vrf_verify::<32, Sha256, Secp256k1>(vrf_pk, m_hash.clone(), proof).unwrap();
+        let valid = vrf_verify::<Sha256, Secp256k1>(vrf_pk, m_hash.clone(), proof).unwrap();
 
         assert!(valid);
     }
@@ -31,7 +31,7 @@ mod tests {
         let m_hash: Sha2Digest256 = sha256_hash("Test_tx".as_bytes());
 
         let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
-        let valid = vrf_verify::<32, Sha256, Secp256k1>(pk_wrong, m_hash.clone(), proof).unwrap();
+        let valid = vrf_verify::<Sha256, Secp256k1>(pk_wrong, m_hash.clone(), proof).unwrap();
 
         assert!(!!!valid);
     }
@@ -44,7 +44,7 @@ mod tests {
         let m_hash: Sha2Digest256 = sha256_hash("Test_tx".as_bytes());
 
         let proof = vrf_prove::<Sha256, Secp256k1>(sk_wrong, m_hash).unwrap();
-        let valid = vrf_verify::<32, Sha256, Secp256k1>(vrf_pk, m_hash.clone(), proof).unwrap();
+        let valid = vrf_verify::<Sha256, Secp256k1>(vrf_pk, m_hash.clone(), proof).unwrap();
 
         assert!(!!!valid);
     }
@@ -57,7 +57,7 @@ mod tests {
         let m_hash_wrong: Sha2Digest256 = sha256_hash("Test_wrong_tx".as_bytes());
 
         let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
-        let valid = vrf_verify::<32, Sha256, Secp256k1>(vrf_pk, m_hash_wrong, proof).unwrap();
+        let valid = vrf_verify::<Sha256, Secp256k1>(vrf_pk, m_hash_wrong, proof).unwrap();
 
         assert!(!!!valid);
     }
@@ -89,9 +89,9 @@ mod tests {
             s: random_scalar,
         };
 
-        let valid_gamma = vrf_verify::<32, Sha256, Secp256k1>(vrf_pk, m_hash.clone(), proof_gamma_wrong).unwrap();
-        let valid_c = vrf_verify::<32, Sha256, Secp256k1>(vrf_pk.clone(), m_hash.clone(), proof_c_wrong).unwrap();
-        let valid_s = vrf_verify::<32, Sha256, Secp256k1>(vrf_pk.clone(), m_hash.clone(), proof_s_wrong).unwrap();
+        let valid_gamma = vrf_verify::<Sha256, Secp256k1>(vrf_pk, m_hash.clone(), proof_gamma_wrong).unwrap();
+        let valid_c = vrf_verify::<Sha256, Secp256k1>(vrf_pk.clone(), m_hash.clone(), proof_c_wrong).unwrap();
+        let valid_s = vrf_verify::<Sha256, Secp256k1>(vrf_pk.clone(), m_hash.clone(), proof_s_wrong).unwrap();
 
         assert!(!!!valid_gamma);
         assert!(!!!valid_c);
