@@ -15,27 +15,27 @@ use higher::Bifunctor;
 use k256::{Scalar, Secp256k1, SecretKey};
 use libp2p::{Multiaddr, PeerId};
 use tracing::{info, trace, trace_span};
+
 use spectrum_crypto::digest::Digest;
-
 use spectrum_crypto::pubkey::PublicKey;
-use spectrum_handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
 use spectrum_handel::{Handel, HandelConfig, HandelRound};
-use spectrum_mcast::behaviour::DagMulticastingConfig;
+use spectrum_handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
 use spectrum_mcast::behaviour::{DagMulticasting, Multicasting};
+use spectrum_mcast::behaviour::DagMulticastingConfig;
 use spectrum_mcast::overlay::{DagOverlay, MakeDagOverlay};
-use spectrum_network::protocol_handler::void::VoidMessage;
-use spectrum_network::protocol_handler::ProtocolBehaviourOut;
 use spectrum_network::protocol_handler::{ProtocolBehaviour, TemporalProtocolStage};
+use spectrum_network::protocol_handler::ProtocolBehaviourOut;
+use spectrum_network::protocol_handler::void::VoidMessage;
 
+use crate::{
+    AggregateCommitment, Commitment, CommitmentSecret, CommitmentsVerifInput, CommitmentsWithProofs,
+    Contributions, PreCommitments, Responses, ResponsesVerifInput, Signature,
+};
 use crate::crypto::{
     aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
     pre_commitment, response, schnorr_commitment_pair,
 };
 use crate::message::{SigmaAggrMessage, SigmaAggrMessageV1, SigmaAggrSpec};
-use crate::{
-    AggregateCommitment, Commitment, CommitmentSecret, CommitmentsVerifInput, CommitmentsWithProofs,
-    Contributions, PreCommitments, Responses, ResponsesVerifInput, Signature,
-};
 
 pub enum AggregationAction<H: HashMarker + FixedOutput> {
     /// Restart aggregation with new committee.
@@ -46,7 +46,7 @@ pub enum AggregationAction<H: HashMarker + FixedOutput> {
     },
 }
 
-struct AggregatePreCommitments<'a, H: HashMarker + FixedOutput, PP> {
+struct AggregatePreCommitments<'a, H: FixedOutput, PP> {
     /// `x_i`
     host_sk: SecretKey,
     /// Host's index in the Handel overlay.
@@ -163,7 +163,7 @@ impl<'a, H, PP> AggregatePreCommitments<'a, H, PP>
     }
 }
 
-struct BroadcastPreCommitments<H: HashMarker + FixedOutput, PP> {
+struct BroadcastPreCommitments<H: FixedOutput, PP> {
     /// `x_i`
     host_sk: SecretKey,
     /// Host's index in the Handel overlay.
@@ -222,7 +222,7 @@ impl<'a, H: HashMarker + FixedOutput, PP> BroadcastPreCommitments<H, PP>
     }
 }
 
-struct AggregateCommitments<'a, H: HashMarker + FixedOutput, PP> {
+struct AggregateCommitments<'a, H: FixedOutput, PP> {
     /// `x_i`
     host_sk: SecretKey,
     /// Host's index in the Handel overlay.
@@ -272,7 +272,7 @@ impl<'a, H: HashMarker + FixedOutput, PP> AggregateCommitments<'a, H, PP>
     }
 }
 
-struct BroadcastCommitments<H: HashMarker + FixedOutput, PP> {
+struct BroadcastCommitments<H: FixedOutput, PP> {
     /// `x_i`
     host_sk: SecretKey,
     /// Host's index in the Handel overlay.
@@ -351,7 +351,7 @@ impl<'a, H, PP> BroadcastCommitments<H, PP>
     }
 }
 
-struct AggregateResponses<'a, H: HashMarker + FixedOutput, PP> {
+struct AggregateResponses<'a, H: FixedOutput, PP> {
     message_digest: Digest<H>,
     aggr_commitment: AggregateCommitment,
     commitments_with_proofs: CommitmentsWithProofs,
@@ -381,14 +381,14 @@ impl<'a, H: HashMarker + FixedOutput, PP> AggregateResponses<'a, H, PP> {
 /// Result of an aggregation.
 #[derive(Debug, Eq, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(bound = "H: Debug")]
-pub struct AggregateCertificate<H: HashMarker + FixedOutput> {
+pub struct AggregateCertificate<H: FixedOutput> {
     pub message_digest: Digest<H>,
     pub aggregate_commitment: AggregateCommitment,
     pub aggregate_response: Scalar,
     pub exclusion_set: HashMap<Commitment, Signature>,
 }
 
-enum AggregationState<'a, H: HashMarker + FixedOutput, PP> {
+enum AggregationState<'a, H: FixedOutput, PP> {
     AggregatePreCommitments(AggregatePreCommitments<'a, H, PP>),
     BroadcastPreCommitments(BroadcastPreCommitments<H, PP>),
     AggregateCommitments(AggregateCommitments<'a, H, PP>),

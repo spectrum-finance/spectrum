@@ -23,48 +23,48 @@ pub type Sha2Digest256 = Digest<Sha256>;
 
 #[repr(transparent)]
 #[derive(Serialize, Deserialize, derive_more::From)]
-pub struct Digest<HF: HashMarker + FixedOutput>(GenericArray<u8, HF::OutputSize>);
+pub struct Digest<HF: FixedOutput>(GenericArray<u8, HF::OutputSize>);
 
-impl<HF: HashMarker + FixedOutput> Hash for Digest<HF> {
+impl<HF: FixedOutput> Hash for Digest<HF> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash(state)
     }
 }
 
-impl<HF: HashMarker + FixedOutput> Ord for Digest<HF> {
+impl<HF: FixedOutput> Ord for Digest<HF> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.0.cmp(&other.0)
     }
 }
 
-impl<HF: HashMarker + FixedOutput> PartialOrd for Digest<HF> {
+impl<HF: FixedOutput> PartialOrd for Digest<HF> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.0.partial_cmp(&other.0)
     }
 }
 
-impl<HF: HashMarker + FixedOutput> PartialEq for Digest<HF> {
+impl<HF: FixedOutput> PartialEq for Digest<HF> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
     }
 }
 
-impl<HF: HashMarker + FixedOutput> Eq for Digest<HF> {}
+impl<HF: FixedOutput> Eq for Digest<HF> {}
 
-impl<HF: HashMarker + FixedOutput> Clone for Digest<HF> {
+impl<HF: FixedOutput> Clone for Digest<HF> {
     fn clone(&self) -> Self {
         Digest(self.0.clone())
     }
 }
 
-impl<HF: HashMarker + FixedOutput> Copy for Digest<HF>
+impl<HF: FixedOutput> Copy for Digest<HF>
 where
     HF::OutputSize: ArrayLength<u8>,
     <HF::OutputSize as ArrayLength<u8>>::ArrayType: Copy,
 {
 }
 
-impl<HF: HashMarker + FixedOutput> Digest<HF> {
+impl<HF: FixedOutput> Digest<HF> {
     /// Digest size 32 bytes
     pub const SIZE: usize = HF::OutputSize::USIZE;
 
@@ -82,7 +82,7 @@ impl<HF: HashMarker + FixedOutput> Digest<HF> {
     }
 }
 
-impl<HF: HashMarker + FixedOutput<OutputSize = U32>> Digest<HF> {
+impl<HF: FixedOutput<OutputSize = U32>> Digest<HF> {
     pub fn random() -> Self {
         let mut bf = [0u8; 32];
         thread_rng().fill_bytes(&mut bf);
@@ -90,13 +90,13 @@ impl<HF: HashMarker + FixedOutput<OutputSize = U32>> Digest<HF> {
     }
 }
 
-impl<HF: HashMarker + FixedOutput> std::fmt::Debug for Digest<HF> {
+impl<HF: FixedOutput> std::fmt::Debug for Digest<HF> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         base16::encode_lower(&(self.0)).fmt(f)
     }
 }
 
-impl<HF: HashMarker + FixedOutput> std::fmt::Display for Digest<HF> {
+impl<HF: FixedOutput> std::fmt::Display for Digest<HF> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         base16::encode_lower(&(self.0)).fmt(f)
     }
@@ -122,19 +122,19 @@ pub fn sha256_hash(bytes: &[u8]) -> Sha2Digest256 {
     hash(bytes)
 }
 
-impl<HF: HashMarker + FixedOutput> From<Digest<HF>> for Vec<u8> {
+impl<HF: FixedOutput> From<Digest<HF>> for Vec<u8> {
     fn from(v: Digest<HF>) -> Self {
         v.0.to_vec()
     }
 }
 
-impl<HF: HashMarker + FixedOutput> From<Digest<HF>> for String {
+impl<HF: FixedOutput> From<Digest<HF>> for String {
     fn from(v: Digest<HF>) -> Self {
         base16::encode_lower(&v.0.as_ref())
     }
 }
 
-impl<HF: HashMarker + FixedOutput> TryFrom<String> for Digest<HF> {
+impl<HF: FixedOutput> TryFrom<String> for Digest<HF> {
     type Error = DigestNError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -146,7 +146,7 @@ impl<HF: HashMarker + FixedOutput> TryFrom<String> for Digest<HF> {
     }
 }
 
-impl<HF: HashMarker + FixedOutput> TryFrom<Vec<u8>> for Digest<HF> {
+impl<HF: FixedOutput> TryFrom<Vec<u8>> for Digest<HF> {
     type Error = DigestNError;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
@@ -157,7 +157,7 @@ impl<HF: HashMarker + FixedOutput> TryFrom<Vec<u8>> for Digest<HF> {
     }
 }
 
-impl<HF: HashMarker + FixedOutput> AsRef<[u8]> for Digest<HF> {
+impl<HF: FixedOutput> AsRef<[u8]> for Digest<HF> {
     fn as_ref(&self) -> &[u8] {
         &self.0[..]
     }
