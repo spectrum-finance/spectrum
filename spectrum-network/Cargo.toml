@@ -2,7 +2,7 @@
 name = "spectrum-network"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.65.0"
+rust-version = "1.71.0"
 
 [features]
 test_peer_punish_too_slow = []

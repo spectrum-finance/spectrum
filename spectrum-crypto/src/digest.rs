@@ -64,14 +64,15 @@ where
 {
 }
 
-impl<HF: FixedOutput> Digest<HF> {
-    /// Digest size 32 bytes
-    pub const SIZE: usize = HF::OutputSize::USIZE;
-
-    /// All zeros
-    pub fn zero() -> Self {
-        Digest(GenericArray::generate(|_| 0u8))
+impl<HF: FixedOutput<OutputSize=U32>> Digest<HF> {
+    pub const fn zero() -> Self {
+        let bytes = [0u8;32];
+        Digest(unsafe { *(bytes.as_ptr() as *const GenericArray<u8, U32>) })
     }
+}
+
+impl<HF: FixedOutput> Digest<HF> {
+    pub const SIZE: usize = HF::OutputSize::USIZE;
 
     pub fn from_base16(s: &str) -> Result<Self, DigestNError> {
         let bytes = base16::decode(s)?;

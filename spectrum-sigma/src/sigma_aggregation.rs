@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use derivative::Derivative;
 
 use digest::{FixedOutput, HashMarker, OutputSizeUser};
 use digest::generic_array::ArrayLength;
@@ -379,7 +380,8 @@ impl<'a, H: HashMarker + FixedOutput, PP> AggregateResponses<'a, H, PP> {
 }
 
 /// Result of an aggregation.
-#[derive(Debug, Eq, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Derivative, Clone, serde::Serialize, serde::Deserialize)]
+#[derivative(Eq(bound="H: FixedOutput"), PartialEq(bound="H: FixedOutput"))]
 #[serde(bound = "H: Debug")]
 pub struct AggregateCertificate<H: FixedOutput> {
     pub message_digest: Digest<H>,

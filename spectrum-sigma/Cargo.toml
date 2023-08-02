@@ -2,7 +2,7 @@
 name = "spectrum-sigma"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.65.0"
+rust-version = "1.71.0"
 
 [dependencies]
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
@@ -33,3 +33,4 @@ console-subscriber = "0.1.10"
 tracing = "0.1.37"
 tracing-subscriber = "0.3"
 async-trait = "0.1.68"
+derivative = "2.2.0"
