@@ -16,19 +16,19 @@ use crate::utils::{double_the_seed, merge_public_keys};
 #[derive(Debug)]
 pub struct Error;
 
-pub fn get_left_merkle_tree_branch<Hs, TCurve: CurveArithmetic>(
+pub fn get_left_merkle_tree_branch<HF, TCurve: CurveArithmetic>(
     merkle_tree_high: &u32,
-    seed: &Digest<Hs>,
-) -> Result<(SecretKey<TCurve>, PublicKey<TCurve>, Vec<Digest<Hs>>), Error>
+    seed: &Digest<HF>,
+) -> Result<(SecretKey<TCurve>, PublicKey<TCurve>, Vec<Digest<HF>>), Error>
     where
-        Hs: Default + FixedOutput + HashMarker + Update,
+        HF: Default + FixedOutput + HashMarker + Update,
 {
     let mut branch_seeds = Vec::new();
     let mut actual_seed = (*seed).clone();
     let mut h = (*merkle_tree_high).clone();
 
     loop {
-        let (seed_0, seed_1) = double_the_seed::<Hs>(&actual_seed);
+        let (seed_0, seed_1) = double_the_seed::<HF>(&actual_seed);
         branch_seeds.push(seed_1.clone());
         if h == 1 {
             let (sk, pk) = key_pair_gen(&seed_0);

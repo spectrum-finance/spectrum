@@ -7,7 +7,6 @@ use elliptic_curve::{
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::rand_core::OsRng;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
-use type_equals::TypeEquals;
 
 use spectrum_crypto::digest::Digest;
 
