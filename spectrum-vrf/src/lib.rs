@@ -4,7 +4,6 @@ use ecdsa::signature::digest::{Digest as DigestHash, FixedOutput, HashMarker, Up
 use elliptic_curve::{
     CurveArithmetic, Group, NonZeroScalar, ProjectivePoint, PublicKey, Scalar, ScalarPrimitive, SecretKey,
 };
-use elliptic_curve::generic_array::GenericArray;
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::rand_core::OsRng;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
@@ -42,9 +41,9 @@ pub fn vrf_prove<HF, TCurve>(
     where
         TCurve: CurveArithmetic + PointCompression,
         <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize + TypeEquals<Other=HF::OutputSize>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
         <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
-        HF: Default + FixedOutput + HashMarker + Update
+        HF: Default + FixedOutput<OutputSize = TCurve::FieldBytesSize> + HashMarker + Update
 {
     let base_point = ProjectivePoint::<TCurve>::generator();
 
@@ -61,8 +60,8 @@ pub fn vrf_prove<HF, TCurve>(
     hasher.update(&projective_point_to_bytes::<TCurve>(&(message_point * sk_scalar)).as_slice());
     hasher.update(&projective_point_to_bytes::<TCurve>(&(base_point * random_scalar)).as_slice());
     hasher.update(&projective_point_to_bytes::<TCurve>(&(message_point * random_scalar)).as_slice());
-    let arr = hasher.finalize_fixed();
-    let c_scalar: Scalar<TCurve> = ScalarPrimitive::<TCurve>::from_slice(arr.as_ref())
+    let scalar_bytes = hasher.finalize_fixed();
+    let c_scalar: Scalar<TCurve> = ScalarPrimitive::from_bytes(&scalar_bytes)
         .unwrap()
         .into();
     let s_scalar: Scalar<TCurve> = random_scalar - c_scalar * sk_scalar;
@@ -83,7 +82,7 @@ pub fn vrf_verify<HF, TCurve: CurveArithmetic + PointCompression>
         <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
         <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
         <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-        HF: Default + FixedOutput + HashMarker + Update {
+        HF: Default + FixedOutput<OutputSize = TCurve::FieldBytesSize> + HashMarker + Update {
     {
         let base_point = ProjectivePoint::<TCurve>::generator();
 
@@ -101,9 +100,9 @@ pub fn vrf_verify<HF, TCurve: CurveArithmetic + PointCompression>
         hasher.update(&projective_point_to_bytes::<TCurve>(&u_point).as_slice());
         hasher.update(&projective_point_to_bytes::<TCurve>(&v_point).as_slice());
 
-        let h_res = hasher.finalize_fixed();
+        let scalar_bytes = hasher.finalize_fixed();
         let local_c_scalar: Scalar<TCurve> =
-            ScalarPrimitive::<TCurve>::from_bytes(GenericArray::from_slice(&h_res))
+            ScalarPrimitive::from_bytes(&scalar_bytes)
                 .unwrap()
                 .into();
         Ok(local_c_scalar == proof.c)
