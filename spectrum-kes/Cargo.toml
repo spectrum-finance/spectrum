@@ -2,11 +2,13 @@
 name = "spectrum-kes"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.65.0"
+rust-version = "1.71.0"
 
 [dependencies]
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
+spectrum-vrf = { version = "0.1.0", path = "../spectrum-vrf" }
 blake2 = "0.10.6"
+sha2 = "0.10.6"
 ecdsa = "0.16.7"
 elliptic-curve = { version = "0.13.*", features = ["serde", "arithmetic"] }
 k256 = { version = "0.13.*", features = ["serde"] }

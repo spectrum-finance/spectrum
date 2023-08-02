@@ -2,7 +2,7 @@
 name = "spectrum-handel"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.65.0"
+rust-version = "1.71.0"
 
 [dependencies]
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
@@ -13,6 +13,7 @@ smallvec = "1.10.0"
 derive_more = "0.99.17"
 either = "1.8.1"
 base16 = "0.2.1"
+digest = "0.10.6"
 sha2 = "0.10.6"
 blake2 = "0.10.6"
 thiserror = "1.0.34"

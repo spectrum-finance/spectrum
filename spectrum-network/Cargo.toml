@@ -2,7 +2,7 @@
 name = "spectrum-network"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.65.0"
+rust-version = "1.71.0"
 
 [features]
 test_peer_punish_too_slow = []
@@ -30,6 +30,7 @@ ciborium = "0.2.1"
 smallvec = "1.10.0"
 derive_more = "0.99.17"
 either = { version = "1.8.1", features = ["serde"] }
+digest = "0.10.6"
 sha2 = "0.10.6"
 blake2 = "0.10.6"
 elliptic-curve = { version = "0.13.*", features = ["serde", "arithmetic"] }

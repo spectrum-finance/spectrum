@@ -1,22 +1,22 @@
-extern crate core;
-
 use std::ops::Add;
 
 use const_oid::AssociatedOid;
+use ecdsa::{Signature, SignatureSize, SigningKey, VerifyingKey};
 use ecdsa::hazmat::SignPrimitive;
 use ecdsa::signature::{Signer, SignerMut, Verifier};
-use ecdsa::{Signature, SignatureSize, SigningKey, VerifyingKey};
+use ecdsa::signature::digest::{FixedOutput, HashMarker, Update};
+use elliptic_curve::{AffinePoint, CurveArithmetic, FieldBytesSize, PublicKey, SecretKey};
 use elliptic_curve::generic_array::ArrayLength;
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
-use elliptic_curve::{AffinePoint, CurveArithmetic, FieldBytesSize, PublicKey, SecretKey};
 
-use spectrum_crypto::digest::{sha256_hash, Sha2Digest256, Digest};
+use spectrum_crypto::digest::{Digest, hash};
+use spectrum_vrf::utils::{key_pair_gen, projective_point_to_bytes};
 
 use crate::composition_utils::{
     calculate_scheme_pk_from_signature, get_left_merkle_tree_branch, insert_in_vec, sum_composition_pk_gen,
 };
-use crate::utils::{concat, key_pair_gen, merge_public_keys, projective_point_to_bytes};
+use crate::utils::{concat, merge_public_keys};
 
 mod composition_utils;
 mod tests;
@@ -26,18 +26,18 @@ mod utils;
 pub struct Error;
 
 #[derive(Debug)]
-pub struct KESSecret<TCurve: CurveArithmetic> {
+pub struct KESSecret<HF: HashMarker + FixedOutput, TCurve: CurveArithmetic> {
     initial_merkle_tree_high: u32,
     n_hot_sk_updates: u32,
     hot_sk: SecretKey<TCurve>,
     hot_pk: PublicKey<TCurve>,
-    merkle_seeds: Vec<Sha2Digest256>,
+    merkle_seeds: Vec<Digest<HF>>,
     merkle_public_keys: Vec<(PublicKey<TCurve>, PublicKey<TCurve>)>,
 }
 
 #[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(
-    bound = "TCurve: CurveArithmetic + ecdsa::PrimeCurve + AssociatedOid, SignatureSize<TCurve>: ArrayLength<u8>, AffinePoint<TCurve>: FromEncodedPoint<TCurve> + ToEncodedPoint<TCurve>, FieldBytesSize<TCurve>: ModulusSize"
+bound = "TCurve: CurveArithmetic + ecdsa::PrimeCurve + AssociatedOid, SignatureSize<TCurve>: ArrayLength<u8>, AffinePoint<TCurve>: FromEncodedPoint<TCurve> + ToEncodedPoint<TCurve>, FieldBytesSize<TCurve>: ModulusSize"
 )]
 pub struct KESSignature<TCurve: CurveArithmetic + ecdsa::PrimeCurve> {
     pub sig: Signature<TCurve>,
@@ -45,23 +45,24 @@ pub struct KESSignature<TCurve: CurveArithmetic + ecdsa::PrimeCurve> {
     pub other_pks: Vec<PublicKey<TCurve>>,
 }
 
-pub fn kes_gen<TCurve: CurveArithmetic + PointCompression>(
+pub fn kes_gen<HF, TCurve: CurveArithmetic + PointCompression>(
     merkle_tree_high: &u32,
-    seed: &Sha2Digest256,
-) -> Result<(KESSecret<TCurve>, PublicKey<TCurve>), Error>
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+    seed: &Digest<HF>,
+) -> Result<(KESSecret<HF, TCurve>, PublicKey<TCurve>), Error>
+    where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+        HF: Default + FixedOutput + HashMarker + Update,
 {
     let (sk_actual, pk_actual, pk_all_scheme, merkle_seeds, merkle_public_keys) = {
         if *merkle_tree_high == 0 {
-            let (sk_, pk_) = key_pair_gen::<TCurve>(seed);
+            let (sk_, pk_) = key_pair_gen::<HF, TCurve>(seed);
             (sk_, pk_, pk_.clone(), vec![], vec![])
         } else {
             // Generate all keys for the left branch and save seeds from the right branch
             let (sk_0, pk_0, merkle_seeds_) =
-                get_left_merkle_tree_branch::<TCurve>(merkle_tree_high, seed).unwrap();
+                get_left_merkle_tree_branch::<HF, TCurve>(merkle_tree_high, seed).unwrap();
 
             // Aggregate main Merkle tree Public Key and Public Keys of the related leafs
             let mut pk_all_scheme_ = pk_0.clone();
@@ -71,13 +72,13 @@ where
             for i in (0..merkle_seeds_.len()).rev() {
                 let seed = merkle_seeds_[i].clone();
                 let pk_right = if *merkle_tree_high == 0 {
-                    key_pair_gen::<TCurve>(&seed).1
+                    key_pair_gen::<HF, TCurve>(&seed).1
                 } else {
-                    sum_composition_pk_gen::<TCurve>(&high, &seed).unwrap()
+                    sum_composition_pk_gen::<HF, TCurve>(&high, &seed).unwrap()
                 };
                 high += 1;
                 merkle_public_keys_.push((pk_all_scheme_, pk_right));
-                pk_all_scheme_ = merge_public_keys::<TCurve>(&pk_all_scheme_, &pk_right);
+                pk_all_scheme_ = merge_public_keys::<HF, TCurve>(&pk_all_scheme_, &pk_right);
             }
             merkle_public_keys_.reverse();
             (sk_0, pk_0, pk_all_scheme_, merkle_seeds_, merkle_public_keys_)
@@ -98,13 +99,14 @@ where
     Ok((sk_sum, pk_all_scheme))
 }
 
-pub fn kes_update<TCurve: CurveArithmetic + PointCompression>(
-    secret: KESSecret<TCurve>,
-) -> Result<KESSecret<TCurve>, Error>
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+pub fn kes_update<HF, TCurve: CurveArithmetic + PointCompression>(
+    secret: KESSecret<HF, TCurve>,
+) -> Result<KESSecret<HF, TCurve>, Error>
+    where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+        HF: Default + FixedOutput + HashMarker + Update + 'static,
 {
     let last_seed_ind = secret.merkle_seeds.len() - 1;
 
@@ -128,12 +130,12 @@ where
                     0..secret.initial_merkle_tree_high as usize,
                 );
             }
-            key_pair_gen::<TCurve>(&secret.merkle_seeds[last_seed_ind])
+            key_pair_gen::<HF, TCurve>(&secret.merkle_seeds[last_seed_ind])
         } else {
             let seed = secret.merkle_seeds[last_seed_ind].clone();
 
             // Get the child branch
-            let (secret_child, pk_child) = kes_gen::<TCurve>(&(anc_num - 1), &seed).unwrap();
+            let (secret_child, pk_child) = kes_gen::<HF, TCurve>(&(anc_num - 1), &seed).unwrap();
 
             if secret.merkle_public_keys.len() > 1 {
                 let ind = (secret.initial_merkle_tree_high as i32 - anc_num as i32) as usize;
@@ -173,7 +175,7 @@ where
         }
     };
 
-    Ok(KESSecret::<TCurve> {
+    Ok(KESSecret {
         initial_merkle_tree_high: secret.initial_merkle_tree_high.clone(),
         n_hot_sk_updates: secret.n_hot_sk_updates.clone() + 1,
         hot_sk: sk_new,
@@ -183,17 +185,18 @@ where
     })
 }
 
-pub fn kes_sign<const N: usize, H, TCurve>(
-    message: &Digest<N, H>,
-    secret: &KESSecret<TCurve>,
+pub fn kes_sign<HF, TCurve>(
+    message: &Digest<HF>,
+    secret: &KESSecret<HF, TCurve>,
     current_slot: &u32,
 ) -> Result<KESSignature<TCurve>, Error>
-where
-    TCurve: CurveArithmetic + elliptic_curve::PrimeCurve,
-    <TCurve as CurveArithmetic>::Scalar: SignPrimitive<TCurve>,
-    <<TCurve as elliptic_curve::Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
-    SigningKey<TCurve>: Signer<Signature<TCurve>>,
-    SigningKey<TCurve>: SignerMut<Signature<TCurve>>,
+    where
+        HF: HashMarker + FixedOutput,
+        TCurve: CurveArithmetic + elliptic_curve::PrimeCurve,
+        <TCurve as CurveArithmetic>::Scalar: SignPrimitive<TCurve>,
+        <<TCurve as elliptic_curve::Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
+        SigningKey<TCurve>: Signer<Signature<TCurve>>,
+        SigningKey<TCurve>: SignerMut<Signature<TCurve>>,
 {
     // Sign the message with an actual Secret Key (message is associated with slot)
     let signing_key = SigningKey::from(&secret.hot_sk);
@@ -205,7 +208,7 @@ where
     // Aggregate the corresponding leafs' Public Key
     for i in 0..secret.merkle_public_keys.len() {
         let leaf_high = secret.initial_merkle_tree_high.clone() - i as u32;
-        let actual_high = (2u32).pow((leaf_high - 1));
+        let actual_high = (2u32).pow(leaf_high - 1);
         if h >= actual_high {
             h -= actual_high;
             leaf_related_public_keys.push(secret.merkle_public_keys[i].0.clone());
@@ -221,32 +224,33 @@ where
     })
 }
 
-pub fn kes_verify<const N: usize, H, TCurve: CurveArithmetic + ecdsa::PrimeCurve + PointCompression>(
+pub fn kes_verify<HF, TCurve: CurveArithmetic + ecdsa::PrimeCurve + PointCompression>(
     signature: &KESSignature<TCurve>,
-    message: &Digest<N, H>,
+    message: &Digest<HF>,
     all_scheme_pk: &PublicKey<TCurve>,
     signing_slot: &u32,
 ) -> Result<bool, Error>
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
-    VerifyingKey<TCurve>: Verifier<Signature<TCurve>>,
+    where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+        VerifyingKey<TCurve>: Verifier<Signature<TCurve>>,
+        HF: Default,
+        HF: FixedOutput,
+        HF: HashMarker,
+        HF: Update,
 {
     // Verify message
     let ver_key: VerifyingKey<TCurve> = VerifyingKey::from(signature.hot_pk.clone());
     let message_is_verified = ver_key
-        .verify(
-            &concat(&signing_slot, &message),
-            &signature.sig,
-        )
+        .verify(&concat(&signing_slot, &message), &signature.sig)
         .is_ok();
 
     // Verify scheme Public Key
-    let sig_scheme_pk = calculate_scheme_pk_from_signature(signature, signing_slot);
+    let sig_scheme_pk = calculate_scheme_pk_from_signature::<HF, TCurve>(signature, signing_slot);
     let pk_is_verified =
-        sha256_hash(&projective_point_to_bytes::<TCurve>(&sig_scheme_pk.to_projective()).as_slice())
-            == sha256_hash(&projective_point_to_bytes::<TCurve>(&all_scheme_pk.to_projective()).as_slice());
+        hash::<HF>(&projective_point_to_bytes::<TCurve>(&sig_scheme_pk.to_projective()).as_slice()).as_ref()
+            == hash::<HF>(&projective_point_to_bytes::<TCurve>(&all_scheme_pk.to_projective()).as_slice()).as_ref();
 
     Ok(message_is_verified && pk_is_verified)
 }

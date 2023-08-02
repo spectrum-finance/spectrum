@@ -8,7 +8,7 @@ use k256::elliptic_curve::sec1::FromEncodedPoint;
 
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::pubkey::PublicKey;
-use spectrum_vrf::vrf::ECVRFProof;
+use spectrum_vrf::ECVRFProof;
 
 use crate::SystemDigest;
 

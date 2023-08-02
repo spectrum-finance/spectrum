@@ -1,38 +1,42 @@
 use bigint::{U256, U512};
+use ecdsa::signature::digest::{FixedOutput, HashMarker, Update};
+use elliptic_curve::{CurveArithmetic, FieldBytes};
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
-use elliptic_curve::{CurveArithmetic, FieldBytes};
 
-use spectrum_crypto::digest::blake2b256_hash;
+use spectrum_crypto::digest::hash;
 
+use crate::ECVRFProof;
 use crate::utils::projective_point_to_bytes;
-use crate::vrf::ECVRFProof;
 
-pub fn proof_to_random_number<TCurve: CurveArithmetic + PointCompression>(
+pub fn proof_to_random_number<HF, TCurve>(
     proof: &ECVRFProof<TCurve>,
+    constant_bytes: Vec<u8>,
     vrf_range: u32,
 ) -> U256
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+    where
+        TCurve: CurveArithmetic + PointCompression,
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+        HF: Default + FixedOutput + HashMarker + Update,
+
 {
     let c_fb: FieldBytes<TCurve> = proof.c.into();
     let s_fb: FieldBytes<TCurve> = proof.s.into();
 
-    let proof_bytes = [
-        projective_point_to_bytes::<TCurve>(proof.gamma),
+    let random_bytes = [
+        constant_bytes,
+        projective_point_to_bytes::<TCurve>(&proof.gamma),
         c_fb.to_vec(),
         s_fb.to_vec(),
     ]
-    .concat();
-    let proof_hash = blake2b256_hash(&proof_bytes);
-    let proof_hash_bytes: [u8; 32] = proof_hash.into();
-
-    let proof_num = U512::from(U256::from(proof_hash_bytes));
+        .concat();
+    let random_hash = hash::<HF>(&random_bytes);
+    let random_num = U512::from(U256::from(random_hash.as_ref()));
     let mult = U512::from(U256::from(2).pow(U256::from(vrf_range)));
 
-    U256::from(proof_num * mult / U512::from(U256::MAX))
+    U256::from(random_num * mult / U512::from(U256::MAX))
 }
 
 pub fn get_lottery_threshold(

@@ -1,15 +1,12 @@
-use blake2::digest::typenum::U32;
-use blake2::Blake2b;
-use blake2::Digest;
-use elliptic_curve::generic_array::GenericArray;
+use digest::{FixedOutput, HashMarker};
+use elliptic_curve::{Curve, ScalarPrimitive};
 use elliptic_curve::rand_core::OsRng;
-use elliptic_curve::ScalarPrimitive;
+use k256::{ProjectivePoint, Scalar, Secp256k1, SecretKey};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
-use k256::schnorr::signature::{Signer, Verifier};
 use k256::schnorr::{SigningKey, VerifyingKey};
-use k256::{ProjectivePoint, Scalar, SecretKey};
+use k256::schnorr::signature::{Signer, Verifier};
 
-use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest256};
+use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest};
 use spectrum_crypto::pubkey::PublicKey;
 
 use crate::protocol_handler::handel::Threshold;
@@ -17,19 +14,18 @@ use crate::protocol_handler::sigma_aggregation::types::{
     AggregateCommitment, Commitment, CommitmentSecret, Signature,
 };
 
-type Blake2b256 = Blake2b<U32>;
-
 /// `a_i = H(X_1, X_2, ..., X_n; X_i)`
-pub fn individual_input(committee: Vec<PublicKey>, pki: PublicKey) -> Scalar {
-    let mut hasher = Blake2b256::new();
+pub fn individual_input<H>(committee: Vec<PublicKey>, pki: PublicKey) -> Scalar where
+    H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,{
+    use digest::Digest;
+    let mut hasher = H::new();
     for pk in committee {
         let bytes = k256::PublicKey::from(pk).to_encoded_point(true).to_bytes();
-        hasher.update(bytes);
+        hasher.update(&*bytes);
     }
     let pki_bytes = k256::PublicKey::from(pki).to_encoded_point(true).to_bytes();
-    hasher.update(pki_bytes);
-    let hash: [u8; 32] = hasher.finalize().into();
-    ScalarPrimitive::from_bytes(GenericArray::from_slice(&hash))
+    hasher.update(&*pki_bytes);
+    ScalarPrimitive::from_bytes(&hasher.finalize_fixed())
         .unwrap()
         .into()
 }
@@ -65,13 +61,16 @@ pub fn aggregate_response(individual_responses: Vec<Scalar>) -> Scalar {
 }
 
 /// `c = H(˜X, Y, m)`
-pub fn challenge<H>(aggr_pk: PublicKey, aggr_commitment: AggregateCommitment, md: Digest256<H>) -> Scalar {
-    let mut hasher = Blake2b256::new();
-    hasher.update(k256::PublicKey::from(aggr_pk).to_encoded_point(true).to_bytes());
-    hasher.update(aggr_commitment.to_bytes());
+pub fn challenge<H>(aggr_pk: PublicKey, aggr_commitment: AggregateCommitment, md: Digest<H>) -> Scalar
+where
+    H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
+{
+    use digest::Digest;
+    let mut hasher = H::new();
+    hasher.update(&*k256::PublicKey::from(aggr_pk).to_encoded_point(true).to_bytes());
+    hasher.update(&*aggr_commitment.to_bytes());
     hasher.update(md.as_ref());
-    let hash: [u8; 32] = hasher.finalize().into();
-    ScalarPrimitive::from_bytes(GenericArray::from_slice(&hash))
+    ScalarPrimitive::from_bytes(&hasher.finalize_fixed())
         .unwrap()
         .into()
 }
@@ -95,7 +94,7 @@ fn schnorr_commitment(sk: CommitmentSecret) -> Option<Commitment> {
 }
 
 /// `σ_i`
-pub fn exclusion_proof<H>(sk: CommitmentSecret, md: Digest256<H>) -> Signature {
+pub fn exclusion_proof<H: HashMarker + FixedOutput>(sk: CommitmentSecret, md: Digest<H>) -> Signature {
     SigningKey::from(&k256::SecretKey::from(sk))
         .sign(&md.as_ref())
         .into()
@@ -138,12 +137,12 @@ pub fn verify<H>(
     aggregate_response: Scalar,
     exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
     committee: Vec<PublicKey>,
-    md: Digest256<H>,
+    md: Digest<H>,
     threshold: Threshold,
-) -> bool {
+) -> bool where H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default {
     let individual_inputs = committee
         .iter()
-        .map(|x| individual_input(committee.clone(), x.clone()))
+        .map(|x| individual_input::<H>(committee.clone(), x.clone()))
         .collect::<Vec<_>>();
     let aggregate_x = aggregate_pk(committee.clone(), individual_inputs.clone());
     let partial_x: ProjectivePoint = committee
@@ -186,6 +185,8 @@ pub fn verify<H>(
 
 #[cfg(test)]
 mod tests {
+    use blake2::Blake2b;
+    use digest::consts::U32;
     use elliptic_curve::rand_core::OsRng;
     use k256::SecretKey;
     use rand::Rng;
@@ -210,8 +211,8 @@ mod tests {
                 PublicKey::from(sk.public_key())
             })
             .collect::<Vec<_>>();
-        let ii0 = individual_input(committee.clone(), committee[0].clone());
-        let ii1 = individual_input(committee[1..].to_vec(), committee[0].clone());
+        let ii0 = individual_input::<Blake2b<U32>>(committee.clone(), committee[0].clone());
+        let ii1 = individual_input::<Blake2b<U32>>(committee[1..].to_vec(), committee[0].clone());
         assert_ne!(ii0, ii1)
     }
 
@@ -250,7 +251,7 @@ mod tests {
             .collect::<Vec<_>>();
         let individual_inputs = committee
             .iter()
-            .map(|pk| individual_input(committee.clone(), pk.clone()))
+            .map(|pk| individual_input::<Blake2b<U32>>(committee.clone(), pk.clone()))
             .collect::<Vec<_>>();
         let aggregate_x = aggregate_pk(
             committee.iter().map(|pk| pk.clone()).collect(),
@@ -364,7 +365,7 @@ mod tests {
             .collect::<Vec<_>>();
         let individual_inputs = individual_keys
             .iter()
-            .map(|(_, pki, _, _)| individual_input(committee.clone(), pki.clone()))
+            .map(|(_, pki, _, _)| individual_input::<Blake2b<U32>>(committee.clone(), pki.clone()))
             .collect::<Vec<_>>();
         let aggregate_x = aggregate_pk(
             individual_keys.iter().map(|(_, pk, _, _)| pk.clone()).collect(),
@@ -444,7 +445,7 @@ mod tests {
             .collect::<Vec<_>>();
         let individual_inputs = individual_keys
             .iter()
-            .map(|(_, pki, _, _)| individual_input(committee.clone(), pki.clone()))
+            .map(|(_, pki, _, _)| individual_input::<Blake2b<U32>>(committee.clone(), pki.clone()))
             .collect::<Vec<_>>();
         let aggregate_x = aggregate_pk(
             individual_keys.iter().map(|(_, pk, _, _)| pk.clone()).collect(),

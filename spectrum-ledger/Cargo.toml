@@ -2,7 +2,7 @@
 name = "spectrum-ledger"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.65.0"
+rust-version = "1.71.0"
 
 [dependencies]
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
@@ -23,5 +23,6 @@ nonempty = { version = "0.8.1", features = ["serialize"] }
 higher = "0.2.0"
 higher-derive = "0.2.0"
 sec1 = "0.7.2"
+derivative = "2.2.0"
 
 move-core-types.workspace = true
