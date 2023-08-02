@@ -24,7 +24,7 @@ pub fn get_left_merkle_tree_branch<HF, TCurve: CurveArithmetic>(
         HF: Default + FixedOutput + HashMarker + Update,
 {
     let mut branch_seeds = Vec::new();
-    let mut actual_seed = (*seed).clone();
+    let mut actual_seed = seed.clone();
     let mut h = (*merkle_tree_high).clone();
 
     loop {
