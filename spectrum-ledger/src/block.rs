@@ -3,7 +3,8 @@ use spectrum_crypto::pubkey::PublicKey;
 
 use crate::interop::{ReportBody, ReportCertificate};
 use crate::transaction::{TransactionBody, Witness};
-use crate::{BlockNo, KESSignature, SlotNo, SystemDigest, VRFProof};
+use crate::{BlockNo, SlotNo, SystemDigest};
+use crate::consensus::{KESSignature, VRFProof};
 
 #[derive(
     Copy,
