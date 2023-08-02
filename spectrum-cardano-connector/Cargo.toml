@@ -1,0 +1,27 @@
+[package]
+name = "spectrum-cardano-connector"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.72"
+base16 = "0.2"
+pallas-network = "0.19.0-alpha.2"
+pallas-primitives = "0.19.0-alpha.2"
+pallas-codec = "0.19.0-alpha.2"
+pallas-crypto = "0.19.0-alpha.2"
+pallas-traverse = "0.19.0-alpha.2"
+spectrum-chain-connector = { version = "0.1.0", path = "../spectrum-chain-connector" }
+futures = "0.3.28"
+rocksdb = "0.21.0"
+tokio = { version = "1", features = ["full"] }
+async-std = "1.12.0"
+serde = { version = "1.0", features = ["derive"] }
+minicbor = "0.19.1"
+bincode = "1.3.3"
+hex = "0.4.3"
+
+[dev-dependencies]
+rand = "0.8.5"

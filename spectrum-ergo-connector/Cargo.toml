@@ -9,6 +9,7 @@ edition = "2021"
 async-trait = "0.1.68"
 ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
 spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
+spectrum-chain-connector = { version = "0.1.0", path = "../spectrum-chain-connector" }
 isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.28"
 tokio = { version = "1.27.0", features = ["full"] }
