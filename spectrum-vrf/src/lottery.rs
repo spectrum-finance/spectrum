@@ -4,19 +4,22 @@ use elliptic_curve::{CurveArithmetic, FieldBytes};
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
 
-use crate::ECVRFProof;
-use crate::utils::{hash_bytes, projective_point_to_bytes};
+use spectrum_crypto::digest::hash;
 
-pub fn proof_to_random_number<const N: usize, H, Hs, TCurve: CurveArithmetic + PointCompression>(
+use crate::ECVRFProof;
+use crate::utils::projective_point_to_bytes;
+
+pub fn proof_to_random_number<HF, TCurve>(
     proof: &ECVRFProof<TCurve>,
     constant_bytes: Vec<u8>,
     vrf_range: u32,
 ) -> U256
     where
+        TCurve: CurveArithmetic + PointCompression,
         <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
         <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
         <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
-        Hs: Default, Hs: FixedOutput, Hs: HashMarker, Hs: Update
+        HF: Default + FixedOutput + HashMarker + Update,
 
 {
     let c_fb: FieldBytes<TCurve> = proof.c.into();
@@ -29,10 +32,8 @@ pub fn proof_to_random_number<const N: usize, H, Hs, TCurve: CurveArithmetic + P
         s_fb.to_vec(),
     ]
         .concat();
-    let random_hash = hash_bytes::<N, H, Hs>(&random_bytes);
-    let random_hash_bytes: [u8; N] = random_hash.into();
-
-    let random_num = U512::from(U256::from(random_hash_bytes.as_slice()));
+    let random_hash = hash::<HF>(&random_bytes);
+    let random_num = U512::from(U256::from(random_hash.as_ref()));
     let mult = U512::from(U256::from(2).pow(U256::from(vrf_range)));
 
     U256::from(random_num * mult / U512::from(U256::MAX))

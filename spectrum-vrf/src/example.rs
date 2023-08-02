@@ -3,7 +3,7 @@ mod tests {
     fn example() {
         use k256::Secp256k1;
         use sha2::Sha256;
-        use spectrum_crypto::digest::{Sha2, sha256_hash, Sha2Digest256};
+        use spectrum_crypto::digest::{sha256_hash, Sha2Digest256};
 
         use crate::{vrf_gen, vrf_prove, vrf_verify};
         use crate::lottery::{get_lottery_threshold, proof_to_random_number};
@@ -38,15 +38,15 @@ mod tests {
                                              selection_fraction_denom);
         //Generate VRF proof:
         let proof =
-            vrf_prove::<32, Sha2, Sha256, Secp256k1>(vrf_sk, m_hash.clone()).unwrap();
+            vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash.clone()).unwrap();
 
 
         //Generate random numbers from the 'proof':
         println!("RESULTS:");
         println!("Leadership lottery:");
-        let r_leadership = proof_to_random_number::<32, Sha2, Sha256, Secp256k1>(&proof, constant_lead.as_bytes().to_vec(), vrf_range);
+        let r_leadership = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant_lead.as_bytes().to_vec(), vrf_range);
         if r_leadership < thr_lead {
-            let r_rnd = proof_to_random_number::<32, Sha2, Sha256, Secp256k1>(&proof, constant_rnd.as_bytes().to_vec(), vrf_range);
+            let r_rnd = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant_rnd.as_bytes().to_vec(), vrf_range);
 
             println!("You are Leader!");
             println!("y_leadership: {:?}", r_leadership);
@@ -54,7 +54,7 @@ mod tests {
             println!("y_rnd: {:?}", r_rnd);
         } else { println!("Try again :("); }
 
-        let r_sync = proof_to_random_number::<32, Sha2, Sha256, Secp256k1>(&proof, constant_sync.as_bytes().to_vec(), vrf_range);
+        let r_sync = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant_sync.as_bytes().to_vec(), vrf_range);
 
         println!("Time-Sync Lottery:");
         if r_sync < thr_sync {
@@ -65,8 +65,8 @@ mod tests {
 
         //Verify the validity of the 'proof':
         let valid_proof =
-            vrf_verify::<32, Sha2, Sha256, Secp256k1>(vrf_pk, m_hash.clone(),
-                                                      proof).unwrap();
+            vrf_verify::<Sha256, Secp256k1>(vrf_pk, m_hash.clone(),
+                                            proof).unwrap();
         assert!(valid_proof);
     }
 }

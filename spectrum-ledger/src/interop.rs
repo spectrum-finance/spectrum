@@ -1,4 +1,4 @@
-use spectrum_crypto::digest::{Blake2b, Blake2bDigest256};
+use spectrum_crypto::digest::{Blake2b256, Blake2bDigest256};
 use spectrum_sigma::sigma_aggregation::AggregateCertificate;
 
 use crate::cell::{AnyCell, CellId};
@@ -28,7 +28,7 @@ pub enum Effect {
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ReportCertificate {
-    SchnorrK256(AggregateCertificate<Blake2b>),
+    SchnorrK256(AggregateCertificate<Blake2b256>),
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]

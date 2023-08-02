@@ -19,7 +19,7 @@ use rand::rngs::OsRng;
 use rand::Rng;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use spectrum_crypto::digest::{blake2b256_hash, Blake2b, Blake2bDigest256};
+use spectrum_crypto::digest::{Blake2b256, blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::pubkey::PublicKey;
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
@@ -137,7 +137,7 @@ async fn aggregate(
         redundancy_factor: 5,
         seed: 42,
     };
-    let (mut aggr_handler_snd, aggr_handler_inbox) = mpsc::channel::<AggregationAction<Blake2b>>(100);
+    let (mut aggr_handler_snd, aggr_handler_inbox) = mpsc::channel::<AggregationAction<Blake2b256>>(100);
     let overlay_builder = RedundancyDagOverlayBuilder {
         redundancy_factor: multicasting_conf.redundancy_factor,
         seed: multicasting_conf.seed,
@@ -165,7 +165,7 @@ async fn aggregate(
     let (mut aggr_handler, aggr_mailbox): (
         ProtocolHandler<
             SigmaAggregation<
-                Blake2b,
+                Blake2b256,
                 MakeBinomialPeerPartitions<PseudoRandomGenPerm>,
                 RedundancyDagOverlayBuilder,
             >,
