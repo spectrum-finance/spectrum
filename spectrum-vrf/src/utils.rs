@@ -1,13 +1,13 @@
 use std::convert::TryInto;
 
-use ecdsa::signature::digest::{Digest as DigestHasher, FixedOutput, HashMarker, Update};
+use ecdsa::signature::digest::{FixedOutput, HashMarker};
+use elliptic_curve::{
+    CurveArithmetic, NonZeroScalar, ProjectivePoint, PublicKey, Scalar, ScalarPrimitive, SecretKey,
+};
 use elliptic_curve::generic_array::GenericArray;
 use elliptic_curve::group::Curve;
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
-use elliptic_curve::{
-    CurveArithmetic, NonZeroScalar, ProjectivePoint, PublicKey, Scalar, ScalarPrimitive, SecretKey,
-};
 
 use spectrum_crypto::digest::Digest;
 
@@ -22,10 +22,10 @@ pub fn key_pair_gen<H: HashMarker + FixedOutput, TCurve: CurveArithmetic>(
 pub fn projective_point_to_bytes<TCurve: CurveArithmetic + PointCompression>(
     point: &ProjectivePoint<TCurve>,
 ) -> Vec<u8>
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+    where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
 {
     PublicKey::<TCurve>::from_affine((*point).to_affine())
         .unwrap()
@@ -57,25 +57,17 @@ pub fn hash_to_public_key<H: HashMarker + FixedOutput, TCurve: CurveArithmetic>(
     PublicKey::<TCurve>::from_secret_scalar(&non_zero_scalar)
 }
 
-fn vec_to_arr<T, const N: usize, H>(v: Vec<T>) -> [T; N] {
-    let boxed_slice = v.into_boxed_slice();
-    let boxed_array: Box<[T; N]> = match boxed_slice.try_into() {
-        Ok(ba) => ba,
-        Err(o) => panic!("Expected a Vec of length {} but it was {}", N, o.len()),
-    };
-    *boxed_array
-}
 
 #[cfg(test)]
 mod test {
     use elliptic_curve::generic_array::GenericArray;
     use elliptic_curve::group::GroupEncoding;
-    use elliptic_curve::rand_core::{OsRng, RngCore};
     use elliptic_curve::ProjectivePoint;
+    use elliptic_curve::rand_core::{OsRng, RngCore};
     use k256::Secp256k1;
     use sha2::Sha256;
 
-    use spectrum_crypto::digest::{sha256_hash};
+    use spectrum_crypto::digest::sha256_hash;
 
     use crate::utils::key_pair_gen;
 

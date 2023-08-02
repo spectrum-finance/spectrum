@@ -23,11 +23,11 @@ pub fn merge_public_keys<HF, TCurve: CurveArithmetic + PointCompression>(
     pk1: &PublicKey<TCurve>,
     pk2: &PublicKey<TCurve>,
 ) -> PublicKey<TCurve>
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
-    HF: Default + FixedOutput + HashMarker + Update,
+    where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+        HF: Default + FixedOutput + HashMarker + Update,
 {
     let mut h = HF::new();
     h.update(&projective_point_to_bytes::<TCurve>(&pk1.to_projective()).as_slice());
@@ -43,8 +43,8 @@ pub fn concat<H: HashMarker + FixedOutput>(current_slot: &u32, message: &Digest<
 }
 
 pub fn partial_seed<HF>(seed: &Digest<HF>, if_left: bool) -> Digest<HF>
-where
-    HF: Default + FixedOutput + HashMarker + Update,
+    where
+        HF: Default + FixedOutput + HashMarker + Update,
 {
     let mut partial_seed = HF::new();
     partial_seed.update(&[if if_left { 1 } else { 2 }]);
@@ -54,8 +54,8 @@ where
 }
 
 pub fn double_the_seed<HF>(seed: &Digest<HF>) -> (Digest<HF>, Digest<HF>)
-where
-    HF: Default + FixedOutput + HashMarker + Update,
+    where
+        HF: Default + FixedOutput + HashMarker + Update,
 {
     let seed_left = partial_seed::<HF>(&seed, true);
     let seed_right = partial_seed::<HF>(&seed, false);

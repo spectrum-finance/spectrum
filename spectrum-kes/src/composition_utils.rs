@@ -20,11 +20,11 @@ pub fn get_left_merkle_tree_branch<Hs, TCurve: CurveArithmetic>(
     merkle_tree_high: &u32,
     seed: &Digest<Hs>,
 ) -> Result<(SecretKey<TCurve>, PublicKey<TCurve>, Vec<Digest<Hs>>), Error>
-where
-    Hs: Default + FixedOutput + HashMarker + Update + Copy,
+    where
+        Hs: Default + FixedOutput + HashMarker + Update,
 {
     let mut branch_seeds = Vec::new();
-    let mut actual_seed = seed.clone();
+    let mut actual_seed = (*seed).clone();
     let mut h = (*merkle_tree_high).clone();
 
     loop {
@@ -44,11 +44,11 @@ pub fn sum_composition_pk_gen<HF, TCurve: CurveArithmetic + PointCompression>(
     merkle_tree_high: &u32,
     seed: &Digest<HF>,
 ) -> Result<PublicKey<TCurve>, Error>
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
-    HF: Default + FixedOutput + HashMarker + Update + Copy,
+    where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+        HF: Default + FixedOutput + HashMarker + Update,
 {
     if *merkle_tree_high == 0 {
         return Ok(key_pair_gen::<HF, TCurve>(seed).1);
@@ -75,11 +75,11 @@ pub fn calculate_scheme_pk_from_signature<HF, TCurve: CurveArithmetic + PrimeCur
     signature: &KESSignature<TCurve>,
     signing_period: &u32,
 ) -> PublicKey<TCurve>
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
-    HF: Default + FixedOutput + HashMarker + Update,
+    where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+        HF: Default + FixedOutput + HashMarker + Update,
 {
     let mut scheme_pk = (*signature).hot_pk;
     for i in (0..(*signature).other_pks.len()).rev() {

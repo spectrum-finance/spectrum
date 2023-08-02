@@ -37,7 +37,7 @@ pub struct KESSecret<HF: HashMarker + FixedOutput, TCurve: CurveArithmetic> {
 
 #[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(
-    bound = "TCurve: CurveArithmetic + ecdsa::PrimeCurve + AssociatedOid, SignatureSize<TCurve>: ArrayLength<u8>, AffinePoint<TCurve>: FromEncodedPoint<TCurve> + ToEncodedPoint<TCurve>, FieldBytesSize<TCurve>: ModulusSize"
+bound = "TCurve: CurveArithmetic + ecdsa::PrimeCurve + AssociatedOid, SignatureSize<TCurve>: ArrayLength<u8>, AffinePoint<TCurve>: FromEncodedPoint<TCurve> + ToEncodedPoint<TCurve>, FieldBytesSize<TCurve>: ModulusSize"
 )]
 pub struct KESSignature<TCurve: CurveArithmetic + ecdsa::PrimeCurve> {
     pub sig: Signature<TCurve>,
@@ -49,11 +49,11 @@ pub fn kes_gen<HF, TCurve: CurveArithmetic + PointCompression>(
     merkle_tree_high: &u32,
     seed: &Digest<HF>,
 ) -> Result<(KESSecret<HF, TCurve>, PublicKey<TCurve>), Error>
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
-    HF: Default + FixedOutput + HashMarker + Update + Copy,
+    where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+        HF: Default + FixedOutput + HashMarker + Update,
 {
     let (sk_actual, pk_actual, pk_all_scheme, merkle_seeds, merkle_public_keys) = {
         if *merkle_tree_high == 0 {
@@ -102,11 +102,11 @@ where
 pub fn kes_update<HF, TCurve: CurveArithmetic + PointCompression>(
     secret: KESSecret<HF, TCurve>,
 ) -> Result<KESSecret<HF, TCurve>, Error>
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
-    HF: Default + FixedOutput + HashMarker + Update + Copy + 'static,
+    where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+        HF: Default + FixedOutput + HashMarker + Update + 'static,
 {
     let last_seed_ind = secret.merkle_seeds.len() - 1;
 
@@ -190,13 +190,13 @@ pub fn kes_sign<HF, TCurve>(
     secret: &KESSecret<HF, TCurve>,
     current_slot: &u32,
 ) -> Result<KESSignature<TCurve>, Error>
-where
-    HF: HashMarker + FixedOutput,
-    TCurve: CurveArithmetic + elliptic_curve::PrimeCurve,
-    <TCurve as CurveArithmetic>::Scalar: SignPrimitive<TCurve>,
-    <<TCurve as elliptic_curve::Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
-    SigningKey<TCurve>: Signer<Signature<TCurve>>,
-    SigningKey<TCurve>: SignerMut<Signature<TCurve>>,
+    where
+        HF: HashMarker + FixedOutput,
+        TCurve: CurveArithmetic + elliptic_curve::PrimeCurve,
+        <TCurve as CurveArithmetic>::Scalar: SignPrimitive<TCurve>,
+        <<TCurve as elliptic_curve::Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
+        SigningKey<TCurve>: Signer<Signature<TCurve>>,
+        SigningKey<TCurve>: SignerMut<Signature<TCurve>>,
 {
     // Sign the message with an actual Secret Key (message is associated with slot)
     let signing_key = SigningKey::from(&secret.hot_sk);
@@ -230,15 +230,15 @@ pub fn kes_verify<HF, TCurve: CurveArithmetic + ecdsa::PrimeCurve + PointCompres
     all_scheme_pk: &PublicKey<TCurve>,
     signing_slot: &u32,
 ) -> Result<bool, Error>
-where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
-    VerifyingKey<TCurve>: Verifier<Signature<TCurve>>,
-    HF: Default,
-    HF: FixedOutput,
-    HF: HashMarker,
-    HF: Update,
+    where
+        <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+        <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
+        VerifyingKey<TCurve>: Verifier<Signature<TCurve>>,
+        HF: Default,
+        HF: FixedOutput,
+        HF: HashMarker,
+        HF: Update,
 {
     // Verify message
     let ver_key: VerifyingKey<TCurve> = VerifyingKey::from(signature.hot_pk.clone());

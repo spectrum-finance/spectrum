@@ -42,7 +42,7 @@ pub fn vrf_prove<HF, TCurve>(
     where
         TCurve: CurveArithmetic + PointCompression,
         <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize + TypeEquals<Other = HF::OutputSize>,
+        <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize + TypeEquals<Other=HF::OutputSize>,
         <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
         HF: Default + FixedOutput + HashMarker + Update
 {

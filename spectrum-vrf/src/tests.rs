@@ -5,7 +5,7 @@ mod tests {
     use k256::Secp256k1;
     use sha2::Sha256;
 
-    use spectrum_crypto::digest::{sha256_hash};
+    use spectrum_crypto::digest::sha256_hash;
     use spectrum_crypto::digest::Sha2Digest256;
 
     use crate::{ECVRFProof, vrf_gen, vrf_prove, vrf_verify};
@@ -17,8 +17,8 @@ mod tests {
 
         let m_hash: Sha2Digest256 = sha256_hash("Test_tx".as_bytes());
 
-        let proof = vrf_prove::<32, Sha2, Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
-        let valid = vrf_verify::<32, Sha2, Sha256, Secp256k1>(vrf_pk, m_hash.clone(), proof).unwrap();
+        let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
+        let valid = vrf_verify::<32, Sha256, Secp256k1>(vrf_pk, m_hash.clone(), proof).unwrap();
 
         assert!(valid);
     }
@@ -30,8 +30,8 @@ mod tests {
 
         let m_hash: Sha2Digest256 = sha256_hash("Test_tx".as_bytes());
 
-        let proof = vrf_prove::<32, Sha2, Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
-        let valid = vrf_verify::<32, Sha2, Sha256, Secp256k1>(pk_wrong, m_hash.clone(), proof).unwrap();
+        let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
+        let valid = vrf_verify::<32, Sha256, Secp256k1>(pk_wrong, m_hash.clone(), proof).unwrap();
 
         assert!(!!!valid);
     }
@@ -43,8 +43,8 @@ mod tests {
 
         let m_hash: Sha2Digest256 = sha256_hash("Test_tx".as_bytes());
 
-        let proof = vrf_prove::<32, Sha2, Sha256, Secp256k1>(sk_wrong, m_hash).unwrap();
-        let valid = vrf_verify::<32, Sha2, Sha256, Secp256k1>(vrf_pk, m_hash.clone(), proof).unwrap();
+        let proof = vrf_prove::<Sha256, Secp256k1>(sk_wrong, m_hash).unwrap();
+        let valid = vrf_verify::<32, Sha256, Secp256k1>(vrf_pk, m_hash.clone(), proof).unwrap();
 
         assert!(!!!valid);
     }
@@ -56,8 +56,8 @@ mod tests {
         let m_hash: Sha2Digest256 = sha256_hash("Test_tx".as_bytes());
         let m_hash_wrong: Sha2Digest256 = sha256_hash("Test_wrong_tx".as_bytes());
 
-        let proof = vrf_prove::<32, Sha2, Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
-        let valid = vrf_verify::<32, Sha2, Sha256, Secp256k1>(vrf_pk, m_hash_wrong, proof).unwrap();
+        let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
+        let valid = vrf_verify::<32, Sha256, Secp256k1>(vrf_pk, m_hash_wrong, proof).unwrap();
 
         assert!(!!!valid);
     }
@@ -68,7 +68,7 @@ mod tests {
 
         let m_hash: Sha2Digest256 = sha256_hash("Test_tx".as_bytes());
 
-        let proof = vrf_prove::<32, Sha2, Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
+        let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
 
         let random_scalar: Scalar<Secp256k1> = *NonZeroScalar::<Secp256k1>::random(&mut OsRng);
         let random_point = ProjectivePoint::<Secp256k1>::random(&mut OsRng);
@@ -89,9 +89,9 @@ mod tests {
             s: random_scalar,
         };
 
-        let valid_gamma = vrf_verify::<32, Sha2, Sha256, Secp256k1>(vrf_pk, m_hash.clone(), proof_gamma_wrong).unwrap();
-        let valid_c = vrf_verify::<32, Sha2, Sha256, Secp256k1>(vrf_pk.clone(), m_hash.clone(), proof_c_wrong).unwrap();
-        let valid_s = vrf_verify::<32, Sha2, Sha256, Secp256k1>(vrf_pk.clone(), m_hash.clone(), proof_s_wrong).unwrap();
+        let valid_gamma = vrf_verify::<32, Sha256, Secp256k1>(vrf_pk, m_hash.clone(), proof_gamma_wrong).unwrap();
+        let valid_c = vrf_verify::<32, Sha256, Secp256k1>(vrf_pk.clone(), m_hash.clone(), proof_c_wrong).unwrap();
+        let valid_s = vrf_verify::<32, Sha256, Secp256k1>(vrf_pk.clone(), m_hash.clone(), proof_s_wrong).unwrap();
 
         assert!(!!!valid_gamma);
         assert!(!!!valid_c);
@@ -108,11 +108,11 @@ mod tests {
 
         let m_hash: Sha2Digest256 = sha256_hash("Test_tx".as_bytes());
 
-        let proof = vrf_prove::<32, Sha2, Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
+        let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
 
-        let r_0 = proof_to_random_number::<32, Sha2, Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), base_vrf_range);
-        let r_1 = proof_to_random_number::<32, Sha2, Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), base_vrf_range.clone());
-        let r_2 = proof_to_random_number::<32, Sha2, Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), option_vrf_range.clone());
+        let r_0 = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), base_vrf_range);
+        let r_1 = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), base_vrf_range.clone());
+        let r_2 = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), option_vrf_range.clone());
 
         let valid_order = r_1 < r_2;
 
@@ -132,9 +132,9 @@ mod tests {
         for _ in 0..n_iters {
             let (vrf_sk, _) = vrf_gen::<Secp256k1>().unwrap();
 
-            let proof = vrf_prove::<32, Sha2, Sha256, Secp256k1>(vrf_sk, m_hash.clone()).unwrap();
+            let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash.clone()).unwrap();
 
-            let r = proof_to_random_number::<32, Sha2, Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), vrf_range);
+            let r = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), vrf_range);
 
             r_array.push(r.as_u64());
         }
@@ -225,9 +225,9 @@ mod tests {
 
         let m_hash: Sha2Digest256 = sha256_hash("Lottery".as_bytes());
 
-        let proof = vrf_prove::<32, Sha2, Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
+        let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
 
-        let r = proof_to_random_number::<32, Sha2, Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), vrf_range);
+        let r = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), vrf_range);
 
         let thr_0 = get_lottery_threshold(
             vrf_range,
@@ -269,7 +269,7 @@ mod tests {
         for _ in 0..n_iters {
             let (vrf_sk, _) = vrf_gen::<Secp256k1>().unwrap();
 
-            let proof = vrf_prove::<32, Sha2, Sha256, Secp256k1>(vrf_sk, m_hash.clone()).unwrap();
+            let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash.clone()).unwrap();
 
             let thr = get_lottery_threshold(
                 vrf_range,
@@ -279,8 +279,8 @@ mod tests {
                 selection_fraction_denom,
             );
 
-            let r_0 = proof_to_random_number::<32, Sha2, Sha256, Secp256k1>(&proof, constant_0.as_bytes().to_vec(), vrf_range);
-            let r_1 = proof_to_random_number::<32, Sha2, Sha256, Secp256k1>(&proof, constant_1.as_bytes().to_vec(), vrf_range);
+            let r_0 = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant_0.as_bytes().to_vec(), vrf_range);
+            let r_1 = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant_1.as_bytes().to_vec(), vrf_range);
 
             if r_0 < thr {
                 wins_0 += 1
