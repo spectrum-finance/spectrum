@@ -1,21 +1,17 @@
 use std::fmt::Debug;
 
-use k256::elliptic_curve;
-use k256::elliptic_curve::group::GroupEncoding;
-use k256::elliptic_curve::sec1::FromEncodedPoint;
 use serde::Serialize;
 
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
-use spectrum_vrf::ECVRFProof;
 
 use crate::block::{BlockBody, BlockHeader, BlockId};
 use crate::transaction::{Transaction, TxId};
 
 pub mod block;
 pub mod cell;
+pub mod consensus;
 pub mod interop;
 pub mod transaction;
-pub mod consensus;
 
 #[derive(
     Eq,
