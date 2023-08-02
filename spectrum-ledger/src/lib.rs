@@ -1,10 +1,8 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 
-use elliptic_curve::ScalarPrimitive;
+use k256::elliptic_curve;
 use k256::elliptic_curve::group::GroupEncoding;
 use k256::elliptic_curve::sec1::FromEncodedPoint;
-use k256::elliptic_curve::Error;
-use k256::{elliptic_curve, EncodedPoint, ProjectivePoint, Secp256k1};
 use serde::Serialize;
 
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
@@ -17,6 +15,7 @@ pub mod block;
 pub mod cell;
 pub mod interop;
 pub mod transaction;
+pub mod consensus;
 
 #[derive(
     Eq,
@@ -170,50 +169,3 @@ impl<T: DigestViaEncoder> SystemDigest for T {
     Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
 )]
 pub struct SerializedModifier(pub Vec<u8>);
-
-#[derive(
-    Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
-)]
-pub struct KESSignature(spectrum_kes::KESSignature<Secp256k1>);
-
-impl Debug for KESSignature {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("sig")
-    }
-}
-
-#[derive(
-    Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
-)]
-#[serde(try_from = "VRFProofRaw", into = "VRFProofRaw")]
-pub struct VRFProof(ECVRFProof<Secp256k1>);
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct VRFProofRaw {
-    gamma: Vec<u8>,
-    c: ScalarPrimitive<Secp256k1>,
-    s: ScalarPrimitive<Secp256k1>,
-}
-
-impl Into<VRFProofRaw> for VRFProof {
-    fn into(self) -> VRFProofRaw {
-        VRFProofRaw {
-            gamma: self.0.gamma.to_bytes().to_vec(),
-            c: self.0.c.into(),
-            s: self.0.s.into(),
-        }
-    }
-}
-
-impl TryFrom<VRFProofRaw> for VRFProof {
-    type Error = Error;
-    fn try_from(value: VRFProofRaw) -> Result<Self, Self::Error> {
-        let gamma = EncodedPoint::from_bytes(&*value.gamma)
-            .map(|r| ProjectivePoint::from_encoded_point(&r).unwrap())?;
-        Ok(VRFProof(ECVRFProof {
-            gamma,
-            c: value.c.into(),
-            s: value.s.into(),
-        }))
-    }
-}
