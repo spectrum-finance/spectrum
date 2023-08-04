@@ -1,13 +1,13 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::{Stream, StreamExt};
-use futures::channel::mpsc::Receiver;
+use futures::{SinkExt, Stream, StreamExt};
+use futures::channel::mpsc::{Receiver, Sender};
 
 use spectrum_ledger::Modifier;
-
-use crate::history::LedgerHistoryWrite;
-use crate::state::{Cells, LedgerStateWrite};
+use spectrum_view::history::LedgerHistoryWrite;
+use spectrum_view::node_view::NodeViewWriteAsync;
+use spectrum_view::state::{Cells, LedgerStateWrite};
 
 #[derive(Clone, Debug)]
 pub enum NodeViewIn {
@@ -33,10 +33,10 @@ pub struct NodeView<TState, THistory, TMempool, TErrh> {
 }
 
 impl<TState, THistory, TMempool, TErrh> NodeView<TState, THistory, TMempool, TErrh>
-where
-    TState: Cells + LedgerStateWrite,
-    THistory: LedgerHistoryWrite,
-    TErrh: ErrorHandler,
+    where
+        TState: Cells + LedgerStateWrite,
+        THistory: LedgerHistoryWrite,
+        TErrh: ErrorHandler,
 {
     fn on_event(&self, event: NodeViewIn) {
         match event {
@@ -49,7 +49,8 @@ where
 
     fn apply_modifier(&self, modifier: &Modifier) -> Result<(), InvalidModifier> {
         match modifier {
-            Modifier::BlockHeader(hd) => { // validate(hd) -> VR<Valid<HD>, RuleViol>
+            Modifier::BlockHeader(hd) => {
+                // validate(hd) -> VR<Valid<HD>, RuleViol>
                 todo!()
             }
             Modifier::BlockBody(blk) => {
@@ -63,11 +64,11 @@ where
 }
 
 impl<TState, THistory, TMempool, TErrh> Stream for NodeView<TState, THistory, TMempool, TErrh>
-where
-    TState: Cells + LedgerStateWrite + Unpin,
-    THistory: LedgerHistoryWrite + Unpin,
-    TMempool: Unpin,
-    TErrh: ErrorHandler + Unpin,
+    where
+        TState: Cells + LedgerStateWrite + Unpin,
+        THistory: LedgerHistoryWrite + Unpin,
+        TMempool: Unpin,
+        TErrh: ErrorHandler + Unpin,
 {
     type Item = ();
 
@@ -86,7 +87,23 @@ where
     }
 }
 
+#[derive(Clone)]
+pub struct NodeViewMailbox {
+    inner: Sender<NodeViewIn>,
+}
+
+impl NodeViewMailbox {
+    pub fn new(inner: Sender<NodeViewIn>) -> Self {
+        Self { inner }
+    }
+}
+
 #[async_trait::async_trait]
-pub trait NodeViewWriteAsync: Send + Sync + Clone {
-    async fn apply_modifier(&mut self, modifier: Modifier);
+impl NodeViewWriteAsync for NodeViewMailbox {
+    async fn apply_modifier(&mut self, modifier: Modifier) {
+        self.inner
+            .send(NodeViewIn::ApplyModifier(modifier))
+            .await
+            .unwrap();
+    }
 }

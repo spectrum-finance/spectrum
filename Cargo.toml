@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "spectrum-node",
+    "spectrum-consensus",
     "spectrum-network",
     "spectrum-view",
     "spectrum-ledger",

@@ -24,6 +24,7 @@ use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
 
 mod consensus;
+mod node_view;
 
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn Error>> {

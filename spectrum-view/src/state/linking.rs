@@ -38,14 +38,14 @@ where
                 TransactionBody {
                     inputs,
                     reference_inputs,
-                    invokations,
+                    invocations: invokations,
                     evaluated_outputs,
                 },
             witness,
         } = tx;
         let mut linked_inputs = vec![];
         for (ix, (pt, maybe_sig_ix)) in inputs.into_iter().enumerate() {
-            if let Some(cell) = self.pool.get(pt) {
+            if let Some(cell) = self.pool.get_cell(pt) {
                 if let CellMeta {
                     cell: AnyCell::Mut(active_cell),
                     ancors,
@@ -83,7 +83,7 @@ where
         }
         let mut linked_ref_inputs = vec![];
         for pt in reference_inputs {
-            if let Some(mcell) = self.pool.get(pt) {
+            if let Some(mcell) = self.pool.get_cell(pt) {
                 linked_ref_inputs.push(mcell.cell);
             } else {
                 return Err(LinkingError::MissingRefInput(pt));
