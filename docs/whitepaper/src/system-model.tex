@@ -17,49 +17,70 @@ Each block in this model is assigned to a specific time slot and the ledger must
     and responding honestly, will report the transaction as stable.
 \end{enumerate}
 
-\subsection{Semi-Synchronous Model Preliminaries}\label{subsec:the-semi-synchronous-model-preliminaries.}
-We consider the security model in a semi-synchronous setting with simple modifications to account for\
-adversarially-controlled message delays and immediate adaptive corruption.
+\subsection{Security Model Preliminaries}\label{subsec:security-model-preliminaries.}
+We consider a semi-synchronous setting where protocol participants have a somewhat accurate common notion\
+of the elapsed time and the network has an upper bound ${\Delta t}$ on the message delay, which is not known to the participants\
+and is used as a security parameter.
+
+We also assume that our model operates in the dynamic availability setting ~\cite{Badertscher2018},\
+where an arbitrary (but upper-bounded) number of the consensus members may not be fully operational,\
+e.g., due to network problems, reboots or software updates\
+that affect some of their local resources including their network interface and clock.
 
 \textbf{Time and Slots.}
 We consider a setting where time is divided into discrete units called slots.
-The ledger associates one time slot with at most one block.
-Participants are equipped with roughly synchronized clocks.
-This will permit them to carry out a distributed protocol intending to collectively assign a block to this current slot.
-In general, each slot $sl_r$ is indexed by an integer $r \in \{1, 2, ..\}$, and we assume that the real\
-time window that corresponds to each slot has the following two properties:
-\begin{itemize}
-    \item The current slot is determined by a publicly-known and monotonically increasing function of the current time.
-    \item Each participant has access to the current time.
-    Any discrepancies between parties' local time are insignificant in comparison with the slot duration.
-\end{itemize}
+Each slot $sl_r$ is indexed by an integer $r \in \{1, 2, ..\}$, and\
+the ledger associates one time slot with at most one block.
+All actions of protocol participants necessary for its correct execution are also associated with specific slots.
+The largest units of time in the protocol are epochs, each consisting of $R$ slots.
 
 \textbf{Synchrony.}
-We consider an untrustworthy network environment that allows for adversarial-controlled message delays and immediate\
-adaptive corruption.
-Namely, we allow the adversary $A$ to selectively delay any messages sent by an honest party for up to $\Delta \subseteq \mathbb{K}$\
-slots and corrupt parties without delay.
+A common assumption in known blockchains with a semi-synchronous setting is that\
+all participants are equipped with roughly synchronized clocks and have access\
+to the global clock setup for the synchronization.
+An existing synchronization techniques are inapplicable to the standard model used for\
+the analysis of Nakamoto-style consensus protocols, thus, there are no strong security\
+guarantees in such a model in the case where the agreement on the current slot is\
+replaced by the assumption of potentially unsynchronized local clocks that proceed at roughly the same speed.
+
+We adopt a provably secure approach to global clock synchronization\
+in the dynamic participation setting~\cite{cryptoeprint:2019/838}.
+This approach assumes that members of the initial consensus group have access to local clocks\
+and any discrepancies between parties' local time are insignificant in comparison with the slot duration.
+This is still a typical approach, however, the key feature is an imperfect version of the clock functionality used\
+as a global setup.
+It allows parties to advance to a next epoch even before\
+every honest party has finished with his current epoch.
+Once in an epoch, participants synchronize their clocks based on public blockchain data.
+Therefore, this mechanism ensures that all parties, both active and those who later join the protocol,\
+can synchronize with other participants\
+and will remain synchronized as long as they faithfully follow the protocol.
 
 \textbf{Random Oracle.}
-We assume that a random oracle is available to each node $n \in N$.
-The random oracle is designed in such a way that it is able to produce uniformly-distributed pseudo-random numbers\
-which correctness must be verifiable for all participants of the protocol.
+We assume that an ideal random oracle is available to each member of the consensus.
+Random oracle models a function ${\mathcal{H} : \{0, 1\}^* \rightarrow \{0, 1\}^l, }$ which samples a\
+uniformly random string from the ${\{0, 1\}^l}$ in response to some query, while any repeated\
+queries are answered consistently.
 
-\textbf{Security Model.}\label{subsec:security-model.}
-The system is composed of a set of nodes $N$ and each node $n \in N$:
+\textbf{Security Configuration.}
+We consider an untrustworthy network environment that allows for adversarial-controlled message delays\
+and immediate adaptive corruption.
+Namely, we allow the adversary $A$ to selectively delay any messages sent
+by an honest party for up to $\Delta$ slots and corrupt parties without delay.
+
+The Spectrum protocol is executed by a set of nodes $N$, where each node $n \in N$:
 \begin{itemize}
     \item Is associated with a unique wallet holding a stake of tokens $s_n$.
-    \item Able to generate key-pairs ${(PK, SK)}$ without trusted public key infrastructure.
+    \item Is able to generate key-pairs ${(PK, SK)}$ without trusted public key infrastructure.
     \item Is able to sign messages ${sign: (SK, m) \rightarrow \sigma}$.
     \item Is able to verify signatures ${verify: (\sigma, PK, m) \rightarrow 0 | 1}$.
-    \item Has access to random oracle functionality.
-    \item Has access to key evolving signature functionality.
+    \item Has access to a random oracle $\mathcal{H}$.
 \end{itemize}
 
-At any time $t$ a subset ${V \subseteq N}$ of nodes can be controlled by an adversary and are considered faulty.
+We assume that at any time $t$ a subset ${V \subseteq N}$ of nodes can be controlled\
+by an adversary and are considered faulty.
 Byzantine nodes can divert from the protocol and collude to attack the system while the remaining honest nodes follow\
 the protocol.
-We assume that the total stake of all faulty nodes is less than 1/3 of the total stake of all nodes.
 
 \subsection{External Systems}\label{subsec:external-systems.}
 We also assume multiple independent distributed systems ${S_1, \dots, S_K}$ with underlying ledgers ${L_1, \dots, L_K}$\
@@ -71,6 +92,11 @@ simple predicates upon validation of transactions: ${verify: C \rightarrow 0 | 1
 a \emph{context} that contains description of state the transaction interacts with.
 There is also a function ${desc: TX_k \rightarrow DESC^{TX_k}}$ that maps transaction $TX_k$ to\
 some \emph{description}, e.g.\ specifying the transaction value, recipient address, etc.
-For each $S_k$ there is a corresponding functionality unit $F_{S_k}$ that allows any node equipped with the unit\
-to interact with $S_k$.
+For each $S_k$ there is a corresponding functionality unit $F^k_{\text{ConnSys}}$ that\
+allows any node equipped with the unit to interact with $S_k$.
 Each node $n \in N$ is equipped with at least one such functionality unit and at most $K$ functionality units.
+
+Our protocol is largely inspired by ideas from Ouroboros protocols\
+family~\cite{cryptoeprint:2017/573}, ~\cite{Badertscher2018}, ~\cite{cryptoeprint:2019/838}.
+To provide security guarantees, we will also use some functionalities described in these papers, namely,\
+${\mathcal{F}}_{VRF}$ ans ${\mathcal{F}}_{KES}$.

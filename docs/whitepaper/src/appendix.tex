@@ -1,0 +1,55 @@
+\subsection{List of Symbols}\label{subsec:list-of-symbols}
+
+Functionalities:
+\begin{legal}
+    \item[] $\mathcal{H}$ -- ideal hash function.
+    \item[] $\mathcal{F}_{\text{VRF}}$ -- verifiable random function.
+    \item[] $\mathcal{F}_{\text{KES}}$ -- key evolving digital signature scheme.
+    \item[] $\mathcal{F}_{\text{LB}}$ -- leaky beacon.
+    \item[] $\mathcal{F}_{\text{AggSig}}$ -- collective signature aggregation functionality.
+    \item[] $\mathcal{F}_{\text{Init}}$ -- functionality providing the genesis block.
+    \item[] $\mathcal{F}^k_{\text{ConnSys}}$ -- functionality to interact with $k$-th\
+    connected distributed system $S_k$.
+    \item[] $\mathcal{G}_{\text{ImpLClock}}$ -- imperfect local clock functionality.
+    \item[] $\mathcal{G}_{\text{Ledger}}$ -- the ledger functionality.
+\end{legal}
+\bigbreak
+
+\noindent
+Main State Variables of The Spectrum protocol:
+\begin{legal}
+    \item[] $sl$ -- the smallest discrete time unit used in the protocol.
+    \item[] $e$ -- the largest discrete time unit used in the protocol.
+    \item[] $R$ -- epoch boundaries, each epoch consists of $R$ slots.
+    \item[] $U_{\text{f}}$ -- number of slots to achieve finality in the $L^+$.
+\end{legal}
+\bigbreak
+
+\noindent
+Main State Variables of The Spectrum protocol participant:
+\begin{legal}
+    \item[] $PK_i$ -- Spectrum's public key of the $i$-th protocol participant.
+    \item[] $PK^k_i$ --  $S_{\text{k}}$\('\)s connected public key of the $i$-th protocol participant.
+    \item[] $s$ -- participant's stake value.
+    \item[] $v^{\text{vrf}}$ -- verifiable random function public key (verification key).
+    \item[] $v^{\text{kes}}$ -- key evolving signature scheme public key (verification key).
+\end{legal}
+\bigbreak
+
+\noindent
+Main Spectrum's Consensus Entities, Actors and Variables:
+\begin{legal}
+    \item[] $L^+$ -- the main Spectrum's super-ledger.
+    \item[] $L^{\text{loc}, k}$ -- ledger of the $k$-th connected distributed systems $S_{\text{k}}$.
+    \item[] $V_k$ -- validators set of $k$-th connected distributed systems $S_{\text{k}}$.
+    \item[] $\eta$ -- epoch randomness.
+    \item[] $\pi^{\text{sl}}$ -- slot VRF proof (used in the leader lottery and in the synchronization lottery).
+    \item[] $\pi^{\text{e}}$ -- epoch VRF proof (used in the consensus group lottery).
+    \item[] $T^{\text{lead}}$ -- participant's leader lottery threshold.
+    \item[] $T^{\text{cons},k}$ -- participant's consensus group lottery threshold (for related $V_k$ committee).
+    \item[] $T^{\text{sync}}$ -- participant's synchronization beacon lottery threshold.
+    \item[] $f^{\text{lead}}$ -- active slots coefficient (regarding adding notarized batches into\
+    local ledgers $L^{\text{loc}, k}$).
+    \item[] $M^{\text{cons}, k}_{\min}$ -- lower bound of members in the $V_k$ committee.
+    \item[] $M^{\text{cons}, k}_{\max}$ -- upper bound of members in the $V_k$ committee.
+\end{legal}
