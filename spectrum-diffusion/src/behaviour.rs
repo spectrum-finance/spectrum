@@ -514,7 +514,7 @@ mod tests {
 
     fn make_behaviour(
         chain: Vec<Header>,
-    ) -> DiffusionBehaviour<'static, EphemeralHistory, NodeViewMailbox, Header> {
+    ) -> DiffusionBehaviour<'static, Header, EphemeralHistory, NodeViewMailbox> {
         let history = Arc::new(EphemeralHistory {
             db: chain.into_iter().map(|hdr| (hdr.id, hdr)).collect(),
         });

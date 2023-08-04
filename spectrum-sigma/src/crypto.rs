@@ -1,10 +1,10 @@
 use digest::{FixedOutput, HashMarker};
-use elliptic_curve::{Curve, ScalarPrimitive};
 use elliptic_curve::rand_core::OsRng;
-use k256::{ProjectivePoint, Scalar, Secp256k1, SecretKey};
+use elliptic_curve::{Curve, ScalarPrimitive};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
-use k256::schnorr::{SigningKey, VerifyingKey};
 use k256::schnorr::signature::{Signer, Verifier};
+use k256::schnorr::{SigningKey, VerifyingKey};
+use k256::{ProjectivePoint, Scalar, Secp256k1, SecretKey};
 
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest};
 use spectrum_crypto::pubkey::PublicKey;
@@ -13,8 +13,10 @@ use spectrum_handel::Threshold;
 use crate::{AggregateCommitment, Commitment, CommitmentSecret, Signature};
 
 /// `a_i = H(X_1, X_2, ..., X_n; X_i)`
-pub fn individual_input<H>(committee: Vec<PublicKey>, pki: PublicKey) -> Scalar where
-    H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,{
+pub fn individual_input<H>(committee: Vec<PublicKey>, pki: PublicKey) -> Scalar
+where
+    H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
+{
     use digest::Digest;
     let mut hasher = H::new();
     for pk in committee {
@@ -38,7 +40,7 @@ pub fn aggregate_pk(committee: Vec<PublicKey>, individual_inputs: Vec<Scalar>) -
                 .map(|(i, xi)| k256::PublicKey::from(xi.clone()).to_projective() * individual_inputs[i])
                 .sum::<ProjectivePoint>(),
         )
-            .unwrap(),
+        .unwrap(),
     )
 }
 
@@ -50,7 +52,7 @@ pub fn aggregate_commitment(individual_commitments: Vec<Commitment>) -> Aggregat
             .map(|yi| ProjectivePoint::from(yi))
             .sum::<ProjectivePoint>(),
     )
-        .unwrap()
+    .unwrap()
 }
 
 /// `r = Σ_ir_i`
@@ -60,8 +62,8 @@ pub fn aggregate_response(individual_responses: Vec<Scalar>) -> Scalar {
 
 /// `c = H(˜X, Y, m)`
 pub fn challenge<H>(aggr_pk: PublicKey, aggr_commitment: AggregateCommitment, md: Digest<H>) -> Scalar
-    where
-        H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
+where
+    H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
 {
     use digest::Digest;
     let mut hasher = H::new();
@@ -137,7 +139,10 @@ pub fn verify<H>(
     committee: Vec<PublicKey>,
     md: Digest<H>,
     threshold: Threshold,
-) -> bool where H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default {
+) -> bool
+where
+    H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
+{
     let individual_inputs = committee
         .iter()
         .map(|x| individual_input::<H>(committee.clone(), x.clone()))
@@ -191,9 +196,9 @@ mod tests {
 
     use spectrum_crypto::digest::blake2b256_hash;
     use spectrum_crypto::pubkey::PublicKey;
+    use spectrum_handel::Threshold;
 
-    use crate::protocol_handler::handel::Threshold;
-    use crate::protocol_handler::sigma_aggregation::crypto::{
+    use crate::crypto::{
         aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
         response, schnorr_commitment_pair, verify, verify_response,
     };

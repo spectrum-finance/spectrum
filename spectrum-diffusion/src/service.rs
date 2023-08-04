@@ -192,7 +192,7 @@ pub(crate) mod tests {
     use nonempty::NonEmpty;
 
     use spectrum_ledger::block::{BlockId, BlockSectionType};
-    use spectrum_ledger::{ModifierId, SerializedModifier, SlotNo};
+    use spectrum_ledger::{ModifierId, ModifierRecord, SerializedModifier, SlotNo};
     use spectrum_view::chain::HeaderLike;
     use spectrum_view::history::LedgerHistoryReadAsync;
 
@@ -217,11 +217,17 @@ pub(crate) mod tests {
     }
 
     impl HeaderLike for Header {
-        fn id(&self) -> BlockId {
-            self.id
-        }
         fn slot_num(&self) -> SlotNo {
             self.slot
+        }
+    }
+
+    impl From<Header> for ModifierRecord<Header> {
+        fn from(value: Header) -> Self {
+            ModifierRecord {
+                id: ModifierId::from(value.id),
+                modifier: value,
+            }
         }
     }
 
@@ -235,23 +241,25 @@ pub(crate) mod tests {
             self.db.contains_key(&<ModifierId as Into<BlockId>>::into(*id))
         }
 
-        async fn get_tip(&self) -> Header {
-            self.db
+        async fn get_tip(&self) -> ModifierRecord<Header> {
+            let header = self
+                .db
                 .values()
                 .max_by_key(|hd| hd.slot)
                 .cloned()
-                .unwrap_or(Header::ORIGIN)
+                .unwrap_or(Header::ORIGIN);
+            ModifierRecord::from(header)
         }
 
-        async fn get_tail(&self, n: usize) -> NonEmpty<Header> {
+        async fn get_tail(&self, n: usize) -> NonEmpty<ModifierRecord<Header>> {
             let mut headers = self.db.values().collect::<Vec<_>>();
             headers.sort_by_key(|hd| hd.slot);
             NonEmpty::collect(
                 headers[headers.len().saturating_sub(n)..]
                     .into_iter()
-                    .map(|&hd| hd.clone()),
+                    .map(|&hd| ModifierRecord::from(hd.clone())),
             )
-            .unwrap_or(NonEmpty::singleton(Header::ORIGIN))
+            .unwrap_or(NonEmpty::singleton(ModifierRecord::from(Header::ORIGIN)))
         }
 
         async fn follow(&self, pre_start: BlockId, cap: usize) -> Vec<BlockId> {
