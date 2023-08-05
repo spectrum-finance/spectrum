@@ -4,11 +4,11 @@ mod test {
     use k256::Secp256k1;
     use sha2::Sha256;
 
-    use spectrum_crypto::digest::{blake2b256_hash, sha256_hash, Digest, Blake2b256};
+    use spectrum_crypto::digest::{blake2b256_hash, sha256_hash, Blake2b256, Digest};
     use spectrum_vrf::utils::key_pair_gen;
 
-    use crate::{kes_gen, kes_sign, kes_update, kes_verify};
     use crate::composition_utils::calculate_scheme_pk_from_signature;
+    use crate::{kes_gen, kes_sign, kes_update, kes_verify};
 
     #[test]
     fn kes_gen_test() {
@@ -62,9 +62,18 @@ mod test {
                 assert_ne!(sig_00.sig, sig_01.sig);
                 assert_ne!(sig_00.sig, sig_1.sig);
                 assert_ne!(sig_00.hot_pk, sig_1.hot_pk);
-                assert_eq!(calculate_scheme_pk_from_signature::<Sha256, Secp256k1>(&sig_00, &i), pk_0);
-                assert_ne!(calculate_scheme_pk_from_signature::<Sha256, Secp256k1>(&sig_01, &(i + 1)), pk_0);
-                assert_eq!(calculate_scheme_pk_from_signature::<Sha256, Secp256k1>(&sig_1, &(i + 1)), pk_0);
+                assert_eq!(
+                    calculate_scheme_pk_from_signature::<Sha256, Secp256k1>(&sig_00, &i),
+                    pk_0
+                );
+                assert_ne!(
+                    calculate_scheme_pk_from_signature::<Sha256, Secp256k1>(&sig_01, &(i + 1)),
+                    pk_0
+                );
+                assert_eq!(
+                    calculate_scheme_pk_from_signature::<Sha256, Secp256k1>(&sig_1, &(i + 1)),
+                    pk_0
+                );
             }
         }
     }
@@ -87,9 +96,12 @@ mod test {
                 let ver_fair_00 = kes_verify::<Sha256, Secp256k1>(&sig_00, &m_fair_hash, &pk_0, &i).unwrap();
                 let ver_mal_period_00 =
                     kes_verify::<Sha256, Secp256k1>(&sig_00, &m_fair_hash, &pk_0, &(i + 1)).unwrap();
-                let ver_mal_message_00 = kes_verify::<Sha256, Secp256k1>(&sig_00, &m_mal_hash, &pk_0, &i).unwrap();
-                let ver_mal_signature_00 = kes_verify::<Sha256, Secp256k1>(&sig_01, &m_fair_hash, &pk_0, &i).unwrap();
-                let ver_mal_secret_00 = kes_verify::<Sha256, Secp256k1>(&sig_1, &m_fair_hash, &pk_0, &i).unwrap();
+                let ver_mal_message_00 =
+                    kes_verify::<Sha256, Secp256k1>(&sig_00, &m_mal_hash, &pk_0, &i).unwrap();
+                let ver_mal_signature_00 =
+                    kes_verify::<Sha256, Secp256k1>(&sig_01, &m_fair_hash, &pk_0, &i).unwrap();
+                let ver_mal_secret_00 =
+                    kes_verify::<Sha256, Secp256k1>(&sig_1, &m_fair_hash, &pk_0, &i).unwrap();
 
                 assert!(ver_fair_00);
                 assert!(!!!ver_mal_period_00);
@@ -115,12 +127,16 @@ mod test {
                 secret = kes_update::<Blake2b256, Secp256k1>(secret).unwrap();
                 let sig_1 = kes_sign::<Blake2b256, Secp256k1>(&m_fair_hash, &secret, &i).unwrap();
 
-                let ver_fair_00 = kes_verify::<Blake2b256, Secp256k1>(&sig_00, &m_fair_hash, &pk_0, &i).unwrap();
+                let ver_fair_00 =
+                    kes_verify::<Blake2b256, Secp256k1>(&sig_00, &m_fair_hash, &pk_0, &i).unwrap();
                 let ver_mal_period_00 =
                     kes_verify::<Blake2b256, Secp256k1>(&sig_00, &m_fair_hash, &pk_0, &(i + 1)).unwrap();
-                let ver_mal_message_00 = kes_verify::<Blake2b256, Secp256k1>(&sig_00, &m_mal_hash, &pk_0, &i).unwrap();
-                let ver_mal_signature_00 = kes_verify::<Blake2b256, Secp256k1>(&sig_01, &m_fair_hash, &pk_0, &i).unwrap();
-                let ver_mal_secret_00 = kes_verify::<Blake2b256, Secp256k1>(&sig_1, &m_fair_hash, &pk_0, &i).unwrap();
+                let ver_mal_message_00 =
+                    kes_verify::<Blake2b256, Secp256k1>(&sig_00, &m_mal_hash, &pk_0, &i).unwrap();
+                let ver_mal_signature_00 =
+                    kes_verify::<Blake2b256, Secp256k1>(&sig_01, &m_fair_hash, &pk_0, &i).unwrap();
+                let ver_mal_secret_00 =
+                    kes_verify::<Blake2b256, Secp256k1>(&sig_1, &m_fair_hash, &pk_0, &i).unwrap();
 
                 assert!(ver_fair_00);
                 assert!(!!!ver_mal_period_00);

@@ -12,18 +12,18 @@ use crate::cell::{ActiveCell, AnyCell, CellMeta, CellPtr, CellRef, DatumRef, Scr
 use crate::SystemDigest;
 
 #[derive(
-Copy,
-Clone,
-Eq,
-PartialEq,
-Ord,
-PartialOrd,
-Hash,
-Debug,
-serde::Serialize,
-serde::Deserialize,
-derive_more::From,
-derive_more::Into,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    derive_more::From,
+    derive_more::Into,
 )]
 pub struct TxId(Blake2bDigest256);
 

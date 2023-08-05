@@ -3,8 +3,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nonempty::NonEmpty;
 
+use spectrum_ledger::block::{
+    BlockBody, BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType, RecoverableSection,
+    ValidSection,
+};
 use spectrum_ledger::{ModifierId, ModifierRecord, SerializedModifier};
-use spectrum_ledger::block::{BlockBody, BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType, RecoverableSection, ValidSection};
 
 use crate::chain::HeaderLike;
 

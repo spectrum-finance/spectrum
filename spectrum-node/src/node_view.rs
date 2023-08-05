@@ -1,8 +1,8 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::{SinkExt, Stream, StreamExt};
 use futures::channel::mpsc::{Receiver, Sender};
+use futures::{SinkExt, Stream, StreamExt};
 
 use spectrum_ledger::Modifier;
 use spectrum_view::history::LedgerHistoryWrite;
@@ -33,10 +33,10 @@ pub struct NodeView<TState, THistory, TMempool, TErrh> {
 }
 
 impl<TState, THistory, TMempool, TErrh> NodeView<TState, THistory, TMempool, TErrh>
-    where
-        TState: Cells + LedgerStateWrite,
-        THistory: LedgerHistoryWrite,
-        TErrh: ErrorHandler,
+where
+    TState: Cells + LedgerStateWrite,
+    THistory: LedgerHistoryWrite,
+    TErrh: ErrorHandler,
 {
     fn on_event(&self, event: NodeViewIn) {
         match event {
@@ -64,11 +64,11 @@ impl<TState, THistory, TMempool, TErrh> NodeView<TState, THistory, TMempool, TEr
 }
 
 impl<TState, THistory, TMempool, TErrh> Stream for NodeView<TState, THistory, TMempool, TErrh>
-    where
-        TState: Cells + LedgerStateWrite + Unpin,
-        THistory: LedgerHistoryWrite + Unpin,
-        TMempool: Unpin,
-        TErrh: ErrorHandler + Unpin,
+where
+    TState: Cells + LedgerStateWrite + Unpin,
+    THistory: LedgerHistoryWrite + Unpin,
+    TMempool: Unpin,
+    TErrh: ErrorHandler + Unpin,
 {
     type Item = ();
 

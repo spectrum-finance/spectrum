@@ -1,8 +1,8 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::{Stream, StreamExt};
 use futures::channel::mpsc::Receiver;
+use futures::{Stream, StreamExt};
 
 use spectrum_ledger::Modifier;
 
@@ -49,7 +49,8 @@ where
 
     fn apply_modifier(&self, modifier: &Modifier) -> Result<(), InvalidModifier> {
         match modifier {
-            Modifier::BlockHeader(hd) => { // validate(hd) -> VR<Valid<HD>, RuleViol>
+            Modifier::BlockHeader(hd) => {
+                // validate(hd) -> VR<Valid<HD>, RuleViol>
                 todo!()
             }
             Modifier::BlockBody(blk) => {

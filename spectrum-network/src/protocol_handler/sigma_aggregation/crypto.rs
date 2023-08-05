@@ -1,10 +1,10 @@
 use digest::{FixedOutput, HashMarker};
-use elliptic_curve::{Curve, ScalarPrimitive};
 use elliptic_curve::rand_core::OsRng;
-use k256::{ProjectivePoint, Scalar, Secp256k1, SecretKey};
+use elliptic_curve::{Curve, ScalarPrimitive};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
-use k256::schnorr::{SigningKey, VerifyingKey};
 use k256::schnorr::signature::{Signer, Verifier};
+use k256::schnorr::{SigningKey, VerifyingKey};
+use k256::{ProjectivePoint, Scalar, Secp256k1, SecretKey};
 
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest};
 use spectrum_crypto::pubkey::PublicKey;
@@ -15,8 +15,10 @@ use crate::protocol_handler::sigma_aggregation::types::{
 };
 
 /// `a_i = H(X_1, X_2, ..., X_n; X_i)`
-pub fn individual_input<H>(committee: Vec<PublicKey>, pki: PublicKey) -> Scalar where
-    H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,{
+pub fn individual_input<H>(committee: Vec<PublicKey>, pki: PublicKey) -> Scalar
+where
+    H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
+{
     use digest::Digest;
     let mut hasher = H::new();
     for pk in committee {
@@ -139,7 +141,10 @@ pub fn verify<H>(
     committee: Vec<PublicKey>,
     md: Digest<H>,
     threshold: Threshold,
-) -> bool where H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default {
+) -> bool
+where
+    H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
+{
     let individual_inputs = committee
         .iter()
         .map(|x| individual_input::<H>(committee.clone(), x.clone()))

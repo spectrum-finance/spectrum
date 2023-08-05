@@ -1,15 +1,15 @@
 mod tests {
     use bigint::U256;
-    use elliptic_curve::{Group, NonZeroScalar, ProjectivePoint, Scalar};
     use elliptic_curve::rand_core::OsRng;
+    use elliptic_curve::{Group, NonZeroScalar, ProjectivePoint, Scalar};
     use k256::Secp256k1;
     use sha2::Sha256;
 
     use spectrum_crypto::digest::sha256_hash;
     use spectrum_crypto::digest::Sha2Digest256;
 
-    use crate::{ECVRFProof, vrf_gen, vrf_prove, vrf_verify};
     use crate::lottery::{get_lottery_threshold, proof_to_random_number};
+    use crate::{vrf_gen, vrf_prove, vrf_verify, ECVRFProof};
 
     #[test]
     fn normal_k256_eval() {
@@ -110,9 +110,18 @@ mod tests {
 
         let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash).unwrap();
 
-        let r_0 = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), base_vrf_range);
-        let r_1 = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), base_vrf_range.clone());
-        let r_2 = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), option_vrf_range.clone());
+        let r_0 =
+            proof_to_random_number::<Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), base_vrf_range);
+        let r_1 = proof_to_random_number::<Sha256, Secp256k1>(
+            &proof,
+            constant.as_bytes().to_vec(),
+            base_vrf_range.clone(),
+        );
+        let r_2 = proof_to_random_number::<Sha256, Secp256k1>(
+            &proof,
+            constant.as_bytes().to_vec(),
+            option_vrf_range.clone(),
+        );
 
         let valid_order = r_1 < r_2;
 
@@ -134,7 +143,8 @@ mod tests {
 
             let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash.clone()).unwrap();
 
-            let r = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), vrf_range);
+            let r =
+                proof_to_random_number::<Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), vrf_range);
 
             r_array.push(r.as_u64());
         }
@@ -279,8 +289,16 @@ mod tests {
                 selection_fraction_denom,
             );
 
-            let r_0 = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant_0.as_bytes().to_vec(), vrf_range);
-            let r_1 = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant_1.as_bytes().to_vec(), vrf_range);
+            let r_0 = proof_to_random_number::<Sha256, Secp256k1>(
+                &proof,
+                constant_0.as_bytes().to_vec(),
+                vrf_range,
+            );
+            let r_1 = proof_to_random_number::<Sha256, Secp256k1>(
+                &proof,
+                constant_1.as_bytes().to_vec(),
+                vrf_range,
+            );
 
             if r_0 < thr {
                 wins_0 += 1

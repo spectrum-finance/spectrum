@@ -26,11 +26,11 @@ pub mod codec;
 pub mod cosi;
 pub mod discovery;
 pub mod handel;
+pub mod multicasting;
 pub mod pool;
 pub mod sigma_aggregation;
 pub mod versioning;
 pub mod void;
-pub mod multicasting;
 
 #[derive(Debug)]
 pub enum NetworkAction<THandshake, TMessage> {
@@ -222,8 +222,7 @@ where
     P: ProtocolSpec,
     T: ProtocolBehaviour<TProto = P>,
 {
-    type Item =
-        ProtocolBehaviourOut<<P as ProtocolSpec>::THandshake, <P as ProtocolSpec>::TMessage>;
+    type Item = ProtocolBehaviourOut<<P as ProtocolSpec>::THandshake, <P as ProtocolSpec>::TMessage>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = &mut *self;

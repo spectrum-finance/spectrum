@@ -1,13 +1,13 @@
 use std::fmt::{Debug, Formatter};
 
-use elliptic_curve::{Error, ScalarPrimitive};
 use elliptic_curve::sec1::ToEncodedPoint;
-use k256::{EncodedPoint, ProjectivePoint, Secp256k1};
+use elliptic_curve::{Error, ScalarPrimitive};
 use k256::elliptic_curve::group::GroupEncoding;
 use k256::elliptic_curve::sec1::FromEncodedPoint;
+use k256::{EncodedPoint, ProjectivePoint, Secp256k1};
 use serde::Serialize;
 
-use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
+use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest};
 use spectrum_crypto::pubkey::PublicKey;
 use spectrum_vrf::ECVRFProof;
 
@@ -21,20 +21,20 @@ pub mod interop;
 pub mod transaction;
 
 #[derive(
-Eq,
-PartialEq,
-Ord,
-PartialOrd,
-Copy,
-Clone,
-Hash,
-derive_more::Add,
-derive_more::Sub,
-derive_more::From,
-derive_more::Into,
-serde::Serialize,
-serde::Deserialize,
-Debug,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Copy,
+    Clone,
+    Hash,
+    derive_more::Add,
+    derive_more::Sub,
+    derive_more::From,
+    derive_more::Into,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
 )]
 pub struct BlockNo(u64);
 
@@ -43,20 +43,20 @@ impl BlockNo {
 }
 
 #[derive(
-Eq,
-PartialEq,
-Ord,
-PartialOrd,
-Copy,
-Clone,
-Hash,
-derive_more::Add,
-derive_more::Sub,
-derive_more::From,
-derive_more::Into,
-serde::Serialize,
-serde::Deserialize,
-Debug,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Copy,
+    Clone,
+    Hash,
+    derive_more::Add,
+    derive_more::Sub,
+    derive_more::From,
+    derive_more::Into,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
 )]
 pub struct SlotNo(u64);
 
@@ -65,20 +65,20 @@ impl SlotNo {
 }
 
 #[derive(
-Eq,
-PartialEq,
-Ord,
-PartialOrd,
-Copy,
-Clone,
-Hash,
-derive_more::Add,
-derive_more::Sub,
-derive_more::From,
-derive_more::Into,
-serde::Serialize,
-serde::Deserialize,
-Debug,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Copy,
+    Clone,
+    Hash,
+    derive_more::Add,
+    derive_more::Sub,
+    derive_more::From,
+    derive_more::Into,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
 )]
 pub struct EpochNo(u64);
 
@@ -86,20 +86,26 @@ pub struct EpochNo(u64);
 pub struct ChainId(u16);
 
 #[derive(
-Copy,
-Clone,
-Eq,
-PartialEq,
-Ord,
-PartialOrd,
-Hash,
-Debug,
-serde::Serialize,
-serde::Deserialize,
-derive_more::From,
-derive_more::Into,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    derive_more::From,
+    derive_more::Into,
 )]
 pub struct ModifierId(Blake2bDigest256);
+
+impl ModifierId {
+    pub fn random() -> ModifierId {
+        ModifierId(Digest::random())
+    }
+}
 
 impl From<BlockId> for ModifierId {
     fn from(blk: BlockId) -> Self {
@@ -169,23 +175,27 @@ impl<T: DigestViaEncoder> SystemDigest for T {
 }
 
 #[derive(
-Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
+    Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
 )]
 pub struct SerializedModifier(pub Vec<u8>);
 
 #[derive(
-Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
+    Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
 )]
 pub struct KESVKey(PublicKey);
 
 #[derive(
-Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
+    Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
 )]
 pub struct VRFVKey(PublicKey);
 
 impl SystemDigest for VRFVKey {
     fn digest(&self) -> Blake2bDigest256 {
-        blake2b256_hash(<&k256::PublicKey>::from(&self.0).to_encoded_point(true).as_bytes())
+        blake2b256_hash(
+            <&k256::PublicKey>::from(&self.0)
+                .to_encoded_point(true)
+                .as_bytes(),
+        )
     }
 }
 
@@ -195,7 +205,7 @@ pub enum DomainVKey {
 }
 
 #[derive(
-Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
+    Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
 )]
 pub struct KESSignature(spectrum_kes::KESSignature<Secp256k1>);
 
@@ -206,7 +216,7 @@ impl Debug for KESSignature {
 }
 
 #[derive(
-Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
+    Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
 )]
 #[serde(try_from = "VRFProofRaw", into = "VRFProofRaw")]
 pub struct VRFProof(ECVRFProof<Secp256k1>);
@@ -244,7 +254,7 @@ impl TryFrom<VRFProofRaw> for VRFProof {
 /// Identifier of a stake pool.
 /// Derived from the hash of validator VRF vkey.
 #[derive(
-Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
+    Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
 )]
 pub struct StakePoolId(Blake2bDigest256);
 
@@ -253,4 +263,3 @@ impl From<VRFVKey> for StakePoolId {
         Self(vk.digest())
     }
 }
-
