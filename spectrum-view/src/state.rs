@@ -1,6 +1,6 @@
 use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_ledger::cell::{AnyCell, CellMeta, CellPtr, DatumRef, NativeCoin, ScriptRef};
-use spectrum_ledger::consensus::RuleId;
+use spectrum_ledger::consensus::{AnyRuleId, RuleId};
 use spectrum_ledger::interop::{Effect, Point};
 use spectrum_ledger::transaction::{EvaluatedTransaction, ValidTx};
 use spectrum_ledger::ChainId;
@@ -51,5 +51,5 @@ pub trait StakeDistribution {
 
 /// Disabled consensus rules.
 pub trait ConsensusRules {
-    fn get_disabled_rules(&self) -> Vec<RuleId>;
+    fn get_disabled_rules(&self) -> Vec<AnyRuleId>;
 }
