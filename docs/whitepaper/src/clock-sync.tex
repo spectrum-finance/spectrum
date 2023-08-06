@@ -1,7 +1,7 @@
 Correct and secure execution of the protocol requires time synchronization between participants.
 This is essential in the syncing shards process and especially important for sigma aggregation rounds.
-As we have already mentioned, we cannot rely on a centralized time oracle and adopted the synchronization procedure\
-based on the synchronization beacons~\cite{cryptoeprint:2019/838}.
+As we have already mentioned, we cannot rely on a centralized time oracle, and therefore we adopt\
+decentralized synchronization mechanism based on synchronization beacons~\cite{cryptoeprint:2019/838}.
 
 The synchronization beacons approach is based on the following logical blocks:
 \begin{legal}
@@ -10,53 +10,60 @@ The synchronization beacons approach is based on the following logical blocks:
     next slot (i.e.\ next epoch).
     \item[]\textbf{Synchronization beacons.} In addition to other messages, all members of the consensus group\
     generate so-called synchronization beacons.
-    For every local slot $sl_{\text{loc}} \in [n \cdot R + 1,\dots,n \cdot R + R \// 6], n \in \mathcal{N}$\
+    For every local slot $sl_{i, j}^{\text{loc}, n} \in [n \cdot R + 1,\dots,n \cdot R + R \// 6], n \in \mathcal{N}$\
     every $PK_i$ evaluates $\mathcal{F}_{\text{VRF}}$ functionality with input\
-    ${x = (\eta_n || sl_{\text{loc}, i})}$ to get a proof $\pi^{\text{sl}}$ and checks if it has the right to release\
-    a beacon comparing the pseudo-random value\
-    ${y_{\text{rand}^{\text{sync}}} = \mathcal{H}(\pi^{\text{sl}} || \textsf{SYNC})}$\
-    with a corresponding threshold $T^{\text{sync}}_i$.
-    If ${y_{\text{rand}^{\text{sync}}} < T^{\text{sync}}_i}$ then the participant broadcasts a beacon message\
-    $b_{\text{sync, i}} = (v^{\text{vrf}}_i, sl_{\text{loc}, i}, \pi^{\text{sl}})$.
-    \item[]\textbf{Arrival times bookkeeping.} Every consensus participant $PK_i$ maintains a dictionary\
-    $B_i^{\text{sync}, n}$ with beacon's\
-    arrival local time ${sl^b_{\text{rec}}: (p, \text{flag}) \in \mathcal{N} \times {\text{final}, \text{temp}}}$.
-    Assume a beacon $b_{\text{sync, j}}$ emitted by $PK_j$ is fetched by a party $PK_i$ for the first time:
+    ${x_{i, j}^{\textsf{sync}, n} = (\eta_n || sl_{i, j}^{\text{loc}, n})}$ to get a proof $\pi_{i, j}^{\text{sl}, n}$\
+    and checks if he has the right to release a beacon by comparing the pseudo-random value\
+    ${y_{i, j}^{\textsf{sync}, n} = \mathcal{H}(\pi_{i, j}^{\text{sl}, n} || \textsf{SYNC})}$\
+    with the corresponding threshold $T_{i}^{\text{sync}, n} = \phi(\alpha_{i, n}, f^{\text{sync}}, n)$.
+    If ${y_{i, j}^{\textsf{sync}, n} < T_{i}^{\text{sync}, n}}$ then the participant broadcasts a beacon message\
+    $b_{i, j}^{\text{sync}, n} = (v^{\text{vrf}}_i, sl_{i, j}^{\text{loc}, n}, \pi_{i, j}^{\text{sl}, n})$.
+    \item[]\textbf{Arrival times bookkeeping.} Every consensus participant $PK_i$ maintains\
+    an array $B_i^{\text{sync}, n}$ of received beacons with beacon's\
+    arrival local time ${sl^{\text{rec}, n}_{i, j}: (sl_{i', j}^{\text{loc}, n}, \text{flag})\
+    \in \mathcal{N} \times (\text{final}, \text{temp})}$.
+    Assume a beacon $b_{i', j'}^{\text{sync}, n}$ emitted by $PK_{i'}$ is fetched by a party $PK_i$ for the first time:
     \begin{itemize}
-        \item If $PK_i$ has not yet passed synchronization slot $sl_{n \cdot R}$ and received beacon\
-        belongs logically to this party’s next epoch than decision is marked as temporary and $PK_i$ stores a record\
-        ${sl^b_{\text{rec}}: (sl_{\text{loc}, i}, \text{temp})}$.
-        This value will be adjusted once this party adjusts its local time-stamp for the next epoch
-        \item If $PK_i$ has already passed synchronization slot $sl_{n \cdot R}$ but not yet passed\
-        slot $sl_{(n + 1) \cdot R}$, then received is defined as the current local slot number and is considered final,
-        i.e. ${sl^b_{\text{rec}}: (sl_{\text{loc}, i}, \text{final})}$.
+        \item If $PK_i$ has not yet passed synchronization slot $sl_{i, n \cdot R}^{\text{loc}}$ and the\
+        received beacon belongs logically to this party’s next epoch, then decision is marked\
+        as temporary and $PK_i$ stores a record\
+        ${{sl^{\text{rec}, n}_{i, j}}: (sl_{i', j'}^{\text{loc}, n}, \text{temp})}$.
+        Value ${{sl^{\text{rec}, n}_{i, j}}}$ will be adjusted once this party adjusts\
+        its local time-stamp for the next epoch.
+        \item If $PK_i$ has already passed synchronization slot $sl_{i, n \cdot R}^{\text{loc}}$ but not yet passed\
+        slot $sl_{i, (n + 1) \cdot R}^{\text{loc}}$, then the received time is defined as the current local slot\
+        number and is considered final, i.e.\
+        ${{sl^{\text{rec}, n}_{i, j}}: (sl_{i', j'}^{\text{loc}, n}, \text{final})}$.
     \end{itemize}
-    If a party has already received a beacon for the same slot and creator, it will set the arrival time equal to
-    the ﬁrst one received among those.
+    If a party has already received a beacon for the same slot $j'$ and creator $PK_{i'}$, it will set\
+    the arrival time equal to the ﬁrst one received among those.
     \item[]\textbf{The synchronization interval.} For a local clock adjustment, which is triggered by a synchronization\
-    slot $sl_{n \cdot R}$, only beacons with recorded arrival time\
+    slot only beacons with recorded arrival time\
     in the interval ${[(n - 1) \cdot R + 1,\dots,(n-1) \cdot R + R \// 6]}$ are used.
-    \item[]\textbf{Computing the adjustment evidence.} The adjustment is computed based on\
-    evidence set from $B_i^{\text{sync}, n}$.
-    Beacon is only considered valid for adjusting procedure triggered by a synchronization\
-    slot $sl_{n \cdot R}$ if:
+    \item[]\textbf{Computing the adjustment evidence.} The adjustment is computed based on the\
+    received beacons set $B_i^{\text{sync}, n}$.
+    Beacon ${sl^{\text{rec}, n}_{i, j}}$ is only considered valid for adjusting procedure\
+    triggered by a synchronization slot if:
     \begin{enumerate}
-        \item Recorded time $sl^b_{\text{rec}}$ is final and belongs to the synchronization interval\
-        ${[(n - 1) \cdot R + 1,\dots,(n-1) \cdot R + R \// 6]}$.
-        \item Beacon message is included in to the block whose creation slot belongs\
+        \item Recorded time ${sl_{i', j'}^{\text{loc}, n} \in b_{i', j'}^{\text{sync}, n}}$ is final and belongs\
+        to the synchronization interval ${[(n - 1) \cdot R + 1,\dots,(n-1) \cdot R + R \// 6]}$.
+        \item Beacon is included into the block whose creation slot belongs\
         to the interval ${[(n - 1) \cdot R + 1, (n - 1) \cdot R + 2 \cdot R \// 3]}$
-        \item Beacon's proof $\pi^{\text{sl}}$ is valid.
+        \item Beacon's proof $\pi_{i, j}^{\text{sl}, n}$ is valid.
     \end{enumerate}
-    \item[]\textbf{Adjusting the local clock.} The shift a party $PK_i$ computes to adjust its clock in\
-    synchronization slot $sl_{n \cdot R}$ is defined by\
-    ${\textsf{shift}_i = \textsf{median} \{sl_{\text{loc}} - sl^b_{\text{rec}} | \forall (.) \in B_i^{\text{sync}, n}}$.
-    Using calculated ${\textsf{shift}^*_n}$ value all records with $\text{temp}$ status is updated as\
-    ${sl_{\text{loc}} + \textsf{shift}^*_n}$ and procedure is performed again to receive a final $\text{shift}_n$ value.
+    \item[]\textbf{Adjusting the local clock.} Every party $PK_i$ computes $\textsf{shift}_{i, n}$ to\
+    adjust its clock in the synchronization slot $sl_{n \cdot R}$.
+    Value of the shift is calculated as\
+    ${\textsf{shift}^*_{i, n} = \textsf{median} \{sl_{i', j'}^{\text{loc}, n} - sl^{\text{rec}, n}_{i, j}\
+    | \forall b_{i', j'}^{\text{sync}, n} \in B_i^{\text{sync}, n}\}}$.
+    Using the calculated ${\textsf{shift}^*_{i, n}}$ value all $B_i^{\text{sync}, n}$ records with\
+    $\text{temp}$ status is updated as ${sl^{\text{rec}, n}_{i, j} + \textsf{shift}^*_{i, n}}$ and\
+    the adjustment procedure is performed again to receive a final $\text{shift}_{i, n}$ value.
 \end{legal}
 
 
 As a result of the above synchronization procedure, at the beginning of the next round the\
-party $PK_i$ will report a local time equal to $n \cdot R + \textsf{shift}_n + 1$.
-If ${\textsf{shift}_n \geq 0}$, the party proceeds by emulating its actions for shift rounds.
-If ${\textsf{shift}_n \geq 0}$, the party remains a silent observer\
+party $PK_i$ will report a local time equal to $n \cdot R + \text{shift}_{i, n} + 1$.
+If ${\text{shift}_{i, n} > 0}$, the party proceeds by emulating its actions for shift rounds.
+If ${\text{shift}_{i, n} < 0}$, the party remains a silent observer\
 until its local time has advanced to slot $n \cdot R + 1$ and resumes normally at that round.

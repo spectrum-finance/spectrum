@@ -1,8 +1,8 @@
 Spectrum is an open-membership protocol, so PBFTNetwork's assumption on a closed consensus group is not valid.
 Sybil attacks can break any protocol with security thresholds and an appropriate dynamic selection of\
 the consensus group becomes crucial for preserving network's liveness and safety.
-Election of consensus group members should be performed in a random and trustless way to ensure that a sufficient fraction\
-(at most $f$ out of ${3 f + 1}$) of members are honest.
+Election of consensus group members should be performed in a random and trustless way to ensure that\
+a sufficient fraction (at most $f$ out of ${3 f + 1}$) of members are honest.
 
 Similar selection mechanics is required in most blockchain protocols.
 Bitcoin~\cite{nakamoto2009bitcoin} and many its successors are using Proof-of-Work (PoW) consensus,\
@@ -27,9 +27,9 @@ A Verifiable Random Function (VRF)~\cite{Micali1999} is a reliable way to introd
 By definition, a function $\mathcal{F}$ can be attributed to the VRF family if the following methods are defined\
 for the $\mathcal{F}$:
 \begin{itemize}
-    \item Gen: ${Gen(1^k) \rightarrow (PK, SK)}$, where $PK$ is the public key and $SK$ is the secret key.
+    \item Gen: ${Gen(1^l) \rightarrow (PK, SK)}$, where $PK$ is the public key and $SK$ is the secret key.
     \item Prove: ${Eval(x, SK) \rightarrow \pi}$, where $x$ is an input and $\pi \vcentcolon= \Pi(x, SK)$ is\
-    the proof, associated with $x$ and mixed with some random value $y$, sampled from $\{0,1\}^{l_{VRF}}$.
+    the proof, associated with $x$ and mixed with a random value, sampled from $\{0,1\}^{l_{\text{VRF}}}$.
     \item Verify: ${Verify(x, \pi, PK) \rightarrow 0 | 1}$, where the output is $1$ if\
     and only if ${\pi \equiv \Pi(x, SK)}$.
 \end{itemize}
@@ -60,7 +60,7 @@ The main assigning logic is as follows:
 
 To be more precise, let's clarify that in our setting a threshold value $T$ is calculated according\
 to the formula ${T = 2^{l_{\text{VRF}}}\cdot \phi(\alpha, f)}$ where\
-${\alpha=s/\\\sum_{l=0}^{M} s_l}$ is a relative stake.
+${\alpha=s/\\\sum_{i=1}^{M} s_i}$ is a relative stake.
 Consequently, the probability of winning is calculated as ${p(\alpha, f) = 1-(1-f)^{\alpha}}$.
 Thus, the winning probability depends on the participant's relative stake and is adjusted by the free parameter $f$.
 This is where the PoS concept comes into play: the bigger the stake, the higher the chance of winning the lottery.
@@ -79,41 +79,47 @@ $\mathcal{F}_{\text{VRF}}$ and $\mathcal{F}_{\text{LB}}$ over a sequence of $L =
 ${S=\{sl_1,\dots,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
 Let's clarify what the mentioned above pre-defined primitives are needed for:
 \begin{enumerate}
-    \item \emph{Ideal Leaky Beacon} $\mathcal{F}_{\text{LB}}v$: is used to sample an epoch random seed from the\
+    \item \emph{Ideal Leaky Beacon} $\mathcal{F}_{\text{LB}}$: is used to sample an epoch random seed from the\
     blockchain.
     \item \emph{Ideal Verifiable Random Function} $\mathcal{F}_{\text{VRF}}$: is used as a source of local randomness.
 \end{enumerate}
-More extended formal definition of ${\mathcal{F}}_{\text{LB}}$ and ${\mathcal{F}}_{\text{VRF}}$ can be found in the original\
-Ouroboros Praos paper ~\cite{cryptoeprint:2017/573}.
+More extended formal definition of ${\mathcal{F}}_{\text{LB}}$ can be found in the original Ouroboros Praos\
+paper~\cite{cryptoeprint:2017/573}.
+The functionality ${\mathcal{F}}_{\text{VRF}}$ we use here is similar to the extended VRF functionality\
+introduced by Christian Badertscher et al.~\cite{cryptoeprint:2022/1045}.
 
 Consensus group is constantly rotated each epoch ${e_j \gt 1}$.
-Any verified protocol participant can try to become a temporal member of consensus group.
-Participant is verified if his verification key tuple is published and stored in the blockchain for a\
-reliable period of time equals to $U_f$ slots.
+Any verified protocol participant can try to become a temporal member of the consensus group.
+Participant is verified if his verification key tuple is published and stored in the blockchain at least\
+$K_{\text{f}}$ blocks before the lottery.
 The consensus group lottery flow is as follows:
 \begin{enumerate}
     \item At the end of the epoch ${e_j \gt 1}$ every verified $PK_i$ requests a\
     new epoch seed $\eta_j$ from the ${\mathcal{F}}_{\text{LB}}$.
-    \item New consensus lottery threshold $T_i^{\text{cons}}$ is calculated using stake distribution\
-    (to get a relative stake) from the last block used by ${\mathcal{F}}_{\text{LB}}$ to sample the new $\eta_j$.
-    Free parameter $f$ of the associated function $\phi$ is ${f = M /\/ N}$, where $M$ is a pre-defined\
-    number of new consensus group members to select and $N$ is the total number of the verified stakeholders.
-    \item When every $PK_i$ evaluates ${\mathcal{F}}_{\text{VRF}}$ with input $x = \eta_j || e_j $ and calculates\
-    the associated random number $y$ from the received proof $\pi^{\text{e}}$, i.e.\
-    ${y = \mathcal{H}(\pi^{\text{e}*}||\textsf{CONS})}$, where $\pi^{\text{e}*}$ is a random number, extracted\
-    from the proof and $\textsf{CONS}$ is a pre-defined constant.
-    \item To reveal the result of the consensus group lottery $PK_i$ compares $y$ with $T_i^{\text{cons}}$ and\
-    if ${y < T_i^{\text{cons}}}$ then the participant is a legal member of new consensus group\
-    which will be active in the epoch $e_{j+2}$.
-    \item Finally, to declare his right to participate in the new consensus group, the participant\
-    includes a message with the associated proofs $(e_{j+2}, v^{\text{vrf}}_i, \pi^{\text{e}})$ into the blockchain.
+    \item New consensus lottery threshold $T_{i, j}^{\text{cons}} = \phi(\alpha_{i, j}, f^{\text{cons}, j})$\
+    is calculated by every $PK_i$\ using stake distribution (to get the relative stake $\alpha_{i, j}$)\
+    from the last block used by ${\mathcal{F}}_{\text{LB}}$ to sample $\eta_j$.
+    Free parameter $f_j$ of the associated function $\phi$ is ${f^{\text{cons}, j} = M_j /\/ N_j}$,\
+    where $M_j$ is a pre-defined number of new consensus group members to select at epoch $e_j$\
+    and $N_j$ is the total number of verified stakeholders.
+    \item When every $PK_i$ evaluates ${\mathcal{F}}_{\text{VRF}}$ with input\
+    $x_{i, j}^{\textsf{cons}} = \eta_j || e_j $ and calculates\
+    the associated random number $y_{i, j}^{\textsf{cons}}$ from the received proof $\pi_{i, j}^{\text{e}}$, i.e.\
+    ${y_{i, j}^{\textsf{cons}} = \mathcal{H}(\pi_{i, j}^{\text{e}*}||\textsf{CONS})}$, where $\pi_{i, j}^{\text{e}*}$\
+    is a random number extracted from the proof and $\textsf{CONS}$ is an arbitrary pre-defined constant.
+    \item To reveal the result of the consensus group lottery $PK_i$ compares value $y_{i, j}^{\textsf{cons}}$\
+    with the threshold $T_{i, j}^{\text{cons}}$.
+    If ${y_{i, j}^{\textsf{cons}} < T_{i, j}^{\text{cons}}}$\
+    then the participant is a legal member of new consensus group which will be active in the epoch $e_{j+2}$.
+    \item Finally, to declare his right to participate in the new consensus group, participant $PK_i$\
+    includes a message with associated proof $\pi_{i, j}^{\text{e}}$ into the blockchain.
 \end{enumerate}
-Note, that consensus group members should be known ahead of time for the synchronization.
-That is why the lottery for the $e_{j + 2}$ consensus group occurs at the end of epoch $e_j$.
-A one-epoch pass is required for all evidence messages to become finally settled.
+Note, that the members of the consensus group should be known ahead of time for the synchronization.
+That is why the lottery for the $e_{j + 2}$ consensus group occurs at the end of the epoch $e_j$.
+A one-epoch pass is required to all evidence messages to become finally settled.
 Public disclosure of the future consensus group doesn't give much advantage to an adversary\
 since there are hundreds of consensus members in every epoch and denial of service attacks are difficult to succeed.
 At the same time any grinding attacks are limited because an adversary can't arbitrarily control $\eta_j$ values.
 
-The main task of the validators elected via the consensus group lottery is to observe and notarize events using a digital\
-signature aggregation mechanism which we will introduce in the next sections.
+The main task of the validators set elected via the consensus group lottery is to observe and notarize\
+events using a digital signature aggregation mechanism which we will introduce in the next sections.

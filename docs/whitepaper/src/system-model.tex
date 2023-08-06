@@ -1,26 +1,10 @@
 In this section we will describe the main components and general assumptions which is essential to\
 conceptualize and construct the Spectrum protocol.
 
-\subsection{Transaction Ledger}\label{subsec:transaction-ledger.}
-We adopt the definition of transaction ledger from~\cite{cryptoeprint:2016/889}.
-A protocol $\Pi$ implements a robust transaction ledger, provided that $\Pi$ is divided into blocks that determine\
-the order in which transactions are incorporated into the ledger.
-Each block in this model is assigned to a specific time slot and the ledger must satisfy the following properties:
-\begin{enumerate}
-    \item \emph{Persistence.} Once a node of the system proclaims a certain transaction tx as stable, the remaining\
-    nodes, if queried, will either report tx in the same position in the ledger or will not report as stable any\
-    transaction in conflict to tx.
-    Here the notion of stability is a predicate that is parameterized by a security parameter $k$, specifically, a\
-    transaction is declared stable if and only if it is in a block that is more than $k$ blocks deep in the ledger.
-    \item \emph{Liveness.} If all honest nodes in the system attempt to include a certain transaction then,\
-    after time expires corresponding to $u$ slots (called the transaction confirmation time), all nodes, if queried\
-    and responding honestly, will report the transaction as stable.
-\end{enumerate}
-
 \subsection{Security Model Preliminaries}\label{subsec:security-model-preliminaries.}
 We consider a semi-synchronous setting where protocol participants have a somewhat accurate common notion\
-of the elapsed time and the network has an upper bound ${\Delta t}$ on the message delay, which is not known to the participants\
-and is used as a security parameter.
+of the elapsed time and the network has an upper bound on the message delay, which is not known\
+to the participants and is used as a security parameter.
 
 We also assume that our model operates in the dynamic availability setting ~\cite{Badertscher2018},\
 where an arbitrary (but upper-bounded) number of the consensus members may not be fully operational,\
@@ -50,7 +34,7 @@ and any discrepancies between parties' local time are insignificant in compariso
 This is still a typical approach, however, the key feature is an imperfect version of the clock functionality used\
 as a global setup.
 It allows parties to advance to a next epoch even before\
-every honest party has finished with his current epoch.
+every honest member has finished with his current epoch.
 Once in an epoch, participants synchronize their clocks based on public blockchain data.
 Therefore, this mechanism ensures that all parties, both active and those who later join the protocol,\
 can synchronize with other participants\
@@ -96,7 +80,18 @@ For each $S_k$ there is a corresponding functionality unit $F^k_{\text{ConnSys}}
 allows any node equipped with the unit to interact with $S_k$.
 Each node $n \in N$ is equipped with at least one such functionality unit and at most $K$ functionality units.
 
-Our protocol is largely inspired by ideas from Ouroboros protocols\
-family~\cite{cryptoeprint:2017/573}, ~\cite{Badertscher2018}, ~\cite{cryptoeprint:2019/838}.
-To provide security guarantees, we will also use some functionalities described in these papers, namely,\
-${\mathcal{F}}_{VRF}$ ans ${\mathcal{F}}_{KES}$.
+\subsection{Transaction Ledger}\label{subsec:transaction-ledger.}
+We adopt the definition of transaction ledger from~\cite{cryptoeprint:2016/889}.
+A protocol $\Pi$ implements a robust transaction ledger, provided that $\Pi$ is divided into blocks that determine\
+the order in which transactions are incorporated into the ledger.
+Each block in this model is assigned to a specific time slot and the ledger must satisfy the following properties:
+\begin{enumerate}
+    \item \emph{Persistence.} Once a node of the system proclaims a certain transaction tx as stable, the remaining\
+    nodes, if queried, will either report tx in the same position in the ledger or will not report as stable any\
+    transaction in conflict to tx.
+    Here the notion of stability is a predicate that is parameterized by a security parameter $K_f$, specifically, a\
+    transaction is declared stable if and only if it is in a block that is more than $K_f$ blocks deep in the ledger.
+    \item \emph{Liveness.} If all honest nodes in the system attempt to include a certain transaction then,\
+    after time expires corresponding to $U_c$ slots (called the transaction confirmation time), all nodes, if queried\
+    and responding honestly, will report the transaction as stable.
+\end{enumerate}

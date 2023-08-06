@@ -21,7 +21,8 @@ Main State Variables of The Spectrum protocol:
     \item[] $sl$ -- the smallest discrete time unit used in the protocol.
     \item[] $e$ -- the largest discrete time unit used in the protocol.
     \item[] $R$ -- epoch boundaries, each epoch consists of $R$ slots.
-    \item[] $U_{\text{f}}$ -- number of slots to achieve finality in the $L^+$.
+    \item[] $K_{\text{f}}$ -- number of blocks to achieve finality in the $L^+$.
+    \item[] $U_{\text{c}}$ -- the transaction confirmation time in slots.
 \end{legal}
 \bigbreak
 
@@ -29,7 +30,7 @@ Main State Variables of The Spectrum protocol:
 Main State Variables of The Spectrum protocol participant:
 \begin{legal}
     \item[] $PK_i$ -- Spectrum's public key of the $i$-th protocol participant.
-    \item[] $PK^k_i$ --  $S_{\text{k}}$\('\)s connected public key of the $i$-th protocol participant.
+    \item[] $PK^k_i$ -- public key of the $k$-th connected external system of the $i$-th protocol participant.
     \item[] $s$ -- participant's stake value.
     \item[] $v^{\text{vrf}}$ -- verifiable random function public key (verification key).
     \item[] $v^{\text{kes}}$ -- key evolving signature scheme public key (verification key).
@@ -40,8 +41,8 @@ Main State Variables of The Spectrum protocol participant:
 Main Spectrum's Consensus Entities, Actors and Variables:
 \begin{legal}
     \item[] $L^+$ -- the main Spectrum's super-ledger.
-    \item[] $L^{\text{loc}, k}$ -- ledger of the $k$-th connected distributed systems $S_{\text{k}}$.
-    \item[] $V_k$ -- validators set of $k$-th connected distributed systems $S_{\text{k}}$.
+    \item[] $L^{\text{loc}, k}$ -- ledger of the $k$-th connected distributed system.
+    \item[] $V_k$ -- validators set of $k$-th connected distributed system.
     \item[] $\eta$ -- epoch randomness.
     \item[] $\pi^{\text{sl}}$ -- slot VRF proof (used in the leader lottery and in the synchronization lottery).
     \item[] $\pi^{\text{e}}$ -- epoch VRF proof (used in the consensus group lottery).
