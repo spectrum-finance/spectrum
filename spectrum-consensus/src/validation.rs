@@ -1,8 +1,12 @@
+use futures::future::Either;
+
 use spectrum_ledger::{ModifierId, ModifierType};
-use spectrum_ledger::consensus::{AnyRuleId, FatalRuleId, NonFatalRuleId};
+use spectrum_ledger::consensus::{FatalRuleId, NonFatalRuleId};
+
+use crate::rules::ConsensusRuleSet;
 
 /// A valid modifier.
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Valid<T>(T);
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -10,20 +14,6 @@ pub struct InvalidModifier {
     pub id: ModifierId,
     pub tpe: ModifierType,
     pub details: String,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct RuleSpec {
-    /// Essential rules cannot be disabled.
-    pub essential: bool,
-    /// Is rule active
-    pub active: bool,
-    pub description: *const str,
-}
-
-/// Consensus rules table.
-pub trait ConsensusRuleSet {
-    fn get_rule(&self, rule_id: AnyRuleId) -> RuleSpec;
 }
 
 /// An effect for consensus validations of modifier `A` against the rule set `R`.
@@ -39,9 +29,48 @@ enum Validation<A, S, E, R> {
     Error(E, InvalidModifier),
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ValidModifier<A, S> {
+    pub modifier: Valid<A>,
+    pub state: S,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct TemporalModifierErrors<A, S> {
+    pub modifier: A,
+    pub state: S,
+    pub errors: Vec<InvalidModifier>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct FatalModifierError<E> {
+    pub output: E,
+    pub error: InvalidModifier,
+}
+
+pub type ValidationResult<A, S, E> = Result<ValidModifier<A, S>, Either<TemporalModifierErrors<A, S>, FatalModifierError<E>>>;
+
 impl<A, S, E, R> Validation<A, S, E, R> {
     pub fn new(modifier: A, state: S, rules: R) -> Self {
         Validation::Ok(modifier, state, rules)
+    }
+
+    pub fn run(self) -> ValidationResult<A, S, E> {
+        match self {
+            Validation::Ok(a, s, _) => Ok(ValidModifier {
+                modifier: Valid(a),
+                state: s,
+            }),
+            Validation::NonFatal(a, s, _, errs) => Err(Either::Left(TemporalModifierErrors {
+                modifier: a,
+                state: s,
+                errors: errs,
+            })),
+            Validation::Error(e, err) => Err(Either::Right(FatalModifierError {
+                output: e,
+                error: err,
+            })),
+        }
     }
 
     pub fn verify_fatal<F1, F2>(self, rule: FatalRuleId, cond: F1, if_invalid: F2) -> Self
@@ -127,7 +156,8 @@ mod tests {
     use spectrum_ledger::{ModifierId, ModifierType};
     use spectrum_ledger::consensus::{AnyRuleId, RuleId};
 
-    use crate::validation::{ConsensusRuleSet, InvalidModifier, RuleSpec, Validation};
+    use crate::rules::RuleSpec;
+    use crate::validation::{ConsensusRuleSet, InvalidModifier, Validation};
 
     #[derive(Debug, Eq, PartialEq, Clone)]
     struct RuleRepo<const N: usize>([RuleSpec; N]);
