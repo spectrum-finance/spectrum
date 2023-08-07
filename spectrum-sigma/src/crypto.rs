@@ -196,9 +196,9 @@ mod tests {
 
     use spectrum_crypto::digest::blake2b256_hash;
     use spectrum_crypto::pubkey::PublicKey;
+    use spectrum_handel::Threshold;
 
-    use crate::protocol_handler::handel::Threshold;
-    use crate::protocol_handler::sigma_aggregation::crypto::{
+    use crate::crypto::{
         aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
         response, schnorr_commitment_pair, verify, verify_response,
     };

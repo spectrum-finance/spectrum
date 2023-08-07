@@ -722,9 +722,9 @@ mod tests {
     use spectrum_crypto::VerifiableAgainst;
     use spectrum_network::protocol_handler::{NetworkAction, ProtocolBehaviourOut, TemporalProtocolStage};
 
-    use crate::handel::{Handel, HandelConfig, Threshold, Weighted};
     use crate::partitioning::tests::FakePartitions;
     use crate::partitioning::{BinomialPeerPartitions, PeerIx, PeerOrd, PeerPartitions, PseudoRandomGenPerm};
+    use crate::{Handel, HandelConfig, Threshold, Weighted};
 
     #[derive(Clone, Eq, PartialEq, Debug)]
     struct Contrib(HashSet<u32>);

@@ -39,7 +39,7 @@ impl<HF: FixedOutput> Ord for Digest<HF> {
 
 impl<HF: FixedOutput> PartialOrd for Digest<HF> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.0.partial_cmp(&other.0)
+        Some(self.cmp(other))
     }
 }
 
