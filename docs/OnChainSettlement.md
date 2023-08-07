@@ -10,8 +10,7 @@ denoted by $V_n^k$ . For an arbitrary slot in this epoch, suppose that the
 committee members have been observing events in $S_k$  and the L+ mempool,
 leading to the slot leader to propose a batch or report of events in $S_k$ that
 we denote by $r^*$. The report $r^*$ consists of:
- - The _progress point_ of system $S_k$.
- - A list of effects on $S_k$. There are 4 types of effects:
+ - A list of _hashes_ of effects on $S_k$. There are 4 types of effects:
      1. Importation of value from $S_k$ into Spectrum's on-chain vault in $S_k$
      (to be defined below).
      2. Exportation of value from Spectrum's on-chain vault to a user address
@@ -20,6 +19,13 @@ we denote by $r^*$. The report $r^*$ consists of:
      $S_k$.
      4. Notification that $S_k$ has reached a particular progress point (e.g.
      new block height).
+ - A _progress point_ $P_n^k$ of system $S_k$. It is assumed that _all_ of the
+   listed effects included in $r^*$ are associated with a progress point $\le
+   P_n^k$. Note that this progress point may not be the most recent from the
+   viewpoint of the slot leader. By potentially choosing an older progress
+   point, we increase the number of committee members that have observed all
+   effects in the report.
+ - A signature of $P_n^k$, signed by the slot leader's private key. 
  - The hash value of the root of a Merkle tree formed by taking the above list
    of effects as leaf nodes. Note that we must define a partial order on these
    effects to enable proper verification (see appendix A).
@@ -27,12 +33,17 @@ we denote by $r^*$. The report $r^*$ consists of:
 ### Report notarization
 
 Once the slot leader has proposed a report $r^*$, it is disseminated to all
-committee members. Each committee member will recreate the Merkle tree from
-these effects and confirms that the root hash equals the hash within $r^*$.
-Then using $\mathcal{F}_{SIG}$, the committee computes the aggregated signature
-of the root hash value. We can then define the _notarized report_ $R^*$ as
-$r^*$ appended with the aggregated signature. $R^*$ is disseminated to all
-committee members.
+committee members. Each committee member will:
+ 1. Verify the progress point in $r^*$ using the slot leader's public key. If
+    an honest committee member's view of $S_k$ is older than $P_n^k$ it may
+    choose to not participate at all in the upcoming aggregation rounds.
+ 2. Confirm that each effect hash corresponds to a valid terminal cell
+    belonging to its local pool of observed effects.
+ 3. Recreate the Merkle tree from these effects and confirms that the root hash
+    equals the hash within $r^*$. Then using $\mathcal{F}_{SIG}$, the committee
+    computes the aggregated signature of the root hash value. We can then
+    define the _notarized report_ $R^*$ as $r^*$ appended with the aggregated
+    signature. $R^*$ is disseminated to all committee members.
 
 ```rust
 struct NotarizedReport {
@@ -71,7 +82,7 @@ trait Vault {
     async fn sync_progress_point(
         &mut self,
         updates: ProgressPointUpdates<Self::PointUpdate>,
-    ) -> Result<Option<ProgressPoint>, VaultError>;
+    ) -> Result<(), VaultError>;
 
     /// Rollback to a previous progress point.
 	async fn rollback_to(point: ProgressPoint);
