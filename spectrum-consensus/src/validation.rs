@@ -20,7 +20,7 @@ pub struct InvalidModifier {
 /// Validations may rely on intermediate state `S`.
 /// In worst case the chain of validations terminate with output `E`.
 #[derive(Debug, Clone, Eq, PartialEq)]
-enum Validation<A, S, E, R> {
+pub enum Validation<A, S, E, R> {
     /// Successful case.
     Ok(A, S, R),
     /// Caught N non-fatal errors in the pipeline.
