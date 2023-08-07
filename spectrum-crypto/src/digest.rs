@@ -5,12 +5,12 @@ use std::fmt::Formatter;
 use std::hash::{Hash, Hasher};
 
 use blake2::Blake2b;
-use digest::{FixedOutput, HashMarker, OutputSizeUser, Update};
 use digest::consts::U32;
-use digest::generic_array::{ArrayLength, GenericArray};
 use digest::generic_array::sequence::GenericSequence;
+use digest::generic_array::{ArrayLength, GenericArray};
 use digest::typenum::Unsigned;
-use rand::{RngCore, thread_rng};
+use digest::{FixedOutput, HashMarker, OutputSizeUser, Update};
+use rand::{thread_rng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use thiserror::Error;
@@ -64,9 +64,9 @@ where
 {
 }
 
-impl<HF: FixedOutput<OutputSize=U32>> Digest<HF> {
+impl<HF: FixedOutput<OutputSize = U32>> Digest<HF> {
     pub const fn zero() -> Self {
-        let bytes = [0u8;32];
+        let bytes = [0u8; 32];
         Digest(unsafe { *(bytes.as_ptr() as *const GenericArray<u8, U32>) })
     }
 }
@@ -181,8 +181,8 @@ pub enum DigestNError {
 pub(crate) mod arbitrary {
     use std::convert::TryInto;
 
-    use proptest::{collection::vec, prelude::*};
     use proptest::prelude::{Arbitrary, BoxedStrategy};
+    use proptest::{collection::vec, prelude::*};
 
     use super::Digest;
 

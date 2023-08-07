@@ -1,13 +1,13 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::channel::mpsc::Receiver;
-use futures::{Stream, StreamExt};
+use futures::channel::mpsc::{Receiver, Sender};
+use futures::{SinkExt, Stream, StreamExt};
 
 use spectrum_ledger::Modifier;
-
-use crate::history::LedgerHistoryWrite;
-use crate::state::{Cells, LedgerStateWrite};
+use spectrum_view::history::LedgerHistoryWrite;
+use spectrum_view::node_view::NodeViewWriteAsync;
+use spectrum_view::state::{Cells, LedgerStateWrite};
 
 #[derive(Clone, Debug)]
 pub enum NodeViewIn {
@@ -87,7 +87,23 @@ where
     }
 }
 
+#[derive(Clone)]
+pub struct NodeViewMailbox {
+    inner: Sender<NodeViewIn>,
+}
+
+impl NodeViewMailbox {
+    pub fn new(inner: Sender<NodeViewIn>) -> Self {
+        Self { inner }
+    }
+}
+
 #[async_trait::async_trait]
-pub trait NodeViewWriteAsync: Send + Sync + Clone {
-    async fn apply_modifier(&mut self, modifier: Modifier);
+impl NodeViewWriteAsync for NodeViewMailbox {
+    async fn apply_modifier(&mut self, modifier: Modifier) {
+        self.inner
+            .send(NodeViewIn::ApplyModifier(modifier))
+            .await
+            .unwrap();
+    }
 }

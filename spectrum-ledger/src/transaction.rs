@@ -1,9 +1,9 @@
 use std::{iter, vec};
 
-use nonempty::NonEmpty;
-
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::TypeTag;
+use nonempty::NonEmpty;
+
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::signature::Signature;
 use spectrum_move::{SerializedModule, SerializedValue};
@@ -76,8 +76,8 @@ pub struct TransactionBody {
     pub inputs: TxInputs,
     /// Read-only inputs.
     pub reference_inputs: Vec<CellPtr>,
-    /// Script invokations.
-    pub invokations: Vec<ScriptInv>,
+    /// Script invocations.
+    pub invocations: Vec<ScriptInv>,
     /// Statically evaluated outputs.
     pub evaluated_outputs: Vec<AnyCell>,
 }
@@ -89,7 +89,7 @@ pub struct TransactionBody {
 pub struct Transaction {
     /// Consumed boxes.
     pub body: TransactionBody,
-    /// Aux data requred for transaction execution (e.g. scripts, data ..).
+    /// Aux data required for transaction execution (e.g. scripts, data ..).
     pub witness: Witness,
 }
 
@@ -163,7 +163,7 @@ pub struct Witness {
     pub signatures: Vec<Signature>,
 }
 
-/// Invokation of the owning script.
+/// Invocation of the owning script.
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ScriptInv {
     /// Index of the script in the witness.
@@ -188,3 +188,8 @@ pub struct LinkedScriptInv {
     pub args: Vec<SerializedValue>,
     pub targs: Vec<TypeTag>,
 }
+
+/// A proof that the given Tx is valid
+#[repr(transparent)]
+#[derive(Clone, Debug)]
+pub struct ValidTx<T>(T);

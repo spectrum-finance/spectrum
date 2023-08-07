@@ -4,8 +4,8 @@ use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use digest::{FixedOutput, HashMarker, OutputSizeUser};
 use digest::generic_array::ArrayLength;
+use digest::{FixedOutput, HashMarker, OutputSizeUser};
 use either::Either;
 use elliptic_curve::Curve;
 use futures::channel::mpsc::Receiver;
@@ -19,13 +19,11 @@ use tracing::{info, trace, trace_span};
 use spectrum_crypto::digest::Digest;
 use spectrum_crypto::pubkey::PublicKey;
 
-use crate::protocol_handler::{ProtocolBehaviour, TemporalProtocolStage};
 use crate::protocol_handler::aggregation::AggregationAction;
-use crate::protocol_handler::handel::{Handel, HandelConfig, HandelRound};
 use crate::protocol_handler::handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
-use crate::protocol_handler::multicasting::{DagMulticasting, Multicasting};
+use crate::protocol_handler::handel::{Handel, HandelConfig, HandelRound};
 use crate::protocol_handler::multicasting::overlay::{DagOverlay, MakeDagOverlay};
-use crate::protocol_handler::ProtocolBehaviourOut;
+use crate::protocol_handler::multicasting::{DagMulticasting, Multicasting};
 use crate::protocol_handler::sigma_aggregation::crypto::{
     aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
     pre_commitment, response, schnorr_commitment_pair,
@@ -38,6 +36,8 @@ use crate::protocol_handler::sigma_aggregation::types::{
     Contributions, PreCommitments, Responses, ResponsesVerifInput, Signature,
 };
 use crate::protocol_handler::void::VoidMessage;
+use crate::protocol_handler::ProtocolBehaviourOut;
+use crate::protocol_handler::{ProtocolBehaviour, TemporalProtocolStage};
 
 use super::multicasting::DagMulticastingConfig;
 

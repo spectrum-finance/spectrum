@@ -19,7 +19,7 @@ use rand::rngs::OsRng;
 use rand::Rng;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use spectrum_crypto::digest::{Blake2b256, blake2b256_hash, Blake2bDigest256};
+use spectrum_crypto::digest::{blake2b256_hash, Blake2b256, Blake2bDigest256};
 use spectrum_crypto::pubkey::PublicKey;
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;

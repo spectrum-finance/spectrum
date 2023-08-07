@@ -13,9 +13,11 @@
 * `spectrum-kes` - KES impl
 * `spectrum-sigma` - Impl of Sigma Aggregation protocol
 * `spectrum-view` - View of the ledger state
-* `spectrum-node` - Node implementation
+* `spectrum-consensus` - Consensus rules
+* `spectrum-node` - Wired Node App
 
 **Dependency graph:**
+
 ```mermaid
 flowchart TD
     SN[spectrum-network]
@@ -30,6 +32,7 @@ flowchart TD
     SS[spectrum-sigma]
     SVI[spectrum-view]
     SI[spectrum-node]
+    SCS[spectrum-consensus]
     SL --> SS
     SL --> SV
     SL --> SK
@@ -44,6 +47,8 @@ flowchart TD
     SM --> SC
     SH --> SC
     SVI --> SL
-    SI --> SVI
     SI --> SD
+    SD --> SVI
+    SCS --> SVI
+    SI --> SCS
 ```

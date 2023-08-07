@@ -3,8 +3,7 @@ use spectrum_crypto::pubkey::PublicKey;
 
 use crate::interop::{ReportBody, ReportCertificate};
 use crate::transaction::{TransactionBody, Witness};
-use crate::{BlockNo, SlotNo, SystemDigest};
-use crate::consensus::{KESSignature, VRFProof};
+use crate::{BlockNo, KESSignature, SlotNo, SystemDigest, VRFProof};
 
 #[derive(
     Copy,
@@ -46,8 +45,8 @@ pub struct HeaderBody {
     pub block_num: BlockNo,
     pub slot_num: SlotNo,
     pub vrf_pk: PublicKey,
-    pub leader_proof: VRFProof,
-    pub seed_proof: VRFProof,
+    /// VRF proof for seed and leadership.
+    pub vrf_proof: VRFProof,
     /// Merkle Tree root hash of the block body.
     pub block_body_root: Blake2bDigest256,
     pub protocol_version: ProtocolVer,
@@ -92,3 +91,13 @@ pub enum BlockSectionType {
     Header,
     Body,
 }
+
+/// A proof that the given block section is valid
+#[repr(transparent)]
+#[derive(Clone, Debug)]
+pub struct ValidSection<T>(T);
+
+/// A block section which is not valid at the moment but can be potentially applied later.
+#[repr(transparent)]
+#[derive(Clone, Debug)]
+pub struct RecoverableSection<T>(T);
