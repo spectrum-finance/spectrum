@@ -1,7 +1,7 @@
 Let's summarize all of the above and describe the full flow of the Spectrum protocol.
 Protocol is running by a set of manually selected opening consensus groups $\{V^k_1\}_{k=1}^K$\
 for $K$ connected distributed systems $\{S_k\}_{k=1}^K$.
-Each group consists of at least $M_k|_{\min}$ stakeholders interacting with each other and with the ideal\
+Each group consists of at least $M^{\text{cons}, k}_{\min}$ stakeholders interacting with each other and with the ideal\
 functionalities $\mathcal{F}_{\text{Init}}$, ${\mathcal{F}}_{\text{VRF}}$, $\mathcal{H}$, ${\mathcal{F}}_{\text{LB}}$,\
 $\mathcal{F}_{\text{AggSig}}$, ${\mathcal{F}}_{\text{KES}}$,\
 $\mathcal{G}_{\text{ImpLClock}}$ and $\mathcal{G}_{\text{Ledger}}$ over a sequence of $L = E \cdot R$\
@@ -28,8 +28,8 @@ All members of $\{V^k_1\}_{k=1}^K$ committees perform the following procedure:
     ${\mathcal{F}}_{\text{KES}}$.
 
     \item Full set of the verification keys tuples\
-    ${V_{\text{init}, k} = \{(v_i^{\text{vrf}}, v_i^{\text{kes}})\}_{i=1}^M_k}$\
-    with the initial stakes $S_k = \{s_i\}_{i=1}^M_k$ must be stored in the genesis block and\
+    ${V_{\text{init}, k} = \{(v_i^{\text{vrf}}, v_i^{\text{kes}})\}_{i=1}^{M^{\text{cons}, k}}}$\
+    with the initial stakes $S_k = \{s_i\}_{i=1}^{M^{\text{cons}, k}}$ must be stored in the genesis block and\
     acknowledged by all members of the initial consensus group (meaning members of all $K$ committees and\
     a full set is $\{V_{\text{init}, k}\}_{k=1}^{K}$).
 
