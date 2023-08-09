@@ -62,6 +62,8 @@ pub struct SlotNo(u64);
 
 impl SlotNo {
     pub const ORIGIN: SlotNo = SlotNo(0);
+    
+    pub const UNIT: SlotNo = SlotNo(1);
 }
 
 #[derive(

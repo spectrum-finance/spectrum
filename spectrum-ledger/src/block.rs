@@ -1,9 +1,9 @@
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest};
 use spectrum_crypto::pubkey::PublicKey;
 
+use crate::{BlockNo, KESSignature, SlotNo, SystemDigest, VRFProof};
 use crate::interop::{ReportBody, ReportCertificate};
 use crate::transaction::{TransactionBody, Witness};
-use crate::{BlockNo, KESSignature, SlotNo, SystemDigest, VRFProof};
 
 #[derive(
     Copy,
@@ -16,6 +16,7 @@ use crate::{BlockNo, KESSignature, SlotNo, SystemDigest, VRFProof};
     serde::Deserialize,
     derive_more::From,
     derive_more::Into,
+    derive_more::Display,
 )]
 pub struct BlockId(Blake2bDigest256);
 

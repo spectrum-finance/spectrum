@@ -1,4 +1,5 @@
-use spectrum_ledger::{ModifierId, ModifierType};
+use spectrum_ledger::{ModifierId, ModifierType, SystemDigest};
+use spectrum_ledger::block::BlockHeader;
 
 use crate::rules::{ConsensusRuleSet, NonTermRuleId, TermRuleId};
 
@@ -13,6 +14,20 @@ pub struct InvalidModifier {
     pub details: String,
 }
 
+pub trait AsInvalidModifier {
+    fn as_invalid(&self, details: String) -> InvalidModifier;
+}
+
+impl AsInvalidModifier for BlockHeader {
+    fn as_invalid(&self, details: String) -> InvalidModifier {
+        InvalidModifier {
+            id: self.body.digest().into(),
+            tpe: ModifierType::BlockHeader,
+            details,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Validation<A, T, E> {
     modifier: A,
@@ -23,18 +38,33 @@ impl<A, E> Validation<A, (), E> {
     pub fn new(modifier: A) -> Self {
         Self {
             modifier,
-            state: ValidationState::Ok(())
+            state: ValidationState::Ok(()),
         }
     }
 }
 
+pub type ValidationResult<A, T> = Result<ValidationOk<A, T>, ValidationError<A, T>>;
+
 impl<A, T> Validation<A, T, T> {
-    pub fn finalize(self) -> Result<ValidationOk<A, T>, ValidationError<A, T>> {
+    pub fn finalize(self) -> ValidationResult<A, T> {
         let Validation { modifier, state } = self;
         match state {
-            ValidationState::Ok(a) => Ok(ValidationOk { modifier: Valid(modifier), payload: a }),
-            ValidationState::NonTermError(a, errs) => Err(ValidationError { modifier, output: a, fatal: false, errors: errs }),
-            ValidationState::TermError(e, f, err) => Err(ValidationError { modifier, output: e, fatal: f, errors: vec![err] }),
+            ValidationState::Ok(a) => Ok(ValidationOk {
+                modifier: Valid(modifier),
+                payload: a,
+            }),
+            ValidationState::NonTermError(a, errs) => Err(ValidationError {
+                modifier,
+                output: a,
+                fatal: false,
+                errors: errs,
+            }),
+            ValidationState::TermError(e, f, err) => Err(ValidationError {
+                modifier,
+                output: e,
+                fatal: f,
+                errors: vec![err],
+            }),
         }
     }
 }
@@ -44,7 +74,10 @@ impl<A, T, E> Validation<A, T, E> {
     where
         F: FnOnce(&A, T) -> ValidationState<T1, E>,
     {
-        let Validation { modifier, state: result } = self;
+        let Validation {
+            modifier,
+            state: result,
+        } = self;
         let next_result = match result {
             ValidationState::Ok(t) => func(&modifier, t),
             ValidationState::NonTermError(t, mut err_acc) => match func(&modifier, t) {
@@ -75,7 +108,7 @@ pub struct ValidationError<M, E> {
     modifier: M,
     output: E,
     fatal: bool,
-    errors: Vec<InvalidModifier>
+    errors: Vec<InvalidModifier>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -94,9 +127,26 @@ impl<E> ValidationState<(), E> {
     }
 }
 
+impl<A> ValidationState<A, ()> {
+    pub fn fail<RS: ConsensusRuleSet>(rule_id: TermRuleId, rules: &RS, err: InvalidModifier) -> Self {
+        let rule = rules.get_term_rule(rule_id);
+        Self::TermError((), rule.fatal, err)
+    }
+}
+
 impl<T, E> ValidationState<T, E> {
     pub fn new(payload: T) -> Self {
         Self::Ok(payload)
+    }
+
+    pub fn fail_out<RS: ConsensusRuleSet>(
+        rule_id: TermRuleId,
+        rules: &RS,
+        out: E,
+        err: InvalidModifier,
+    ) -> Self {
+        let rule = rules.get_term_rule(rule_id);
+        Self::TermError(out, rule.fatal, err)
     }
 
     pub fn assert<F1, F2, RS: ConsensusRuleSet>(
@@ -178,7 +228,9 @@ mod tests {
     use spectrum_ledger::{ModifierId, ModifierType};
 
     use crate::rules::{NonTermRuleId, NonTermRuleSpec, RuleId, TermRuleId, TermRuleSpec};
-    use crate::validation::{ConsensusRuleSet, InvalidModifier, Valid, Validation, ValidationError, ValidationOk, ValidationState};
+    use crate::validation::{
+        ConsensusRuleSet, InvalidModifier, Valid, Validation, ValidationError, ValidationOk, ValidationState,
+    };
 
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
     struct RuleSpec {
@@ -192,18 +244,16 @@ mod tests {
 
     impl<const N: usize> ConsensusRuleSet for RuleRepo<N> {
         fn get_rule(&self, rule_id: NonTermRuleId) -> NonTermRuleSpec {
-            let RuleSpec { active, description, .. } = self.0[<u16>::from(rule_id) as usize];
-            NonTermRuleSpec {
-                active,
-                description,
-            }
+            let RuleSpec {
+                active, description, ..
+            } = self.0[<u16>::from(rule_id) as usize];
+            NonTermRuleSpec { active, description }
         }
         fn get_term_rule(&self, rule_id: TermRuleId) -> TermRuleSpec {
-            let RuleSpec { fatal, description, .. } = self.0[<u16>::from(rule_id) as usize];
-            TermRuleSpec {
-                fatal,
-                description,
-            }
+            let RuleSpec {
+                fatal, description, ..
+            } = self.0[<u16>::from(rule_id) as usize];
+            TermRuleSpec { fatal, description }
         }
     }
 
@@ -224,34 +274,36 @@ mod tests {
         let validation = Validation::new(());
         let modifier = ModifierId::random();
         let rule_1_descr = "Rule 1 failed".to_string();
-        let res = validation.and_then(|_, _| {
-            ValidationState::init()
-                .asset_term(
-                    RuleId::from(0),
-                    &rules,
-                    |_| false,
-                    |_| {
-                        (
-                            (),
-                            InvalidModifier {
-                                id: modifier,
-                                tpe: ModifierType::BlockHeader,
-                                details: rule_1_descr.clone(),
-                            },
-                        )
-                    },
-                )
-                .assert(
-                    RuleId::from(1),
-                    &rules,
-                    |_| panic!("boom"),
-                    |_| InvalidModifier {
-                        id: modifier,
-                        tpe: ModifierType::BlockHeader,
-                        details: "Rule 2 failed".to_string(),
-                    },
-                )
-        }).finalize();
+        let res = validation
+            .and_then(|_, _| {
+                ValidationState::init()
+                    .asset_term(
+                        RuleId::from(0),
+                        &rules,
+                        |_| false,
+                        |_| {
+                            (
+                                (),
+                                InvalidModifier {
+                                    id: modifier,
+                                    tpe: ModifierType::BlockHeader,
+                                    details: rule_1_descr.clone(),
+                                },
+                            )
+                        },
+                    )
+                    .assert(
+                        RuleId::from(1),
+                        &rules,
+                        |_| panic!("boom"),
+                        |_| InvalidModifier {
+                            id: modifier,
+                            tpe: ModifierType::BlockHeader,
+                            details: "Rule 2 failed".to_string(),
+                        },
+                    )
+            })
+            .finalize();
         assert_eq!(
             res,
             Err(ValidationError {
@@ -285,29 +337,31 @@ mod tests {
         let modifier = ModifierId::random();
         let rule_1_descr = "Rule 1 failed".to_string();
         let rule_2_descr = "Rule 2 failed".to_string();
-        let res = validation.and_then(|_, _| {
-            ValidationState::init()
-                .assert(
-                    RuleId::from(0),
-                    &rules,
-                    |_| false,
-                    |_| InvalidModifier {
-                        id: modifier,
-                        tpe: ModifierType::BlockHeader,
-                        details: rule_1_descr.clone(),
-                    },
-                )
-                .assert(
-                    RuleId::from(1),
-                    &rules,
-                    |_| false,
-                    |_| InvalidModifier {
-                        id: modifier,
-                        tpe: ModifierType::BlockHeader,
-                        details: rule_2_descr.clone(),
-                    },
-                )
-        }).finalize();
+        let res = validation
+            .and_then(|_, _| {
+                ValidationState::init()
+                    .assert(
+                        RuleId::from(0),
+                        &rules,
+                        |_| false,
+                        |_| InvalidModifier {
+                            id: modifier,
+                            tpe: ModifierType::BlockHeader,
+                            details: rule_1_descr.clone(),
+                        },
+                    )
+                    .assert(
+                        RuleId::from(1),
+                        &rules,
+                        |_| false,
+                        |_| InvalidModifier {
+                            id: modifier,
+                            tpe: ModifierType::BlockHeader,
+                            details: rule_2_descr.clone(),
+                        },
+                    )
+            })
+            .finalize();
         assert_eq!(
             res,
             Err(ValidationError {
@@ -348,29 +402,91 @@ mod tests {
         let modifier = ModifierId::random();
         let rule_1_descr = "Rule 1 failed".to_string();
         let rule_2_descr = "Rule 2 failed".to_string();
-        let res = validation.and_then(|_, _| {
-            ValidationState::init()
-                .assert(
-                    RuleId::from(0),
-                    &rules,
-                    |_| true,
-                    |_| InvalidModifier {
-                        id: modifier,
-                        tpe: ModifierType::BlockHeader,
-                        details: rule_1_descr.clone(),
-                    },
-                )
-                .assert(
-                    RuleId::from(1),
-                    &rules,
-                    |_| panic!("boom"),
-                    |_| InvalidModifier {
-                        id: modifier,
-                        tpe: ModifierType::BlockHeader,
-                        details: rule_2_descr.clone(),
-                    },
-                )
-        }).finalize();
-        assert_eq!(res, Ok(ValidationOk { modifier: Valid(()), payload: () }));
+        let res = validation
+            .and_then(|_, _| {
+                ValidationState::init()
+                    .assert(
+                        RuleId::from(0),
+                        &rules,
+                        |_| true,
+                        |_| InvalidModifier {
+                            id: modifier,
+                            tpe: ModifierType::BlockHeader,
+                            details: rule_1_descr.clone(),
+                        },
+                    )
+                    .assert(
+                        RuleId::from(1),
+                        &rules,
+                        |_| panic!("boom"),
+                        |_| InvalidModifier {
+                            id: modifier,
+                            tpe: ModifierType::BlockHeader,
+                            details: rule_2_descr.clone(),
+                        },
+                    )
+            })
+            .finalize();
+        assert_eq!(
+            res,
+            Ok(ValidationOk {
+                modifier: Valid(()),
+                payload: ()
+            })
+        );
+    }
+
+    #[test]
+    fn map_after_disabled_rules() {
+        let rules = RuleRepo([
+            RuleSpec {
+                active: true,
+                fatal: false,
+                description: "Rule 0",
+            },
+            RuleSpec {
+                active: false,
+                fatal: false,
+                description: "Rule 1",
+            },
+        ]);
+        let validation = Validation::new(());
+        let modifier = ModifierId::random();
+        let rule_1_descr = "Rule 1 failed".to_string();
+        let rule_2_descr = "Rule 2 failed".to_string();
+        let payload = 0u8;
+        let res = validation
+            .and_then(|_, _| {
+                ValidationState::init()
+                    .assert(
+                        RuleId::from(0),
+                        &rules,
+                        |_| true,
+                        |_| InvalidModifier {
+                            id: modifier,
+                            tpe: ModifierType::BlockHeader,
+                            details: rule_1_descr.clone(),
+                        },
+                    )
+                    .assert(
+                        RuleId::from(1),
+                        &rules,
+                        |_| panic!("boom"),
+                        |_| InvalidModifier {
+                            id: modifier,
+                            tpe: ModifierType::BlockHeader,
+                            details: rule_2_descr.clone(),
+                        },
+                    )
+                    .map(|_| payload)
+            })
+            .finalize();
+        assert_eq!(
+            res,
+            Ok(ValidationOk {
+                modifier: Valid(()),
+                payload
+            })
+        );
     }
 }

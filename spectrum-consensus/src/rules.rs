@@ -36,11 +36,9 @@ pub trait ConsensusRuleSet {
     fn get_term_rule(&self, rule_id: TermRuleId) -> TermRuleSpec;
 }
 
-/// Header occupies valid slot.
-pub const HEADER_SLOT: TermRuleId = RuleId(0);
 /// Header links to a valid parent.
-pub const HEADER_PARENT_LINK: TermRuleId = RuleId(1);
+pub const HEADER_PARENT_LINK: TermRuleId = RuleId(0);
 /// SPO's credentials are verified.
-pub const HEADER_SPO_VERIFIED: TermRuleId = RuleId(2);
+pub const HEADER_SPO_VERIFIED: TermRuleId = RuleId(1);
 /// Header's VRF is valid against SPO key.
-pub const HEADER_VRF: TermRuleId = RuleId(3);
+pub const HEADER_VRF: TermRuleId = RuleId(2);

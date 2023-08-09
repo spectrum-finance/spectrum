@@ -7,7 +7,7 @@ use spectrum_ledger::block::{
     BlockBody, BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType, RecoverableSection,
     ValidSection,
 };
-use spectrum_ledger::{ModifierId, ModifierRecord, SerializedModifier};
+use spectrum_ledger::{ModifierId, ModifierRecord, SerializedModifier, SlotNo};
 
 use crate::chain::HeaderLike;
 
@@ -24,7 +24,8 @@ pub trait LedgerHistoryWrite {
 }
 
 pub trait LedgerHistoryReadSync {
-    fn get_section(&self, id: &BlockSectionId) -> Option<BlockSection>;
+    fn get_header(&self, id: &BlockId) -> Option<BlockHeader>;
+    fn get_header_at(&self, slot: SlotNo) -> Option<BlockHeader>;
 }
 
 /// Read-only async API to ledger history.
