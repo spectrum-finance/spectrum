@@ -171,8 +171,7 @@ followed by members of all committees when validating a proposed blocks:
     which is denser in a suﬃciently long interval after that time.
     Full algorithm of this novel chain selection rule can be found in the original paper ~\cite{Badertscher2018}.
     \item \textit{Max stake}: if the densest chain rule doesn't resolve a slot battle, then the valid chain\
-    chooses according to the real stake size of the battled leaders, the maximum stake is the winner.
-    Stake distribution is picked from the actual blockchain snapshot for the current committee.
+    chooses according to the real stake size of the battled chains, the maximum stake is the winner.
 \end{enumerate}
 We will note here, that the densest chain rule is crucial for a global clock synchronization.
 It offers a useful guarantee than the joining party will end up with some blockchain\

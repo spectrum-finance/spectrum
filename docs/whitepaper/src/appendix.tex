@@ -51,6 +51,159 @@ Main Spectrum's Consensus Entities, Actors and Variables:
     \item[] $T^{\text{sync}}$ -- participant's synchronization beacon lottery threshold.
     \item[] $f^{\text{lead}}$ -- active slots coefficient (regarding adding notarized batches into\
     local ledgers $L^{\text{loc}, k}$).
-    \item[] $M^{\text{cons}, k}_{\min}$ -- lower bound of members in the $V_k$ committee.
-    \item[] $M^{\text{cons}, k}_{\max}$ -- upper bound of members in the $V_k$ committee.
 \end{legal}
+
+\newpage
+
+\subsection{Algorithms}\label{subsec:algorithms}
+
+\begin{algorithm}[ht]
+    \begin{algorithmic}[1]
+        \caption{${\mathcal{F}_{\text{LB}}(e_j, C_{\text{loc}})}$}
+        \If{${e_j \geq 2}$}
+            \State \Return ${\textsf{false}}$
+        \EndIf
+        \For {each ${B \in C_{\text{loc}}\ |\ (B\textsf{.get(}e\textsf{)} \leq e_{j - 1}) \wedge (\forall B\textsf{.get(}sl\textsf{)} \in R \cdot (j - 1) \cdot 2 /\\ 3)}$ }
+            \State ${\pi^{\text{sl}, j} \leftarrow B\textsf{.get(}\pi^{\text{sl}, j}\textsf{)}}$
+            \State ${\pi^{\text{sl}*, j} \leftarrow \pi^{\text{sl}, j}\textsf{.extract\_random\_number()}}$
+            \State $y^{\text{rand}, j} \leftarrow \mathcal{H}(\pi^{\text{sl}*, j} || \textsf{RAND})$
+            \State ${\eta_j = \mathcal{H}(\eta_{j - 1} || e_j || y^{\text{lead}, j})}$
+
+        \EndFor
+        \State \Return $\eta_j$
+    \end{algorithmic}\label{alg:algorithm-3}
+\end{algorithm}
+
+\begin{algorithm}[ht]
+    \begin{algorithmic}[1]
+        \caption{${\textsf{MaxStakeChain}(\mathcal{C}_i}, \mathcal{C}_{i'})$}
+        \If {$\sum \{B_k\textsf{.get(}s^{\text{lead}}\textsf{)},\
+        \forall B_k \in  \mathcal{C}_i\} > \sum \{B_k\textsf{.get(}s^{\text{lead}}\textsf{)}, \forall B_k \in  \mathcal{C}_{i'}\}$}
+            \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$
+        \Else
+            \lstinline|  // It is assumed that the input chains are the same size|
+            \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i'}}$
+        \EndIf
+        \State \Return ${\mathcal{C}_{\max}}$
+    \end{algorithmic}\label{alg:algorithm-01}
+\end{algorithm}
+
+\begin{algorithm}[ht]
+    \begin{algorithmic}[1]
+        \caption{${\textsf{MaxValidChain}(\mathcal{C}_{\text{loc}}, C_{\text{set}} = \{\mathcal{C}_i\}_{i=1}^N, K_{\text{f}}, S_{\text{g}})}$}
+        \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{\text{loc}}}$
+        \lstinline|  // Set local chain as initially maximum valid chain|
+        \For {${i = 1 \dots N}$}
+            \If {$\mathcal{C}_i$ forks from $\mathcal{C}_{\max}$ at most $K_{\text{f}}$ blocks}
+                \If {$|\mathcal{C}_i| > |\mathcal{C}_{\max}|$}
+                    \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$
+                \ElsIf
+                        {$|\mathcal{C}_i| == |\mathcal{C}_{\max}|$}
+                    \State Set ${\mathcal{C}_{\max} \leftarrow \textsf{MaxStakeChain}(\mathcal{C}_{i}, \mathcal{C}_{\max})}$
+
+                \EndIf
+            \Else
+
+                \State Let ${j  \leftarrow \max \{j' \geq 0 \ |\  \mathcal{C}_{\max} \text{ and } \mathcal{C}_{i} \
+                \text{have the same block in } sl_{j'}\}}$
+                \If {$|\mathcal{C}_i[j: j + S_{\text{g}}]| > |\mathcal{C}_{\max}[j: j + S_{\text{g}}]|$}
+                    \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$
+                \ElsIf
+                        {$|\mathcal{C}_i| == |\mathcal{C}_{\max}|$}
+                    \State Set ${\mathcal{C}_{\max} \leftarrow \textsf{MaxStakeChain}(\mathcal{C}_{i}, \mathcal{C}_{\max})}$
+                \EndIf
+            \EndIf
+
+        \EndFor
+        \State \Return ${\mathcal{C}_{\max}}$
+    \end{algorithmic}\label{alg:algorithm-1}
+\end{algorithm}
+
+
+\begin{algorithm}[ht]
+    \begin{algorithmic}[1]
+        \caption{$\textsf{IsValidBlock}(B)$}
+
+        \State Set stakeholders distribution $S, S_{\text{cons}}$ at the end of epoch $e_{j - 1}$, $e_{j - 3}$ in $\mathcal{C}_{\text{loc}}$
+        \State Set verified participants table $V_{\text{ver}}$ derived from epoch $e_{j - 3}$ view in $\mathcal{C}_{\text{loc}}$
+        \State Set $\{T^{\text{cons}, i}\}_{i=1}^K$ as consensus group lottery thresholds set for each\
+        committee $i$ derived from epoch $e_{j - 3}$ view
+        \State Set lottery thresholds $\{(T^{\text{lead}, i}, T^{\text{sync}, i})\}_{i=1}^K$ for each\
+        committee $i$ derived from epoch $e_{j - 1}$ view
+        \State Set ${\eta_j \leftarrow \mathcal{F}_{\text{LB}}(e_j, C_{\text{loc}})}$
+
+        \State Parse $B$ as ${(h, sl, \textsf{state}, v^{\text{vrf}}, \pi^{\text{sl}}, \sigma_{\text{KES}}^{\text{sl}})}$
+        \State Set $k$ associated with $v^{\text{vrf}}$
+
+        \State \lstinline|// Check consensus membership|
+        \State Set ${\pi^{\text{e}}}$ proof from $state$
+        \State Set ${\pi^{\text{e}*} \leftarrow \pi^{\text{e}}\textsf{.extract\_random\_number()}}$
+        \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(\pi^{\text{sl}*} || \textsf{CONS})}}$
+        \State Set ${\textsf{valid\_member} \leftarrow (y^{\text{cons}} < T^{\text{cons}, k})
+        \wedge (v^{\text{vrf}} \in V_{\text{ver}})}$.
+
+        \State \lstinline|// Check VRF proof|
+        \State Set $m_{\text{hash}} \leftarrow \mathcal{H}(\eta_j || sl)$
+        \State Set $\textsf{valid\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}
+        v^{\text{vrf}}, m_{\text{hash}},\pi^{\text{sl}} \textsf{)}$
+
+        \State \lstinline|// Check the leadership|
+        \State Set ${\pi^{\text{sl}*} \leftarrow \pi^{\text{sl}}\textsf{.extract\_random\_number()}}$
+        \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(\pi^{\text{sl}*} || \textsf{LEAD})}}$
+        \State Set ${\textsf{valid\_leader} \leftarrow y^{\text{lead} < T^{\text{lead}, k}}}$.
+
+        \State \lstinline|// Check KES signature|
+        \State Get $v^{\text{kes}}$ from $\textsf{state}$ by $v^{\text{vrf}}$
+        \State Set ${\pi^{\text{sl}*} \leftarrow \pi^{\text{sl}}\textsf{.extract\_random\_number()}}$
+        \State Set $m_{\text{hash}} \leftarrow \mathcal{H}(B)$
+        \State Set $\textsf{valid\_signature} \leftarrow \mathcal{F}_{\text{KES}}\textsf{.verify(}
+        B,\pi^{\text{sl}}, \sigma_{\text{KES}}^{\text{sl}}, v^{\text{kes}}) \textsf{)}$
+
+        \State \lstinline|// Check synchronization beacons|
+        \If{${\exists b^{\text{sync}} \in B: sl > (e_j - 1) \cdot R + 2 \cdot R \// 3}$}
+            \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$
+        \ElsIf
+                {$\exists b^{\text{sync}} \in B: (b^{\text{sync}}\textsf{.get(}sl\textsf{)} > sl)
+            \vee (b^{\text{sync}}\textsf{.get(}sl\textsf{)} \notin [(e_j - 1) \cdot R + 1, e_j \cdot R])$}
+            \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$
+        \EndIf
+        \For {each $b^{\text{sync}} \in B$}
+            \State Parse $b^{\text{sync}}$ as $(v^{\text{vrf}'}, sl', \pi^{\text{sl}}')$
+            \If
+            {$\mathcal{C}_{\text{loc}}$ contains more than one beacon with $(v^{\text{vrf}'}, sl', .)$}
+                \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$
+            \EndIf
+            \State Set ${\pi^{\text{sl}*}' \leftarrow \pi^{\text{sl}}'\textsf{.extract\_random\_number()}}$
+            \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(\pi^{\text{sl}*}' || \textsf{SYNC})}}$
+            \State Set ${\textsf{valid\_sync} \leftarrow y^{\text{sync}} < T^{\text{sync}, k}}$.
+        \EndFor
+        \If {($\textsf{valid\_parent} \wedge \textsf{valid\_member} \wedge \textsf{valid\_proof} \wedge
+        \textsf{valid\_leader} \wedge \textsf{valid\_signature} \wedge \textsf{valid\_sync})$}
+            \State \Return ${\textsf{false}}$
+        \EndIf
+    \end{algorithmic}\label{alg:algorithm}
+\end{algorithm}
+
+\begin{algorithm}[ht]
+    \begin{algorithmic}[1]
+        \caption{$\textsf{IsValidChain}(\mathcal{C}_{\text{loc}})$}
+        \If {${\exists B \in \mathcal{C}: B\textsf{.get(}sl\textsf{)} > sl^{\text{loc}}}$}
+            \State \Return ${\textsf{false}}$
+        \EndIf
+        \For {each $e_j \in \mathcal{C}_{\text{loc}}$}
+
+            \For {each block $B \in \mathcal{C}_{\text{loc}}\ | \ B\textsf{.get(}sl\textsf{)} \in e_j$}
+                \State \lstinline|// Check parent|
+                \State Set $\textsf{valid\_parent} \leftarrow (\mathcal{H}(B^{-1}) == h) \wedge (B^{-1}\textsf{.get(}sl\textsf{)} < sl)$,\
+                where $B^{-1}$ is the last block before $B$.
+                \State Set $\textsf{valid\_block} \leftarrow \textsf{IsValidBlock}(B)$
+                \If {$(\textsf{valid\_block} \wedge \textsf{valid\_parent})$}
+                    \State \Return ${\textsf{false}}$
+                \EndIf
+            \EndFor
+        \EndFor
+        \State \Return ${\textsf{true}}$
+
+
+    \end{algorithmic}\label{alg:algorithm-2}
+\end{algorithm}

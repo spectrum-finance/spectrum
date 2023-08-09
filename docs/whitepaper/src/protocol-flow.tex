@@ -1,7 +1,7 @@
 Let's summarize all of the above and describe the full flow of the Spectrum protocol.
 Protocol is running by a set of manually selected opening consensus groups $\{V^k_1\}_{k=1}^K$\
 for $K$ connected distributed systems $\{S_k\}_{k=1}^K$.
-Each group consists of at least $M^{\text{cons}, k}_{\min}$ stakeholders interacting with each other and with the ideal\
+Each group consists of at least $M^{\text{cons}, k}$ stakeholders interacting with each other and with the ideal\
 functionalities $\mathcal{F}_{\text{Init}}$, ${\mathcal{F}}_{\text{VRF}}$, $\mathcal{H}$, ${\mathcal{F}}_{\text{LB}}$,\
 $\mathcal{F}_{\text{AggSig}}$, ${\mathcal{F}}_{\text{KES}}$,\
 $\mathcal{G}_{\text{ImpLClock}}$ and $\mathcal{G}_{\text{Ledger}}$ over a sequence of $L = E \cdot R$\
@@ -23,7 +23,7 @@ All members of $\{V^k_1\}_{k=1}^K$ committees perform the following procedure:
 \begin{enumerate}
     \item On-chain vaults are initialized with an aggregated public key $aPK^k_1$ of the initial committee.
 
-    \item All committee $V^k_1$ members i.e. $\forall PK_i \in V^k_1$ must generate the tuple of verification keys\
+    \item All committee $V^k_1$ members i.e. ${\forall PK_i \in V^k_1}$ must generate the tuple of verification keys\
     ${(v_i^{\text{vrf}}, v_i^{\text{kes}})}$, using the ideal functionalities ${\mathcal_{F}}_{\text{VRF}}$ and\
     ${\mathcal{F}}_{\text{KES}}$.
 
@@ -70,7 +70,7 @@ Once the system is bootstrapped, the Spectrum protocol operates in a normal flow
     functionality with input ${x_{i, j}^{\textsf{sync}, n} = (\eta_n || sl_{i, j}^{\text{loc}, n})}$ to get a\
     proof $\pi_{i, j}^{\text{sl}, n}$ and check if\
     he has the right to release a synchronization beacon comparing the pseudo-random value\
-    ${y_{i, j}^{\textsf{sync}, n} = \mathcal{H}(\pi_{i, j}^{\text{sl}, n} || \textsf{SYNC})}$\
+    ${y_{i, j}^{\textsf{sync}, n} = \mathcal{H}(\pi_{i, j}^{\text{sl}*, n} || \textsf{SYNC})}$\
     with a corresponding threshold $T_{i, n}^{\text{sync}}$.
     If successful then the participant broadcasts a beacon message\
     $b_{i, j}^{\text{sync}, n} = (v^{\text{vrf}}_i, sl_{i, j}^{\text{loc}, n}, \pi_{i, j}^{\text{sl}, n})$.
@@ -87,7 +87,7 @@ Once the system is bootstrapped, the Spectrum protocol operates in a normal flow
     of all external collected batches and batches from the local $L_k$ that have not yet been added to $L^+$.
     He must include into the block the proof of his leadership $ \pi_{i, j}^{\text{sl}, n}$,\
     sign the block with ${\mathcal{F}}_{\text{KES}}$,\
-    and broadcasts it to all committees.
+    and broadcasts it with included signature $\sigma_{\text{KES}}$ to all committees.
 
     \item After the finality $K_{\text{f}}$ blocks are passed since $B^n_j$ settlement in the $L^+$,\
     all members of all committees that participated in the formation of the block $B^n_j$ can claim their rewards.
