@@ -38,6 +38,9 @@ pub trait ConsensusRuleSet {
 
 /// Header links to a valid parent.
 pub const HEADER_PARENT_LINK: TermRuleId = RuleId(0);
+pub const HEADER_NON_DESC_SLOT: TermRuleId = RuleId(1);
+pub const HEADER_PARENT_SLOT_DELTA: TermRuleId = RuleId(2);
+pub const HEADER_EPOCH_SEED: TermRuleId = RuleId(3);
 /// SPO's credentials are verified.
 pub const HEADER_SPO_VERIFIED: TermRuleId = RuleId(1);
 /// Header's VRF is valid against SPO key.

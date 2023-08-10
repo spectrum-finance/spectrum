@@ -1,3 +1,4 @@
 pub trait ProtocolParams {
-    fn f(&self) -> u64;
+    fn fk(&self) -> u64;
+    fn base_vrf_range(&self) -> u32;
 }

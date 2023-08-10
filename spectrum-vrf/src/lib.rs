@@ -13,7 +13,7 @@ use spectrum_crypto::digest::Digest;
 use crate::utils::{hash_to_projective_point, projective_point_to_bytes};
 
 mod example;
-mod lottery;
+pub mod lottery;
 mod tests;
 pub mod utils;
 

@@ -4,8 +4,7 @@ use async_trait::async_trait;
 use nonempty::NonEmpty;
 
 use spectrum_ledger::block::{
-    BlockBody, BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType, RecoverableSection,
-    ValidSection,
+    BlockBody, BlockHeader, BlockId, BlockSectionType, RecoverableSection, ValidSection,
 };
 use spectrum_ledger::{ModifierId, ModifierRecord, SerializedModifier, SlotNo};
 

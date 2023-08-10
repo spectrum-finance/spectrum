@@ -3,7 +3,7 @@ use spectrum_ledger::cell::{AnyCell, CellMeta, CellPtr, DatumRef, NativeCoin, Sc
 use spectrum_ledger::consensus::AnyRuleId;
 use spectrum_ledger::interop::{Effect, Point};
 use spectrum_ledger::transaction::{EvaluatedTransaction, ValidTx};
-use spectrum_ledger::ChainId;
+use spectrum_ledger::{ChainId, EpochNo, VRFProof};
 use spectrum_ledger::{DomainVKey, KESVKey, StakePoolId};
 use spectrum_move::{SerializedModule, SerializedValue};
 
@@ -52,4 +52,9 @@ pub trait StakeDistribution {
 /// Disabled consensus rules.
 pub trait ConsensusRules {
     fn get_disabled_rules(&self) -> Vec<AnyRuleId>;
+}
+
+/// Hot stuff for consensus.
+pub trait ConsensusIndexes {
+    fn get_epoch_rand_proof(&self, epoch: EpochNo) -> Option<VRFProof>;
 }

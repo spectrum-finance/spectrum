@@ -1,5 +1,5 @@
-mod block_header;
-mod rules;
-mod validation;
+pub mod block_header;
 mod constants;
-mod protocol_params;
+pub mod protocol_params;
+pub mod rules;
+pub mod validation;

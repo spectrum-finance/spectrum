@@ -1,9 +1,9 @@
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256, Digest};
 use spectrum_crypto::pubkey::PublicKey;
 
-use crate::{BlockNo, KESSignature, SlotNo, SystemDigest, VRFProof};
 use crate::interop::{ReportBody, ReportCertificate};
 use crate::transaction::{TransactionBody, Witness};
+use crate::{BlockNo, KESSignature, ModifierId, ModifierType, SlotNo, SystemDigest, VRFProof};
 
 #[derive(
     Copy,
@@ -32,6 +32,11 @@ pub struct ProtocolVer(u16);
 
 impl ProtocolVer {
     pub const INITIAL: ProtocolVer = ProtocolVer(1);
+}
+
+pub trait Modifier {
+    fn id(&self) -> ModifierId;
+    fn tpe() -> ModifierType;
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
@@ -67,6 +72,15 @@ pub struct BlockHeader {
     pub body_signature: KESSignature,
 }
 
+impl Modifier for BlockHeader {
+    fn id(&self) -> ModifierId {
+        self.body.digest().into()
+    }
+    fn tpe() -> ModifierType {
+        ModifierType::BlockHeader
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BlockBody {
     pub reports: Vec<ReportBody>,
@@ -79,12 +93,6 @@ impl SystemDigest for BlockBody {
     fn digest(&self) -> Blake2bDigest256 {
         todo!("Use root hash of the Merkle Tree here")
     }
-}
-
-#[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize, derive_more::From)]
-pub enum BlockSection {
-    Header(BlockHeader),
-    Body(BlockBody),
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]

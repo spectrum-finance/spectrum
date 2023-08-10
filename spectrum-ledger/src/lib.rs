@@ -54,6 +54,7 @@ impl BlockNo {
     derive_more::Sub,
     derive_more::From,
     derive_more::Into,
+    derive_more::Display,
     serde::Serialize,
     serde::Deserialize,
     Debug,
@@ -62,8 +63,14 @@ pub struct SlotNo(u64);
 
 impl SlotNo {
     pub const ORIGIN: SlotNo = SlotNo(0);
-    
+
     pub const UNIT: SlotNo = SlotNo(1);
+
+    pub const SLOTS_PER_EPOCH: u64 = 1000;
+
+    pub fn epoch_num(self) -> EpochNo {
+        EpochNo::from(self.0 / Self::SLOTS_PER_EPOCH)
+    }
 }
 
 #[derive(
@@ -78,6 +85,7 @@ impl SlotNo {
     derive_more::Sub,
     derive_more::From,
     derive_more::Into,
+    derive_more::Display,
     serde::Serialize,
     serde::Deserialize,
     Debug,
