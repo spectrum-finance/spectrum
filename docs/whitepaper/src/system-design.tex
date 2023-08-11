@@ -27,7 +27,7 @@ However, the assumption of a fixed trusted committee is unrealistic for open dec
 Moreover, as PBFT consensus members authenticate each other via non-transferable symmetric-key MACs, each consensus\
 member has to communicate with others directly, what results in the $O(n^2)$ communication complexity.
 Quadratic communication complexity imposes a hard limit on the scalability of the system.
-Such a design is not suitable for building a multi-chain system, since the workload of\
+Such a design is not suitable for building a multichain system, since the workload of\
 each validator grows linearly with each added chain.
 
 In the subsequent sections, we address these limitations in four steps:
@@ -40,8 +40,8 @@ In the subsequent sections, we address these limitations in four steps:
     \item \textbf{Scalable Collective Signature Aggregation.} We utilize Byzantine-tolerant aggregation\
     protocol that allows for \emph{quick aggregation of cryptographic signatures} and reduces communication complexity\
     to $O(\log{n})$.
-    \item \textbf{Eliminating Validator Bottleneck.} We shard consensus groups into local committees\
-    by the type of chain that each node is able to handle to \emph{improve system scalability}.
+    \item \textbf{Eliminating Validator Bottleneck.} We assign each consensus participant to one or more\
+    distinct committees depending on the set of chains he is willing to support to \emph{improve system scalability}.
 \end{enumerate}
 
 \subsection{Opening the Consensus Group}\label{subsec:opening-consensus-group}
@@ -77,8 +77,8 @@ existing chains without modification of the core opcodes or writing supplementar
 \subsection{Eliminating Validator Bottleneck}\label{subsec:eliminating-validator-bottleneck}
 \input{eliminating-validator-bottleneck}
 
-\subsection{Clock Synchronisation}\label{subsec:clock-sync}
-\input{clock-sync.tex}
+\subsection{Clock Synchronization}\label{subsec:clock-sync}
+\input{clock-sync}
 
 \subsection{Decentralized On-Chain Asset Management}\label{subsec:decentralized-on-chain-asset-management}
 \input{decentralized-on-chain-asset-management}

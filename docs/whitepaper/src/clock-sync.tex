@@ -1,7 +1,6 @@
-Correct and secure execution of the protocol requires time synchronization between participants.
-This is essential in the syncing shards process and especially important for sigma aggregation rounds.
-As we have already mentioned, we cannot rely on a centralized time oracle, and therefore we adopt\
-decentralized synchronization mechanism based on synchronization beacons~\cite{cryptoeprint:2019/838}.
+As we pointed out in~\ref{subsec:security-model-preliminaries.} the protocol requires a common notion of time among all participants.
+To avoid relying on centralized time oracles which would undermine network security we adopt\
+decentralized logical time synchronization technique based on synchronization beacons~\cite{cryptoeprint:2019/838}.
 
 The synchronization beacons approach is based on the following logical blocks:
 \begin{legal}
@@ -36,7 +35,7 @@ The synchronization beacons approach is based on the following logical blocks:
         ${{sl^{\text{rec}, n}_{i, j}}: (sl_{i', j'}^{\text{loc}, n}, \text{final})}$.
     \end{itemize}
     If a party has already received a beacon for the same slot $j'$ and creator $PK_{i'}$, it will set\
-    the arrival time equal to the ﬁrst one received among those.
+    the arrival time equal to the first one received among those.
     \item[]\textbf{The synchronization interval.} For a local clock adjustment, which is triggered by a synchronization\
     slot only beacons with recorded arrival time\
     in the interval ${[(n - 1) \cdot R + 1,\dots,(n-1) \cdot R + R \// 6]}$ are used.
