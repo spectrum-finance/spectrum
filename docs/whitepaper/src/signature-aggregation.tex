@@ -90,10 +90,10 @@ The takeaways from this setting, which are important for the understanding of ou
 Here we list the overall structure of aggregation to give a grasp on the overall process.
 The detailed explanation is presented below:
 \begin{itemize}
-    \item [] \textbf{Round 1.} Collect Commitments for Schnorr commitments.
+    \item [] \textbf{Round 1: Pre-Commitment.} Collect Commitments for Schnorr commitments.
     Structure: list of hashes of elliptic curve points.
     Distribute all the hashes after the aggregation.
-    \item [] \textbf{Round 2.} Collect and aggregate Schnorr commitments.
+    \item [] \textbf{Round 2: Commitment.} Collect and aggregate Schnorr commitments.
     Structures: list of signatures (proofs of discrete\
     logarithms for the commitments) together with Schnorr commitments.
     Distribute among all the nodes.
@@ -102,7 +102,7 @@ The detailed explanation is presented below:
     The commitments with the checks passed are aggregated to get the overall commitment.
     It is used to compute the challenge and the individual responses in
     the sigma--protocol.
-    \item [] \textbf{Round 3.} Collect and aggregate the responses.
+    \item [] \textbf{Round 3: Response.} Collect and aggregate the responses.
     Structure: list of individual responses.
     Upon receiving every individual response is verified.
     The responses which passed the verification are added together.
