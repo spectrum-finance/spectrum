@@ -1,16 +1,14 @@
 use spectrum_crypto::digest::Blake2b256;
 use spectrum_ledger::block::BlockHeader;
+use spectrum_validation::rules::ConsensusRuleSet;
+use spectrum_validation::validation::{AsInvalidModifier, Validation, ValidationState};
 use spectrum_view::history::LedgerHistoryReadSync;
 use spectrum_view::state::{ConsensusIndexes, StakeDistribution, ValidatorCredentials};
 use spectrum_vrf::lottery::{lottery_threshold, proof_to_random_number};
 
 use crate::constants::EPOCH_MEMBERSHIP_SALT;
 use crate::protocol_params::ProtocolParams;
-use crate::rules::{
-    ConsensusRuleSet, HEADER_EPOCH_SEED, HEADER_NON_DESC_SLOT, HEADER_PARENT_LINK, HEADER_PARENT_SLOT_DELTA,
-    HEADER_VALIDATOR_CREDS, HEADER_VALIDATOR_MEMBER,
-};
-use crate::validation::{AsInvalidModifier, Validation, ValidationState};
+use crate::rules::*;
 
 pub fn validate_block_header<H, S, RS, PP>(
     hdr: BlockHeader,

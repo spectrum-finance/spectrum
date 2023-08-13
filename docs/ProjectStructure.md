@@ -38,7 +38,6 @@ flowchart TD
     SL --> SS
     SL --> SV
     SL --> SK
-    SL --> SVL
     SH --> SN
     SM --> SN
     SD --> SN
@@ -50,6 +49,7 @@ flowchart TD
     SM --> SC
     SH --> SC
     SVI --> SL
+    SVI --> SVL
     SI --> SD
     SD --> SVI
     SCS --> SVI

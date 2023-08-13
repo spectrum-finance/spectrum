@@ -6,9 +6,9 @@ use futures::{SinkExt, Stream, StreamExt};
 
 use spectrum_consensus::block_header::validate_block_header;
 use spectrum_consensus::protocol_params::ProtocolParams;
-use spectrum_consensus::rules::ConsensusRuleSet;
-use spectrum_consensus::validation::InvalidModifier;
 use spectrum_ledger::Modifier;
+use spectrum_validation::rules::ConsensusRuleSet;
+use spectrum_validation::validation::InvalidModifier;
 use spectrum_view::history::{LedgerHistoryReadSync, LedgerHistoryWrite};
 use spectrum_view::node_view::NodeViewWriteAsync;
 use spectrum_view::state::{
@@ -57,7 +57,7 @@ where
             Modifier::BlockHeader(hd) => {
                 validate_block_header(hd, &self.history, &self.state, &self.rules, &self.protocol)
                     .result()
-                    .map(|hd| self.history.apply_header())
+                    .map(|valid_hd| self.history.apply_header(valid_hd))
             }
             Modifier::BlockBody(blk) => {
                 todo!()

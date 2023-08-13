@@ -1,6 +1,6 @@
+use spectrum_ledger::{ModifierId, ModifierType};
 use spectrum_ledger::block::Modifier;
 use spectrum_ledger::consensus::AnyRuleId;
-use spectrum_ledger::{ModifierId, ModifierType};
 
 use crate::rules::{ConsensusRuleSet, NonTermRuleId, TermRuleId};
 

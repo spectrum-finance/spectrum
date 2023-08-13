@@ -5,6 +5,7 @@ use nonempty::NonEmpty;
 
 use spectrum_ledger::block::{BlockBody, BlockHeader, BlockId, BlockSectionType};
 use spectrum_ledger::{ModifierId, ModifierRecord, SerializedModifier, SlotNo};
+use spectrum_validation::validation::ValidModifier;
 
 use crate::chain::HeaderLike;
 
