@@ -47,6 +47,8 @@ pub trait ValidatorCredentials {
 pub trait StakeDistribution {
     /// Query current stake managed by the given pool.
     fn get_stake(&self, pool_id: StakePoolId) -> NativeCoin;
+    /// Query total stake allocated in the system.
+    fn get_total_stake(&self) -> NativeCoin;
 }
 
 /// Disabled consensus rules.

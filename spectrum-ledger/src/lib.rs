@@ -190,12 +190,20 @@ impl<T: DigestViaEncoder> SystemDigest for T {
 pub struct SerializedModifier(pub Vec<u8>);
 
 #[derive(
-    Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
+    Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
 )]
 pub struct KESVKey(PublicKey);
 
 #[derive(
-    Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    derive_more::From,
+    derive_more::Into,
 )]
 pub struct VRFVKey(PublicKey);
 

@@ -45,10 +45,32 @@ pub enum CellPtr {
     Ref(CellRef),
 }
 
-#[derive(Eq, PartialEq, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Eq,
+    PartialEq,
+    Copy,
+    Clone,
+    Hash,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    derive_more::Into,
+    derive_more::From,
+)]
 pub struct NativeCoin(u64);
 
-#[derive(Eq, PartialEq, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Eq,
+    PartialEq,
+    Copy,
+    Clone,
+    Hash,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    derive_more::Into,
+    derive_more::From,
+)]
 pub struct CustomAsset(u64);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]

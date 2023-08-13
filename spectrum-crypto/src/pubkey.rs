@@ -5,7 +5,7 @@ use k256::SecretKey;
 use libp2p_identity::PeerId;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PublicKey(k256::PublicKey);
 
 impl<'a> From<&'a PublicKey> for &'a k256::PublicKey {

@@ -8,7 +8,7 @@ mod tests {
     use spectrum_crypto::digest::sha256_hash;
     use spectrum_crypto::digest::Sha2Digest256;
 
-    use crate::lottery::{get_lottery_threshold, proof_to_random_number};
+    use crate::lottery::{lottery_threshold, proof_to_random_number};
     use crate::{vrf_gen, vrf_prove, vrf_verify, ECVRFProof};
 
     #[test]
@@ -169,20 +169,18 @@ mod tests {
         let selection_fraction_num: u32 = 100;
         let selection_fraction_denom: u32 = 100;
 
-        let thr_0 = get_lottery_threshold(
+        let thr_0 = lottery_threshold(
             vrf_range,
             stake,
             total_stake,
-            selection_fraction_num,
-            selection_fraction_denom,
+            (selection_fraction_num, selection_fraction_denom),
         );
 
-        let thr_1 = get_lottery_threshold(
+        let thr_1 = lottery_threshold(
             vrf_range,
             stake_1,
             total_stake.clone(),
-            selection_fraction_num.clone(),
-            selection_fraction_denom.clone(),
+            (selection_fraction_num.clone(), selection_fraction_denom.clone()),
         );
 
         let mult = U256::from(2).pow(U256::from(vrf_range));
@@ -201,20 +199,18 @@ mod tests {
         let selection_fraction_num: u32 = 10;
         let selection_fraction_denom: u32 = 100;
 
-        let thr_0 = get_lottery_threshold(
+        let thr_0 = lottery_threshold(
             vrf_range,
             stake_0,
             total_stake,
-            selection_fraction_num,
-            selection_fraction_denom,
+            (selection_fraction_num, selection_fraction_denom),
         );
 
-        let thr_1 = get_lottery_threshold(
+        let thr_1 = lottery_threshold(
             vrf_range.clone(),
             stake_1,
             total_stake.clone(),
-            selection_fraction_num.clone(),
-            selection_fraction_denom.clone(),
+            (selection_fraction_num.clone(), selection_fraction_denom.clone()),
         );
 
         assert!(thr_0 < thr_1);
@@ -239,20 +235,18 @@ mod tests {
 
         let r = proof_to_random_number::<Sha256, Secp256k1>(&proof, constant.as_bytes().to_vec(), vrf_range);
 
-        let thr_0 = get_lottery_threshold(
+        let thr_0 = lottery_threshold(
             vrf_range,
             stake,
             total_stake,
-            selection_fraction_num_0,
-            selection_fraction_denom,
+            (selection_fraction_num_0, selection_fraction_denom),
         );
 
-        let thr_1 = get_lottery_threshold(
+        let thr_1 = lottery_threshold(
             vrf_range.clone(),
             stake.clone(),
             total_stake.clone(),
-            selection_fraction_num_1,
-            selection_fraction_denom.clone(),
+            (selection_fraction_num_1, selection_fraction_denom.clone()),
         );
 
         assert!(r < thr_0);
@@ -281,12 +275,11 @@ mod tests {
 
             let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash.clone()).unwrap();
 
-            let thr = get_lottery_threshold(
+            let thr = lottery_threshold(
                 vrf_range,
                 stake,
                 total_stake,
-                selection_fraction_num,
-                selection_fraction_denom,
+                (selection_fraction_num, selection_fraction_denom),
             );
 
             let r_0 = proof_to_random_number::<Sha256, Secp256k1>(

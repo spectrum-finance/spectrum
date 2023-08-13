@@ -1,8 +1,8 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::{SinkExt, Stream, StreamExt};
 use futures::channel::mpsc::{Receiver, Sender};
+use futures::{SinkExt, Stream, StreamExt};
 
 use spectrum_consensus::block_header::validate_block_header;
 use spectrum_consensus::protocol_params::ProtocolParams;
@@ -11,7 +11,9 @@ use spectrum_consensus::validation::InvalidModifier;
 use spectrum_ledger::Modifier;
 use spectrum_view::history::{LedgerHistoryReadSync, LedgerHistoryWrite};
 use spectrum_view::node_view::NodeViewWriteAsync;
-use spectrum_view::state::{Cells, ConsensusIndexes, LedgerStateWrite};
+use spectrum_view::state::{
+    Cells, ConsensusIndexes, LedgerStateWrite, StakeDistribution, ValidatorCredentials,
+};
 
 #[derive(Clone, Debug)]
 pub enum NodeViewIn {
@@ -22,11 +24,11 @@ pub trait ErrorHandler {
     fn on_invalid_modifier(&self, err: InvalidModifier);
 }
 
-pub struct NodeView<TState, THistory, TMempool, TErrh, TRuleSet, TProtocol> {
+pub struct NodeView<TState, THistory, TMempool, TErrHandler, TRuleSet, TProtocol> {
     state: TState,
     history: THistory,
     mempool: TMempool,
-    err_handler: TErrh,
+    err_handler: TErrHandler,
     rules: TRuleSet,
     protocol: TProtocol,
     inbox: Receiver<NodeViewIn>,
@@ -35,7 +37,7 @@ pub struct NodeView<TState, THistory, TMempool, TErrh, TRuleSet, TProtocol> {
 impl<TState, THistory, TMempool, TErrHandler, TRuleSet, TProtocol>
     NodeView<TState, THistory, TMempool, TErrHandler, TRuleSet, TProtocol>
 where
-    TState: Cells + LedgerStateWrite + ConsensusIndexes,
+    TState: Cells + LedgerStateWrite + ConsensusIndexes + StakeDistribution + ValidatorCredentials,
     THistory: LedgerHistoryWrite + LedgerHistoryReadSync,
     TErrHandler: ErrorHandler,
     TRuleSet: ConsensusRuleSet,
@@ -55,7 +57,7 @@ where
             Modifier::BlockHeader(hd) => {
                 validate_block_header(hd, &self.history, &self.state, &self.rules, &self.protocol)
                     .result()
-                    .map(|_| ())
+                    .map(|hd| self.history.apply_header())
             }
             Modifier::BlockBody(blk) => {
                 todo!()
@@ -70,7 +72,7 @@ where
 impl<TState, THistory, TMempool, TErrHandler, TRuleSet, TProtocol> Stream
     for NodeView<TState, THistory, TMempool, TErrHandler, TRuleSet, TProtocol>
 where
-    TState: Cells + LedgerStateWrite + ConsensusIndexes + Unpin,
+    TState: Cells + LedgerStateWrite + ConsensusIndexes + StakeDistribution + ValidatorCredentials + Unpin,
     THistory: LedgerHistoryWrite + LedgerHistoryReadSync + Unpin,
     TMempool: Unpin,
     TErrHandler: ErrorHandler + Unpin,

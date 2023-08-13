@@ -5,6 +5,7 @@ use spectrum_ledger::{ModifierId, ModifierType};
 use crate::rules::{ConsensusRuleSet, NonTermRuleId, TermRuleId};
 
 /// A valid modifier.
+#[repr(transparent)]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ValidModifier<T>(T);
 
@@ -148,6 +149,26 @@ pub enum ValidationState<T, E> {
     TermError(E, /*is_fatal*/ bool, RuleViolation),
 }
 
+impl ValidationState<(), ()> {
+    pub fn assert_static<F1, F2, RS: ConsensusRuleSet>(
+        rule_id: TermRuleId,
+        rules: &RS,
+        cond: F1,
+        err: F2,
+    ) -> Self
+    where
+        F1: FnOnce() -> bool,
+        F2: FnOnce() -> ModifierErr,
+    {
+        let rule = rules.get_term_rule(rule_id);
+        if cond() {
+            ValidationState::Ok(())
+        } else {
+            ValidationState::TermError((), rule.fatal, err().into_violation(rule_id.into()))
+        }
+    }
+}
+
 impl<E> ValidationState<(), E> {
     pub fn ok() -> Self {
         Self::Ok(())
@@ -199,7 +220,7 @@ impl<A> ValidationState<A, ()> {
         })
     }
 
-    pub fn asset_term<F1, F2, RS: ConsensusRuleSet>(
+    pub fn assert<F1, F2, RS: ConsensusRuleSet>(
         self,
         rule_id: TermRuleId,
         rules: &RS,
@@ -231,7 +252,7 @@ impl<T, E> ValidationState<T, E> {
         Self::TermError(out, rule.fatal, err.into_violation(rule_id.into()))
     }
 
-    pub fn assert<F1, F2, RS: ConsensusRuleSet>(
+    pub fn assert_non_terminal<F1, F2, RS: ConsensusRuleSet>(
         self,
         rule_id: NonTermRuleId,
         rules: &RS,
@@ -253,7 +274,7 @@ impl<T, E> ValidationState<T, E> {
         })
     }
 
-    pub fn asset_term_out<F1, F2, RS: ConsensusRuleSet>(
+    pub fn asset_out<F1, F2, RS: ConsensusRuleSet>(
         self,
         rule_id: TermRuleId,
         rules: &RS,
@@ -379,7 +400,7 @@ mod tests {
         let rule_2: NonTermRuleId = RuleId::from(1);
         let rule_1_descr = "Rule 1 failed".to_string();
         let res = ValidationState::ok()
-            .asset_term(
+            .assert(
                 rule_1,
                 &rules,
                 |_| false,
@@ -389,7 +410,7 @@ mod tests {
                     details: rule_1_descr.clone(),
                 },
             )
-            .assert(
+            .assert_non_terminal(
                 rule_2,
                 &rules,
                 |_| panic!("boom"),
@@ -434,7 +455,7 @@ mod tests {
         let rule_1_descr = "Rule 1 failed".to_string();
         let rule_2_descr = "Rule 2 failed".to_string();
         let res = ValidationState::<(), ()>::ok()
-            .assert(
+            .assert_non_terminal(
                 rule_1,
                 &rules,
                 |_| false,
@@ -444,7 +465,7 @@ mod tests {
                     details: rule_1_descr.clone(),
                 },
             )
-            .assert(
+            .assert_non_terminal(
                 rule_2,
                 &rules,
                 |_| false,
@@ -494,7 +515,7 @@ mod tests {
         let rule_1_descr = "Rule 1 failed".to_string();
         let rule_2_descr = "Rule 2 failed".to_string();
         let res = ValidationState::<(), ()>::ok()
-            .assert(
+            .assert_non_terminal(
                 RuleId::from(0),
                 &rules,
                 |_| true,
@@ -504,7 +525,7 @@ mod tests {
                     details: rule_1_descr.clone(),
                 },
             )
-            .assert(
+            .assert_non_terminal(
                 RuleId::from(1),
                 &rules,
                 |_| panic!("boom"),
@@ -536,7 +557,7 @@ mod tests {
         let rule_2_descr = "Rule 2 failed".to_string();
         let payload = 0u8;
         let res = ValidationState::<_, ()>::ok()
-            .assert(
+            .assert_non_terminal(
                 RuleId::from(0),
                 &rules,
                 |_| true,
@@ -546,7 +567,7 @@ mod tests {
                     details: rule_1_descr.clone(),
                 },
             )
-            .assert(
+            .assert_non_terminal(
                 RuleId::from(1),
                 &rules,
                 |_| panic!("boom"),
