@@ -11,6 +11,7 @@ pub mod block;
 pub mod cell;
 pub mod consensus;
 pub mod interop;
+pub mod merkle_tree;
 pub mod transaction;
 
 #[derive(
