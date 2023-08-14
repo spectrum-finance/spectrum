@@ -3,6 +3,17 @@ use std::collections::VecDeque;
 use spectrum_crypto::digest::blake2b256_hash;
 
 struct SparseMerkleProofBuilder {
+    /// A listing of leaf data, ordered from left to right.
+    pub leaves: Vec<Vec<u8>>,
+    /// The hashes of every node in the Merkle tree. Ordered from left to right, by level. E.g. the
+    /// following tree
+    /// ```text
+    ///         6
+    ///     4       5
+    ///   0   1   2   3
+    /// ```
+    /// is arranged as `[0, 1, 2, 3, 4, 5, 6]`. Note that the hashes are all prefixed with 0 if
+    /// they are leaf nodes and 1 if they are non-leaf.
     pub hashes: Vec<Vec<u8>>,
     pub num_leaves: usize,
     pub root_hash: Vec<u8>,
@@ -30,9 +41,9 @@ impl SparseMerkleProofBuilder {
         let mut current_level = Vec::with_capacity(num_leaves);
 
         // Create leaf nodes in level 0
-        for leaf_hash in leaves {
+        for leaf_bytes in &leaves {
             let mut data = vec![LEAF_PREFIX];
-            data.extend(leaf_hash);
+            data.extend(Vec::from(blake2b256_hash(leaf_bytes)));
             current_level.push(data);
         }
 
@@ -53,6 +64,7 @@ impl SparseMerkleProofBuilder {
         let root_hash = hashes.last().unwrap().clone();
 
         Ok(Self {
+            leaves,
             hashes,
             num_leaves,
             root_hash,
@@ -69,16 +81,20 @@ impl SparseMerkleProofBuilder {
         }
         let mut needed_internal_nodes = vec![];
 
-        let mut current_ix = if is_left(ix_last_node_to_verify) {
-            // Note: a left node always has a parent.
-            let parent = self.indexer.parent(ix_last_node_to_verify).unwrap();
-            needed_internal_nodes.push((1, parent));
-            parent
+        let (mut current_ix, right_peer_hash) = if is_left(ix_last_node_to_verify) {
+            // Take HLOA for right-peer.
+            let hloa = self
+                .indexer
+                .highest_left_only_ancestor(ix_last_node_to_verify + 1)
+                .unwrap();
+            (hloa, Some(self.hashes[ix_last_node_to_verify + 1].clone()))
         } else {
             // HLOA always exists for a right-child.
-            self.indexer
+            let hloa = self
+                .indexer
                 .highest_left_only_ancestor(ix_last_node_to_verify)
-                .unwrap()
+                .unwrap();
+            (hloa, None)
         };
 
         loop {
@@ -99,15 +115,11 @@ impl SparseMerkleProofBuilder {
             }
         }
 
-        let leaf_nodes_to_verify = self
-            .hashes
-            .iter()
-            .take(ix_last_node_to_verify + 1)
-            .cloned()
-            .collect();
+        let leaf_nodes_to_verify = self.leaves.clone();
         Ok(PackedSparseMerkleProof {
             leaf_nodes_to_verify,
             needed_internal_nodes,
+            right_peer_hash,
             root_hash: self.root_hash.clone(),
         })
     }
@@ -120,6 +132,9 @@ struct PackedSparseMerkleProof {
     leaf_nodes_to_verify: Vec<Vec<u8>>,
     /// Internal nodes that are necessary to complete the Merkle multi proof.
     needed_internal_nodes: Vec<(usize, usize)>,
+    /// If the last leaf in `leaf_nodes_to_verify` is a left-child, then the Merkle proof requires
+    /// the hashed value of the right peer leaf.
+    right_peer_hash: Option<Vec<u8>>,
     /// The root hash value of the Merkle tree.
     root_hash: Vec<u8>,
 }
@@ -127,7 +142,18 @@ struct PackedSparseMerkleProof {
 impl PackedSparseMerkleProof {
     pub fn verify(&self, hashes: &[Vec<u8>], highest_level: usize) -> bool {
         let mut current_level = 0;
-        let mut hashes_in_current_level = self.leaf_nodes_to_verify.clone();
+        let mut hashes_in_current_level: Vec<_> = self
+            .leaf_nodes_to_verify
+            .iter()
+            .map(|leaf_bytes| {
+                let mut data = vec![LEAF_PREFIX];
+                data.extend(Vec::from(blake2b256_hash(leaf_bytes)));
+                data
+            })
+            .collect();
+        if let Some(right_peer_hash) = &self.right_peer_hash {
+            hashes_in_current_level.push(right_peer_hash.clone());
+        }
         let mut hashes_in_next_level = Vec::with_capacity(hashes_in_current_level.len() / 2);
 
         while current_level < highest_level {
@@ -384,7 +410,7 @@ mod test {
     fn packed_merkle_proof() {
         let num_leaves = 8;
         let prefixed_leaves = (0..num_leaves)
-            .map(|_| Vec::from(Blake2bDigest256::random()))
+            .map(|i: usize| i.to_be_bytes().to_vec())
             .collect::<Vec<Vec<u8>>>();
 
         let tree = SparseMerkleProofBuilder::new(prefixed_leaves).unwrap();
