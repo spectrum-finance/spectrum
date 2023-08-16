@@ -94,18 +94,18 @@ Participant is verified if his verification key tuple is published and stored in
 $K_{\text{f}}$ blocks before the lottery.
 The consensus group lottery flow is as follows:
 \begin{enumerate}
-    \item At the end of the epoch ${e_j \gt 1}$ every verified $PK_i$ requests a\
+    \item At the end of the epoch ${e_j \gt 2}$ every verified $PK_i$ requests a\
     new epoch seed $\eta_j$ from the ${\mathcal{F}}_{\text{LB}}$.
     \item New consensus lottery threshold $T_{i, j}^{\text{cons}} = \phi(\alpha_{i, j}, f^{\text{cons}, j})$\
-    is calculated by every $PK_i$\ using stake distribution (to get the relative stake $\alpha_{i, j}$)\
-    from the last block used by ${\mathcal{F}}_{\text{LB}}$ to sample $\eta_j$.
+    is calculated by every $PK_i$\ using stake distribution (to get the relative stake $\alpha_{i, j - 2}$)\
+    from the blockchain state at the last block of the epoch $e_{j - 2}$.
     Free parameter $f_j$ of the associated function $\phi$ is ${f^{\text{cons}, j} = M_j /\/ N_j}$,\
     where $M_j$ is a pre-defined number of new consensus group members to select at epoch $e_j$\
     and $N_j$ is the total number of verified stakeholders.
     \item When every $PK_i$ evaluates ${\mathcal{F}}_{\text{VRF}}$ with input\
     $x_{i, j}^{\textsf{cons}} = \eta_j || e_j $ and calculates\
     the associated random number $y_{i, j}^{\textsf{cons}}$ from the received proof $\pi_{i, j}^{\text{e}}$, i.e.\
-    ${y_{i, j}^{\textsf{cons}} = \mathcal{H}(\pi_{i, j}^{\text{e}*}||\textsf{CONS})}$, where $\pi_{i, j}^{\text{e}*}$\
+    ${y_{i, j}^{\textsf{cons}} = \mathcal{H}(r_{i, j}^{\text{e}}||\textsf{CONS})}$, where $r_{i, j}^{\text{e}}$\
     is a random number extracted from the proof and $\textsf{CONS}$ is an arbitrary pre-defined constant.
     \item To reveal the result of the consensus group lottery $PK_i$ compares value $y_{i, j}^{\textsf{cons}}$\
     with the threshold $T_{i, j}^{\text{cons}}$.
@@ -115,7 +115,7 @@ The consensus group lottery flow is as follows:
     includes a message with associated proof $\pi_{i, j}^{\text{e}}$ into the blockchain.
 \end{enumerate}
 Note, that the members of the consensus group should be known ahead of time for the synchronization.
-That is why the lottery for the $e_{j + 2}$ consensus group occurs at the end of the epoch $e_j$.
+That is why the lottery for the $e_{j}$ consensus group occurs at the end of the epoch $e_{j - 2}$.
 A one-epoch pass is required to all evidence messages to become finally settled.
 Public disclosure of the future consensus group doesn't give much advantage to an adversary\
 since there are hundreds of consensus members in every epoch and denial of service attacks are difficult to succeed.

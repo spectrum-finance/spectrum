@@ -30,14 +30,15 @@ The leader lottery flow for every separate $V_n^k$ during epoch $e_n$ is as foll
     \item At the end of the epoch $e_{n-1}$ every consensus group member $PK_i \in V_n^k$ requests a\
     new epoch seed $\eta_n$ from the ${\mathcal{F}}_{\text{LB}}$.
     \item Every committee member calculates the leader lottery threshold value\
-    $T_{i, n}^{\text{lead}} = \phi(\alpha_{i, n}, f^{\text{lead}, n})$.
+    $T_{i, n}^{\text{lead}} = \phi(\alpha_{i, {n - 2}}, f^{\text{lead}, n})$.
+    Stakeholders distribution is calculated according to the blockchain state at the last bloch of the epoch $e_{n - 2}$.
     The parameter $f^{\text{lead}, n}$ is the pre-defined value that determines how many slots\
     will have at least one selected leader and is called an active slots coefficient.
     \item When, for every slot $sl_j \in e_n$ every committee member $PK_i$ evaluates ${\mathcal{F}}_{\text{VRF}}$\
     with input $x_{i, j}^{\text{lead}, n} = \eta_n || sl_j $ and calculates\
     the associated random number $y_{i, j}^{\text{lead}, n}$ from the received proof $\pi_{i, j}^{\text{sl}, n}$,\
     i.e. ${y_{i, j}^{\text{lead}, n} = \mathcal{H}(\pi_{i, j}^{\text{sl}*, n}||\textsf{LEAD})}$,\
-    where $\pi_{i, j}^{\text{sl}*, n}$ is\
+    where $r_{i, j}^{\text{sl}, n}$ is\
     a random number extracted from the proof and $\textsf{LEAD}$ is an arbitrary pre-defined constant.
     \item To reveal the result of the leader lottery $PK_i$ compares value $y_{i, j}^{\text{lead}, n}$\
     with the threshold $T_{i, n}^{\text{lead}}$ and\

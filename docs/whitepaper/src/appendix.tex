@@ -1,56 +1,60 @@
 \subsection{List of Symbols}\label{subsec:list-of-symbols}
 
-Functionalities:
-\begin{legal}
-    \item[] $\mathcal{H}$ -- ideal hash function.
-    \item[] $\mathcal{F}_{\text{VRF}}$ -- verifiable random function.
-    \item[] $\mathcal{F}_{\text{KES}}$ -- key evolving digital signature scheme.
-    \item[] $\mathcal{F}_{\text{LB}}$ -- leaky beacon.
-    \item[] $\mathcal{F}_{\text{AggSig}}$ -- collective signature aggregation functionality.
-    \item[] $\mathcal{F}_{\text{Init}}$ -- functionality providing the genesis block.
-    \item[] $\mathcal{F}^k_{\text{ConnSys}}$ -- functionality to interact with $k$-th\
+\textbf{Functionalities:}
+\begin{itemize}
+    \item[\fontencoding[\ding{113}] $\mathcal{H}$ -- ideal hash function.
+    \item[\ding{113}] $\mathcal{F}_{\text{VRF}}$ -- verifiable random function.
+    \item[\ding{113}] $\mathcal{F}_{\text{KES}}$ -- key evolving digital signature scheme.
+    \item[\ding{113}] $\mathcal{F}_{\text{LB}}$ -- leaky beacon.
+    \item[\ding{113}] $\mathcal{F}_{\text{AggSig}}$ -- collective signature aggregation functionality.
+    \item[\ding{113}] $\mathcal{F}_{\text{Init}}$ -- functionality providing the genesis block.
+    \item[\ding{113}] $\mathcal{F}^k_{\text{ConnSys}}$ -- functionality to interact with $k$-th\
     connected distributed system $S_k$.
-    \item[] $\mathcal{G}_{\text{ImpLClock}}$ -- imperfect local clock functionality.
-    \item[] $\mathcal{G}_{\text{Ledger}}$ -- the ledger functionality.
+    \item[\ding{113}] $\mathcal{G}_{\text{ImpLClock}}$ -- imperfect local clock functionality.
+    \item[\ding{113}] $\mathcal{G}_{\text{Ledger}}$ -- the ledger functionality.
+\end{itemize}
+\bigbreak
+
+\noindent
+\textbf{Main State Variables of The Spectrum protocol:}
+\begin{legal}
+    \item[\ding{113}] $sl_i \in \mathbb{N}$ -- the smallest discrete time unit used in the protocol.
+    \item[\ding{113}] $e_i \in \mathbb{N}$ -- the largest discrete time unit used in the protocol.
+    \item[\ding{113}] $R \in \mathbb{N}$ -- epoch boundaries, each epoch consists of $R$ slots.
+    \item[\ding{113}] $K_{\text{f}} \in \mathbb{N}$ -- number of blocks to achieve finality in the $L^+$.
+    \item[\ding{113}] $K_{\text{g}} \in \mathbb{N}$ -- number of blocks to consider chain growth (is used in chain selection).
+
 \end{legal}
 \bigbreak
 
 \noindent
-Main State Variables of The Spectrum protocol:
+\textbf{Main State Variables of The Spectrum protocol participant:}
 \begin{legal}
-    \item[] $sl$ -- the smallest discrete time unit used in the protocol.
-    \item[] $e$ -- the largest discrete time unit used in the protocol.
-    \item[] $R$ -- epoch boundaries, each epoch consists of $R$ slots.
-    \item[] $K_{\text{f}}$ -- number of blocks to achieve finality in the $L^+$.
-    \item[] $U_{\text{c}}$ -- the transaction confirmation time in slots.
+    \item[\ding{113}] $PK_i$ -- Spectrum's public key of the $i$-th protocol participant.
+    \item[\ding{113}] $PK^k_i$ -- public key of the $k$-th connected external system of the $i$-th protocol participant.
+    \item[\ding{113}] $s_i$ -- stake value of the $i$-th protocol participant.
+    \item[\ding{113}] $v^{\text{vrf}}_i$ -- VRF public key of the $i$-th protocol participant.
+    \item[\ding{113}] $v^{\text{kes}}_i$ -- KES scheme public of the $i$-th protocol participant.
 \end{legal}
 \bigbreak
 
 \noindent
-Main State Variables of The Spectrum protocol participant:
+\textbf{Main Spectrum's Consensus Entities, Actors and Variables:}
 \begin{legal}
-    \item[] $PK_i$ -- Spectrum's public key of the $i$-th protocol participant.
-    \item[] $PK^k_i$ -- public key of the $k$-th connected external system of the $i$-th protocol participant.
-    \item[] $s$ -- participant's stake value.
-    \item[] $v^{\text{vrf}}$ -- verifiable random function public key (verification key).
-    \item[] $v^{\text{kes}}$ -- key evolving signature scheme public key (verification key).
-\end{legal}
-\bigbreak
-
-\noindent
-Main Spectrum's Consensus Entities, Actors and Variables:
-\begin{legal}
-    \item[] $L^+$ -- the main Spectrum's super-ledger.
-    \item[] $L^{\text{loc}, k}$ -- ledger of the $k$-th connected distributed system.
-    \item[] $V_k$ -- validators set of $k$-th connected distributed system.
-    \item[] $\eta$ -- epoch randomness.
-    \item[] $\pi^{\text{sl}}$ -- slot VRF proof (used in the leader lottery and in the synchronization lottery).
-    \item[] $\pi^{\text{e}}$ -- epoch VRF proof (used in the consensus group lottery).
-    \item[] $T^{\text{lead}}$ -- participant's leader lottery threshold.
-    \item[] $T^{\text{cons},k}$ -- participant's consensus group lottery threshold (for related $V_k$ committee).
-    \item[] $T^{\text{sync}}$ -- participant's synchronization beacon lottery threshold.
-    \item[] $f^{\text{lead}}$ -- active slots coefficient (regarding adding notarized batches into\
-    local ledgers $L^{\text{loc}, k}$).
+    \item[\ding{113}] $L^+$ -- the main Spectrum's super-ledger.
+    \item[\ding{113}] $L^{\text{loc}, k}$ -- ledger of the $k$-th connected distributed system.
+    \item[\ding{113}] $V^k_n$ -- validators set of $k$-th connected distributed system active in the epoch $e_n$.
+    \item[\ding{113}] $\eta_n$ -- random seed of the epoch $e_n$ (epoch randomness).
+    \item[\ding{113}] $\pi^{\text{sl}, n}_{i, j}$ -- VRF slot proof produced by $i$-th protocol participant\
+    for slot $sl_j \in e_n$ (used in the leader lottery and in the synchronization lottery).
+    \item[\ding{113}] $\pi^{\text{e}}_{i, n}$ -- VRF epoch proof produced by $i$-th protocol participant for epoch $e_n$\
+    (used in the consensus group lottery).
+    \item[\ding{113}] $T^{\text{cons}, k}_{i, n}$ -- consensus group lottery threshold (for related $V_k$ committee) calculated for\
+    $i$-th protocol participant for epoch $n$.
+    \item[\ding{113}] $T^{\text{lead}}_{i, n}$ -- leader lottery threshold calculated for\
+    $i$-th protocol participant for epoch $n$.
+    \item[\ding{113}] $T^{\text{sync}}_{i, n}$ -- synchronization beacon lottery threshold calculated for\
+    $i$-th protocol participant for epoch $n$.
 \end{legal}
 
 \newpage
@@ -59,40 +63,46 @@ Main Spectrum's Consensus Entities, Actors and Variables:
 
 \begin{algorithm}[ht]
     \begin{algorithmic}[1]
-        \caption{${\mathcal{F}_{\text{LB}}(e_j, C_{\text{loc}})}$}
-        \If{${e_j \geq 2}$}
+        \caption{${\mathcal{F}_{\text{LB}}(e_n, C_{\text{loc}})}$}
+        \State \lstinline|// New epoch random seed is sampled once per epoch.|
+        \State \lstinline|// C_loc is the local chain of the validator.|
+        \If{${e_n \geq 2}$}
             \State \Return ${\textsf{false}}$
         \EndIf
-        \For {each ${B \in C_{\text{loc}}\ |\ (B\textsf{.get(}e\textsf{)} \leq e_{j - 1}) \wedge (\forall B\textsf{.get(}sl\textsf{)} \in R \cdot (j - 1) \cdot 2 /\\ 3)}$ }
-            \State ${\pi^{\text{sl}, j} \leftarrow B\textsf{.get(}\pi^{\text{sl}, j}\textsf{)}}$
-            \State ${\pi^{\text{sl}*, j} \leftarrow \pi^{\text{sl}, j}\textsf{.extract\_random\_number()}}$
-            \State $y^{\text{rand}, j} \leftarrow \mathcal{H}(\pi^{\text{sl}*, j} || \textsf{RAND})$
-            \State ${\eta_j = \mathcal{H}(\eta_{j - 1} || e_j || y^{\text{lead}, j})}$
+        \For {each ${B_k \in C_{\text{loc}} \ |\ (B_k\textsf{.get(}e\textsf{)} \leq e_{n - 1})\ \wedge (\forall B_k\textsf{.get(}sl\textsf{)} \in R \cdot (n - 1) \cdot 2 /\\ 3)}$}
+            \State \lstinline|// Every block B_k in the C_loc was produced by i'-th leader|
+            \State \lstinline|// during j'-th slot, i.e. k = (i', j').|
+            \State ${\pi_k^{\text{sl}, n} \leftarrow B\textsf{.get(}\pi^{\text{sl}}\textsf{)}}$
+            \State ${r_k^{\text{sl}, n} \leftarrow \pi_k^{\text{sl}, n}\textsf{.extract\_random\_number()}}$
+            \State $y_k^{\text{rand}, n} \leftarrow \mathcal{H}(r_k^{\text{sl}, n} || \textsf{RAND})$
+            \State ${\eta_n = \mathcal{H}(\eta_{n - 1} || e_n || y_k^{\text{lead}, n})}$
 
         \EndFor
-        \State \Return $\eta_j$
+        \State \Return $\eta_n$
     \end{algorithmic}\label{alg:algorithm-3}
 \end{algorithm}
 
 \begin{algorithm}[ht]
     \begin{algorithmic}[1]
         \caption{${\textsf{MaxStakeChain}(\mathcal{C}_i}, \mathcal{C}_{i'})$}
-        \If {$\sum \{B_k\textsf{.get(}s^{\text{lead}}\textsf{)},\
-        \forall B_k \in  \mathcal{C}_i\} > \sum \{B_k\textsf{.get(}s^{\text{lead}}\textsf{)}, \forall B_k \in  \mathcal{C}_{i'}\}$}
+        \If {$\sum \{B_k\textsf{.get(}s\textsf{)}, \forall B_k \in  \mathcal{C}_i\} > \sum \{B_k\textsf{.get(}s\textsf{)}, \forall B_k \in  \mathcal{C}_{i'}\}$}
+            \State \lstinline|// Used above value s is the stake of the leader|
+            \State \lstinline|// who produced the block B_k.|
             \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$
         \Else
-            \lstinline|  // It is assumed that the input chains are the same size|
+            \lstinline|  // It is assumed that the input chains are the same size.|
             \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i'}}$
         \EndIf
         \State \Return ${\mathcal{C}_{\max}}$
-    \end{algorithmic}\label{alg:algorithm-01}
+    \end{algorithmic}\label{alg:algorithm-4}
 \end{algorithm}
 
 \begin{algorithm}[ht]
     \begin{algorithmic}[1]
-        \caption{${\textsf{MaxValidChain}(\mathcal{C}_{\text{loc}}, C_{\text{set}} = \{\mathcal{C}_i\}_{i=1}^N, K_{\text{f}}, S_{\text{g}})}$}
+        \caption{${\textsf{MaxValidChain}(\mathcal{C}_{\text{loc}}, C_{\text{set}} = \{\mathcal{C}_i\}_{i=1}^N, K_{\text{f}}, K_{\text{g}})}$}
+        \State \lstinline|// C_loc is the local chain of the validator.|
         \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{\text{loc}}}$
-        \lstinline|  // Set local chain as initially maximum valid chain|
+        \lstinline|  // Set local chain as initially maximum valid chain.|
         \For {${i = 1 \dots N}$}
             \If {$\mathcal{C}_i$ forks from $\mathcal{C}_{\max}$ at most $K_{\text{f}}$ blocks}
                 \If {$|\mathcal{C}_i| > |\mathcal{C}_{\max}|$}
@@ -106,7 +116,7 @@ Main Spectrum's Consensus Entities, Actors and Variables:
 
                 \State Let ${j  \leftarrow \max \{j' \geq 0 \ |\  \mathcal{C}_{\max} \text{ and } \mathcal{C}_{i} \
                 \text{have the same block in } sl_{j'}\}}$
-                \If {$|\mathcal{C}_i[j: j + S_{\text{g}}]| > |\mathcal{C}_{\max}[j: j + S_{\text{g}}]|$}
+                \If {$|\mathcal{C}_i[j: j + K_{\text{g}}]| > |\mathcal{C}_{\max}[j: j + K_{\text{g}}]|$}
                     \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$
                 \ElsIf
                         {$|\mathcal{C}_i| == |\mathcal{C}_{\max}|$}
@@ -122,49 +132,67 @@ Main Spectrum's Consensus Entities, Actors and Variables:
 
 \begin{algorithm}[ht]
     \begin{algorithmic}[1]
-        \caption{$\textsf{IsValidBlock}(B)$}
+        \caption{$\textsf{PrepareForBlockValidation}(sl_j, v_i^{\text{vrf}}, C_{\text{loc}})$}
+        \State \lstinline|// Parse and calculate all necessary values for block validation.|
+        \State Calculate $e_n$ for the given $sl_j$
+        \State \lstinline|// Main ledger state_m is calculated according to the last block|
+        \State \lstinline|// produced up to m-th slot.|
+        \State Parse $\textsf{state}_{(n - 4)\cdot R},
+        \textsf{state}_{(n - 2)\cdot R}$ from $C_{\text{loc}}$
+        \State Parse verified participants table $V{\text{ver}}$ from $\textsf{state}_{(n - 4)\cdot R}$
+        \State Parse an associated committee id $k$ for the given $v_i^{\text{vrf}}$ from $V{\text{ver}}$
+        \State \lstinline|// Set epoch randomness:|
+        \State Set ${\eta_{n-2} \leftarrow \mathcal{F}_{\text{LB}}(e_{n-2}, C_{\text{loc}})}$ \lstinline|// For the consensus lottery.|
+        \State Set ${\eta_{n} \leftarrow \mathcal{F}_{\text{LB}}(e_{n}, C_{\text{loc}})}$ \lstinline|// For the leader lottery.|
+        \State \lstinline|// Get stakeholders distribution used for the leader lottery:|
+        \State Parse $k$-th committee stakeholders distribution $S_k^{\text{cons}, n - 2}$ from the $\textsf{state}_{(n - 2)\cdot R}$
+        \State \lstinline|// Get stakeholders distribution used for the consensus group lottery:|
+        \State Parse verified and equipped with $\mathcal{F}^k_{\text{ConnSys}}$ functionality stakeholders distribution $S_k^{\text{ver}, {n - 4}}$
+        from $\textsf{state}_{(n - 4)\cdot R}$
+        \State \lstinline|// Set lotteries thresholds:|
+        \State Set participant's consensus group lottery threshold for $k$-th committee as $T_{i, n-2}^{\text{cons}, k}$ calculated using $S_k^{\text{ver}, {n - 4}}$
+        \State Set participant's leader lottery threshold as $T_{i, n}^{\text{lead}, k}$ calculated using $S_k^{\text{cons}, {n - 2}}$
+        \State Set participant's synchronization lottery threshold as $T_{i, n}^{\text{sync}}$ calculated using $S_k^{\text{cons}, {n - 2}}$
 
-        \State Set stakeholders distribution $S, S_{\text{cons}}$ at the end of epoch $e_{j - 1}$, $e_{j - 3}$ in $\mathcal{C}_{\text{loc}}$
-        \State Set verified participants table $V_{\text{ver}}$ derived from epoch $e_{j - 3}$ view in $\mathcal{C}_{\text{loc}}$
-        \State Set $\{T^{\text{cons}, i}\}_{i=1}^K$ as consensus group lottery thresholds set for each\
-        committee $i$ derived from epoch $e_{j - 3}$ view
-        \State Set lottery thresholds $\{(T^{\text{lead}, i}, T^{\text{sync}, i})\}_{i=1}^K$ for each\
-        committee $i$ derived from epoch $e_{j - 1}$ view
-        \State Set ${\eta_j \leftarrow \mathcal{F}_{\text{LB}}(e_j, C_{\text{loc}})}$
+        \Return ${(e_n, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, T_{i, n-2}^{\text{cons}, k}, T_{i, n}^{\text{lead}, k}, T_{i, n}^{\text{sync}})}$
+    \end{algorithmic}\label{alg:algorithm-2.0}
+\end{algorithm}
 
-        \State Parse $B$ as ${(h, sl, \textsf{state}, v^{\text{vrf}}, \pi^{\text{sl}}, \sigma_{\text{KES}}^{\text{sl}})}$
-        \State Set $k$ associated with $v^{\text{vrf}}$
+\begin{algorithm}[ht]
+    \begin{algorithmic}[1]
+        \caption{$\textsf{IsValidBlock}(B, C_{text{\loc}})$}
+        \State \lstinline|// All indexes except the epoch index are omitted.|
+        \State Parse $B$ as ${(h, sl, \textsf{state}, v^{\text{vrf}}, \pi^{\text{sl}}, \sigma_{\text{KES}})}$ \lstinline|// value h is a block body hash.|
+        \State \lstinline|// Prepare constants:|
 
-        \State \lstinline|// Check consensus membership|
-        \State Set ${\pi^{\text{e}}}$ proof from $state$
-        \State Set ${\pi^{\text{e}*} \leftarrow \pi^{\text{e}}\textsf{.extract\_random\_number()}}$
-        \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(\pi^{\text{sl}*} || \textsf{CONS})}}$
-        \State Set ${\textsf{valid\_member} \leftarrow (y^{\text{cons}} < T^{\text{cons}, k})
-        \wedge (v^{\text{vrf}} \in V_{\text{ver}})}$.
+        \State $(e_n, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, T^{\text{cons}}, T^{\text{lead}, T^{\text{sync}}) = \textsf{PrepareForBlockValidation}(sl, v^{\text{vrf}}, C_{\text{loc}})$
+        \State \lstinline|// Check consensus membership:|
+        \State Parse ${\pi^{\text{e}}}$ from $state$
+        \State Set ${r^{\text{e}} \leftarrow \pi^{\text{e}}\textsf{.extract\_random\_number()}}$
+        \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(r^{\text{e}} || \textsf{CONS})}}$
+        \State Set ${\textsf{valid\_member} \leftarrow (v^{\text{vrf}} \in V_{\text{ver}}) \wedge (y^{\text{cons}} < T^{\text{cons}})}$.
 
-        \State \lstinline|// Check VRF proof|
-        \State Set $m_{\text{hash}} \leftarrow \mathcal{H}(\eta_j || sl)$
+        \State \lstinline|// Check VRF proof:|
         \State Set $\textsf{valid\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}
-        v^{\text{vrf}}, m_{\text{hash}},\pi^{\text{sl}} \textsf{)}$
+        v^{\text{vrf}}, \mathcal{H}(\eta_n || sl),\pi^{\text{sl}} \textsf{)}$
 
-        \State \lstinline|// Check the leadership|
-        \State Set ${\pi^{\text{sl}*} \leftarrow \pi^{\text{sl}}\textsf{.extract\_random\_number()}}$
-        \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(\pi^{\text{sl}*} || \textsf{LEAD})}}$
-        \State Set ${\textsf{valid\_leader} \leftarrow y^{\text{lead} < T^{\text{lead}, k}}}$.
+        \State \lstinline|// Check the leadership:|
+        \State Set ${r^{\text{sl}} \leftarrow \pi^{\text{sl}}\textsf{.extract\_random\_number()}}$
+        \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{LEAD})}}$
+        \State Set ${\textsf{valid\_leader} \leftarrow y^{\text{lead}} < T^{\text{lead}}}$.
 
-        \State \lstinline|// Check KES signature|
-        \State Get $v^{\text{kes}}$ from $\textsf{state}$ by $v^{\text{vrf}}$
-        \State Set ${\pi^{\text{sl}*} \leftarrow \pi^{\text{sl}}\textsf{.extract\_random\_number()}}$
-        \State Set $m_{\text{hash}} \leftarrow \mathcal{H}(B)$
+        \State \lstinline|// Check KES signature:|
+        \State Set ${y^{\text{rand}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{RAND})}}$
+        \State Parse $v^{\text{kes}}$ from $V_{\text{ver}}$
         \State Set $\textsf{valid\_signature} \leftarrow \mathcal{F}_{\text{KES}}\textsf{.verify(}
-        B,\pi^{\text{sl}}, \sigma_{\text{KES}}^{\text{sl}}, v^{\text{kes}}) \textsf{)}$
+        \mathcal{H}(h || \textsf{state} || sl || y^{\text{rand}}), \pi^{\text{sl}}, \sigma_{\text{KES}}, v^{\text{kes}}) \textsf{)}$
 
-        \State \lstinline|// Check synchronization beacons|
-        \If{${\exists b^{\text{sync}} \in B: sl > (e_j - 1) \cdot R + 2 \cdot R \// 3}$}
+        \State \lstinline|// Check synchronization beacons:|
+        \If{${\exists b^{\text{sync}} \in B: sl > (e_n - 1) \cdot R + 2 \cdot R \// 3}$}
             \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$
         \ElsIf
                 {$\exists b^{\text{sync}} \in B: (b^{\text{sync}}\textsf{.get(}sl\textsf{)} > sl)
-            \vee (b^{\text{sync}}\textsf{.get(}sl\textsf{)} \notin [(e_j - 1) \cdot R + 1, e_j \cdot R])$}
+            \vee (b^{\text{sync}}\textsf{.get(}sl\textsf{)} \notin [(e_n - 1) \cdot R + 1, e_n \cdot R])$}
             \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$
         \EndIf
         \For {each $b^{\text{sync}} \in B$}
@@ -173,9 +201,9 @@ Main Spectrum's Consensus Entities, Actors and Variables:
             {$\mathcal{C}_{\text{loc}}$ contains more than one beacon with $(v^{\text{vrf}'}, sl', .)$}
                 \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$
             \EndIf
-            \State Set ${\pi^{\text{sl}*}' \leftarrow \pi^{\text{sl}}'\textsf{.extract\_random\_number()}}$
-            \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(\pi^{\text{sl}*}' || \textsf{SYNC})}}$
-            \State Set ${\textsf{valid\_sync} \leftarrow y^{\text{sync}} < T^{\text{sync}, k}}$.
+            \State Set ${r^{\text{sl}}' \leftarrow \pi^{\text{sl}}'\textsf{.extract\_random\_number()}}$
+            \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}}' || \textsf{SYNC})}}$
+            \State Set ${\textsf{valid\_sync} \leftarrow y^{\text{sync}} < T^{\text{sync}}}$.
         \EndFor
         \If {($\textsf{valid\_parent} \wedge \textsf{valid\_member} \wedge \textsf{valid\_proof} \wedge
         \textsf{valid\_leader} \wedge \textsf{valid\_signature} \wedge \textsf{valid\_sync})$}

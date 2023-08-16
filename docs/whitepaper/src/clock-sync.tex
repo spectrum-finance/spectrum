@@ -13,7 +13,7 @@ The synchronization beacons approach is based on the following logical blocks:
     every $PK_i$ evaluates $\mathcal{F}_{\text{VRF}}$ functionality with input\
     ${x_{i, j}^{\textsf{sync}, n} = (\eta_n || sl_{i, j}^{\text{loc}, n})}$ to get a proof $\pi_{i, j}^{\text{sl}, n}$\
     and checks if he has the right to release a beacon by comparing the pseudo-random value\
-    ${y_{i, j}^{\textsf{sync}, n} = \mathcal{H}(\pi_{i, j}^{\text{sl}, n} || \textsf{SYNC})}$\
+    ${y_{i, j}^{\textsf{sync}, n} = \mathcal{H}(r_{i, j}^{\text{sl}, n} || \textsf{SYNC})}$\
     with the corresponding threshold $T_{i}^{\text{sync}, n} = \phi(\alpha_{i, n}, f^{\text{sync}}, n)$.
     If ${y_{i, j}^{\textsf{sync}, n} < T_{i}^{\text{sync}, n}}$ then the participant broadcasts a beacon message\
     $b_{i, j}^{\text{sync}, n} = (v^{\text{vrf}}_i, sl_{i, j}^{\text{loc}, n}, \pi_{i, j}^{\text{sl}, n})$.

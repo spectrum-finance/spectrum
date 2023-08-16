@@ -28,7 +28,7 @@ All members of $\{V^k_1\}_{k=1}^K$ committees perform the following procedure:
     ${\mathcal{F}}_{\text{KES}}$.
 
     \item Full set of the verification keys tuples\
-    ${V_{\text{init}, k} = \{(v_i^{\text{vrf}}, v_i^{\text{kes}})\}_{i=1}^{M^{\text{cons}, k}}}$\
+    ${V_{\text{init}, k} = \{(v_i^{\text{vrf}}, v_i^{\text{kes}}, k)\}_{i=1}^{M^{\text{cons}, k}}}$\
     with the initial stakes $S_k = \{s_i\}_{i=1}^{M^{\text{cons}, k}}$ must be stored in the genesis block and\
     acknowledged by all members of the initial consensus group (meaning members of all $K$ committees and\
     a full set is $\{V_{\text{init}, k}\}_{k=1}^{K}$).
@@ -62,7 +62,7 @@ Once the system is bootstrapped, the Spectrum protocol operates in a normal flow
 
     \item During the epoch, for every slot $sl_j$ every committee $V^k_n$ member $PK_i$ separately evaluates\
     ${\mathcal{F}}_{\test{VRF}}$ with his own input ${x_{i, j}^{\text{lead}, n} = \eta_n || sl_j}$ \ and compares the\
-    value ${y_{i, j}^{\text{lead}, n} = \mathcal{H}(\pi_{i, j}^{\text{sl}*, n}||\textsf{LEAD})}$ with the associated\
+    value ${y_{i, j}^{\text{lead}, n} = \mathcal{H}(r_{i, j}^{\text{sl}, n}||\textsf{LEAD})}$ with the associated\
     threshold $T_{i, n}^{\text{lead}}$.
     If successful $PK_i$ is the slot $sl_j$ leader and he can initiate the notarization round in his local committee.
 
@@ -70,7 +70,7 @@ Once the system is bootstrapped, the Spectrum protocol operates in a normal flow
     functionality with input ${x_{i, j}^{\textsf{sync}, n} = (\eta_n || sl_{i, j}^{\text{loc}, n})}$ to get a\
     proof $\pi_{i, j}^{\text{sl}, n}$ and check if\
     he has the right to release a synchronization beacon comparing the pseudo-random value\
-    ${y_{i, j}^{\textsf{sync}, n} = \mathcal{H}(\pi_{i, j}^{\text{sl}*, n} || \textsf{SYNC})}$\
+    ${y_{i, j}^{\textsf{sync}, n} = \mathcal{H}(r_{i, j}^{\text{sl}, n} || \textsf{SYNC})}$\
     with a corresponding threshold $T_{i, n}^{\text{sync}}$.
     If successful then the participant broadcasts a beacon message\
     $b_{i, j}^{\text{sync}, n} = (v^{\text{vrf}}_i, sl_{i, j}^{\text{loc}, n}, \pi_{i, j}^{\text{sl}, n})$.
@@ -80,10 +80,10 @@ Once the system is bootstrapped, the Spectrum protocol operates in a normal flow
     which should be notarized by other members of the $V^k_n$ using the aggregated signature functionality\
     ${\mathcal{F}}_{\text{AggSig}}$ and then added to the local ledger $L_k$.
 
-    \item Notarized batch $(b^n_j)^*$ can first be formed by any member of the $V^k_n$.
+    \item Notarized reports $(b^n_j)^*$ can first be formed by any member of the $V^k_n$.
     The batch must be immediately sent to the leader who initiated its notarization and to the\
     members of other committees.
-    After the leader receives enough batches he forms a block  $B^n_j$ consisting\
+    After the leader receives enough reports he forms a block  $B^n_j$ consisting\
     of all external collected batches and batches from the local $L_k$ that have not yet been added to $L^+$.
     He must include into the block the proof of his leadership $ \pi_{i, j}^{\text{sl}, n}$,\
     sign the block with ${\mathcal{F}}_{\text{KES}}$,\
@@ -108,7 +108,7 @@ Once the system is bootstrapped, the Spectrum protocol operates in a normal flow
     When every $PK_i$ evaluates ${\mathcal{F}}_{\text{VRF}}$ with input\
     $x_{i, n}^{\textsf{cons}} = \eta_n || e_n $ and calculates\
     the associated random number $y_{i, n}^{\textsf{cons}}$ from the received proof $\pi_{i, n}^{\text{e}}$, i.e.\
-    ${y_{i, j}^{\textsf{cons}} = \mathcal{H}(\pi_{i, n}^{\text{e}*}||\textsf{CONS})}$
+    ${y_{i, j}^{\textsf{cons}} = \mathcal{H}(r_{i, n}^{\text{e}}||\textsf{CONS})}$
     In addition, all participants must multiply all stakes by the corresponding multipliers $A^{i, n}_{\text{m}}$,\
     calculated from the activity of participants in the previous epoch.
     $PK_i$ compares value $y_{i, n}^{\textsf{cons}}$\
