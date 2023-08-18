@@ -6,20 +6,7 @@ use naumachia::scripts::{ScriptError, ScriptResult};
 const BLUEPRINT: &str = include_str!("../aiken/vault/plutus.json");
 const VALIDATOR_NAME: &str = "verify_spectrum_report.release_value";
 
-pub struct PackedSparseMerkleProof {
-    /// This Vec is contiguous. E.g. if it contains 4 nodes, then they represents nodes 0, 1, 2 and
-    /// 3 in the Merkle tree (ordered left to right).
-    pub leaf_nodes_to_verify: Vec<Vec<u8>>,
-    /// Internal nodes that are necessary to complete the Merkle multi proof.
-    pub needed_internal_nodes: Vec<InternalNode>,
-    /// If the last leaf in `leaf_nodes_to_verify` is a left-child, then the Merkle proof requires
-    /// the hashed value of the right peer leaf.
-    pub right_peer_hash: Option<Vec<u8>>,
-    /// The root hash value of the Merkle tree.
-    pub root_hash: Vec<u8>,
-}
-
-//(spectrum_ledger::merkle_tree::PackedSparseMerkleProof);
+pub struct PackedSparseMerkleProof(spectrum_ledger::merkle_tree::PackedSparseMerkleProof);
 
 pub struct InternalNode {
     level: i64,
@@ -37,23 +24,31 @@ impl From<InternalNode> for PlutusData {
 
 impl From<PackedSparseMerkleProof> for PlutusData {
     fn from(value: PackedSparseMerkleProof) -> Self {
-        let PackedSparseMerkleProof {
+        let spectrum_ledger::merkle_tree::PackedSparseMerkleProof {
             leaf_nodes_to_verify,
             needed_internal_nodes,
             right_peer_hash,
             root_hash,
-        } = value;
+        } = value.0;
 
         let leaf_nodes_pd: Vec<PlutusData> = leaf_nodes_to_verify
             .into_iter()
             .map(|leaf_bytes| leaf_bytes.into())
             .collect();
         let leaf_nodes_pd = PlutusData::Array(leaf_nodes_pd);
-        let needed_internal_nodes: Vec<PlutusData> =
-            needed_internal_nodes.into_iter().map(PlutusData::from).collect();
+        let needed_internal_nodes: Vec<PlutusData> = needed_internal_nodes
+            .into_iter()
+            .map(|(level, hash)| {
+                InternalNode {
+                    level: level as i64,
+                    hash,
+                }
+                .into()
+            })
+            .collect();
         let needed_internal_nodes = PlutusData::Array(needed_internal_nodes);
         let root_hash = PlutusData::from(root_hash);
-        let right_peer_hash = PlutusData::from(right_peer_hash);
+        let right_peer_hash = PlutusData::from(right_peer_hash.map(|ix| ix as i64));
         PlutusData::Constr(Constr {
             constr: 0,
             fields: vec![leaf_nodes_pd, needed_internal_nodes, right_peer_hash, root_hash],
@@ -107,21 +102,7 @@ mod tests {
 
         let proof = tree.build_packed_proof(verify_up_to).unwrap();
 
-        let needed_internal_nodes: Vec<_> = proof
-            .needed_internal_nodes
-            .into_iter()
-            .map(|(level, ix)| InternalNode {
-                level: level as i64,
-                hash: tree.hashes[ix].clone(),
-            })
-            .collect();
-        let right_peer_hash = proof.right_peer_hash.map(|ix| tree.hashes[ix].clone());
-        let packed_proof = PackedSparseMerkleProof {
-            leaf_nodes_to_verify: proof.leaf_nodes_to_verify,
-            needed_internal_nodes,
-            right_peer_hash,
-            root_hash: proof.root_hash,
-        };
+        let packed_proof = PackedSparseMerkleProof(proof);
 
         let res = script.execute(Some(5), packed_proof, ctx).unwrap();
         println!("{:?}", res);

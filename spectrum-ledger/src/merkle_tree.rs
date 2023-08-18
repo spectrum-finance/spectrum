@@ -102,14 +102,14 @@ impl SparseMerkleProofBuilder {
                 if !self.indexer.is_root_ix(hloa) {
                     let level = self.indexer.get_level(hloa).unwrap();
                     current_ix = hloa + 1;
-                    needed_internal_nodes.push((level, current_ix));
+                    needed_internal_nodes.push((level, self.hashes[current_ix].clone()));
                 } else {
                     break;
                 }
             } else if !self.indexer.is_root_ix(current_ix) {
                 let level = self.indexer.get_level(current_ix).unwrap();
                 current_ix += 1;
-                needed_internal_nodes.push((level, current_ix));
+                needed_internal_nodes.push((level, self.hashes[current_ix].clone()));
             } else {
                 break;
             }
@@ -130,8 +130,9 @@ pub struct PackedSparseMerkleProof {
     /// This Vec is contiguous. E.g. if it contains 4 nodes, then they represents nodes 0, 1, 2 and
     /// 3 in the Merkle tree (ordered left to right).
     pub leaf_nodes_to_verify: Vec<Vec<u8>>,
-    /// Internal nodes that are necessary to complete the Merkle multi proof.
-    pub needed_internal_nodes: Vec<(usize, usize)>,
+    /// Internal nodes that are necessary to complete the Merkle multi proof, together with their
+    /// level in the Merkle tree.
+    pub needed_internal_nodes: Vec<(usize, Vec<u8>)>,
     /// If the last leaf in `leaf_nodes_to_verify` is a left-child, then the Merkle proof requires
     /// the hashed value of the right peer leaf.
     pub right_peer_hash: Option<usize>,
@@ -167,14 +168,14 @@ impl PackedSparseMerkleProof {
 
             hashes_in_current_level.clear();
             hashes_in_current_level.extend_from_slice(&hashes_in_next_level);
-            for internal_node_ix in self.needed_internal_nodes.iter().filter_map(|&(level, ix)| {
-                if level == current_level + 1 {
-                    Some(ix)
+            for internal_node_hash in self.needed_internal_nodes.iter().filter_map(|(level, hash)| {
+                if *level == current_level + 1 {
+                    Some(hash)
                 } else {
                     None
                 }
             }) {
-                hashes_in_current_level.push(hashes[internal_node_ix].clone());
+                hashes_in_current_level.push(internal_node_hash.clone());
             }
             current_level += 1;
             hashes_in_next_level.clear();
@@ -460,8 +461,8 @@ mod test {
 
         // internal nodes
         print!("[");
-        for (level, ix) in proof.needed_internal_nodes {
-            print!("({}, #{:?}),", level, tree.hashes[ix]);
+        for (level, hash) in proof.needed_internal_nodes {
+            print!("({}, #{:?}),", level, hash);
         }
         print!("],");
 
