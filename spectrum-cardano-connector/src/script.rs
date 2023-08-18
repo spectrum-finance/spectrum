@@ -82,11 +82,10 @@ mod tests {
     use spectrum_ledger::merkle_tree::SparseMerkleProofBuilder;
 
     #[test]
-    fn plutus() {
+    fn test_validator() {
         let script = get_script().unwrap();
-
         let owner = Address::from_bech32("addr_test1qpmtp5t0t5y6cqkaz7rfsyrx7mld77kpvksgkwm0p7en7qum7a589n30e80tclzrrnj8qr4qvzj6al0vpgtnmrkkksnqd8upj0").unwrap();
-
+        let transfer_to = Address::from_bech32("addr_test1qqkfqm3nrd23nkc5xqz27nzsullmr7kzf70qa9pf53n8pdkuy76df9re2czqz2rmqzc7zhmmnkkc4ehk87kpzs0fuylsy5mqgs").unwrap();
         let owner_pkh = pub_key_hash_from_address_if_available(&owner).unwrap();
         let ctx = ContextBuilder::new(owner_pkh).build_spend(&vec![0, 1, 2], 0);
 
@@ -98,13 +97,9 @@ mod tests {
             leaves.push(leaf_data);
         }
 
-        let tree = SparseMerkleProofBuilder::new(leaves).unwrap();
-
-        let proof = tree.build_packed_proof(verify_up_to).unwrap();
-
-        let packed_proof = PackedSparseMerkleProof(proof);
-
-        let res = script.execute(Some(5), packed_proof, ctx).unwrap();
+        let proof_builder = SparseMerkleProofBuilder::new(leaves).unwrap();
+        let proof = PackedSparseMerkleProof(proof_builder.build_packed_proof(verify_up_to).unwrap());
+        let res = script.execute(Some(5), proof, ctx).unwrap();
         println!("{:?}", res);
     }
 }
