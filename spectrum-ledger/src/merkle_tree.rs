@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use spectrum_crypto::digest::blake2b256_hash;
 
-struct SparseMerkleProofBuilder {
+pub struct SparseMerkleProofBuilder {
     /// A listing of leaf data, ordered from left to right.
     pub leaves: Vec<Vec<u8>>,
     /// The hashes of every node in the Merkle tree. Ordered from left to right, by level. E.g. the
@@ -27,7 +27,7 @@ const LEAF_PREFIX: u8 = 0;
 const INTERNAL_PREFIX: u8 = 1;
 
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     NumberOfLeavesNotPowerOf2,
     NonLeafIndexSelected(usize),
 }
@@ -87,7 +87,7 @@ impl SparseMerkleProofBuilder {
                 .indexer
                 .highest_left_only_ancestor(ix_last_node_to_verify + 1)
                 .unwrap();
-            (hloa, Some(self.hashes[ix_last_node_to_verify + 1].clone()))
+            (hloa, Some(ix_last_node_to_verify + 1))
         } else {
             // HLOA always exists for a right-child.
             let hloa = self
@@ -126,17 +126,17 @@ impl SparseMerkleProofBuilder {
 }
 
 #[derive(Debug)]
-struct PackedSparseMerkleProof {
+pub struct PackedSparseMerkleProof {
     /// This Vec is contiguous. E.g. if it contains 4 nodes, then they represents nodes 0, 1, 2 and
     /// 3 in the Merkle tree (ordered left to right).
-    leaf_nodes_to_verify: Vec<Vec<u8>>,
+    pub leaf_nodes_to_verify: Vec<Vec<u8>>,
     /// Internal nodes that are necessary to complete the Merkle multi proof.
-    needed_internal_nodes: Vec<(usize, usize)>,
+    pub needed_internal_nodes: Vec<(usize, usize)>,
     /// If the last leaf in `leaf_nodes_to_verify` is a left-child, then the Merkle proof requires
     /// the hashed value of the right peer leaf.
-    right_peer_hash: Option<Vec<u8>>,
+    pub right_peer_hash: Option<usize>,
     /// The root hash value of the Merkle tree.
-    root_hash: Vec<u8>,
+    pub root_hash: Vec<u8>,
 }
 
 impl PackedSparseMerkleProof {
@@ -151,8 +151,8 @@ impl PackedSparseMerkleProof {
                 data
             })
             .collect();
-        if let Some(right_peer_hash) = &self.right_peer_hash {
-            hashes_in_current_level.push(right_peer_hash.clone());
+        if let Some(right_peer_ix) = &self.right_peer_hash {
+            hashes_in_current_level.push(hashes[*right_peer_ix].clone());
         }
         let mut hashes_in_next_level = Vec::with_capacity(hashes_in_current_level.len() / 2);
 
@@ -317,7 +317,7 @@ fn is_left(ix: usize) -> bool {
 
 #[cfg(test)]
 mod test {
-    use spectrum_crypto::digest::Blake2bDigest256;
+    use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 
     use super::{MerkleTreeIndexer, SparseMerkleProofBuilder};
 
@@ -408,7 +408,7 @@ mod test {
 
     #[test]
     fn packed_merkle_proof() {
-        let num_leaves = 8;
+        let num_leaves = 256;
         let prefixed_leaves = (0..num_leaves)
             .map(|i: usize| i.to_be_bytes().to_vec())
             .collect::<Vec<Vec<u8>>>();
@@ -419,5 +419,59 @@ mod test {
             println!("i: {}, needed: {:?}", i, packed.needed_internal_nodes);
             assert!(packed.verify(&tree.hashes, tree.indexer.highest_level()));
         }
+    }
+
+    #[test]
+    fn gen_aiken_test() {
+        let num_leaves: usize = 256;
+        let verify_up_to = 199;
+        let mut leaves = vec![];
+        println!("test verify_{}_of_{}() {{", verify_up_to, num_leaves);
+        for i in 0..num_leaves {
+            let leaf_data = Vec::from(blake2b256_hash(format!("a{}", i).as_bytes()));
+            if i <= verify_up_to {
+                println!("  let tx_{} = #{:?}", i, leaf_data);
+            }
+            leaves.push(leaf_data);
+        }
+        //for i in 0..num_leaves {
+        //    println!("  let n_{} = bytearray.push(blake2b_256(tx_{}), 0)", i, i);
+        //}
+
+        let tree = SparseMerkleProofBuilder::new(leaves).unwrap();
+        //let num_nodes = tree.indexer.num_tree_nodes();
+        //for (left, right) in (0..num_nodes).zip((0..num_nodes).skip(1)).step_by(2) {
+        //    let parent = tree.indexer.parent(left).unwrap();
+        //    println!(
+        //        "  let n_{} = bytearray.push(bytearray.concat(n_{}, n_{}) |> blake2b_256, 1)",
+        //        parent, left, right
+        //    );
+        //}
+
+        let proof = tree.build_packed_proof(verify_up_to).unwrap();
+        println!("  let root = #{:?}", tree.hashes.last().unwrap());
+
+        println!("  sparse_merkle_proof(");
+        print!("[");
+        for i in 0..=verify_up_to {
+            print!("tx_{}, ", i);
+        }
+        print!("],");
+
+        // internal nodes
+        print!("[");
+        for (level, ix) in proof.needed_internal_nodes {
+            print!("({}, #{:?}),", level, tree.hashes[ix]);
+        }
+        print!("],");
+
+        // right peer hash
+        if let Some(right_peer_ix) = proof.right_peer_hash {
+            println!("Some(#{:?}),", tree.hashes[right_peer_ix]);
+        } else {
+            println!("None,");
+        }
+
+        println!("root,)}}");
     }
 }

@@ -1,0 +1,143 @@
+{
+  "preamble": {
+    "title": "spectrum/vault",
+    "description": "Aiken contracts for project 'spectrum/vault'",
+    "version": "0.0.0",
+    "plutusVersion": "v2",
+    "license": "Apache-2.0"
+  },
+  "validators": [
+    {
+      "title": "verify_spectrum_report.release_value",
+      "datum": {
+        "title": "_datum",
+        "schema": {
+          "$ref": "#/definitions/Option$Int"
+        }
+      },
+      "redeemer": {
+        "title": "redeemer",
+        "schema": {
+          "$ref": "#/definitions/vault~1types~1Redeemer"
+        }
+      },
+      "compiledCode": "590518010000323232323232323232323222232533300932323232323232323333323232323232323232323232323232323232222232323232533302b3370e90000008991919b8f007001375c606200260520042940c0a4004ccc01c00401520003253330293370e9000000899191980a8021981799bb0375060260086ea40052f5bded8c06eb8c0bc004c09c0104008c09c00ccc04c01088cdd81ba80023752660306e5000520003001001222232323253330283370e900000109919299981680080189929998170008991919ba548000cc0c4dd4800a5eb80dd71817000981800100218180009bab302e0013026003001153330273370e900000089919199980400400080319b8000548008dd5981680098128010a6103d87a800030250013322323253330293370e90000008991919191919ba548000cc0c8dd3000a5eb80cc064cc03400800488cdd81ba800237520026601c00c4a66605a66e1cdd6998149815800a4000010266e9520003303133029302b001480092f5c02980103d87a8000330113300f0090012533302c3370e66e18dd69816991919bb03033002303300130330013758605a0029002240002646466e9520003303237526603a646e50004cdc5001000a400497ae0375c605e646466ec0c0d0008c0d0004c0d0004dd618178011bae302e3232337606066004606600260660026eb0c0b40045300103d87a80003756605e002604e004298103d87a80003027001533302a00514c0103d87a80001323374a9000198161ba60014bd70181680299b8000148008008c0040048894ccc09400840044c8c8cc0a0dd480119980280280080198148019bae30270023001001222533302300214bd70099191919299981219b87480080044ccc01c01c00c0144c8c8cc0a8dd48009998048048028039bae302a001302200230220013003002302700330250023001001222533302100214bd6f7b6300991929998118018a5eb7bdb1804c8c8cc098cdd81ba73302630230043302630240044bd701ba73302630230023302630240024bd7019980380380180098138021812801981280198118011800800911299980f8010a5eb804c8c8c8c94ccc080cdc3a4004002266600e00e00600a264646604c6ea4004ccc02402401401cdd71813000980f001180f000980180118118019810801180080091299980e0008a400026466e01200233003003001301f0013001001222533301b0021001132323301e002333005005001003301f003301d0022233300348000008004c00400488894ccc06400852f5bded8c026464660386600600a004666600c00c66e000152002001003301d003375c60360044466e2c00400801c01400c004dd7180a800980a801180980098098011bac301100130110023758601e002600e0022930b1900199919119299980619b87480000044c8c8c8c8c8c8c8c94ccc05cc0680084c8c8c9263253330173370e900000089919299980e180f8010a4c2c6eb8c074004c05401854ccc05ccdc3a40040022a666034602a00c2930b0b180a8029980600311924c64a66602e66e1d2000001132323232533301e3021002149858dd7180f800980f8011bad301d00130150021630150013300b007232498dd70008b1bae30180013018002301600130160023758602800260280046eb0c048004c02800858c028004c0040048894ccc03800852613233300400430120030023001301000200233001001480008888cccc01ccdc38008018061199980280299b8000448008c0380040080088c014dd5000918019baa0015734aae7555cf2ab9f5740ae855d101",
+      "hash": "0262b6eb3e1d03720664fbc08d3ae5370b47dab09d9a19588a3da3ec"
+    }
+  ],
+  "definitions": {
+    "ByteArray": {
+      "dataType": "bytes"
+    },
+    "Int": {
+      "dataType": "integer"
+    },
+    "List$ByteArray": {
+      "dataType": "list",
+      "items": {
+        "$ref": "#/definitions/ByteArray"
+      }
+    },
+    "List$vault/types/InternalNode": {
+      "dataType": "list",
+      "items": {
+        "$ref": "#/definitions/vault~1types~1InternalNode"
+      }
+    },
+    "Option$ByteArray": {
+      "title": "Optional",
+      "anyOf": [
+        {
+          "title": "Some",
+          "description": "An optional value.",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "$ref": "#/definitions/ByteArray"
+            }
+          ]
+        },
+        {
+          "title": "None",
+          "description": "Nothing.",
+          "dataType": "constructor",
+          "index": 1,
+          "fields": []
+        }
+      ]
+    },
+    "Option$Int": {
+      "title": "Optional",
+      "anyOf": [
+        {
+          "title": "Some",
+          "description": "An optional value.",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "$ref": "#/definitions/Int"
+            }
+          ]
+        },
+        {
+          "title": "None",
+          "description": "Nothing.",
+          "dataType": "constructor",
+          "index": 1,
+          "fields": []
+        }
+      ]
+    },
+    "vault/types/InternalNode": {
+      "title": "InternalNode",
+      "anyOf": [
+        {
+          "title": "InternalNode",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "level",
+              "$ref": "#/definitions/Int"
+            },
+            {
+              "title": "hash",
+              "$ref": "#/definitions/ByteArray"
+            }
+          ]
+        }
+      ]
+    },
+    "vault/types/Redeemer": {
+      "title": "Redeemer",
+      "description": "The aggregated public key of the current committee",
+      "anyOf": [
+        {
+          "title": "Redeemer",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "leaves",
+              "$ref": "#/definitions/List$ByteArray"
+            },
+            {
+              "title": "internal_nodes",
+              "$ref": "#/definitions/List$vault~1types~1InternalNode"
+            },
+            {
+              "title": "peer_leaf_hash",
+              "$ref": "#/definitions/Option$ByteArray"
+            },
+            {
+              "title": "merkle_root_hash",
+              "$ref": "#/definitions/ByteArray"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
