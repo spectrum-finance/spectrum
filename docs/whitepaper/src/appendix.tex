@@ -1,3 +1,60 @@
+\newenvironment{protocol}
+{
+    \begin{center}
+        \hrule height.8pt depth0pt \kern2pt
+        \renewcommand{\thealgorithm}{}
+        \renewcommand{\caption}[2][\relax]{
+                {\raggedright\textbf{Protocol} ##2\par}
+            \ifx\relax##1\relax
+            \addcontentsline{loa}{algorithm}{\protect\numberline{\thealgorithm}##2}
+            \else
+            \addcontentsline{loa}{algorithm}{\protect\numberline{\thealgorithm}##1}
+            \fi
+            \kern2pt\hrule\kern2pt
+        }
+        }{
+        \kern2pt\hrule\relax
+    \end{center}
+}
+
+\newenvironment{functionality}
+{
+    \begin{center}
+        \hrule height.8pt depth0pt \kern2pt
+        \renewcommand{\thealgorithm}{}
+        \renewcommand{\caption}[2][\relax]{
+                {\raggedright\textbf{Functionality} ##2\par}
+            \ifx\relax##1\relax
+            \addcontentsline{loa}{algorithm}{\protect\numberline{\thealgorithm}##2}
+            \else
+            \addcontentsline{loa}{algorithm}{\protect\numberline{\thealgorithm}##1}
+            \fi
+            \kern2pt\hrule\kern2pt
+        }
+        }{
+        \kern2pt\hrule\relax
+    \end{center}
+}
+
+\newenvironment{algo}
+{
+    \begin{center}
+        \hrule height.8pt depth0pt \kern2pt
+        \renewcommand{\thealgorithm}{}
+        \renewcommand{\caption}[2][\relax]{
+                {\raggedright\textbf{Algorithm} ##2\par}
+            \ifx\relax##1\relax
+            \addcontentsline{loa}{algorithm}{\protect\numberline{\thealgorithm}##2}
+            \else
+            \addcontentsline{loa}{algorithm}{\protect\numberline{\thealgorithm}##1}
+            \fi
+            \kern2pt\hrule\kern2pt
+        }
+        }{
+        \kern2pt\hrule\relax
+    \end{center}
+}
+
 \subsection{List of Symbols}\label{subsec:list-of-symbols}
 
 \textbf{Functionalities:}
@@ -59,179 +116,406 @@
 
 \newpage
 
-\subsection{Algorithms}\label{subsec:algorithms}
+\subsection{A Complete Description of the Spectrum Protocol}\label{subsec:a-complete-description-of-the-spectrum-protocol}
+The purpose of this section is to formally specify the code of the Spectrum protocol.
 
-\begin{algorithm}[ht]
+\subsubsection{Validity Checks}
+\textbf{Block validation}.
+A core procedure to validate an incoming blocks.
+Block validation implies a procedure for preparing the necessary constants to check the validity of the party $P'$ to issue the block.
+The preparation algorithm is described below:
+\begin{algo}
+    \caption{$\textsf{PrepareForBlockValidation}(sl, R, v_{P'}^{\text{vrf}}, C_{\text{loc}})$}
     \begin{algorithmic}[1]
-        \caption{${\mathcal{F}_{\text{LB}}(e_n, C_{\text{loc}})}$}
-        \State \lstinline|// New epoch random seed is sampled once per epoch.|
-        \State \lstinline|// C_loc is the local chain of the validator.|
-        \If{${e_n \geq 2}$}
-            \State \Return ${\textsf{false}}$
-        \EndIf
-        \For {each ${B_k \in C_{\text{loc}} \ |\ (B_k\textsf{.get(}e\textsf{)} \leq e_{n - 1})\ \wedge (\forall B_k\textsf{.get(}sl\textsf{)} \in R \cdot (n - 1) \cdot 2 /\\ 3)}$}
-            \State \lstinline|// Every block B_k in the C_loc was produced by i'-th leader|
-            \State \lstinline|// during j'-th slot, i.e. k = (i', j').|
-            \State ${\pi_k^{\text{sl}, n} \leftarrow B\textsf{.get(}\pi^{\text{sl}}\textsf{)}}$
-            \State ${r_k^{\text{sl}, n} \leftarrow \pi_k^{\text{sl}, n}\textsf{.extract\_random\_number()}}$
-            \State $y_k^{\text{rand}, n} \leftarrow \mathcal{H}(r_k^{\text{sl}, n} || \textsf{RAND})$
-            \State ${\eta_n = \mathcal{H}(\eta_{n - 1} || e_n || y_k^{\text{lead}, n})}$
+        \noindent
+        \lstinline|// Parse and calculate all necessary values for block validation.|
+        \State Calculate $e_n$ for the given $sl$.
 
-        \EndFor
-        \State \Return $\eta_n$
-    \end{algorithmic}\label{alg:algorithm-3}
-\end{algorithm}
-
-\begin{algorithm}[ht]
-    \begin{algorithmic}[1]
-        \caption{${\textsf{MaxStakeChain}(\mathcal{C}_i}, \mathcal{C}_{i'})$}
-        \If {$\sum \{B_k\textsf{.get(}s\textsf{)}, \forall B_k \in  \mathcal{C}_i\} > \sum \{B_k\textsf{.get(}s\textsf{)}, \forall B_k \in  \mathcal{C}_{i'}\}$}
-            \State \lstinline|// Used above value s is the stake of the leader|
-            \State \lstinline|// who produced the block B_k.|
-            \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$
-        \Else
-            \lstinline|  // It is assumed that the input chains are the same size.|
-            \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i'}}$
-        \EndIf
-        \State \Return ${\mathcal{C}_{\max}}$
-    \end{algorithmic}\label{alg:algorithm-4}
-\end{algorithm}
-
-\begin{algorithm}[ht]
-    \begin{algorithmic}[1]
-        \caption{${\textsf{MaxValidChain}(\mathcal{C}_{\text{loc}}, C_{\text{set}} = \{\mathcal{C}_i\}_{i=1}^N, K_{\text{f}}, K_{\text{g}})}$}
-        \State \lstinline|// C_loc is the local chain of the validator.|
-        \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{\text{loc}}}$
-        \lstinline|  // Set local chain as initially maximum valid chain.|
-        \For {${i = 1 \dots N}$}
-            \If {$\mathcal{C}_i$ forks from $\mathcal{C}_{\max}$ at most $K_{\text{f}}$ blocks}
-                \If {$|\mathcal{C}_i| > |\mathcal{C}_{\max}|$}
-                    \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$
-                \ElsIf
-                        {$|\mathcal{C}_i| == |\mathcal{C}_{\max}|$}
-                    \State Set ${\mathcal{C}_{\max} \leftarrow \textsf{MaxStakeChain}(\mathcal{C}_{i}, \mathcal{C}_{\max})}$
-
-                \EndIf
-            \Else
-
-                \State Let ${j  \leftarrow \max \{j' \geq 0 \ |\  \mathcal{C}_{\max} \text{ and } \mathcal{C}_{i} \
-                \text{have the same block in } sl_{j'}\}}$
-                \If {$|\mathcal{C}_i[j: j + K_{\text{g}}]| > |\mathcal{C}_{\max}[j: j + K_{\text{g}}]|$}
-                    \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$
-                \ElsIf
-                        {$|\mathcal{C}_i| == |\mathcal{C}_{\max}|$}
-                    \State Set ${\mathcal{C}_{\max} \leftarrow \textsf{MaxStakeChain}(\mathcal{C}_{i}, \mathcal{C}_{\max})}$
-                \EndIf
-            \EndIf
-
-        \EndFor
-        \State \Return ${\mathcal{C}_{\max}}$
-    \end{algorithmic}\label{alg:algorithm-1}
-\end{algorithm}
-
-
-\begin{algorithm}[ht]
-    \begin{algorithmic}[1]
-        \caption{$\textsf{PrepareForBlockValidation}(sl_j, v_i^{\text{vrf}}, C_{\text{loc}})$}
-        \State \lstinline|// Parse and calculate all necessary values for block validation.|
-        \State Calculate $e_n$ for the given $sl_j$
-        \State \lstinline|// Main ledger state_m is calculated according to the last block|
-        \State \lstinline|// produced up to m-th slot.|
+        \noindent
+        \lstinline|// Main ledger state_m is calculated according to the last block|
+        \noindent
+        \lstinline|// produced up to m-th slot.|
         \State Parse $\textsf{state}_{(n - 4)\cdot R},
-        \textsf{state}_{(n - 2)\cdot R}$ from $C_{\text{loc}}$
-        \State Parse verified participants table $V{\text{ver}}$ from $\textsf{state}_{(n - 4)\cdot R}$
-        \State Parse an associated committee id $k$ for the given $v_i^{\text{vrf}}$ from $V{\text{ver}}$
-        \State \lstinline|// Set epoch randomness:|
-        \State Set ${\eta_{n-2} \leftarrow \mathcal{F}_{\text{LB}}(e_{n-2}, C_{\text{loc}})}$ \lstinline|// For the consensus lottery.|
-        \State Set ${\eta_{n} \leftarrow \mathcal{F}_{\text{LB}}(e_{n}, C_{\text{loc}})}$ \lstinline|// For the leader lottery.|
-        \State \lstinline|// Get stakeholders distribution used for the leader lottery:|
-        \State Parse $k$-th committee stakeholders distribution $S_k^{\text{cons}, n - 2}$ from the $\textsf{state}_{(n - 2)\cdot R}$
-        \State \lstinline|// Get stakeholders distribution used for the consensus group lottery:|
-        \State Parse verified and equipped with $\mathcal{F}^k_{\text{ConnSys}}$ functionality stakeholders distribution $S_k^{\text{ver}, {n - 4}}$
-        from $\textsf{state}_{(n - 4)\cdot R}$
-        \State \lstinline|// Set lotteries thresholds:|
-        \State Set participant's consensus group lottery threshold for $k$-th committee as $T_{i, n-2}^{\text{cons}, k}$ calculated using $S_k^{\text{ver}, {n - 4}}$
-        \State Set participant's leader lottery threshold as $T_{i, n}^{\text{lead}, k}$ calculated using $S_k^{\text{cons}, {n - 2}}$
-        \State Set participant's synchronization lottery threshold as $T_{i, n}^{\text{sync}}$ calculated using $S_k^{\text{cons}, {n - 2}}$
+        \textsf{state}_{(n - 2)\cdot R}$ from $C_{\text{loc}}$.
+        \State Parse verified participants table $V{\text{ver}}$ from $\textsf{state}_{(n - 4)\cdot R}$.
+        \State Parse an associated committee id $k$ for the given $v_{P'}^{\text{vrf}}$ from $V{\text{ver}}$.
+        \noindent
+        \lstinline|// Set epoch randomness:|
+        \State Set ${\eta_{n-2} \leftarrow \mathcal{F}_{\text{LB}}(e_{n-2}, C_{\text{loc}})}$. \lstinline|// For the consensus lottery.|
+        \State Set ${\eta_{n} \leftarrow \mathcal{F}_{\text{LB}}(e_{n}, C_{\text{loc}})}$. \lstinline|// For the leader and sync lotteries.|
 
-        \Return ${(e_n, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, T_{i, n-2}^{\text{cons}, k}, T_{i, n}^{\text{lead}, k}, T_{i, n}^{\text{sync}})}$
+        \noindent
+        \lstinline|// Stakeholders distribution used for the leader lottery:|
+        \State Parse $k$-th committee stakeholders distribution $S_k^{\text{cons}, n - 2}$ from the $\textsf{state}_{(n - 2)\cdot R}$.
+
+        \noindent
+        \lstinline|// Stakeholders distribution used for the consensus group lottery:|
+        \State Parse verified and equipped with $\mathcal{F}^k_{\text{ConnSys}}$ functionality stakeholders distribution $S_k^{\text{ver}, {n - 4}}$\
+        from $\textsf{state}_{(n - 4)\cdot R}$.
+
+        \noindent
+        \lstinline|// Set lotteries thresholds:|
+        \State Set participant's consensus group lottery threshold for $k$-th committee as $T_{P', n-2}^{\text{cons}, k}$ calculated using $S_k^{\text{ver}, {n - 4}}$.
+        \State Set participant's leader lottery threshold as $T_{P', n}^{\text{lead}, k}$ calculated using $S_k^{\text{cons}, {n - 2}}$.
+        \State Set participant's synchronization lottery threshold as $T_{P', n}^{\text{sync}}$ calculated using $S_k^{\text{cons}, {n - 2}}$.
+        \State \Return ${(e_n, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, T_{P', n-2}^{\text{cons}, k}, T_{P', n}^{\text{lead}, k}, T_{P', n}^{\text{sync}})}$
     \end{algorithmic}\label{alg:algorithm-2.0}
-\end{algorithm}
+\end{algo}
 
-\begin{algorithm}[ht]
+\bigbreak
+\bigbreak
+\noindent
+\textbf{Main Block Validation Protocol} is as follows:
+\begin{protocol}
+    \caption{$\textsf{IsValidBlock}(P, R, B, C_{\text{loc}})$}
     \begin{algorithmic}[1]
-        \caption{$\textsf{IsValidBlock}(B, C_{text{\loc}})$}
-        \State \lstinline|// All indexes except the epoch index are omitted.|
-        \State Parse $B$ as ${(h, sl, \textsf{state}, v^{\text{vrf}}, \pi^{\text{sl}}, \sigma_{\text{KES}})}$ \lstinline|// value h is a block body hash.|
-        \State \lstinline|// Prepare constants:|
+        \noindent
+        \lstinline|// All indexes except the epoch index are omitted.|
+        \State Parse $B$ as ${(h, sl, \textsf{state}, v^{\text{vrf}}, \pi^{\text{sl}}, \sigma_{\text{KES}})}$. \lstinline|// value h is a block body hash.|
 
-        \State $(e_n, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, T^{\text{cons}}, T^{\text{lead}, T^{\text{sync}}) = \textsf{PrepareForBlockValidation}(sl, v^{\text{vrf}}, C_{\text{loc}})$
-        \State \lstinline|// Check consensus membership:|
-        \State Parse ${\pi^{\text{e}}}$ from $state$
-        \State Set ${r^{\text{e}} \leftarrow \pi^{\text{e}}\textsf{.extract\_random\_number()}}$
-        \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(r^{\text{e}} || \textsf{CONS})}}$
-        \State Set ${\textsf{valid\_member} \leftarrow (v^{\text{vrf}} \in V_{\text{ver}}) \wedge (y^{\text{cons}} < T^{\text{cons}})}$.
+        \noindent
+        \lstinline|// Prepare constants:|
+        \State Set $\textsf{preparation\_out} \leftarrow \textsf{PrepareForBlockValidation}(sl, R, v^{\text{vrf}}, C_{\text{loc}})$.
+        \State Set $(e_n, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, T^{\text{cons}}, T^{\text{lead}}, T^{\text{sync}}) \leftarrow \textsf{preparation\_out}$.
 
-        \State \lstinline|// Check VRF proof:|
-        \State Set $\textsf{valid\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}
-        v^{\text{vrf}}, \mathcal{H}(\eta_n || sl),\pi^{\text{sl}} \textsf{)}$
+        \noindent
+        \lstinline|// Check consensus membership:|
+        \State Parse ${\pi^{\text{e}}}$ from $\textsf{state}$.
+        \State Set $\textsf{valid\_epoch\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}\
+        v^{\text{vrf}}, \mathcal{H}(\eta_{n - 2} || e_n),\pi^{\text{e}} \textsf{)}$.
+        \State Set ${r^{\text{e}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{e}}\textsf{)}}$.
+        \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(r^{\text{e}} || \textsf{CONS})}}$.
+        \State Set ${\textsf{valid\_member} \leftarrow (v^{\text{vrf}} \in V_{\text{ver}}) \wedge (y^{\text{cons}} < T^{\text{cons}}) \wedge \textsf{valid\_epoch\_proof}}$.
 
-        \State \lstinline|// Check the leadership:|
-        \State Set ${r^{\text{sl}} \leftarrow \pi^{\text{sl}}\textsf{.extract\_random\_number()}}$
-        \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{LEAD})}}$
-        \State Set ${\textsf{valid\_leader} \leftarrow y^{\text{lead}} < T^{\text{lead}}}$.
+        \noindent
+        \lstinline|// Check the leadership:|
+        \State Set $\textsf{valid\_slot\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}\
+        v^{\text{vrf}}, \mathcal{H}(\eta_n || sl),\pi^{\text{sl}} \textsf{)}$.
+        \State Set ${r^{\text{sl}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{sl}}\textsf{)}}$.
+        \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{LEAD})}}$.
+        \State Set ${\textsf{valid\_leader} \leftarrow (y^{\text{lead}} < T^{\text{lead}}) \wedge \textsf{valid\_slot\_proof}}$.
 
-        \State \lstinline|// Check KES signature:|
-        \State Set ${y^{\text{rand}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{RAND})}}$
-        \State Parse $v^{\text{kes}}$ from $V_{\text{ver}}$
-        \State Set $\textsf{valid\_signature} \leftarrow \mathcal{F}_{\text{KES}}\textsf{.verify(}
-        \mathcal{H}(h || \textsf{state} || sl || y^{\text{rand}}), \pi^{\text{sl}}, \sigma_{\text{KES}}, v^{\text{kes}}) \textsf{)}$
+        \noindent
+        \lstinline|// Check KES signature:|
+        \State Parse $v^{\text{kes}}$ from $V_{\text{ver}}$.
+        \State Parse $b^{\text{set}}$ from $\textsf{state}$.
+        \State Set $\textsf{valid\_signature} \leftarrow \mathcal{F}_{\text{KES}}\textsf{.verify(}\
+        (h, \textsf{state}, sl, b^{\text{set}}, \pi^{\text{sl}}), \sigma_{\text{KES}}, v^{\text{kes}}) \textsf{)}$.
 
-        \State \lstinline|// Check synchronization beacons:|
+        \noindent
+        \lstinline|// Check synchronization beacons:|
         \If{${\exists b^{\text{sync}} \in B: sl > (e_n - 1) \cdot R + 2 \cdot R \// 3}$}
-            \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$
+            \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$.
         \ElsIf
                 {$\exists b^{\text{sync}} \in B: (b^{\text{sync}}\textsf{.get(}sl\textsf{)} > sl)
             \vee (b^{\text{sync}}\textsf{.get(}sl\textsf{)} \notin [(e_n - 1) \cdot R + 1, e_n \cdot R])$}
-            \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$
+            \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$.
         \EndIf
         \For {each $b^{\text{sync}} \in B$}
-            \State Parse $b^{\text{sync}}$ as $(v^{\text{vrf}'}, sl', \pi^{\text{sl}}')$
+            \State Parse $b^{\text{sync}}$ as $(v^{\text{vrf}'}, sl', \pi^{\text{sl}'})$.
             \If
             {$\mathcal{C}_{\text{loc}}$ contains more than one beacon with $(v^{\text{vrf}'}, sl', .)$}
-                \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$
+                \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$.
             \EndIf
-            \State Set ${r^{\text{sl}}' \leftarrow \pi^{\text{sl}}'\textsf{.extract\_random\_number()}}$
-            \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}}' || \textsf{SYNC})}}$
-            \State Set ${\textsf{valid\_sync} \leftarrow y^{\text{sync}} < T^{\text{sync}}}$.
+            \State Set $\textsf{valid\_slot\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}\
+            v^{\text{vrf}}, \mathcal{H}(\eta_n || sl'),\pi^{\text{sl}'} \textsf{)}$.
+            \State Set ${r^{\text{sl}'} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{sl}'}\textsf{)}}$.
+            \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}'} || \textsf{SYNC})}}$.
+            \State Set ${\textsf{valid\_sync} \leftarrow (y^{\text{sync}} < T^{\text{sync}}) \wedge \textsf{valid\_slot\_proof}}$.
         \EndFor
         \If {($\textsf{valid\_parent} \wedge \textsf{valid\_member} \wedge \textsf{valid\_proof} \wedge
         \textsf{valid\_leader} \wedge \textsf{valid\_signature} \wedge \textsf{valid\_sync})$}
             \State \Return ${\textsf{false}}$
         \EndIf
     \end{algorithmic}\label{alg:algorithm}
-\end{algorithm}
+\end{protocol}
 
-\begin{algorithm}[ht]
+\bigbreak
+\bigbreak
+\noindent
+\textbf{Chain validation}.
+A core procedure is to distinguish valid chains from the invalid:
+\begin{protocol}
+    \caption{$\textsf{IsValidChain}(P, R, \mathcal{C}_{\text{loc}})$}
     \begin{algorithmic}[1]
-        \caption{$\textsf{IsValidChain}(\mathcal{C}_{\text{loc}})$}
         \If {${\exists B \in \mathcal{C}: B\textsf{.get(}sl\textsf{)} > sl^{\text{loc}}}$}
             \State \Return ${\textsf{false}}$
         \EndIf
         \For {each $e_j \in \mathcal{C}_{\text{loc}}$}
 
             \For {each block $B \in \mathcal{C}_{\text{loc}}\ | \ B\textsf{.get(}sl\textsf{)} \in e_j$}
-                \State \lstinline|// Check parent|
-                \State Set $\textsf{valid\_parent} \leftarrow (\mathcal{H}(B^{-1}) == h) \wedge (B^{-1}\textsf{.get(}sl\textsf{)} < sl)$,\
+
+                \par\hskip\algorithmicindent
+                \lstinline|// Check parent:|
+                \State Set $\textsf{valid\_parent} \leftarrow (\mathcal{H}(B^{-1}) = h) \wedge (B^{-1}\textsf{.get(}sl\textsf{)} < sl)$,\
+                \par\hskip\algorithmicindent
                 where $B^{-1}$ is the last block before $B$.
-                \State Set $\textsf{valid\_block} \leftarrow \textsf{IsValidBlock}(B)$
+                \State Set $\textsf{valid\_block} \leftarrow \textsf{IsValidBlock}(P, R, B, \mathcal{C}_{\text{loc}})$.
                 \If {$(\textsf{valid\_block} \wedge \textsf{valid\_parent})$}
                     \State \Return ${\textsf{false}}$
                 \EndIf
             \EndFor
         \EndFor
         \State \Return ${\textsf{true}}$
+    \end{algorithmic}\label{alg:algorithm-1}
+\end{protocol}
 
+\bigbreak
+\bigbreak
+\noindent
+\textbf{The synchronisation beacon validity}.
+Beacons validity is related to chain validity as one has to verify validity of leadership:
+\begin{protocol}
+    \caption{$\textsf{ValidBeacon}(P, R, b, \mathcal{C}_{\text{loc}})$}
+    \begin{algorithmic}[1]
+        \State Parse synchronization beacon $b$ as $(v_{P'}^{\text{vrf}}, sl, \pi^{\text{sl}})$.
+        \State Calculate $e_n$ for the given $sl$.
+        \If {$\nexists B \in \mathcal{C}_{\text{loc}} | B\textsf{.get(sl)} \in e_n$}
+            \State \Return \textsf{false}
+        \EndIf
 
+        \noindent
+        \lstinline|// Check synchronization lottery results for patry P':|
+        \State Set ${\eta_{n} \leftarrow \mathcal{F}_{\text{LB}}(e_{n}, C_{\text{loc}})}$.
+        \State Parse $\textsf{state}_{(n - 2)\cdot R}$ from $C_{\text{loc}}$.
+        \State Parse all committees stakeholders distribution $S^{\text{cons}, n - 2}$ from the $\textsf{state}_{(n - 2)\cdot R}$.
+        \State Set participant's synchronization lottery threshold as $T_{P'}^{\text{sync}}$ calculated using $S^{\text{cons}, {n - 2}}$.
+        \State Set $\textsf{valid\_slot\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}\
+        v_{P'}^{\text{vrf}}, \mathcal{H}(\eta_n || sl),\pi^{\text{sl}} \textsf{)}$.
+        \State Set ${r^{\text{sl}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{sl}}\textsf{)}}$.
+        \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{SYNC})}}$.
+        \State Set ${\textsf{valid\_sync} \leftarrow (y^{\text{sync}} < T^{\text{sync}}) \wedge \textsf{valid\_slot\_proof}}$.
+        \State \Return \textsf{valid\_sync}
+
+    \end{algorithmic}\label{alg:algorithm-6}
+\end{protocol}
+
+\subsubsection{Chain Selection Rules}
+Chain selection consists of two steps: ﬁltering out valid chains, and second compare them\
+using the Genesis rule~\cite{Badertscher2018}.
+
+\bigbreak
+\noindent
+\textbf{Maximum Stake Rule}.
+Rule to resolve conflicts that arise after applying the Genesis rule.
+\begin{algo}
+    \caption{${\textsf{MaxStakeChain}(\mathcal{C}_i}, \mathcal{C}_{i'})$}
+    \begin{algorithmic}[1]
+        \If {$\sum \{B_k\textsf{.get(}s\textsf{)}, \forall B_k \in  \mathcal{C}_i\} > \sum \{B_k\textsf{.get(}s\textsf{)}, \forall B_k \in  \mathcal{C}_{i'}\}$}
+
+            \noindent
+            \lstinline|// Used above value s is the stake of the leader|
+
+            \noindent
+            \lstinline|// who produced the block B_k.|
+            \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$.
+        \Else
+            \noindent
+            \lstinline|  // It is assumed that the input chains are the same size.|
+            \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i'}}$.
+        \EndIf
+        \State \Return ${\mathcal{C}_{\max}}$
     \end{algorithmic}\label{alg:algorithm-2}
-\end{algorithm}
+\end{algo}
+
+\bigbreak
+\bigbreak
+\noindent
+\textbf{Maximum Valid Rule}.
+The Genesis chain selection rule:
+\begin{algo}
+    \caption{${\textsf{MaxValidChain}(\mathcal{C}_{\text{loc}}, C_{\text{set}} = \{\mathcal{C}_i\}_{i=1}^N, K_{\text{f}}, K_{\text{g}})}$}
+    \begin{algorithmic}[1]
+        \noindent
+        \lstinline|// C_loc is the local chain of the validator.|
+        \noindent
+        \lstinline|// Set local chain as initially maximum valid chain:|
+        \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{\text{loc}}}$.
+        \For {${i = 1 \dots N}$}
+            \If {$\mathcal{C}_i$ forks from $\mathcal{C}_{\max}$ at most $K_{\text{f}}$ blocks}
+                \If {$|\mathcal{C}_i| > |\mathcal{C}_{\max}|$}
+                    \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$.
+                \ElsIf
+                        {$|\mathcal{C}_i| == |\mathcal{C}_{\max}|$}
+                    \State Set ${\mathcal{C}_{\max} \leftarrow \textsf{MaxStakeChain}(\mathcal{C}_{i}, \mathcal{C}_{\max})}$.
+
+                \EndIf
+            \Else
+
+                \State Let ${j  \leftarrow \max \{j' \geq 0 \ |\  \mathcal{C}_{\max} \text{ and } \mathcal{C}_{i} \
+                \text{have the same block in } sl_{j'}\}}$.
+                \If {$|\mathcal{C}_i[j: j + K_{\text{g}}]| > |\mathcal{C}_{\max}[j: j + K_{\text{g}}]|$}
+                    \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$.
+                \ElsIf
+                        {$|\mathcal{C}_i| = |\mathcal{C}_{\max}|$}
+                    \State Set ${\mathcal{C}_{\max} \leftarrow \textsf{MaxStakeChain}(\mathcal{C}_{i}, \mathcal{C}_{\max})}$.
+                \EndIf
+            \EndIf
+
+        \EndFor
+        \State \Return ${\mathcal{C}_{\max}}$
+    \end{algorithmic}\label{alg:algorithm-10}
+\end{algo}
+
+\bigbreak
+\bigbreak
+\noindent
+\textbf{Chain Selection Protocol}.
+The main chain selection protocol is as follows:
+\begin{protocol}
+    \caption{$\textsf{SelectChain}(P, R, K_{\text{f}}, K_{\text{g}}, \mathcal{C}_{\text{loc}}, \mathcal{N}_0)$}
+    \begin{algorithmic}[1]
+        \State Initialize $\mathcal{N}_{\text{valid}} \leftarrow \emptyset$.
+
+        \noindent
+        \lstinline|// Filter all valid chains:|
+        \For {$\mathcal{C} \in \mathcal{N}_0$}
+            \State Set $\textsf{is\_valid\_chain} \leftarrow IsValidChain(P, R, \mathcal{C}_{\text{loc}})$.
+            \If {$\textsf{is\_valid\_chain} = \textsf{true}$}
+                \State Update $\mathcal{N}_{\text{valid}} \leftarrow \mathcal{N}_{\text{valid}} \cup \mathcal{C}$.
+            \EndIf
+        \EndFor
+
+        \noindent
+        \lstinline|// Set local chain as maximum valid chain:|
+        \State Set $\mathcal{C}_{\text{loc}} \leftarrow \textsf{MaxValidChain}(\mathcal{C}_{\text{loc}}, \mathcal{N}_0, K_{\text{f}}, K_{\text{g}})$.
+
+    \end{algorithmic}\label{alg:algorithm-89}
+\end{protocol}
+
+\subsubsection{Ledger Maintenance}
+When a protocol is executed, every party $P$ performs different actions depending on its role and the current local time.
+The main logic with all necessary actions are included into the main $\textsf{LedgerMaintenance}$ procedure.
+At different points in time, participants perform auxiliary protocols, which we will describe below.
+
+\bigbreak
+\noindent
+\textbf{Evaluation Protocol}.
+In normal protocol execution, each participant performs the following procedure:
+\begin{protocol}
+    \caption{$\textsf{EvaluationProcedure}(P, R, sl, \textsf{buffer}, \textsf{syncBuffer}, \mathcal{C}_{\text{loc}})$}
+    \begin{algorithmic}[1]
+
+        \noindent
+        \lstinline|// Leader lottery:|
+        \State Set actual $T^{\text{lead}}$ from the \textsf{context}.
+        \State Evaluate $\mathcal{F}_{\text{VRF}}$ with input $x = \eta_n|| sl$ to get slot proof $\pi^{\text{sl}}$.
+        \State Set ${r^{\text{sl}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{sl}}\textsf{)}}$
+        \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{LEAD})}}$
+        \State Set ${\textsf{valid\_leader} \leftarrow y^{\text{lead}} < T^{\text{lead}}}$.
+
+        \noindent
+        \lstinline|// Synchronization lottery:|
+        \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{SYNC})}}$.
+        \State Set ${\textsf{valid\_sync} \leftarrow y^{\text{sync}} < T^{\text{sync}}}$.
+
+        \If {$\textsf{valid\_leader}$}
+            \State Set $\textsf{state}$ extracted from $\textsf{buffer}$
+            \State Set $h \leftarrow \mathcal{H}(\mathcal{C}_{\text{loc}}\textsf{.head()})$
+            \If {$sl \in [R \cdot n, R \cdot n + 2 /\\ 3 \cdot R]$}
+                \State {Set valid synchronization beacon set as:}.
+                \State {${b^{\text{set}} \leftarrow \{b' \in \textsf{syncBuffer} | \textsf{validBeacon}(b', \mathcal{C}_{\text{loc}}) = \textsf{true}\}}$}
+                \For
+                {$\all b$ in $b^{\text{set}}$}
+                    \State Set $sl^* \leftarrow b.\textsf{get(} sl \textsf{)})$
+                    \State Set $v^{\text{vrf}}^* \leftarrow b.\textsf{get(} v^{\text{vrf}} \textsf{)}$
+                    \If {$(sl^* > sl) \vee (sl^* \geq (n - 1) \cdot R) \vee (\exists b' \in \mathcal{C}_{\text{loc}} | (b'.\textsf{get(} v^{\text{vrf}}\
+                    \textsf{)}) = v^{\text{vrf}}^* \wedge b'.\textsf{get(} sl \textsf{)} = sl^*))$}
+                        \State Remove $b$ from $b^{\text{set}}$.
+                    \EndIf
+
+                \EndFor
+            \EndIf
+            \State Set $\sigma_{\text{KES}} \leftarrow \mathcal{F}_{\text{KES}}\textsf{.sign(} h || \textsf{state} || b^{\text{set}} || sl || \pi^{\text{sl}} \textsf{)}$.
+            \State Create new block $B$ with $\sigma_{\text{KES}}$ signature included.
+            \State Update $\mathcal{C}_{\text{loc}}$ with new block $B$ and broadcast the update to known peers.
+        \EndIf
+        \If {$\textsf{valid\_sync}$}
+            \If {$sl \in [R \cdot n, R \cdot n + 1 /\\ 6 \cdot R]$}
+                \State Set $b \leftarrow (v^{\text{vrf}}, sl, \pi^{\text{sl}})$.
+                \State Broadcast $b$ to known peers.
+
+            \EndIf
+
+        \EndIf
+
+    \end{algorithmic}\label{alg:algorithm-5}
+\end{protocol}
+
+
+\bigbreak
+\bigbreak
+\noindent
+\textbf{Consensus Lottery Protocol}.
+When moving between epochs, a new consensus group must be selected.
+To do this, each participant performs the following protocol:
+\begin{protocol}
+    \caption{$\textsf{ConsensusLottery}(P, e_n, \textsf{state}_{(n - 2)\cdot R}, k, \mathcal{C}_{\text{loc}})$}
+    \begin{algorithmic}[1]
+        \State Set ${\pi^{\text{e}}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.eval(}\mathcal{H}(\eta_n || e_n) \textsf{)}$.
+        \State Set ${r^{\text{e}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{e}}\textsf{)}}$
+        \State Parse $k$-th committee stakeholders distribution $S_k^{\text{cons}, n - 2}$ from the $\textsf{state}_{(n - 2)\cdot R}$
+        \State Calculate consensus group lottery threshold for $k$-th committee as $T_n^{\text{cons}, k}$ calculated using $S_k^{\text{ver}, {n - 2}}$
+        \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(r^{\text{e}} || \textsf{CONS})}}$
+        \State Set ${\textsf{is\_member} = (y^{\text{cons}} < T^{\text{cons}})}$.
+        \If
+            $\textsf{is\_member} = \textsf{true}$
+            \State Broadcast message with consensus membership proof $\textsf{ConsLotteryResTx(}v^{\text{vrf}, \pi^{\text{e}}}\textsf{)}$.
+        \EndIf
+
+    \end{algorithmic}\label{alg:algorithm-8}
+\end{protocol}
+
+\bigbreak
+\bigbreak
+\noindent
+\textbf{Main Ledger Maintenance Protocol}.
+\begin{protocol}
+    \caption{$\textsf{LedgerMaintenance}(P, R, \mathcal{C}_{\text{loc}})$}
+    \begin{algorithmic}[1]
+
+        \noindent
+        \lstinline|// Normal operation:|
+        \State Call $\textsf{FetchInformation}(P)$ and denote the output by $(\{\mathcal{C}_m\}_{m=1}^M, \{\textsf{tx}_k\}_{i=k}^K)$.
+        \State Add $\{\mathcal{C}_m\}_{m=1}^M$ into $\textsf{futureChains}$.
+        \State Add $\{\textsf{tx}_k\}_{k=1}^K$ into $\textsf{buffer}$.
+        \State Call $\textsf{UpdateTime}(P)$.
+
+        \noindent
+        \lstinline|// Process arrived synchronisation beacons:|
+        \State Extract beacons $b^{\text{set}} \leftarrow \{b^{\text{sync}}_n\}_{n=1}^N$ contained in $\{\mathcal{C}_m\}_{m=1}^M$ and not yet contained in $\textsf{syncBuffer}$.
+        \State Call $\textsf{ProcessBeacons}(P, b^{\text{set}})$.
+
+        \noindent
+        \lstinline|// Filter chains:|
+        \State Let $\mathcal{N}_0$ be the subsequence of $\textsf{futureChains}\ |\ \forall B \in C:\ B{\textsf{.get(} sl \textsf{)}} \leq \textsf{localTime}$.
+        \For {$\mathcal{C} \in \mathcal{N}_0$}
+            \State Remove $\mathcal{C}$ from $\textsf{futureChains}$.
+        \EndFor
+        \State Set $\mathcal{C}_{\text{loc}} \leftarrow \textsf{SelectChain}(P, \mathcal{C}_{\text{loc}})$.
+
+        \noindent
+        \lstinline|// Perform actions according to the current local|
+        \noindent
+        \lstinline|// stage of the protocol:|
+        \State Set $sl \leftarrow \textsf{localTime}$.
+        \If {$sl < sl^{\text{work}}$}
+            \State Call $\textsf{EvaluationProcedure}(P, sl, \textsf{buffer}, \textsf{syncBuffer}, \mathcal{C}_{\text{loc}})$.
+            \State Set $sl^{\text{work}} \leftarrow sl$.
+            \If {$sl \bmod R = 0$}
+                \State Call $\textsf{UpdateStakeDistribution}(P)$.
+                \State Calculate $e_n$ for the given $sl$.\lstinline|  // The value of e_n is equal to n.|
+                \State Parse $\textsf{state}_{(n - 2)\cdot R}$ from $C_{\text{loc}}$.
+                \For {every party's $P$ $k$-th connected system}
+                    \State Call $\textsf{ConsensusLottery(}e_n, k, \textsf{state}_{(n - 2)\cdot R}, \mathcal{C}_{\text{loc}}\textsf{)}$.
+                \EndFor
+                \State Call $\textsf{SyncProc}(sl)$.
+            \EndIf
+        \EndIf
+
+    \end{algorithmic}\label{alg:algorithm-0}
+\end{protocol}
+
+
+
+

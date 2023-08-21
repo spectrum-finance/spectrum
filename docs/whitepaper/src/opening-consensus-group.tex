@@ -77,18 +77,36 @@ of the predefined size $M$.
 Stakeholders interact with each other and with locally installed ideal functionalities\
 $\mathcal{F}_{\text{VRF}}$ and $\mathcal{F}_{\text{LB}}$ over a sequence of $L = E \cdot R$ slots\
 ${S=\{sl_1,\dots,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
-Let's clarify what the mentioned above pre-defined primitives are needed for:
-\begin{enumerate}
-    \item \emph{Ideal Leaky Beacon} $\mathcal{F}_{\text{LB}}$: is used to sample an epoch random seed from the\
-    blockchain.
-    \item \emph{Ideal Verifiable Random Function} $\mathcal{F}_{\text{VRF}}$: is used as a source of local randomness.
-\end{enumerate}
-More extended formal definition of ${\mathcal{F}}_{\text{LB}}$ can be found in the original Ouroboros Praos\
-paper~\cite{cryptoeprint:2017/573}.
-The functionality ${\mathcal{F}}_{\text{VRF}}$ we use here is similar to the extended VRF functionality\
-introduced by Christian Badertscher et al.~\cite{cryptoeprint:2022/1045}.
 
-Consensus group is constantly rotated each epoch ${e_j \gt 1}$.
+Let's clarify what the mentioned above pre-defined primitives are needed for.
+The ideal Verifiable Random Function functionality ${\mathcal{F}}_{\text{VRF}}$ we use here is similar to the extended VRF functionality\
+introduced by Christian Badertscher et al.~\cite{cryptoeprint:2022/1045}:
+
+Ideal Leaky Beacon functionality $\mathcal{F}_{\text{LB}}$ is used to sample an epoch random seed from the\
+blockchain and is defined as follows:
+\begin{functionality}
+    \caption{${\mathcal{F}_{\text{LB}}(e_n, C_{\text{loc}})}$}
+    \begin{algorithmic}
+        \State \lstinline|// New epoch random seed is sampled once per epoch.|
+        \State \lstinline|// C_loc is the local chain of the validator.|
+        \If{${e_n \geq 2}$}
+            \State \Return ${\textsf{false}}$
+        \EndIf
+        \For {each ${B_k \in C_{\text{loc}} \ |\ (B_k\textsf{.get(}e\textsf{)} \leq e_{n - 1})\ \wedge (\forall B_k\textsf{.get(}sl\textsf{)} \in R \cdot (n - 1) \cdot 2 /\\ 3)}$}
+            \State \lstinline|// Every block B_k in the C_loc was produced by i'-th leader|
+            \State \lstinline|// during j'-th slot, i.e. k = (i', j').|
+            \State ${\pi_k^{\text{sl}, n} \leftarrow B\textsf{.get(}\pi^{\text{sl}}\textsf{)}}$
+            \State ${r_k^{\text{sl}, n} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi_k^{\text{sl}, n}\textsf{)}}$
+            \State $y_k^{\text{rand}, n} \leftarrow \mathcal{H}(r_k^{\text{sl}, n} || \textsf{RAND})$
+            \State ${\eta_n = \mathcal{H}(\eta_{n - 1} || e_n || y_k^{\text{lead}, n})}$
+        \EndFor
+        \State \Return $\eta_n$
+    \end{algorithmic}
+\end{functionality}
+An extended formal analysis of the security guaranties of the ${\mathcal{F}}_{\text{LB}}$ can be found in the original Ouroboros Praos\
+paper~\cite{cryptoeprint:2017/573}.
+
+Consensus group is constantly rotated each epoch ${e_j \gt 2}$.
 Any verified protocol participant can try to become a temporal member of the consensus group.
 Participant is verified if his verification key tuple is published and stored in the blockchain at least\
 $K_{\text{f}}$ blocks before the lottery.
@@ -103,13 +121,13 @@ The consensus group lottery flow is as follows:
     where $M_j$ is a pre-defined number of new consensus group members to select at epoch $e_j$\
     and $N_j$ is the total number of verified stakeholders.
     \item When every $PK_i$ evaluates ${\mathcal{F}}_{\text{VRF}}$ with input\
-    $x_{i, j}^{\textsf{cons}} = \eta_j || e_j $ and calculates\
+    $x_{i, j}^{\text{cons}} = \eta_j || e_j $ and calculates\
     the associated random number $y_{i, j}^{\textsf{cons}}$ from the received proof $\pi_{i, j}^{\text{e}}$, i.e.\
-    ${y_{i, j}^{\textsf{cons}} = \mathcal{H}(r_{i, j}^{\text{e}}||\textsf{CONS})}$, where $r_{i, j}^{\text{e}}$\
+    ${y_{i, j}^{\text{cons}} = \mathcal{H}(r_{i, j}^{\text{e}}||\textsf{CONS})}$, where $r_{i, j}^{\text{e}}$\
     is a random number extracted from the proof and $\textsf{CONS}$ is an arbitrary pre-defined constant.
-    \item To reveal the result of the consensus group lottery $PK_i$ compares value $y_{i, j}^{\textsf{cons}}$\
+    \item To reveal the result of the consensus group lottery $PK_i$ compares value $y_{i, j}^{\text{cons}}$\
     with the threshold $T_{i, j}^{\text{cons}}$.
-    If ${y_{i, j}^{\textsf{cons}} < T_{i, j}^{\text{cons}}}$\
+    If ${y_{i, j}^{\text{cons}} < T_{i, j}^{\text{cons}}}$\
     then the participant is a legal member of new consensus group which will be active in the epoch $e_{j+2}$.
     \item Finally, to declare his right to participate in the new consensus group, participant $PK_i$\
     includes a message with associated proof $\pi_{i, j}^{\text{e}}$ into the blockchain.

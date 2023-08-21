@@ -37,7 +37,7 @@ The leader lottery flow for every separate $V_n^k$ during epoch $e_n$ is as foll
     \item When, for every slot $sl_j \in e_n$ every committee member $PK_i$ evaluates ${\mathcal{F}}_{\text{VRF}}$\
     with input $x_{i, j}^{\text{lead}, n} = \eta_n || sl_j $ and calculates\
     the associated random number $y_{i, j}^{\text{lead}, n}$ from the received proof $\pi_{i, j}^{\text{sl}, n}$,\
-    i.e. ${y_{i, j}^{\text{lead}, n} = \mathcal{H}(\pi_{i, j}^{\text{sl}*, n}||\textsf{LEAD})}$,\
+    i.e. ${y_{i, j}^{\text{lead}, n} = \mathcal{H}(r_{i, j}^{\text{sl}, n}||\textsf{LEAD})}$,\
     where $r_{i, j}^{\text{sl}, n}$ is\
     a random number extracted from the proof and $\textsf{LEAD}$ is an arbitrary pre-defined constant.
     \item To reveal the result of the leader lottery $PK_i$ compares value $y_{i, j}^{\text{lead}, n}$\
