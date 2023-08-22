@@ -6,7 +6,7 @@ use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_move::{SerializedModule, SerializedValue};
 
 use crate::interop::Point;
-use crate::transaction::TxId;
+use crate::transaction::{TxId, Witness};
 use crate::{ChainId, DigestViaEncoder, SystemDigest};
 
 /// Stable cell identifier.
@@ -94,11 +94,12 @@ pub struct DatumHash(Blake2bDigest256);
 
 /// Additional data for bridge (e.g. validator to be used on the dst chain).
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct BridgeInputs();
+pub struct BridgeInputs(Witness);
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BoxDestination {
     target: ChainId,
+    address: SerializedValue,
     inputs: Option<BridgeInputs>,
 }
 

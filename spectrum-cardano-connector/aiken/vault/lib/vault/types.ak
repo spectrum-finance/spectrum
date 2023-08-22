@@ -7,7 +7,6 @@ use aiken/transaction/credential.{VerificationKey}
 pub type Datum {
   /// Aggregated public key of the current committee.
   aggregated_pk: VerificationKey,
-  message: ByteArray,
 }
 
 pub type InternalNode {
@@ -21,9 +20,8 @@ pub type Redeemer {
   internal_nodes: List<InternalNode>,
   peer_leaf_hash: Option<ByteArray>,
   merkle_root_hash: ByteArray,
+  merkle_root_signature: ByteArray,
 }
-
-// merkle_root_signature: ByteArray,
 
 type IndexedRow =
   List<(Int, ByteArray)>
