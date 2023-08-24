@@ -1,0 +1,58 @@
+\phantomsection
+\textbf{Time Update}.\label{apndx:update-time-protocol}
+\begin{protocol}
+    \caption{$\textsf{UpdateTime}(P, R)$}
+    \begin{algorithmic}[1]
+        \noindent
+        \lstinline|//NB: Only executed if time-aware.|
+        \State Send $(\textsf{\scriptsize{CLOCK-GET}}, \text{sid}_\text{C})$ to $\mathcal{G}_{\text{ImpLClock}}$\
+        and parse $\textsf{tick}$ from the response.
+        \If {$\textsf{lastTick} \neq \textsf{tick}$}
+            \State Set $\textsf{lastTick} \leftarrow \textsf{tick}$.
+            \State Set $\textsf{localTime} \leftarrow \textsf{localTime} + 1$.
+            \State Set $\textsf{fetchCompleted} \leftarrow \textsf{false}$.
+        \EndIf
+        \State Set $\textsf{ep} \leftarrow \lceil \textsf{localTime}/\\R \rceil \leftarrow \textsf{false}$.
+        \State Set $\textsf{sl} \leftarrow \textsf{localTime}$.
+
+    \end{algorithmic}\label{alg:update-time-protocol}
+\end{protocol}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Synchronization Procedure}.\label{apndx:sync-proc}
+\begin{protocol}
+    \caption{$\textsf{SyncProc}(P, R)$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:sync-proc}
+\end{protocol}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Fetching information}.\label{apndx:fetch-info-protocol}
+\begin{protocol}
+    \caption{$\textsf{FetchInformation}(P, \text{sid})$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:fetch-info-protocol}
+\end{protocol}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Reading blockchain state}.\label{apndx:read-state-protocol}
+\begin{protocol}
+    \caption{$\textsf{ReadState}(P, \text{sid}, R, \mathcal{C}_{\text{loc}})$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:read-state-protocol}
+\end{protocol}

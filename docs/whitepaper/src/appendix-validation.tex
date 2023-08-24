@@ -1,0 +1,173 @@
+\phantomsection
+\textbf{Block validation}.\label{apndx:prepare-block-validation}
+A core procedure to validate an incoming blocks.
+Block validation implies a procedure for preparing the necessary constants to check the validity of the party $P'$ to issue the block.
+The preparation algorithm is described below:
+\begin{algo}
+    \caption{$\textsf{PrepareForBlockValidation}(sl, R, v_{P'}^{\text{vrf}}, C_{\text{loc}})$}
+    \begin{algorithmic}[1]
+        \noindent
+        \lstinline|// Parse and calculate all necessary values for block validation.|
+        \State Calculate $e_n$ for the given $sl$.
+
+        \noindent
+        \lstinline|// Main ledger state_m is calculated according to the last block|
+        \noindent
+        \lstinline|// produced up to m-th slot.|
+        \State Parse $\textsf{state}_{(n - 4)\cdot R},
+        \textsf{state}_{(n - 2)\cdot R}$ from $C_{\text{loc}}$.
+        \State Parse verified participants table $V{\text{ver}}$ from $\textsf{state}_{(n - 4)\cdot R}$.
+        \State Parse an associated committee id $k$ for the given $v_{P'}^{\text{vrf}}$ from $V{\text{ver}}$.
+        \noindent
+        \lstinline|// Set epoch randomness:|
+        \State Set ${\eta_{n-2} \leftarrow \mathcal{F}_{\text{LB}}(e_{n-2}, C_{\text{loc}})}$. \lstinline|// For the consensus lottery.|
+        \State Set ${\eta_{n} \leftarrow \mathcal{F}_{\text{LB}}(e_{n}, C_{\text{loc}})}$. \lstinline|// For the leader and sync lotteries.|
+
+        \noindent
+        \lstinline|// Stakeholders distribution used for the leader lottery:|
+        \State Parse $k$-th committee stakeholders distribution $S_k^{\text{cons}, n - 2}$ from the $\textsf{state}_{(n - 2)\cdot R}$.
+
+        \noindent
+        \lstinline|// Stakeholders distribution used for the consensus group lottery:|
+        \State Parse verified and equipped with $\mathcal{F}^k_{\text{ConnSys}}$ functionality stakeholders distribution $S_k^{\text{ver}, {n - 4}}$\
+        from $\textsf{state}_{(n - 4)\cdot R}$.
+
+        \noindent
+        \lstinline|// Set lotteries thresholds:|
+        \State Set participant's consensus group lottery threshold for $k$-th committee as $T_{P', n-2}^{\text{cons}, k}$ calculated using $S_k^{\text{ver}, {n - 4}}$.
+        \State Set participant's leader lottery threshold as $T_{P', n}^{\text{lead}, k}$ calculated using $S_k^{\text{cons}, {n - 2}}$.
+        \State Set participant's synchronization lottery threshold as $T_{P', n}^{\text{sync}}$ calculated using $S_k^{\text{cons}, {n - 2}}$.
+        \State \Return ${(e_n, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, T_{P', n-2}^{\text{cons}, k}, T_{P', n}^{\text{lead}, k}, T_{P', n}^{\text{sync}})}$
+    \end{algorithmic}\label{alg:prepare-block-validation}
+\end{algo}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Main Block Validation Protocol}\label{apndx:block-validation-protocol} is as follows:
+\begin{protocol}
+    \caption{$\textsf{IsValidBlock}(P, R, B, C_{\text{loc}})$}
+    \begin{algorithmic}[1]
+        \noindent
+        \lstinline|// All indexes except the epoch index are omitted.|
+        \State Parse $B$ as ${(h, sl, \textsf{state}, v^{\text{vrf}}, \pi^{\text{sl}}, \sigma_{\text{KES}})}$. \lstinline|// value h is a block body hash.|
+
+        \noindent
+        \lstinline|// Prepare constants:|
+        \State Set $\textsf{preparation\_out} \leftarrow \textsf{PrepareForBlockValidation}(sl, R, v^{\text{vrf}}, C_{\text{loc}})$.
+        \State Set $(e_n, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, T^{\text{cons}}, T^{\text{lead}}, T^{\text{sync}}) \leftarrow \textsf{preparation\_out}$.
+
+        \noindent
+        \lstinline|// Check consensus membership:|
+        \State Parse ${\pi^{\text{e}}}$ from $\textsf{state}$.
+        \State Set $\textsf{valid\_epoch\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}\
+        v^{\text{vrf}}, \mathcal{H}(\eta_{n - 2} || e_n),\pi^{\text{e}} \textsf{)}$.
+        \State Set ${r^{\text{e}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{e}}\textsf{)}}$.
+        \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(r^{\text{e}} || \textsf{CONS})}}$.
+        \State Set ${\textsf{valid\_member} \leftarrow (v^{\text{vrf}} \in V_{\text{ver}}) \wedge (y^{\text{cons}} < T^{\text{cons}}) \wedge \textsf{valid\_epoch\_proof}}$.
+
+        \noindent
+        \lstinline|// Check the leadership:|
+        \State Set $\textsf{valid\_slot\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}\
+        v^{\text{vrf}}, \mathcal{H}(\eta_n || sl),\pi^{\text{sl}} \textsf{)}$.
+        \State Set ${r^{\text{sl}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{sl}}\textsf{)}}$.
+        \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{LEAD})}}$.
+        \State Set ${\textsf{valid\_leader} \leftarrow (y^{\text{lead}} < T^{\text{lead}}) \wedge \textsf{valid\_slot\_proof}}$.
+
+        \noindent
+        \lstinline|// Check KES signature:|
+        \State Parse $v^{\text{kes}}$ from $V_{\text{ver}}$.
+        \State Parse $b^{\text{set}}$ from $\textsf{state}$.
+        \State Set $\textsf{valid\_signature} \leftarrow \mathcal{F}_{\text{KES}}\textsf{.verify(}\
+        (h, \textsf{state}, sl, b^{\text{set}}, \pi^{\text{sl}}), \sigma_{\text{KES}}, v^{\text{kes}}) \textsf{)}$.
+
+        \noindent
+        \lstinline|// Check synchronization beacons:|
+        \If{${\exists b^{\text{sync}} \in B: sl > (e_n - 1) \cdot R + 2 \cdot R \// 3}$}
+            \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$.
+        \ElsIf
+                {$\exists b^{\text{sync}} \in B: (b^{\text{sync}}\textsf{.get(}sl\textsf{)} > sl)
+            \vee (b^{\text{sync}}\textsf{.get(}sl\textsf{)} \notin [(e_n - 1) \cdot R + 1, e_n \cdot R])$}
+            \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$.
+        \EndIf
+        \For {each $b^{\text{sync}} \in B$}
+            \State Parse $b^{\text{sync}}$ as $(v^{\text{vrf}'}, sl', \pi^{\text{sl}'})$.
+            \If
+            {$\mathcal{C}_{\text{loc}}$ contains more than one beacon with $(v^{\text{vrf}'}, sl', .)$}
+                \State Set ${\textsf{valid\_sync} \leftarrow \textsf{false}}$.
+            \EndIf
+            \State Set $\textsf{valid\_slot\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}\
+            v^{\text{vrf}}, \mathcal{H}(\eta_n || sl'),\pi^{\text{sl}'} \textsf{)}$.
+            \State Set ${r^{\text{sl}'} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{sl}'}\textsf{)}}$.
+            \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}'} || \textsf{SYNC})}}$.
+            \State Set ${\textsf{valid\_sync} \leftarrow (y^{\text{sync}} < T^{\text{sync}}) \wedge \textsf{valid\_slot\_proof}}$.
+        \EndFor
+        \If {($\textsf{valid\_parent} \wedge \textsf{valid\_member} \wedge \textsf{valid\_proof} \wedge
+        \textsf{valid\_leader} \wedge \textsf{valid\_signature} \wedge \textsf{valid\_sync})$}
+            \State \Return ${\textsf{false}}$
+        \EndIf
+    \end{algorithmic}\label{alg:block-validation-protocol}
+\end{protocol}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Chain validation}.\label{apndx:chain-validation-protocol}
+A core procedure is to distinguish valid chains from the invalid:
+\begin{protocol}
+    \caption{$\textsf{IsValidChain}(P, R, \mathcal{C}_{\text{loc}})$}
+    \begin{algorithmic}[1]
+        \If {${\exists B \in \mathcal{C}: B\textsf{.get(}sl\textsf{)} > sl^{\text{loc}}}$}
+            \State \Return ${\textsf{false}}$
+        \EndIf
+        \For {each $e_j \in \mathcal{C}_{\text{loc}}$}
+
+            \For {each block $B \in \mathcal{C}_{\text{loc}}\ | \ B\textsf{.get(}sl\textsf{)} \in e_j$}
+
+                \par\hskip\algorithmicindent
+                \lstinline|// Check parent:|
+                \State Set $\textsf{valid\_parent} \leftarrow (\mathcal{H}(B^{-1}) = h) \wedge (B^{-1}\textsf{.get(}sl\textsf{)} < sl)$,\
+                \par\hskip\algorithmicindent
+                where $B^{-1}$ is the last block before $B$.
+                \State Set $\textsf{valid\_block} \leftarrow \textsf{IsValidBlock}(P, R, B, \mathcal{C}_{\text{loc}})$.
+                \If {$(\textsf{valid\_block} \wedge \textsf{valid\_parent})$}
+                    \State \Return ${\textsf{false}}$
+                \EndIf
+            \EndFor
+        \EndFor
+        \State \Return ${\textsf{true}}$
+    \end{algorithmic}\label{alg:chain-validation-protocol}
+\end{protocol}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{The synchronisation beacon validity}.\label{apndx:sync-beacon-validity-protocol}
+Beacons validity is related to chain validity as one has to verify validity of leadership:
+\begin{protocol}
+    \caption{$\textsf{ValidBeacon}(P, R, b, \mathcal{C}_{\text{loc}})$}
+    \begin{algorithmic}[1]
+        \State Parse synchronization beacon $b$ as $(v_{P'}^{\text{vrf}}, sl, \pi^{\text{sl}})$.
+        \State Calculate $e_n$ for the given $sl$.
+        \If {$\nexists B \in \mathcal{C}_{\text{loc}} | B\textsf{.get(sl)} \in e_n$}
+            \State \Return \textsf{false}
+        \EndIf
+
+        \noindent
+        \lstinline|// Check synchronization lottery results for patry P':|
+        \State Set ${\eta_{n} \leftarrow \mathcal{F}_{\text{LB}}(e_{n}, C_{\text{loc}})}$.
+        \State Parse $\textsf{state}_{(n - 2)\cdot R}$ from $C_{\text{loc}}$.
+        \State Parse all committees stakeholders distribution $S^{\text{cons}, n - 2}$ from the $\textsf{state}_{(n - 2)\cdot R}$.
+        \State Set participant's synchronization lottery threshold as $T_{P'}^{\text{sync}}$ calculated using $S^{\text{cons}, {n - 2}}$.
+        \State Set $\textsf{valid\_slot\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}\
+        v_{P'}^{\text{vrf}}, \mathcal{H}(\eta_n || sl),\pi^{\text{sl}} \textsf{)}$.
+        \State Set ${r^{\text{sl}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{sl}}\textsf{)}}$.
+        \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{SYNC})}}$.
+        \State Set ${\textsf{valid\_sync} \leftarrow (y^{\text{sync}} < T^{\text{sync}}) \wedge \textsf{valid\_slot\_proof}}$.
+        \State \Return \textsf{valid\_sync}
+
+    \end{algorithmic}\label{alg:sync-beacon-validity-protocol}
+\end{protocol}

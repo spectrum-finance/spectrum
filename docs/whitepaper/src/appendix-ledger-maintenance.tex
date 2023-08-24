@@ -1,0 +1,134 @@
+When a protocol is executed, every party $P$ performs different actions depending on its role and the current local time.
+The main logic with all necessary actions are included into the main $\textsf{LedgerMaintenance}$ procedure.
+At different points in time, participants perform auxiliary protocols, which we will describe below.
+
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Evaluation Protocol}.\label{apndx:eval-protocol}
+In normal protocol execution, each participant performs the following procedure:
+\begin{protocol}
+    \caption{$\textsf{EvaluationProcedure}(P, R, sl, \textsf{buffer}, \textsf{syncBuffer}, \mathcal{C}_{\text{loc}})$}
+    \begin{algorithmic}[1]
+
+        \noindent
+        \lstinline|// Leader lottery:|
+        \State Set actual $T^{\text{lead}}$ from the \textsf{context}.
+        \State Evaluate $\mathcal{F}_{\text{VRF}}$ with input $x = \eta_n|| sl$ to get slot proof $\pi^{\text{sl}}$.
+        \State Set ${r^{\text{sl}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{sl}}\textsf{)}}$
+        \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{LEAD})}}$
+        \State Set ${\textsf{valid\_leader} \leftarrow y^{\text{lead}} < T^{\text{lead}}}$.
+
+        \noindent
+        \lstinline|// Synchronization lottery:|
+        \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{SYNC})}}$.
+        \State Set ${\textsf{valid\_sync} \leftarrow y^{\text{sync}} < T^{\text{sync}}}$.
+
+        \If {$\textsf{valid\_leader}$}
+            \State Set $\textsf{state}$ extracted from $\textsf{buffer}$
+            \State Set $h \leftarrow \mathcal{H}(\mathcal{C}_{\text{loc}}\textsf{.head()})$
+            \If {$sl \in [R \cdot n, R \cdot n + 2 /\\ 3 \cdot R]$}
+                \State {Set valid synchronization beacon set as:}.
+                \State {${b^{\text{set}} \leftarrow \{b' \in \textsf{syncBuffer} | \textsf{validBeacon}(b', \mathcal{C}_{\text{loc}}) = \textsf{true}\}}$}
+                \For
+                {$\all b$ in $b^{\text{set}}$}
+                    \State Set $sl^* \leftarrow b.\textsf{get(} sl \textsf{)})$
+                    \State Set $v^{\text{vrf}}^* \leftarrow b.\textsf{get(} v^{\text{vrf}} \textsf{)}$
+                    \If {$(sl^* > sl) \vee (sl^* \geq (n - 1) \cdot R) \vee (\exists b' \in \mathcal{C}_{\text{loc}} | (b'.\textsf{get(} v^{\text{vrf}}\
+                    \textsf{)}) = v^{\text{vrf}}^* \wedge b'.\textsf{get(} sl \textsf{)} = sl^*))$}
+                        \State Remove $b$ from $b^{\text{set}}$.
+                    \EndIf
+
+                \EndFor
+            \EndIf
+            \State Set $\sigma_{\text{KES}} \leftarrow \mathcal{F}_{\text{KES}}\textsf{.sign(} h || \textsf{state} || b^{\text{set}} || sl || \pi^{\text{sl}} \textsf{)}$.
+            \State Create new block $B$ with $\sigma_{\text{KES}}$ signature included.
+            \State Update $\mathcal{C}_{\text{loc}}$ with new block $B$ and broadcast the update to known peers.
+        \EndIf
+        \If {$\textsf{valid\_sync}$}
+            \If {$sl \in [R \cdot n, R \cdot n + 1 /\\ 6 \cdot R]$}
+                \State Set $b \leftarrow (v^{\text{vrf}}, sl, \pi^{\text{sl}})$.
+                \State Broadcast $b$ to known peers.
+
+            \EndIf
+
+        \EndIf
+
+    \end{algorithmic}\label{alg:eval-protocol}
+\end{protocol}
+
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Consensus Lottery Protocol}.\label{apndx:consensus-lottery-protocol}
+When moving between epochs, a new consensus group must be selected.
+To do this, each participant performs the following protocol:
+\begin{protocol}
+    \caption{$\textsf{ConsensusLottery}(P, e_n, \textsf{state}_{(n - 2)\cdot R}, k, \mathcal{C}_{\text{loc}})$}
+    \begin{algorithmic}[1]
+        \State Set ${\pi^{\text{e}}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.eval(}\mathcal{H}(\eta_n || e_n) \textsf{)}$.
+        \State Set ${r^{\text{e}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{e}}\textsf{)}}$
+        \State Parse $k$-th committee stakeholders distribution $S_k^{\text{cons}, n - 2}$ from the $\textsf{state}_{(n - 2)\cdot R}$
+        \State Calculate consensus group lottery threshold for $k$-th committee as $T_n^{\text{cons}, k}$ calculated using $S_k^{\text{ver}, {n - 2}}$
+        \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(r^{\text{e}} || \textsf{CONS})}}$
+        \State Set ${\textsf{is\_member} = (y^{\text{cons}} < T^{\text{cons}})}$.
+        \If
+            $\textsf{is\_member} = \textsf{true}$
+            \State Broadcast message with consensus membership proof $\textsf{ConsLotteryResTx(}v^{\text{vrf}, \pi^{\text{e}}}\textsf{)}$.
+        \EndIf
+
+    \end{algorithmic}\label{alg:consensus-lottery-protocol}
+\end{protocol}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Main Ledger Maintenance Protocol}.\label{apndx:main-ledger-protocol}
+\begin{protocol}
+    \caption{$\textsf{LedgerMaintenance}(P, R, \mathcal{C}_{\text{loc}})$}
+    \begin{algorithmic}[1]
+
+        \noindent
+        \lstinline|// Normal operation:|
+        \State Call $\textsf{FetchInformation}(P)$ and denote the output by $(\{\mathcal{C}_m\}_{m=1}^M, \{\textsf{tx}_k\}_{i=k}^K)$.
+        \State Add $\{\mathcal{C}_m\}_{m=1}^M$ into $\textsf{futureChains}$.
+        \State Add $\{\textsf{tx}_k\}_{k=1}^K$ into $\textsf{buffer}$.
+        \State Call $\textsf{UpdateTime}(P)$.
+
+        \noindent
+        \lstinline|// Process arrived synchronisation beacons:|
+        \State Extract beacons $b^{\text{set}} \leftarrow \{b^{\text{sync}}_n\}_{n=1}^N$ contained in $\{\mathcal{C}_m\}_{m=1}^M$ and not yet contained in $\textsf{syncBuffer}$.
+        \State Call $\textsf{ProcessBeacons}(P, b^{\text{set}})$.
+
+        \noindent
+        \lstinline|// Filter chains:|
+        \State Let $\mathcal{N}_0$ be the subsequence of $\textsf{futureChains}\ |\ \forall B \in C:\ B{\textsf{.get(} sl \textsf{)}} \leq \textsf{localTime}$.
+        \For {$\mathcal{C} \in \mathcal{N}_0$}
+            \State Remove $\mathcal{C}$ from $\textsf{futureChains}$.
+        \EndFor
+        \State Set $\mathcal{C}_{\text{loc}} \leftarrow \textsf{SelectChain}(P, \mathcal{C}_{\text{loc}})$.
+
+        \noindent
+        \lstinline|// Perform actions according to the current local|
+        \noindent
+        \lstinline|// stage of the protocol:|
+        \State Set $sl \leftarrow \textsf{localTime}$.
+        \If {$sl < sl^{\text{work}}$}
+            \State Call $\textsf{EvaluationProcedure}(P, sl, \textsf{buffer}, \textsf{syncBuffer}, \mathcal{C}_{\text{loc}})$.
+            \State Set $sl^{\text{work}} \leftarrow sl$.
+            \If {$sl \bmod R = 0$}
+                \State Call $\textsf{UpdateStakeDistribution}(P)$.
+                \State Calculate $e_n$ for the given $sl$.\lstinline|  // The value of e_n is equal to n.|
+                \State Parse $\textsf{state}_{(n - 2)\cdot R}$ from $C_{\text{loc}}$.
+                \For {every party's $P$ $k$-th connected system}
+                    \State Call $\textsf{ConsensusLottery(}e_n, k, \textsf{state}_{(n - 2)\cdot R}, \mathcal{C}_{\text{loc}}\textsf{)}$.
+                \EndFor
+                \State Call $\textsf{SyncProc}(sl)$.
+            \EndIf
+        \EndIf
+
+    \end{algorithmic}\label{alg:main-ledger-protocol}
+\end{protocol}
