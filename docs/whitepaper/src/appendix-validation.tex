@@ -117,7 +117,7 @@ The preparation algorithm is described below:
 \textbf{Chain validation}.\label{apndx:chain-validation-protocol}
 A core procedure is to distinguish valid chains from the invalid:
 \begin{protocol}
-    \caption{$\textsf{IsValidChain}(P, R, \mathcal{C}_{\text{loc}})$}
+    \caption{$\textsf{IsValidChain}(P, \text{sid}, R, \mathcal{C})$}
     \begin{algorithmic}[1]
         \If {${\exists B \in \mathcal{C}: B\textsf{.get(}sl\textsf{)} > sl^{\text{loc}}}$}
             \State \Return ${\textsf{false}}$

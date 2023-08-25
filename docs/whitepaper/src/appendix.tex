@@ -1,37 +1,41 @@
 \subsection{A Complete Description of the Spectrum Protocol}\label{subsec:a-complete-description-of-the-spectrum-protocol}
 The purpose of this section is to formally specify the code of the Spectrum protocol.
+The protocol describes the code that each party $P$ executes.
+Each party is assigned a session ID, $\text{sid}$, and connects to all global setups and to all functionalities\
+with which it shares the same session ID\@.
+
+\subsubsection{Model Details}
+\input{appendix-model-details.tex}
 
 \subsubsection{The Main Protocol}
 \phantomsection
 \textbf{Spectrum protocol} is as follows:\label{apndx:spectrum-protocol}
 \begin{protocol}
-    \caption{$\textsf{Spectrum}(P, \mathcal{G}_{\text{Ledger}}, \mathcal{G}_{\text{ImpLClock}}, \mathcal{G}_{\text{RO}}, \mathcal{F}^{\Delta}_{\text{N-MC}})$}
+    \caption{$\textsf{Spectrum}(P, \text{sid}; \mathcal{G}_{\text{Ledger}}, \mathcal{G}_{\text{ImpLClock}}, \mathcal{H}, \mathcal{F}^{\Delta}_{\text{N-MC}})$}
     \begin{algorithmic}
         \State $\textbf{Global variables:}$
         \begin{itemize}
-            \item[\textbf{--}] Read-only: $R, K_{\text{f}}, K_{\text{g}}$
-            \item[\textbf{--}] Read-write: $v^{\text{vrf}}_P, v^{\text{kes}}_P, T^{\text{cons}, k}_{P, n}, T^{\text{lead}, k}_{P, n}, T^{\text{sync}}_{P, n},sl_j, e_n, \textsf{localTime}, \textsf{state}^{j},$
-            \item[] $\textsf{buffer}, \textsf{syncBuffer}, \textsf{isSync}, \textsf{isInit}, \textsf{fetchCompleted}, \textsf{EpochUpdate(.)}$.
+            \item[\textbf{--}] Read-only: $R, K, K_{\text{f}}, K_{\text{g}}, \{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K$
+            \item[\textbf{--}] Read-write: $v^{\text{vrf}}_P, v^{\text{kes}}_P, sl_j, e_n, \{T^{\text{cons}, k}_{P, n}\}_{k=1}^K, \{T^{\text{lead}, k}_{P, n}\}_{k=1}^K, T^{\text{sync}}_{P, n}, b^{\text{sync}}_{P, j}, \textsf{localTime}, \textsf{state}_{j},$
+            \item[] $\textsf{buffer}, \textsf{syncBuffer}, \textsf{isSync}, \textsf{isInit}, \textsf{fetchCompleted}, \textsf{futureChains}, \textsf{lastTick}, \textsf{EpochUpdate(.)}$.
         \end{itemize}
         \State $\textbf{Registration/De-registration:}$
 
         todo
         \State $\textbf{Interacting with the main Ledger:}$
-        Upon receiving a ledger-specific input $I \in (\textsf{\scriptsize{SUBMIT}}, \dots), (\textsf{\scriptsize{READ}}, \dots),
-        (\textsf{\scriptsize{MAINTAIN-LEDGER}}, \dots), (\textsf{\scriptsize{EXPORT-TIME}}, \dots),$ verify\
-        ﬁrst that all resources are available.
+        Upon receiving a ledger-specific input $I$ verify first that all resources are available.
         If not all resources are available, then ignore the input, otherwise execute one of the following\
         steps depending on the input $I$:
         \begin{itemize}
-            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{SUBMIT}}, \textsf{tx}):$ set $\textsf{buffer} \leftarrow \textsf{buffer} || \textsf{tx}$;
-            \item [] send $(\textsf{\scriptsize{MULTICAST}}, \textsf{tx})$ to $\mathcal{F}^{\Delta}_{\text{N-MC}}$.
-            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{MAINTAIN-LEDGER}}, P):$ invoke the protocol \hyperref[apndx:main-ledger-protocol]{$\textsf{LedgerMaintenance}$}$(P, R, \mathcal{C}_{\text{loc}})$;
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{SUBMIT}}, \text{sid}, \textsf{tx}):$ set $\textsf{buffer} \leftarrow \textsf{buffer} || \textsf{tx}$;
+            \item [] send $(\textsf{\scriptsize{MULTICAST}}, \text{sid}, \textsf{tx})$ to $\mathcal{F}^{\Delta}_{\text{N-MC}}$.
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{MAINTAIN-LEDGER}}, P, \text{sid}):$ invoke the protocol \hyperref[apndx:main-ledger-protocol]{$\textsf{LedgerMaintenance}$}$(P, R, \text{sid}, \mathcal{C}_{\text{loc}})$;
             \item[] if $\textsf{LedgerMaintenance}$ halts then halt the $\textsf{Spectrum}$ protocol execution and ignore all future inputs.
-            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{READ}}, P):$ invoke the protocol \hyperref[apndx:read-state-protocol]{$\textsf{ReadState}$}$(P, R, \mathcal{C}_{\text{loc}})$;
-            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{EXPORT-TIME}}, P):$ if $\text{isSync} \vee \textsf{isInit} = \textsf{false}$ then return $\textsf{false}$ to party $P$;
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{READ}}, \text{sid}):$ invoke the protocol \hyperref[apndx:read-state-protocol]{$\textsf{ReadState}$}$(P, R, \text{sid}, \mathcal{C}_{\text{loc}})$;
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{EXPORT-TIME}}, \text{sid}):$ if $\text{isSync} \vee \textsf{isInit} = \textsf{false}$ then return $\textsf{false}$ to party $P$;
             \item[] Otherwise call \hyperref[apndx:update-time-protocol]{$\textsf{UpdateTime}$}$(P, R)$ and do:
             \begin{enumerate}
-                \item Set the highest epoch value $e_n \leftarrow \textsf{EpochUpdate()}$.
+                \item Set the highest epoch value $e_n \leftarrow \textsf{EpochUpdate(.)}$.
                 \item Return $(\textsf{localTime}, e_n)$ to the caller.
             \end{enumerate}
         \end{itemize}
@@ -48,13 +52,13 @@ The purpose of this section is to formally specify the code of the Spectrum prot
                 and evolve the KES signing key.
                 If the party has passed a synchronization slot, then set $\textsf{isSync}  \leftarrow  \textsf{false}$.
                 \item If this instance is only stalled but $\textsf{isSync}  =  \textsf{true}$, then additionally execute\
-                \hyperref[apndx:fetch-info-protocol]{$\textsf{FetchInformation}$}$(P, sid)$, extract all new synchronization beacons from the fetched chains,\
+                \hyperref[apndx:fetch-info-protocol]{$\textsf{FetchInformation}$}$(P, \text{sid})$, extract all new synchronization beacons from the fetched chains,\
                 record their arrival times and set $\textsf{fetchCompleted}  \leftarrow  \textsf{true}$.
                 Any unfinished interruptible execution of this round is marked as completed.
                 \item Forward $(\textsf{\scriptsize{CLOCK-UPDATE}}, \text{sid}_\text{C})$ to $\mathcal{G}_{\text{ImpLClock}}$ to finally conclude the round.
             \end{enumerate}
-            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{EVAL}}, \text{sid}_{\text{RO}}, x):$ forward it\
-            to the $\mathcal{G}_{\text{RO}}$ and output its response.
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{EVAL}}, x):$ forward it\
+            to the $\mathcal{H}$ and output the response.
         \end{itemize}
 
 

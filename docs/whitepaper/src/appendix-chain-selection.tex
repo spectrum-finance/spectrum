@@ -73,14 +73,14 @@ The Genesis chain selection rule:
 \textbf{Chain Selection Protocol}.\label{apndx:max-selection-protocol}
 The main chain selection protocol is as follows:
 \begin{protocol}
-    \caption{$\textsf{SelectChain}(P, R, K_{\text{f}}, K_{\text{g}}, \mathcal{C}_{\text{loc}}, \mathcal{N}_0)$}
+    \caption{$\textsf{SelectChain}(P, \text{sid}, R, K_{\text{f}}, K_{\text{g}}, \mathcal{C}_{\text{loc}}, \mathcal{N}_0)$}
     \begin{algorithmic}[1]
         \State Initialize $\mathcal{N}_{\text{valid}} \leftarrow \emptyset$.
 
         \noindent
         \lstinline|// Filter all valid chains:|
         \For {$\mathcal{C} \in \mathcal{N}_0$}
-            \State Set $\textsf{is\_valid\_chain} \leftarrow IsValidChain(P, R, \mathcal{C}_{\text{loc}})$.
+            \State Set $\textsf{is\_valid\_chain} \leftarrow IsValidChain(P, \text{sid}, R, \mathcal{C}_{\text{loc}})$.
             \If {$\textsf{is\_valid\_chain} = \textsf{true}$}
                 \State Update $\mathcal{N}_{\text{valid}} \leftarrow \mathcal{N}_{\text{valid}} \cup \mathcal{C}$.
             \EndIf
