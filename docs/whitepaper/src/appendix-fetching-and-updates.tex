@@ -12,8 +12,8 @@
             \State Set $\textsf{localTime} \leftarrow \textsf{localTime} + 1$.
             \State Set $\textsf{fetchCompleted} \leftarrow \textsf{false}$.
         \EndIf
-        \State Set $\textsf{ep} \leftarrow \lceil \textsf{localTime}/\\R \rceil \leftarrow \textsf{false}$.
-        \State Set $\textsf{sl} \leftarrow \textsf{localTime}$.
+        \State Set $e \leftarrow \lceil \textsf{localTime}/\\R \rceil$.
+        \State Set $sl \leftarrow \textsf{localTime}$.
 
     \end{algorithmic}\label{alg:update-time-protocol}
 \end{protocol}
@@ -23,8 +23,9 @@
 \noindent
 \phantomsection
 \textbf{Synchronization Procedure}.\label{apndx:sync-proc}
+The synchronization procedure is run at an epoch boundary to sync time between all committees members.
 \begin{protocol}
-    \caption{$\textsf{SyncProc}(P, R)$}
+    \caption{$\textsf{SyncProc}(P, \text{sid}, R)$}
     \begin{algorithmic}[1]
 
         todo
@@ -49,10 +50,42 @@
 \noindent
 \phantomsection
 \textbf{Reading blockchain state}.\label{apndx:read-state-protocol}
+Reading blockchain $state_{sl}$ from  $\mathcal{C}$.
 \begin{protocol}
-    \caption{$\textsf{ReadState}(P, \text{sid}, R, \mathcal{C}_{\text{loc}})$}
+    \caption{$\textsf{ReadState}(P, \text{sid}, sl, R, K_{\text{f}}, \mathcal{C})$}
     \begin{algorithmic}[1]
 
         todo
     \end{algorithmic}\label{alg:read-state-protocol}
 \end{protocol}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Updating stake distribution}.\label{apndx:upd-stake}
+The stake distributions for epochs are defined in the local chain (and all associated state-variables) are\
+computed as follows:
+\begin{protocol}
+    \caption{$\textsf{UpdateStakeDistribution}(P, \text{sid}, R, \mathcal{C}_{\text{loc}}, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:upd-stake}
+\end{protocol}
+
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Processing beacons}.\label{apndx:proc-beacons}
+The following procedure records and processes beacons, their arrival times, and filters out invalid beacons:
+\begin{protocol}
+    \caption{$\textsf{ProcessBeacons}(P, \text{sid}, R, \{b^{\text{sync}}_n\}_{n=1}^N, \mathcal{C})$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:proc-beacons}
+\end{protocol}
+

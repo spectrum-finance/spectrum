@@ -4,18 +4,16 @@ A core procedure to validate an incoming blocks.
 Block validation implies a procedure for preparing the necessary constants to check the validity of the party $P'$ to issue the block.
 The preparation algorithm is described below:
 \begin{algo}
-    \caption{$\textsf{PrepareForBlockValidation}(sl, R, v_{P'}^{\text{vrf}}, C_{\text{loc}})$}
+    \caption{$\textsf{prepareForBlockValidation}(sl, R, C_{\text{loc}}, v_{P'}^{\text{vrf}})$}
     \begin{algorithmic}[1]
         \noindent
         \lstinline|// Parse and calculate all necessary values for block validation.|
-        \State Calculate $e_n$ for the given $sl$.
-
+        \State Set $e \leftarrow \lceil sl/\\R \rceil$.
         \noindent
-        \lstinline|// Main ledger state_m is calculated according to the last block|
+        \lstinline|// Main ledger state_m is calculated according to|
         \noindent
-        \lstinline|// produced up to m-th slot.|
-        \State Parse $\textsf{state}_{(n - 4)\cdot R},
-        \textsf{state}_{(n - 2)\cdot R}$ from $C_{\text{loc}}$.
+        \lstinline|// the last block produced up to m-th slot.|
+        \State Parse $\textsf{state}_{(n - 4)\cdot R}, \textsf{state}_{(n - 2)\cdot R}$ from $C_{\text{loc}}$.
         \State Parse verified participants table $V{\text{ver}}$ from $\textsf{state}_{(n - 4)\cdot R}$.
         \State Parse an associated committee id $k$ for the given $v_{P'}^{\text{vrf}}$ from $V{\text{ver}}$.
         \noindent
@@ -47,7 +45,7 @@ The preparation algorithm is described below:
 \phantomsection
 \textbf{Main Block Validation Protocol}\label{apndx:block-validation-protocol} is as follows:
 \begin{protocol}
-    \caption{$\textsf{IsValidBlock}(P, R, B, C_{\text{loc}})$}
+    \caption{$\textsf{IsValidBlock}(P, \text{sid}, R, \mathcal{C}_{\text{loc}}, B, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
         \noindent
         \lstinline|// All indexes except the epoch index are omitted.|
@@ -55,7 +53,7 @@ The preparation algorithm is described below:
 
         \noindent
         \lstinline|// Prepare constants:|
-        \State Set $\textsf{preparation\_out} \leftarrow \textsf{PrepareForBlockValidation}(sl, R, v^{\text{vrf}}, C_{\text{loc}})$.
+        \State Set $\textsf{preparation\_out} \leftarrow \textsf{prepareForBlockValidation}(sl, R, C_{\text{loc}}, v^{\text{vrf}})$.
         \State Set $(e_n, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, T^{\text{cons}}, T^{\text{lead}}, T^{\text{sync}}) \leftarrow \textsf{preparation\_out}$.
 
         \noindent
@@ -117,21 +115,23 @@ The preparation algorithm is described below:
 \textbf{Chain validation}.\label{apndx:chain-validation-protocol}
 A core procedure is to distinguish valid chains from the invalid:
 \begin{protocol}
-    \caption{$\textsf{IsValidChain}(P, \text{sid}, R, \mathcal{C})$}
+    \caption{$\textsf{IsValidChain}(P, \text{sid}, \mathcal{C}, R, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
-        \If {${\exists B \in \mathcal{C}: B\textsf{.get(}sl\textsf{)} > sl^{\text{loc}}}$}
+        \If {$\exists B \in \mathcal{C}: B\textsf{.get(}sl\textsf{)} > \textsf{localTime}$}
             \State \Return ${\textsf{false}}$
         \EndIf
-        \For {each $e_j \in \mathcal{C}_{\text{loc}}$}
+        \For {each $e_j \in \mathcal{C}$}
 
-            \For {each block $B \in \mathcal{C}_{\text{loc}}\ | \ B\textsf{.get(}sl\textsf{)} \in e_j$}
+            \For {each block $B \in \mathcal{C}\ | \ B\textsf{.get(}sl\textsf{)} \in e_j$}
 
                 \par\hskip\algorithmicindent
                 \lstinline|// Check parent:|
                 \State Set $\textsf{valid\_parent} \leftarrow (\mathcal{H}(B^{-1}) = h) \wedge (B^{-1}\textsf{.get(}sl\textsf{)} < sl)$,\
                 \par\hskip\algorithmicindent
                 where $B^{-1}$ is the last block before $B$.
-                \State Set $\textsf{valid\_block} \leftarrow \textsf{IsValidBlock}(P, R, B, \mathcal{C}_{\text{loc}})$.
+                \State Set $\textsf{valid\_block} \leftarrow \textsf{IsValidBlock}(P, \text{sid}, R, \mathcal{C}_{\text{loc}}, B, \{S_k^{\text{id}}\}_{k=1}^K,$
+                \par\hskip\algorithmicindent
+                $\{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$.
                 \If {$(\textsf{valid\_block} \wedge \textsf{valid\_parent})$}
                     \State \Return ${\textsf{false}}$
                 \EndIf
@@ -148,7 +148,7 @@ A core procedure is to distinguish valid chains from the invalid:
 \textbf{The synchronisation beacon validity}.\label{apndx:sync-beacon-validity-protocol}
 Beacons validity is related to chain validity as one has to verify validity of leadership:
 \begin{protocol}
-    \caption{$\textsf{ValidBeacon}(P, R, b, \mathcal{C}_{\text{loc}})$}
+    \caption{$\textsf{ValidBeacon}(P, \text{sid}, R, b^{\text{sync}}, \mathcal{C})$}
     \begin{algorithmic}[1]
         \State Parse synchronization beacon $b$ as $(v_{P'}^{\text{vrf}}, sl, \pi^{\text{sl}})$.
         \State Calculate $e_n$ for the given $sl$.

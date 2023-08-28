@@ -15,9 +15,13 @@ with which it shares the same session ID\@.
     \begin{algorithmic}
         \State $\textbf{Global variables:}$
         \begin{itemize}
-            \item[\textbf{--}] Read-only: $R, K, K_{\text{f}}, K_{\text{g}}, \{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K$
-            \item[\textbf{--}] Read-write: $v^{\text{vrf}}_P, v^{\text{kes}}_P, sl_j, e_n, \{T^{\text{cons}, k}_{P, n}\}_{k=1}^K, \{T^{\text{lead}, k}_{P, n}\}_{k=1}^K, T^{\text{sync}}_{P, n}, b^{\text{sync}}_{P, j}, \textsf{localTime}, \textsf{state}_{j},$
-            \item[] $\textsf{buffer}, \textsf{syncBuffer}, \textsf{isSync}, \textsf{isInit}, \textsf{fetchCompleted}, \textsf{futureChains}, \textsf{lastTick}, \textsf{EpochUpdate(.)}$.
+            \item[\textbf{--}] Read-only: $R, K_{\text{f}}, K_{\text{g}}, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K$.
+            \item[] \lstinline|// Hereinafter, the indices and values of epochs and slots are|
+            \item[] \lstinline|// interchangeable, i.e. e_n = n, s_j = j.  Also, the id of the|
+            \item[]  \lstinline|// k-th connected system S_k usualy is simply denoted by k.|
+            \item[\textbf{--}] Read-write: $v^{\text{vrf}}_P, v^{\text{kes}}_P, sl_j, e_n, \{T^{\text{cons}, k}_{P, n}\}_{k=1}^K, \{T^{\text{lead}, k}_{P, n}\}_{k=1}^K, T^{\text{sync}}_{P, n}, b^{\text{sync}}_{P, j},$
+            \item[] $\textsf{localTime}, \textsf{lastTick}, \textsf{EpochUpdate(.)}, \textsf{state}_{j}, \textsf{buffer}, \textsf{syncBuffer}, \textsf{isSync}, \textsf{isInit},$
+            \item[] $\textsf{fetchCompleted}, \textsf{futureChains}$.
         \end{itemize}
         \State $\textbf{Registration/De-registration:}$
 
@@ -27,12 +31,16 @@ with which it shares the same session ID\@.
         If not all resources are available, then ignore the input, otherwise execute one of the following\
         steps depending on the input $I$:
         \begin{itemize}
-            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{SUBMIT}}, \text{sid}, \textsf{tx}):$ set $\textsf{buffer} \leftarrow \textsf{buffer} || \textsf{tx}$;
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{SUBMIT}}, \text{sid}, \textsf{tx}):$
+            \item[] set $\textsf{buffer} \leftarrow \textsf{buffer} || \textsf{tx}$;
             \item [] send $(\textsf{\scriptsize{MULTICAST}}, \text{sid}, \textsf{tx})$ to $\mathcal{F}^{\Delta}_{\text{N-MC}}$.
-            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{MAINTAIN-LEDGER}}, P, \text{sid}):$ invoke the protocol \hyperref[apndx:main-ledger-protocol]{$\textsf{LedgerMaintenance}$}$(P, R, \text{sid}, \mathcal{C}_{\text{loc}})$;
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{MAINTAIN-LEDGER}}, P, \text{sid}):$
+            \item[] invoke the protocol \hyperref[apndx:main-ledger-protocol]{$\textsf{LedgerMaintenance}$}$(P, R, \text{sid}, \mathcal{C}_{\text{loc}})$;
             \item[] if $\textsf{LedgerMaintenance}$ halts then halt the $\textsf{Spectrum}$ protocol execution and ignore all future inputs.
-            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{READ}}, \text{sid}):$ invoke the protocol \hyperref[apndx:read-state-protocol]{$\textsf{ReadState}$}$(P, R, \text{sid}, \mathcal{C}_{\text{loc}})$;
-            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{EXPORT-TIME}}, \text{sid}):$ if $\text{isSync} \vee \textsf{isInit} = \textsf{false}$ then return $\textsf{false}$ to party $P$;
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{READ}}, \text{sid}):$
+            \item[] invoke the protocol \hyperref[apndx:read-state-protocol]{$\textsf{ReadState}$}$(P, R, \text{sid}, \mathcal{C}_{\text{loc}})$;
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{EXPORT-TIME}}, \text{sid}):$
+            \item[] if $\textsf{isSync} \vee \textsf{isInit} = \textsf{false}$ then return $\textsf{false}$ to party $P$;
             \item[] Otherwise call \hyperref[apndx:update-time-protocol]{$\textsf{UpdateTime}$}$(P, R)$ and do:
             \begin{enumerate}
                 \item Set the highest epoch value $e_n \leftarrow \textsf{EpochUpdate(.)}$.
@@ -44,12 +52,12 @@ with which it shares the same session ID\@.
         \begin{itemize}
             \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{CLOCK-GET}}, \text{sid}_\text{C}):$ forward it\
             to $\mathcal{G}_{\text{ImpLClock}}$ and return its response.
-            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{CLOCK-UPDATE}}, \text{sid}_\text{C}):$ ,  record that a clock-update was received in the current round.
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{CLOCK-UPDATE}}, \text{sid}_\text{C}):$ record that a clock-update was received in the current round.
             If the party is registered to all its setups,  then do nothing further.
             Otherwise,  do the following operations before concluding this round:
             \begin{enumerate}
                 \item If this instance is currently time-aware but otherwise stalled or offline, then set $\textsf{localTime} \leftarrow \textsf{UpdateTime}(P, R)$\
-                and evolve the KES signing key.
+                and update the KES signing key using $\mathcal{F}_{\text{KES}}$.
                 If the party has passed a synchronization slot, then set $\textsf{isSync}  \leftarrow  \textsf{false}$.
                 \item If this instance is only stalled but $\textsf{isSync}  =  \textsf{true}$, then additionally execute\
                 \hyperref[apndx:fetch-info-protocol]{$\textsf{FetchInformation}$}$(P, \text{sid})$, extract all new synchronization beacons from the fetched chains,\
