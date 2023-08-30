@@ -8,8 +8,9 @@ At different points in time, participants perform auxiliary protocols, which we 
 \textbf{Evaluation Protocol}.\label{apndx:eval-protocol}
 In normal protocol execution, each participant performs the following procedure:
 \begin{protocol}
-    \caption{$\textsf{EvaluationProcedure}(P, \text{sid}, R, sl, \textsf{buffer}, \textsf{syncBuffer}, \mathcal{C}_{\text{loc}}, \{S_k^{\text{id}}\}_{k=1}^K,$
-    $\{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$}
+    \caption{$\textsf{EvaluationProcedure}(P, \text{sid}, R, sl, \textsf{buffer}, \textsf{syncBuffer}, \mathcal{C}_{\text{loc}},$
+    $\mathbf{S}_k^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K, \mathbf{f}_{k, \text{lead}}^{\text{set}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
+    \mathbf{f}_{k, \text{cons}}^{\text{set}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
 
         \noindent
@@ -67,7 +68,8 @@ In normal protocol execution, each participant performs the following procedure:
 When moving between epochs, a new consensus group must be selected.
 To do this, each participant performs the following protocol:
 \begin{protocol}
-    \caption{$\textsf{ConsensusLottery}(P, \text{sid}, e_n, \mathcal{C}_{\text{loc}}, K_{\text{f}}, K_{\text{g}}, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$}
+    \caption{$\textsf{ConsensusLottery}(P, \text{sid}, e_n, \mathcal{C}_{\text{loc}}, K_{\text{f}}, K_{\text{g}}, \mathbf{S}_k^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K,
+    \mathbf{f}_{k, \text{cons}}^{\text{set}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
         \State Set ${\pi^{\text{e}}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.eval(}\mathcal{H}(\eta_n || e_n) \textsf{)}$.
         \State Set ${r^{\text{e}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{e}}\textsf{)}}$
@@ -89,7 +91,8 @@ To do this, each participant performs the following protocol:
 \phantomsection
 \textbf{Main Ledger Maintenance Protocol}.\label{apndx:main-ledger-protocol}
 \begin{protocol}
-    \caption{$\textsf{LedgerMaintenance}(P, \text{sid}, \mathcal{C}_{\text{loc}}, R, K_{\text{f}}, K_{\text{g}}, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$}
+    \caption{$\textsf{LedgerMaintenance}(P, \text{sid}, \mathcal{C}_{\text{loc}}, R, K_{\text{f}}, K_{\text{g}}, \mathbf{S}_k^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K, \mathbf{f}_{k, \text{lead}}^{\text{set}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
+    \mathbf{f}_{k, \text{cons}}^{\text{set}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
 
         \noindent

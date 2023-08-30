@@ -28,7 +28,7 @@ All members of $\{V^k_1\}_{k=1}^K$ committees perform the following procedure:
     ${\mathcal{F}}_{\text{KES}}$.
 
     \item Full set of the verification keys tuples\
-    ${V_{\text{init}, k} = \{(v_i^{\text{vrf}}, v_i^{\text{kes}}, k)\}_{i=1}^{M^{\text{cons}, k}}}$\
+    ${V_{\text{ver, init}, k} = \{(v_i^{\text{vrf}}, v_i^{\text{kes}}, \mathbf{S}^{\text{id}}_{\text{set}} = \{S_k'^{\text{id}}\}_{k'=1}^K')\}_{i=1}^{M^{\text{cons}, k}}}$\
     with the initial stakes $S_k = \{s_i\}_{i=1}^{M^{\text{cons}, k}}$ must be stored in the genesis block and\
     acknowledged by all members of the initial consensus group (meaning members of all $K$ committees and\
     a full set is $\{V_{\text{init}, k}\}_{k=1}^{K}$).
@@ -38,7 +38,7 @@ All members of $\{V^k_1\}_{k=1}^K$ committees perform the following procedure:
     participant to sample an initial random seed value $\eta \leftarrow \{0, 1\}^l$.
 
     \item Finally, all approved stakeholders should agree on the genesis block\
-    ${B_0=\left(\{V_{\text{init}, k}, S_k\}_{k=1}^{K}, \eta\right)}$.
+    ${B_0=\left(\{V_{\text{ver, init}, k}, S_k\}_{k=1}^{K}, \eta\right)}$.
 \end{enumerate}
 
 \subsubsection{Chain Extension}\label{subsubsec:chain-extension}

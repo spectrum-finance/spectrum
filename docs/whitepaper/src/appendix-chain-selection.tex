@@ -73,7 +73,9 @@ The Genesis chain selection rule:
 \textbf{Chain Selection Protocol}.\label{apndx:max-selection-protocol}
 The main chain selection protocol is as follows:
 \begin{protocol}
-    \caption{$\textsf{SelectChain}(P, \text{sid}, \mathcal{C}_{\text{loc}}, R, K_{\text{f}}, K_{\text{g}}, \mathcal{N}_0, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$}
+    \caption{$\textsf{SelectChain}(P, \text{sid}, \mathcal{C}_{\text{loc}}, R, K_{\text{f}}, K_{\text{g}}, \mathcal{N}_0,$
+        $\mathbf{S}_k^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K, \mathbf{f}_{k, \text{lead}}^{\text{set}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
+    \mathbf{f}_{k, \text{cons}}^{\text{set}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
         \State Initialize $\mathcal{N}_{\text{valid}} \leftarrow \emptyset$.
 
