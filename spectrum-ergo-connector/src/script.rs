@@ -230,9 +230,9 @@ mod tests {
 
         let mut registers = HashMap::new();
 
-        registers.insert(NonMandatoryRegisterId::R4, Constant::from(EcPoint::from(r_point)));
+        registers.insert(NonMandatoryRegisterId::R4, Constant::from(EcPoint::from(pk)));
         registers.insert(NonMandatoryRegisterId::R5, (first_len, s_bytes).into());
-        registers.insert(NonMandatoryRegisterId::R6, Constant::from(EcPoint::from(pk)));
+        registers.insert(NonMandatoryRegisterId::R6, Constant::from(EcPoint::from(r_point)));
         registers.insert(NonMandatoryRegisterId::R7, Constant::from(msg.to_vec()));
         registers.insert(NonMandatoryRegisterId::R8, Constant::from(generator()));
         registers.insert(NonMandatoryRegisterId::R9, Constant::from(pp));
