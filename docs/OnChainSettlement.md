@@ -26,9 +26,17 @@ we denote by $r^*$. The report $r^*$ consists of:
    point, we increase the number of committee members that have observed all
    effects in the report.
  - A signature of $P_n^k$, signed by the slot leader's private key. 
- - The hash value of the root of a Merkle tree formed by taking the above list
-   of effects as leaf nodes. Note that we must define a partial order on these
-   effects to enable proper verification (see appendix A).
+ - A digest $D$ of a two-party authenticated data structure (e.g. merkle tree) that
+   is constructed from the hashes of export-effects. By two-party, we mean a
+   *prover* and a *verifier*. In our setting, the prover (in our case the slot
+   leader) starts with an empty structure and performs operations to construct
+   it while maintaining proofs of its construction. The verifier also starts
+   from an empty structure and is given a proof, which is then used to construct
+   data structure. Then a digest is computed and checked for equality with $D$.
+   
+   The hash value of the root of a Merkle tree formed by taking
+   the above list of effects as leaf nodes. Note that we must define a partial
+   order on these effects to enable proper verification (see appendix A).
 
 ### Report notarization
 

@@ -7,10 +7,24 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.68"
+base16 = "0.2"
+bytes = "1.0.1"
 ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
-spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
-spectrum-chain-connector = { version = "0.1.0", path = "../spectrum-chain-connector" }
+#spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
+#spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
+#spectrum-chain-connector = { version = "0.1.0", path = "../spectrum-chain-connector" }
+spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
+scorex_crypto_avltree = "0.1.0"
+indexmap = "1.9.2"
 isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.28"
 tokio = { version = "1.27.0", features = ["full"] }
-ergo-lib = "0.24.0"
+ergo-lib = { git = "https://github.com/kettlebell/sigma-rust", branch = "ecpoint_derive_from" , features = ["arbitrary"] }
+sigma-ser = { git = "https://github.com/kettlebell/sigma-rust", branch = "ecpoint_derive_from"  }
+
+[dev-dependencies]
+rand = "0.8.5"
+k256 = { version = "0.13.*", features = ["serde", "arithmetic", "expose-field", "hash2curve"] }
+num-bigint = "0.4"
+num-traits = "0.2"
+num256 = "0.3.5"
