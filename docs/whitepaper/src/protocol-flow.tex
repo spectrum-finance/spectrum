@@ -1,14 +1,14 @@
 Let's summarize all of the above and describe the full flow of the Spectrum protocol.
 Protocol is running by a set of manually selected opening consensus groups $\{V^k_1\}_{k=1}^K$\
 for $K$ connected distributed systems $\{S_k\}_{k=1}^K$.
-Each group consists of at least $M^{\text{cons}, k}$ stakeholders interacting with each other and with the ideal\
+Each group consists of at least $M_k$ stakeholders interacting with each other and with the ideal\
 functionalities $\mathcal{F}_{\text{Init}}$, ${\mathcal{F}}_{\text{VRF}}$, $\mathcal{H}$, ${\mathcal{F}}_{\text{LB}}$,\
 $\mathcal{F}_{\text{AggSig}}$, ${\mathcal{F}}_{\text{KES}}$,\
 $\mathcal{G}_{\text{ImpLClock}}$ and $\mathcal{G}_{\text{Ledger}}$ over a sequence of $L = E \cdot R$\
 slots ${S=\{sl_1,\dots,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
 Functionality ${\mathcal{F}}_{\text{Init}}$~\cite{Badertscher2018} formalizes the procedure of genesis\
 block creation and distribution.
-Functionality ${\mathcal{F}}_{\text{AggSig}}$ implements the presented aggregated signature scheme logic.
+Functionality ${\mathcal{F}}_{\text{AggSig}}$ implements the presented in~\ref{subsec:scalable-collective-signature-aggregation} aggregated signature scheme logic.
 Functionality $\mathcal{G}_{\text{ImpLClock}}$~\cite{cryptoeprint:2019/838} implements the local\
 clock setting and adjusting logic.
 Functionality $\mathcal{G}_{\text{Ledger}}$ implements the logic of interaction with the ledger.

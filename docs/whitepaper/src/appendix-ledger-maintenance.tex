@@ -8,53 +8,57 @@ At different points in time, participants perform auxiliary protocols, which we 
 \textbf{Evaluation Protocol}.\label{apndx:eval-protocol}
 In normal protocol execution, each participant performs the following procedure:
 \begin{protocol}
-    \caption{$\textsf{EvaluationProcedure}(P, \text{sid}, R, sl, \textsf{buffer}, \textsf{syncBuffer}, \mathcal{C}_{\text{loc}},$
-    $\mathbf{S}_k^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K, \mathbf{f}_{k, \text{lead}}^{\text{set}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
-    \mathbf{f}_{k, \text{cons}}^{\text{set}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
+    \caption{$\textsf{EvaluationProcedure}(P, \text{sid}, R, sl, \textsf{buffer}, \textsf{syncBuffer}, \mathcal{C}_{\text{loc}}, \mathbf{S}_P^{\text{set}})$}
     \begin{algorithmic}[1]
-
-        \noindent
-        \lstinline|// Leader lottery:|
-        \State Set actual $T^{\text{lead}}$ from the \textsf{context}.
-        \State Evaluate $\mathcal{F}_{\text{VRF}}$ with input $x = \eta_n|| sl$ to get slot proof $\pi^{\text{sl}}$.
-        \State Set ${r^{\text{sl}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{sl}}\textsf{)}}$
-        \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{LEAD})}}$
-        \State Set ${\textsf{valid\_leader} \leftarrow y^{\text{lead}} < T^{\text{lead}}}$.
-
         \noindent
         \lstinline|// Synchronization lottery:|
-        \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{SYNC})}}$.
+        \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(\textsf{SYNC} || r^{\text{sl}})}}$.
         \State Set ${\textsf{valid\_sync} \leftarrow y^{\text{sync}} < T^{\text{sync}}}$.
 
-        \If {$\textsf{valid\_leader}$}
-            \State Set $\textsf{state}$ extracted from $\textsf{buffer}$
-            \State Set $h \leftarrow \mathcal{H}(\mathcal{C}_{\text{loc}}\textsf{.head()})$
-            \If {$sl \in [R \cdot n, R \cdot n + 2 /\\ 3 \cdot R]$}
-                \State {Set valid synchronization beacon set as:}.
-                \State {${b^{\text{set}} \leftarrow \{b' \in \textsf{syncBuffer} | \textsf{validBeacon}(b', \mathcal{C}_{\text{loc}}) = \textsf{true}\}}$}
-                \For
-                {$\all b$ in $b^{\text{set}}$}
-                    \State Set $sl^* \leftarrow b.\textsf{get(} sl \textsf{)})$
-                    \State Set $v^{\text{vrf}}^* \leftarrow b.\textsf{get(} v^{\text{vrf}} \textsf{)}$
-                    \If {$(sl^* > sl) \vee (sl^* \geq (n - 1) \cdot R) \vee (\exists b' \in \mathcal{C}_{\text{loc}} | (b'.\textsf{get(} v^{\text{vrf}}\
-                    \textsf{)}) = v^{\text{vrf}}^* \wedge b'.\textsf{get(} sl \textsf{)} = sl^*))$}
-                        \State Remove $b$ from $b^{\text{set}}$.
-                    \EndIf
-
-                \EndFor
-            \EndIf
-            \State Set $\sigma_{\text{KES}} \leftarrow \mathcal{F}_{\text{KES}}\textsf{.sign(} h || \textsf{state} || b^{\text{set}} || sl || \pi^{\text{sl}} \textsf{)}$.
-            \State Create new block $B$ with $\sigma_{\text{KES}}$ signature included.
-            \State Update $\mathcal{C}_{\text{loc}}$ with new block $B$ and broadcast the update to known peers.
-        \EndIf
         \If {$\textsf{valid\_sync}$}
             \If {$sl \in [R \cdot n, R \cdot n + 1 /\\ 6 \cdot R]$}
-                \State Set $b \leftarrow (v^{\text{vrf}}, sl, \pi^{\text{sl}})$.
-                \State Broadcast $b$ to known peers.
-
+                \State Set $b^{\text{sync}} \leftarrow (v^{\text{vrf}}, sl, \pi^{\text{sl}})$.
+                \State Broadcast $b^{\text{sync}}$ to known peers.
             \EndIf
-
         \EndIf
+
+        \For {each $S_k^{\text{id}} \in \mathbf{S}_P^{\text{set}}$}
+
+            \par\hskip
+            \lstinline|// All participant's state constants involved are specific|
+            \par\hskip
+            \lstinline|to the k-th committee.|
+            \State Select $T^{\text{lead}}$ related to the $S_k^{\text{id}}$.
+
+            \par\hskip
+            \lstinline|// Leader lottery:|
+            \State Set $(r^{\text{sl}}, \pi^{\text{sl}}) \leftarrow \mathcal{F}_{\text{VRF}}.\textsf{eval(}\eta_n || sl\textsf{)}$.
+            \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(\textsf{LEAD} || r^{\text{sl}})}}$.
+            \State Set ${\textsf{valid\_leader} \leftarrow y^{\text{lead}} < T^{\text{lead}}}$.
+            \If {$\textsf{valid\_leader}$}
+                \State Set actual $\textsf{state}$ extracted from $\textsf{buffer}$.
+                \State Set $h \leftarrow \mathcal{H}(\textsf{head(}\mathcal{C}_{\text{loc}}\textsf{)})$. \lstinline|// head(C) gets the latest block from C.|
+                \If {$sl \in [R \cdot n, R \cdot n + 2 /\\ 3 \cdot R]$}
+                    \State {Set valid synchronization beacon set as:}.
+                    \State {${\mathbf{b}^{\text{set}} \leftarrow \{b' \in \textsf{syncBuffer} | \textsf{validBeacon}(P, \text{sid}, R, l_{\text{VRF}}, K_{\text{f}}, b', \mathcal{C}_{\text{loc}}) = \textsf{true}\}}$}.
+                    \For
+                    {each $b$ in $\mathbf{b}^{\text{set}}$}
+                        \State Set $sl^* \leftarrow b.\textsf{get(} sl \textsf{)})$.
+                        \State Set $v^{\text{vrf}}^* \leftarrow b.\textsf{get(} v^{\text{vrf}} \textsf{)}$.
+                        \If {$(sl^* > sl) \vee (sl^* \geq (n - 1) \cdot R) \vee (\exists b' \in \mathcal{C}_{\text{loc}} | (b'.\textsf{get(} v^{\text{vrf}}\
+                        \textsf{)}) = v^{\text{vrf}}^* \wedge b'.\textsf{get(} sl \textsf{)} = sl^*))$}
+                            \State Remove $b$ from $\mathbf{b}^{\text{set}}$.
+                        \EndIf
+
+                    \EndFor
+                \EndIf
+                \State Set $\textsf{state\_hash} \leftarrow \mathcal{H}(\textsf{state})$.
+                \State Set $\pi^{\text{sl}}_h \leftarrow \mathcal{H}(\pi^{\text{sl}})$.
+                \State Set $\sigma_{\text{KES}} \leftarrow \mathcal{F}_{\text{KES}}\textsf{.sign(} \mathcal{H}( h || \textsf{state\_hash} || sl || \pi^{\text{sl}}_h) \textsf{)}$.
+                \State Set $B \leftarrow ((h, sl, \textsf{state\_hash}, \pi^{\text{sl}}_h), sl, S_k^{\text{id}}, v^{\text{vrf}}, \pi^{\text{sl}}, \sigma_{\text{KES}})$.
+                \State Update $\mathcal{C}_{\text{loc}} \leftarrow \mathcal{C}_{\text{loc}} || B$ and broadcast it to all known peers.
+            \EndIf
+        \EndFor
 
     \end{algorithmic}\label{alg:eval-protocol}
 \end{protocol}
@@ -68,19 +72,32 @@ In normal protocol execution, each participant performs the following procedure:
 When moving between epochs, a new consensus group must be selected.
 To do this, each participant performs the following protocol:
 \begin{protocol}
-    \caption{$\textsf{ConsensusLottery}(P, \text{sid}, e_n, \mathcal{C}_{\text{loc}}, K_{\text{f}}, K_{\text{g}}, \mathbf{S}_k^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K,
+    \caption{$\textsf{ConsensusLottery}(P, \text{sid}, e_n, \mathcal{C}_{\text{loc}}, K_{\text{f}}, K_{\text{g}}, \mathbf{S}_P^{\text{set}},
     \mathbf{f}_{k, \text{cons}}^{\text{set}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
-        \State Set ${\pi^{\text{e}}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.eval(}\mathcal{H}(\eta_n || e_n) \textsf{)}$.
-        \State Set ${r^{\text{e}} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.extract\_random\_number(}\pi^{\text{e}}\textsf{)}}$
-        \State Parse $k$-th committee stakeholders distribution $S_k^{\text{cons}, n - 2}$ from the $\textsf{state}_{(n - 2)\cdot R}$
-        \State Calculate consensus group lottery threshold for $k$-th committee as $T_n^{\text{cons}, k}$ calculated using $S_k^{\text{ver}, {n - 2}}$
-        \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(r^{\text{e}} || \textsf{CONS})}}$
-        \State Set ${\textsf{is\_member} = (y^{\text{cons}} < T^{\text{cons}})}$.
-        \If
-            $\textsf{is\_member} = \textsf{true}$
-            \State Broadcast message with consensus membership proof $\textsf{ConsLotteryResTx(}v^{\text{vrf}, \pi^{\text{e}}}\textsf{)}$.
-        \EndIf
+        \noindent
+        \lstinline|// The lottery at the end of e_n selects committees for e_{n + 2}|
+        \State Set $sl'= (n - 2)\cdot R$.
+        \State Set $\textsf{state}_{sl'} \leftarrow \textsf{ReadState}(P, \text{sid}, sl', R, K_{\text{f}}, C_{\text{loc}})$.
+        \For {each $S_k^{\text{id}} \in \mathbf{S}_P^{\text{set}}$}
+            \State Set ${(r^{\text{e}}, \pi^{\text{e}})} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.eval(}\mathcal{H}(\eta_n || e_n) \textsf{)}$.
+            \State Parse $k$-th committee stakeholders distribution $S_k^{n - 2}$ from the $\textsf{state}_{sl'}$.
+            \State Calculate participant's relative stake $\alpha^{n-2}_{P'}$ using $S_k^{n - 2}$.
+            \State Set participant's consensus group lottery threshold for $k$-th committee
+            \par\hskip
+            as $T_{P', n-2}^{k} = \phi_{f^{\text{cons}}_k}(\alpha^{n-2}_{P'})$.
+            \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(\textsf{CONS} || r^{\text{e}})}}$.
+            \State Set ${\textsf{is\_member} \leftarrow y^{\text{cons}} < T_{P', n-2}^{k}}$.
+            \If
+            {$\textsf{is\_member} = \textsf{true}$}
+                \State Broadcast message with consensus membership proof
+                \par\hskip\algorithmicindent
+                $\textsf{ConsLotteryResTx(}v^{\text{vrf}}, e_n, S_k^{\text{id}}, \pi^{\text{e}}\textsf{)}$.
+            \EndIf
+        \EndFor
+        \lstinline|// Commit to participate in the e_{n + 3} consensus lottery:|
+        \State Update your verification information broadcasting the $\textsf{VerificationUpdTx(}v^{\text{vrf}}, \mathbf{S}_P^{\text{set}}\textsf{)}$.
+
 
     \end{algorithmic}\label{alg:consensus-lottery-protocol}
 \end{protocol}
@@ -104,8 +121,8 @@ To do this, each participant performs the following protocol:
 
         \noindent
         \lstinline|// Process arrived synchronisation beacons:|
-        \State Extract beacons $b^{\text{set}} \leftarrow \{b^{\text{sync}}_n\}_{n=1}^N$ contained in $\{\mathcal{C}_m\}_{m=1}^M$ and not yet contained in $\textsf{syncBuffer}$.
-        \State Call $\textsf{ProcessBeacons}(P, \text{sid}, R, \{b^{\text{sync}}_n\}_{n=1}^N, \mathcal{C})$.
+        \State Extract beacons $\mathbf{b}^{\text{set}} \leftarrow \{b^{\text{sync}}_n\}_{n=1}^N$ contained in $\{\mathcal{C}_m\}_{m=1}^M$ and not yet contained in $\textsf{syncBuffer}$.
+        \State Call $\textsf{ProcessBeacons}(P, \text{sid}, R, \mathbf{b}^{\text{set}}, \mathcal{C})$.
 
         \noindent
         \lstinline|// Filter chains:|
@@ -113,7 +130,9 @@ To do this, each participant performs the following protocol:
         \For {$\mathcal{C} \in \mathcal{N}_0$}
             \State Remove $\mathcal{C}$ from $\textsf{futureChains}$.
         \EndFor
-        \State Set $\mathcal{C}_{\text{loc}} \leftarrow \textsf{SelectChain}(P, \text{sid}, \mathcal{C}_{\text{loc}}, R, K_{\text{f}}, K_{\text{g}}, \mathcal{N}_0, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$.
+        \State Set $\mathcal{C}_{\text{loc}} \leftarrow \textsf{SelectChain}(P, \text{sid}, \mathcal{C}_{\text{loc}}, R, K_{\text{f}}, K_{\text{g}}, \mathcal{N}_0, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{lead}}_k\}_{k=1}^K,$
+        \par\hskip\algorithmicindent
+        $\{f^{\text{cons}}_k\}_{k=1}^K)$.
 
         \noindent
         \lstinline|// Perform actions according to the current local|
@@ -121,16 +140,14 @@ To do this, each participant performs the following protocol:
         \lstinline|// stage of the protocol:|
         \State Set $sl \leftarrow \textsf{localTime}$.
         \If {$sl < sl^{\text{work}}$}
-            \State Call $\textsf{EvaluationProcedure}(P, \text{sid}, R, sl, \textsf{buffer}, \textsf{syncBuffer}, \mathcal{C}_{\text{loc}}, \{S_k^{\text{id}}\}_{k=1}^K,$
-            \par\hskip\algorithmicindent
-            $\{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$.
+            \State Call $\textsf{EvaluationProcedure}(P, \text{sid}, R, sl, \textsf{buffer}, \textsf{syncBuffer}, \mathcal{C}_{\text{loc}}, \mathbf{S}_P^{\text{set}})$.
             \State Set $sl^{\text{work}} \leftarrow sl$.
             \If {$sl \bmod R = 0$}
                 \State Call $\textsf{UpdateStakeDistribution}(P, \text{sid}, R, \mathcal{C}_{\text{loc}}, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$.
                 \State Calculate $e_n$ for the given $sl$.\lstinline|  // The value of e_n is equal to n.|
                 \State Parse $\textsf{state}_{(n - 2)\cdot R}$ from $C_{\text{loc}}$.
                 \For {every party's $P$ $k$-th connected system}
-                    \State Call $\textsf{ConsensusLottery}(P, \text{sid}, e_n, \mathcal{C}_{\text{loc}}, K_{\text{f}}, K_{\text{g}}, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$.
+                    \State Call $\textsf{ConsensusLottery}(P, \text{sid}, e_n, \mathcal{C}_{\text{loc}}, K_{\text{f}}, K_{\text{g}},  \mathbf{S}_P^{\text{set}}, \{f^{\text{cons}}_k\}_{k=1}^K)$.
                 \EndFor
                 \State Call $\textsf{SyncProc}(P, \text{sid}, R)$.
             \EndIf

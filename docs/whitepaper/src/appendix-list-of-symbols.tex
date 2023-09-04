@@ -23,6 +23,7 @@
     \item[\ding{113}] $e_n \in \mathbb{N}$ -- the largest discrete time unit used in the protocol.
     \item[\ding{113}] $R \in \mathbb{N}$ -- epoch boundaries, each epoch consists of $R$ slots.
     \item[\ding{113}] $l_{\text{VRF}}$ -- the output length of the VRF in bits.
+    \item[\ding{113}] $U_{\text{c}}$ -- transaction confirmation time in slots.
     \item[\ding{113}] $K_{\text{f}} \in \mathbb{N}$ -- number of blocks to achieve finality in the $L^+$.
     \item[\ding{113}] $K_{\text{g}} \in \mathbb{N}$ -- number of blocks to consider chain growth (is used in chain selection).
     \item[\ding{113}] $\mathbf{S}^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K$ -- set of connected distributed systems' ids (i.e. $K$ committees of validators for each system).
@@ -67,6 +68,10 @@
     the party $P$ for epoch $e_n$.
     \item[\ding{113}] $T^{\text{sync}}_{\text{P}, n}$ -- synchronization beacon lottery threshold calculated for\
     the party $P$ for epoch $e_n$.
+    \item[\ding{113}] $\mathbf{S}_P^{\text{set}}$ -- set of actual connected to participant $P$ distributed systems' ids.
+    \item[\ding{113}] $\mathbf{T}^{\text{cons}}$ -- set of actual consensus group lottery thresholds for different committees.
+    \item[\ding{113}] $\mathbf{T}^{\text{lead}}$ -- set of actual leader lottery thresholds for different committees.
+    \item[\ding{113}] $\mathbf{T}^{\text{sync}}$ -- set of actual synchronization lottery thresholds for different committees.
     \item[\ding{113}] $\mathcal{C}_{\text{loc}}$ -- the local chain the party adopts based on which it does evaluation and
     exports the ledger state.
     \item[\ding{113}] $\textsf{isInit}$ -- a variable to keep track of whether initialization is complete.

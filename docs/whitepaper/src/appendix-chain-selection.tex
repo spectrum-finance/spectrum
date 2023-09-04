@@ -33,14 +33,12 @@ Rule to resolve conflicts that arise after applying the Genesis rule.
 \textbf{Maximum Valid Rule}.\label{apndx:max-valid-rule}
 The Genesis chain selection rule:
 \begin{algo}
-    \caption{${\textsf{maxValidChain}(\mathcal{C}_{\text{loc}}, \{\mathcal{C}_i\}_{i=1}^N, K_{\text{f}}, K_{\text{g}})}$}
+    \caption{${\textsf{maxValidChain}(\mathcal{C}_{\text{loc}}, \mathbf{N} = \{\mathcal{C}_i\}_{i=1}^N, K_{\text{f}}, K_{\text{g}})}$}
     \begin{algorithmic}[1]
         \noindent
-        \lstinline|// C_loc is the local chain of the validator.|
-        \noindent
-        \lstinline|// Set local chain as initially maximum valid chain:|
+        \lstinline|// Set local chain C_loc as initially maximum valid chain:|
         \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{\text{loc}}}$.
-        \For {${\mathcal{C}_i \in \{\mathcal{C}_i\}_{i=1}^N}$}
+        \For {each ${\mathcal{C}_i \in \mathbf{N}}$}
             \If {$\mathcal{C}_i$ forks from $\mathcal{C}_{\max}$ at most $K_{\text{f}}$ blocks}
                 \If {$|\mathcal{C}_i| > |\mathcal{C}_{\max}|$}
                     \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$.
@@ -73,26 +71,26 @@ The Genesis chain selection rule:
 \textbf{Chain Selection Protocol}.\label{apndx:max-selection-protocol}
 The main chain selection protocol is as follows:
 \begin{protocol}
-    \caption{$\textsf{SelectChain}(P, \text{sid}, \mathcal{C}_{\text{loc}}, R, K_{\text{f}}, K_{\text{g}}, \mathcal{N}_0,$
+    \caption{$\textsf{SelectChain}(P, \text{sid}, \mathcal{C}_{\text{loc}}, R, K_{\text{f}}, K_{\text{g}}, \mathfb{N}_0,$
         $\mathbf{S}_k^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K, \mathbf{f}_{k, \text{lead}}^{\text{set}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
     \mathbf{f}_{k, \text{cons}}^{\text{set}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
-        \State Initialize $\mathcal{N}_{\text{valid}} \leftarrow \emptyset$.
+        \State Initialize $\mathbf{N}_{\text{valid}} \leftarrow \emptyset$.
 
         \noindent
         \lstinline|// Filter all valid chains:|
-        \For {$\mathcal{C} \in \mathcal{N}_0$}
-            \State Set $\textsf{is\_valid\_chain} \leftarrow \textsf{IsValidChain}(P, \text{sid}, \mathcal{C}, R, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{lead}}_k\}_{k=1}^K,$
+        \For {each $\mathcal{C} \in \mathbf{N}_0$}
+            \State Set $\textsf{is\_valid\_chain} \leftarrow \textsf{IsValidChain}(P, \text{sid}, \mathcal{C}, R, l_{\text{VRF}}, K_{\text{f}},  \{S_k^{\text{id}}\}_{k=1}^K,$
             \par\hskip\algorithmicindent
-            $\{f^{\text{cons}}_k\}_{k=1}^K)$.
+            $\{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$.
             \If {$\textsf{is\_valid\_chain} = \textsf{true}$}
-                \State Update $\mathcal{N}_{\text{valid}} \leftarrow \mathcal{N}_{\text{valid}} \cup \mathcal{C}$.
+                \State Update $\mathbf{N}_{\text{valid}} \leftarrow \mathbf{N}_{\text{valid}} \cup \mathcal{C}$.
             \EndIf
         \EndFor
 
         \noindent
         \lstinline|// Set local chain as maximum valid chain:|
-        \State Set $\mathcal{C}_{\text{loc}} \leftarrow \textsf{maxValidChain}(\mathcal{C}_{\text{loc}}, \mathcal{N}_0, K_{\text{f}}, K_{\text{g}})$.
+        \State Set $\mathcal{C}_{\text{loc}} \leftarrow \textsf{maxValidChain}(\mathcal{C}_{\text{loc}}, \mathbf{N}_0, K_{\text{f}}, K_{\text{g}})$.
 
     \end{algorithmic}\label{alg:max-selection-protocol}
 \end{protocol}
