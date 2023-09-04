@@ -13,6 +13,8 @@ mod tests {
     use std::io::Write;
 
     use bytes::Bytes;
+    use elliptic_curve::ops::LinearCombination;
+    use elliptic_curve::ops::Reduce;
     use ergo_lib::chain::ergo_state_context::ErgoStateContext;
     use ergo_lib::chain::ergo_state_context::Headers;
     use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
@@ -59,6 +61,7 @@ mod tests {
     use k256::ProjectivePoint;
     use k256::Scalar;
     use k256::SecretKey;
+    use k256::U256;
     use num256::Int256;
     use num_bigint::BigInt;
     use num_bigint::BigUint;
@@ -71,6 +74,8 @@ mod tests {
     use scorex_crypto_avltree::batch_avl_prover::BatchAVLProver;
     use scorex_crypto_avltree::batch_node::*;
     use scorex_crypto_avltree::operation::*;
+    use sha2::Digest as OtherDigest;
+    use sha2::Sha256;
     use sigma_ser::vlq_encode::WriteSigmaVlqExt;
 
     use super::dummy_resolver;
@@ -189,9 +194,8 @@ mod tests {
 
     #[test]
     fn test_verify_schnorr_signature() {
-        // (old) Script: https://wallet.plutomonkey.com/p2s/?source=ewogIAogIHZhbCBnZW5lcmF0b3IgPSBJTlBVVFMoMCkuUjRbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgcHViS2V5ID0gSU5QVVRTKDApLlI1W0dyb3VwRWxlbWVudF0uZ2V0CiAgdmFsIGNoYWxsZW5nZSA9IElOUFVUUygwKS5SNltCaWdJbnRdLmdldAogIHZhbCByZXNwb25zZSA9IElOUFVUUygwKS5SN1tCaWdJbnRdLmdldAogIHZhbCBtZXNzYWdlID0gSU5QVVRTKDApLlI4W0NvbGxbQnl0ZV1dLmdldAogIAogIGRlZiBnZXRGaWF0U2hhbWlyQ2hhbGxlbmdlKGUgOiAoR3JvdXBFbGVtZW50LCAoR3JvdXBFbGVtZW50LCBDb2xsW0J5dGVdKSkpOiBCaWdJbnQgPSB7CiAgICB2YWwgcGsgPSBlLl8xCiAgICB2YWwgY29tbWl0bWVudCA9IGUuXzIuXzEKICAgIHZhbCBtc2cgPSBlLl8yLl8yCiAgICBieXRlQXJyYXlUb0JpZ0ludChibGFrZTJiMjU2KHBrLmdldEVuY29kZWQgKysgY29tbWl0bWVudC5nZXRFbmNvZGVkICsrIG1zZykpCiAgfQogIAogIGRlZiB2ZXJpZnlTY2hub3JyKGU6IChHcm91cEVsZW1lbnQsIChCaWdJbnQsIChCaWdJbnQsIENvbGxbQnl0ZV0pKSkpOiBCb29sZWFuID0gewogICAgdmFsIHBrICAgICAgICAgPSBlLl8xCiAgICB2YWwgY2hhbGxlbmdlXyA9IGUuXzIuXzEKICAgIHZhbCByZXNwb25zZV8gID0gZS5fMi5fMi5fMQogICAgdmFsIG1zZyAgICAgICAgPSBlLl8yLl8yLl8yCiAgICB2YWwgciAgICAgICAgICA9IGdlbmVyYXRvci5leHAocmVzcG9uc2VfKS5tdWx0aXBseShwdWJLZXkuZXhwKC1jaGFsbGVuZ2VfKSkKICAgIGNoYWxsZW5nZSA9PSBnZXRGaWF0U2hhbWlyQ2hhbGxlbmdlKChwaywgKHIsIG1zZykpKSAKICB9CiAgc2lnbWFQcm9wICh2ZXJpZnlTY2hub3JyKChwdWJLZXksIChjaGFsbGVuZ2UsIChyZXNwb25zZSwgbWVzc2FnZSkpKSkpCn0=
-        // Script: https://wallet.plutomonkey.com/p2s/?source=ewogIHZhbCBwdWJLZXkgPSBJTlBVVFMoMCkuUjRbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgY2hhbGxlbmdlID0gSU5QVVRTKDApLlI1W0JpZ0ludF0uZ2V0CiAgdmFsIHJlc3BvbnNlID0gSU5QVVRTKDApLlI2W0dyb3VwRWxlbWVudF0uZ2V0CiAgdmFsIG1lc3NhZ2UgPSBJTlBVVFMoMCkuUjdbQ29sbFtCeXRlXV0uZ2V0CiAgCiAgZGVmIGdldEZpYXRTaGFtaXJDaGFsbGVuZ2UoZSA6IChHcm91cEVsZW1lbnQsIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSk6IEJpZ0ludCA9IHsKICAgIHZhbCBwayA9IGUuXzEKICAgIHZhbCBjb21taXRtZW50ID0gZS5fMi5fMQogICAgdmFsIG1zZyA9IGUuXzIuXzIKICAgIGJ5dGVBcnJheVRvQmlnSW50KGJsYWtlMmIyNTYocGsuZ2V0RW5jb2RlZCArKyBjb21taXRtZW50LmdldEVuY29kZWQgKysgbXNnKSkKICB9CiAgCiAgZGVmIHZlcmlmeVNjaG5vcnIoZTogKEdyb3VwRWxlbWVudCwgKEJpZ0ludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpKSk6IEJvb2xlYW4gPSB7CiAgICB2YWwgcGsgICAgICAgICA9IGUuXzEKICAgIHZhbCBjaGFsbGVuZ2VfID0gZS5fMi5fMQogICAgdmFsIHJlc3BvbnNlXyAgPSBlLl8yLl8yLl8xCiAgICB2YWwgbXNnICAgICAgICA9IGUuXzIuXzIuXzIKICAgIHZhbCByICAgICAgICAgID0gcmVzcG9uc2VfLm11bHRpcGx5KHB1YktleS5leHAoLWNoYWxsZW5nZV8pKQogICAgY2hhbGxlbmdlID09IGdldEZpYXRTaGFtaXJDaGFsbGVuZ2UoKHBrLCAociwgbXNnKSkpIAogIH0KICBzaWdtYVByb3AgKHZlcmlmeVNjaG5vcnIoKHB1YktleSwgKGNoYWxsZW5nZSwgKHJlc3BvbnNlLCBtZXNzYWdlKSkpKSkKfQ==
-        const SCRIPT_BYTES: &str = "8D7RfbcK86uwBfxDS37iPYDToACJZYTGntpXT1wjaA3duKvKQHzanqLwTXoM9xoDEAwWbPJHj6MvJUSQj38sng6zjoVv9bpJ4avT293J5KSDUWuGPZ1Zgu28wuS8STm1zVjiT9vKRNyjTvGHutoAPZ9yXpK7fECfMzuiHWkugUBKC6kznT1W4t56sYNBibNPSmz55dy7ubiDd4eSexGBz3HtGDqqvoxEVt49ExMrRF5MhJxk4KyFBKZRXs6ZMhvP4xuJvnNCURFyPipc1s2bB1hcRXgCaG1yreaJZaaz5tiVkCndPAKmmrA6i9VR6TGVJL3Ms72KHwRCBzTizU81FeZDzD9KM7jij1KG7FifAaCQkXVTQ45MLuabJbrFbrnKxKu7SCqeCfgxUmDymEAum4MAJmKQMRWzdtJg3HcnZxJRt5VqsQqMWr2GKnrqFmXBDbMYWE96PTbihqocmRyHs8rRDsy6X6gEZzd9PboPfbyDoiBmvPkxDdbSDfQWk2hhBu7x1AR23WLZWauReAX5qdoa34a8dnMH2agi5A6jMVjtHgJd3afmdpKnEhk1E";
+        // Script: https://wallet.plutomonkey.com/p2s/?source=ewogIHZhbCBwdWJLZXkgICAgICAgICA9IElOUFVUUygwKS5SNFtHcm91cEVsZW1lbnRdLmdldAogIHZhbCBjaGFsbGVuZ2UgICAgICA9IElOUFVUUygwKS5SNVsoSW50LCBDb2xsW0J5dGVdKV0uZ2V0CiAgdmFsIHJlc3BvbnNlICAgICAgID0gSU5QVVRTKDApLlI2W0dyb3VwRWxlbWVudF0uZ2V0IC8vIFIgaW4gQklQLTAzNDAKICB2YWwgbWVzc2FnZSAgICAgICAgPSBJTlBVVFMoMCkuUjdbQ29sbFtCeXRlXV0uZ2V0CiAgdmFsIGdyb3VwR2VuZXJhdG9yID0gSU5QVVRTKDApLlI4W0dyb3VwRWxlbWVudF0uZ2V0CiAgdmFsIHAxT3ZlcjIgICAgICAgID0gSU5QVVRTKDApLlI5W0JpZ0ludF0uZ2V0CgogIHZhbCByciAgICAgICAgPSBnZXRWYXJbQ29sbFtCeXRlXV0oMCkuZ2V0CiAgdmFsIHJpZ2h0ICAgICA9IGdldFZhcltHcm91cEVsZW1lbnRdKDEpLmdldAogIHZhbCBwa0J5dGVzICAgPSBnZXRWYXJbQ29sbFtCeXRlXV0oMikuZ2V0IC8vIGVuY29kZWQgeC1jb29yZGluYXRlIG9mIFAKCiAgZGVmIG15RXhwKGU6IChHcm91cEVsZW1lbnQsIChDb2xsW0J5dGVdLCBJbnQpKSkgOiBHcm91cEVsZW1lbnQgPSB7CiAgICB2YWwgeCA9IGUuXzEKICAgIHZhbCB5ID0gZS5fMi5fMQogICAgdmFsIGxlbiA9IGUuXzIuXzIKICAgIHZhbCB1cHBlciA9IGJ5dGVBcnJheVRvQmlnSW50KHkuc2xpY2UoMCwgbGVuKSkKICAgIHZhbCBsb3dlciA9IGJ5dGVBcnJheVRvQmlnSW50KHkuc2xpY2UobGVuLCB5LnNpemUpKQogICAKICAgIHguZXhwKHVwcGVyKS5leHAocDFPdmVyMikubXVsdGlwbHkoeC5leHAobG93ZXIpKQogIH0KCiAgZGVmIHRvU2lnbmVkQnl0ZXMoYjogQ29sbFtCeXRlXSkgOiBDb2xsW0J5dGVdID0gewogICAgaWYgKGIoMCkgPCAwICkgeyAvLyYmICEoYigwKSA9PSAxMjggJiYgYi5zbGljZSgxLGIuc2l6ZSkuZm9yYWxsIHsoYjogQnl0ZSkgPT4gYiA9PSAwfSkpIHsKICAgICAgICBDb2xsKDAudG9CeXRlKS5hcHBlbmQoYikKICAgIH0gZWxzZSB7CiAgICAgICAgYgogICAgfQogIH0KCiAgZGVmIGdldEZpYXRTaGFtaXJDaGFsbGVuZ2UoZSA6IChHcm91cEVsZW1lbnQsIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSk6IChJbnQsIENvbGxbQnl0ZV0pID0gewogICAgdmFsIHBrID0gZS5fMQogICAgdmFsIGNvbW1pdG1lbnQgPSBlLl8yLl8xCiAgICB2YWwgbXNnID0gZS5fMi5fMgogCiAgICAvLyBCSVAtMDM0MCB1c2VzIHNvLWNhbGxlZCB0YWdnZWQgaGFzaGVzCiAgICB2YWwgY2hhbGxlbmdlVGFnID0gc2hhMjU2KENvbGwoNjYsIDczLCA4MCwgNDgsIDUxLCA1MiwgNDgsIDQ3LCA5OSwgMTA0LCA5NywgMTA4LCAxMDgsIDEwMSwgMTEwLCAxMDMsIDEwMSkubWFwIHsgKHg6SW50KSA9PiB4LnRvQnl0ZSB9KQogICAgdmFsIHJhdyA9IHNoYTI1NihjaGFsbGVuZ2VUYWcgKysgY2hhbGxlbmdlVGFnICsrIHJyICsrIHBrQnl0ZXMgKysgbXNnKQogICAgdmFsIGZpcnN0ID0gdG9TaWduZWRCeXRlcyhyYXcuc2xpY2UoMCwxNikpCiAgICAoZmlyc3Quc2l6ZSwgZmlyc3QuYXBwZW5kKHRvU2lnbmVkQnl0ZXMocmF3LnNsaWNlKDE2LHJhdy5zaXplKSkpKQogICAgCiAgfQogIAogIGRlZiB2ZXJpZnlTY2hub3JyKGU6IChHcm91cEVsZW1lbnQsIChDb2xsW0J5dGVdLCAoR3JvdXBFbGVtZW50LCBDb2xsW0J5dGVdKSkpKTogQm9vbGVhbiA9IHsKICAgIHZhbCBwayAgICAgICAgID0gZS5fMQogICAgdmFsIHMgICAgICAgICAgPSBlLl8yLl8xCiAgICB2YWwgciAgICAgICAgICA9IGUuXzIuXzIuXzEKICAgIHZhbCBtc2cgICAgICAgID0gZS5fMi5fMi5fMgogICAgdmFsIGNoYWxsICA9IGdldEZpYXRTaGFtaXJDaGFsbGVuZ2UoKHBrLCAociwgbXNnKSkpCgogICAgbXlFeHAoKGdyb3VwR2VuZXJhdG9yLCAocywgY2hhbGxlbmdlLl8xKSkpID09ICBteUV4cCgocGssIChjaGFsbC5fMiwgY2hhbGwuXzEpKSkubXVsdGlwbHkocikKICB9CgogIHNpZ21hUHJvcCAodmVyaWZ5U2Nobm9ycigocHViS2V5LCAoY2hhbGxlbmdlLl8yLCAocmVzcG9uc2UsIG1lc3NhZ2UpKSkpKQp9
+        const SCRIPT_BYTES: &str = "W56sEkkPGgLFS4QvRKj2uLg28yQPWP5x7oG6pJtwPApV9yGiN9yEpYFEvnZCELrMvNNjGQE9qm5HBiJ3FgTMC7Tw9p1D3bp32RRu6HpzGJ7bxHyyMKhhY8N7Wo6ZNTSnohxX1ghiTjh3y4moBmzHjE5scRACJG1mjEKDmegbHMeryFyzkAA8GCqT1M2nzgbebrVqLPFsSMqy34u3i9D4WRxUpZdczHuNhqq4KSzHKoXKCTVFHJfLy2AsygzXs83fJ1wjKjtDCZC84yGVivd2u8fzE6dqEdmQqo1hivSibywZyLUqqAyS2eV5wp3d8AgBoDSCAoEEYW9qXk5LBU7hQcQm7qj8rUywMm58pve3hdctPNzp6GrxYJhYDVyfQr4Sg7kM9ZgZ4MwvEwAg126bkWt43QgpgGGb7SGDznTsFFDh3ovEBugLx2S6fUa2vE9Zc7QpavqjTztJDfLLuhZvHSDxKj6xsRWCRosidHxb53DcpEKCGFFuZPuRAAQN7iaj5ur9tS1Xa4r1cQ5PwBCxJj7Giwqm8E8Ct6EnNPKa95R1wdD";
 
         let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
         let address = encoder.parse_address_from_str(SCRIPT_BYTES).unwrap();
@@ -202,15 +206,31 @@ mod tests {
         let mut rng = OsRng;
         let secret_key = SecretKey::random(&mut rng);
         let pk = secret_key.public_key().to_projective();
-        let signature_bytes = SigningKey::from(secret_key).sign(msg).to_bytes();
+        let signing_key = SigningKey::from(secret_key);
+        let signature = signing_key.sign(msg);
+        let signature_bytes = signature.to_bytes();
 
         let (r_bytes, s_bytes) = signature_bytes.split_at(32);
         let r: FieldElement = Option::from(FieldElement::from_bytes(r_bytes.into())).unwrap();
 
-        // This is wrong. I think we need: https://github.com/RustCrypto/elliptic-curves/blob/c74d363a7c60acf6f34cc8b25ca9acb9b26e8b7d/k256/src/schnorr/verifying.rs#L78
-        let r_point: k256::ProjectivePoint = r.map_to_curve();
-
+        const CHALLENGE_TAG: &[u8] = b"BIP0340/challenge";
+        let e = <Scalar as Reduce<U256>>::reduce_bytes(
+            &tagged_hash(CHALLENGE_TAG)
+                .chain_update(r.to_bytes())
+                .chain_update(signing_key.verifying_key().to_bytes())
+                .chain_update(msg)
+                .finalize(),
+        );
         let s = NonZeroScalar::try_from(s_bytes).unwrap();
+        let r_point = ProjectivePoint::lincomb(
+            &ProjectivePoint::GENERATOR,
+            &s,
+            &ProjectivePoint::from(signing_key.verifying_key().as_affine()),
+            &-e,
+        );
+
+        let right = r_point + ProjectivePoint::from(signing_key.verifying_key().as_affine()) * e;
+
         let s_biguint = scalar_to_biguint(*s.as_ref());
         println!("# bytes: {}", s_biguint.to_bytes_be().len());
         let upper = BigUint::from_bytes_be(&s_biguint.to_bytes_be()[..16]);
@@ -230,7 +250,12 @@ mod tests {
 
         let mut registers = HashMap::new();
 
-        registers.insert(NonMandatoryRegisterId::R4, Constant::from(EcPoint::from(pk)));
+        registers.insert(
+            NonMandatoryRegisterId::R4,
+            Constant::from(EcPoint::from(ProjectivePoint::from(
+                signing_key.verifying_key().as_affine(),
+            ))),
+        );
         registers.insert(NonMandatoryRegisterId::R5, (first_len, s_bytes).into());
         registers.insert(NonMandatoryRegisterId::R6, Constant::from(EcPoint::from(r_point)));
         registers.insert(NonMandatoryRegisterId::R7, Constant::from(msg.to_vec()));
@@ -248,6 +273,14 @@ mod tests {
         )
         .unwrap();
 
+        let mut constants = IndexMap::new();
+        constants.insert(0_u8, Constant::from(r.to_bytes().to_vec()));
+        constants.insert(1_u8, Constant::from(EcPoint::from(right)));
+        constants.insert(
+            2_u8,
+            Constant::from(signing_key.verifying_key().to_bytes().to_vec()),
+        );
+
         // Send all Ergs to miner fee
         let miner_output = ErgoBoxCandidate {
             value: erg_value,
@@ -257,7 +290,7 @@ mod tests {
             creation_height: 900001,
         };
         let outputs = TxIoVec::from_vec(vec![miner_output]).unwrap();
-        let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension::empty());
+        let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension { values: constants });
         let unsigned_tx =
             UnsignedTransaction::new(TxIoVec::from_vec(vec![unsigned_input]).unwrap(), None, outputs)
                 .unwrap();
@@ -267,6 +300,14 @@ mod tests {
         let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
         println!("{:?}", res);
         assert!(res.is_ok());
+    }
+
+    fn tagged_hash(tag: &[u8]) -> Sha256 {
+        let tag_hash = Sha256::digest(tag);
+        let mut digest = Sha256::new();
+        digest.update(tag_hash);
+        digest.update(tag_hash);
+        digest
     }
 
     #[test]

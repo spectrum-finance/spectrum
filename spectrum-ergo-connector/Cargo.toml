@@ -21,6 +21,8 @@ futures = "0.3.28"
 tokio = { version = "1.27.0", features = ["full"] }
 ergo-lib = { git = "https://github.com/kettlebell/sigma-rust", branch = "ecpoint_derive_from" , features = ["arbitrary"] }
 sigma-ser = { git = "https://github.com/kettlebell/sigma-rust", branch = "ecpoint_derive_from"  }
+elliptic-curve = "0.13.5"
+sha2 = "0.10.7"
 
 [dev-dependencies]
 rand = "0.8.5"
