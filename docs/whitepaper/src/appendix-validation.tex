@@ -42,14 +42,14 @@ The preparation algorithm is described below:
 
         \noindent
         \lstinline|// Set lotteries thresholds:|
-        \State Calculate participant's relative stake $\alpha^{n-4}_{P', \text{ver}}$ using $S_k^{\text{ver}, {n - 4}}$.
+        \State Calculate participant's relative stake $\alpha^{n-3}_{P', \text{ver}}$ using $S_k^{\text{ver}, {n - 3}}$.
         \State Calculate participant's relative stake $\alpha^{n-2}_{P', \text{k}}$ using $S_k^{\text{cons}, {n - 2}}$.
         \State Calculate participant's relative stake $\alpha^{n-2}_{P'}$ using $S^{\text{cons}, {n - 2}}$.
 
-        \State Set participant's consensus group lottery threshold for $k$-th committee as $T_{P', n-2}^{\text{cons}, k} = \phi_{f^{\text{cons}}_k}(\alpha^{n-4}_{P', \text{ver}})$.
+        \State Set participant's consensus group lottery threshold for $k$-th committee as $T_{P', n-2}^{\text{cons}, k} = \phi_{f^{\text{cons}}_k}(\alpha^{n-3}_{P', \text{ver}})$.
         \State Set participant's leader lottery threshold as $T_{P', n}^{\text{lead}, k} = \phi_{f^{\text{lead}}_k}(\alpha^{n-2}_{P', \text{k}})$.
         \State Set participant's synchronization lottery threshold as $T_{P', n}^{\text{sync}} = 2^{l_{\text{VRF}}} \cdot \alpha^{n-2}_{P'}$.
-        \State \Return ${(e_n, \textsf{state}_{(n - 4)\cdot R}, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, T_{P', n-2}^{\text{cons}, k}, T_{P', n}^{\text{lead}, k}, T_{P', n}^{\text{sync}})}$
+        \State \Return ${(e_n, \textsf{state}_{(n - 3)\cdot R}, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, T_{P', n-2}^{\text{cons}, k}, T_{P', n}^{\text{lead}, k}, T_{P', n}^{\text{sync}})}$
     \end{algorithmic}\label{alg:prepare-block-validation}
 \end{protocol}
 
@@ -90,7 +90,7 @@ The preparation algorithm is described below:
         \State Set $\textsf{valid\_epoch\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}
         v^{\text{vrf}}, \mathcal{H}(\eta_{n - 2} || e_n),\pi^{\text{e}} \textsf{)}$.
         \State Set ${r^{\text{e}} \leftarrow \textsf{extract\_random(}\pi^{\text{e}}\textsf{)}}$.
-        \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(r^{\text{e}} || \textsf{CONS})}}$.
+        \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(r^{\text{e}} || \textsf{CONS} || S_k^{\text{id}})}}$.
         \State {Set ${\textsf{valid\_member} \leftarrow \textsf{valid\_committee} \wedge \textsf{valid\_epoch\_proof} \wedge
         \par\hskip
         (v^{\text{vrf}} \in V_{\text{ver}}) \wedge (y^{\text{cons}} < T^{\text{cons}})}$.}
@@ -100,7 +100,7 @@ The preparation algorithm is described below:
         \State Set $\textsf{valid\_slot\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}\
         v^{\text{vrf}}, \mathcal{H}(\eta_n || sl),\pi^{\text{sl}} \textsf{)}$.
         \State Set ${r^{\text{sl}} \leftarrow \textsf{extract\_random(}\pi^{\text{sl}}\textsf{)}}$.
-        \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{LEAD})}}$.
+        \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{LEAD} || S_k^{\text{id}})}}$.
         \State Set ${\textsf{valid\_leader} \leftarrow (y^{\text{lead}} < T^{\text{lead}}) \wedge \textsf{valid\_slot\_proof}}$.
 
         \noindent

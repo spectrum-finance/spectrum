@@ -35,14 +35,14 @@ The leader lottery flow for every separate $V_n^k$ during epoch $e_n$ is as foll
     The parameter $f^{\text{lead}}_k$ is the pre-defined value that determines how many slots\
     will have at least one selected leader for the committee $V_n^k$.
     \item When, for every slot $sl_j \in e_n$ every committee member $PK_i$ evaluates ${\mathcal{F}}_{\text{VRF}}$\
-    with input $x_{i, j}^{\text{lead}} = \eta_n || sl_j $ and calculates\
+    with input $x_{j}^{\text{lead}} = \eta_n || sl_j $ and calculates\
     the associated random number $y_{i, j}^{\text{lead}}$ from the received proof $\pi_{i, j}^{\text{sl}}$,\
-    i.e. ${y_{i, j}^{\text{lead}} = \mathcal{H}(r_{i, j}^{\text{sl}}||\textsf{LEAD})}$,\
-    where $r_{i, j}^{\text{sl}}$ is\
+    i.e. ${y^k_{i, j}^{\text{lead}} = \mathcal{H}(r_{j}^{\text{sl}}||\textsf{LEAD}||S_k^{\text{id}})}$,\
+    where $r_{j}^{\text{sl}}$ is\
     a random number extracted from the proof and $\textsf{LEAD}$ is an arbitrary pre-defined constant.
-    \item To reveal the result of the leader lottery $PK_i$ compares value $y_{i, j}^{\text{lead}}$\
+    \item To reveal the result of the leader lottery $PK_i$ compares value $y^k_{i, j}^{\text{lead}}$\
     with the threshold $T_{i, n}^{\text{lead}, k}$ and\
-    if ${y_{i, j}^{\text{lead}} < T_{i, n}^{\text{lead}, k}}$ then the participant is a $j$-th slot leader.\
+    if ${y^k_{i, j}^{\text{lead}} < T_{i, n}^{\text{lead}, k}}$ then the participant is a $j$-th slot leader.\
     \item Finally, $PK_i$ initiates a notarization round for slot $sl_j$ with the associated\
     proof $\pi_{i, j}^{\text{sl}}$ included in his initialization message.
 \end{enumerate}

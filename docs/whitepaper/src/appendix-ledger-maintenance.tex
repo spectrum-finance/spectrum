@@ -12,7 +12,7 @@ In normal protocol execution, each participant performs the following procedure:
     \begin{algorithmic}[1]
         \noindent
         \lstinline|// Synchronization lottery:|
-        \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(\textsf{SYNC} || r^{\text{sl}})}}$.
+        \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}}||\textsf{SYNC})}}$.
         \State Set ${\textsf{valid\_sync} \leftarrow y^{\text{sync}} < T^{\text{sync}}}$.
 
         \If {$\textsf{valid\_sync}$}
@@ -33,7 +33,7 @@ In normal protocol execution, each participant performs the following procedure:
             \par\hskip
             \lstinline|// Leader lottery:|
             \State Set $(r^{\text{sl}}, \pi^{\text{sl}}) \leftarrow \mathcal{F}_{\text{VRF}}.\textsf{eval(}\eta_n || sl\textsf{)}$.
-            \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(\textsf{LEAD} || r^{\text{sl}})}}$.
+            \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(r^{\text{sl}}||\textsf{LEAD}||S^{\text{id}}_k)}}$.
             \State Set ${\textsf{valid\_leader} \leftarrow y^{\text{lead}} < T^{\text{lead}}}$.
             \If {$\textsf{valid\_leader}$}
                 \State Set actual $\textsf{state}$ extracted from $\textsf{buffer}$.
@@ -76,7 +76,7 @@ To do this, each participant performs the following protocol:
     \mathbf{f}_{k, \text{cons}}^{\text{set}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
         \noindent
-        \lstinline|// The lottery at the end of e_n selects committees for e_{n + 2}|
+        \lstinline|// The lottery at the beginning of e_n>2 selects committees for e_{n + 3}|
         \State Set $sl'= (n - 2)\cdot R$.
         \State Set $\textsf{state}_{sl'} \leftarrow \textsf{ReadState}(P, \text{sid}, sl', R, K_{\text{f}}, C_{\text{loc}})$.
         \For {each $S_k^{\text{id}} \in \mathbf{S}_P^{\text{set}}$}
@@ -86,13 +86,13 @@ To do this, each participant performs the following protocol:
             \State Set participant's consensus group lottery threshold for $k$-th committee
             \par\hskip
             as $T_{P', n-2}^{k} = \phi_{f^{\text{cons}}_k}(\alpha^{n-2}_{P'})$.
-            \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(\textsf{CONS} || r^{\text{e}})}}$.
+            \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(|| r^{\text{e}} || \textsf{CONS} || S_k^{\text{id}})}}$.
             \State Set ${\textsf{is\_member} \leftarrow y^{\text{cons}} < T_{P', n-2}^{k}}$.
             \If
             {$\textsf{is\_member} = \textsf{true}$}
                 \State Broadcast message with consensus membership proof
                 \par\hskip\algorithmicindent
-                $\textsf{ConsLotteryResTx(}v^{\text{vrf}}, e_n, S_k^{\text{id}}, \pi^{\text{e}}\textsf{)}$.
+                $\textsf{ConsLotteryResTx(}v^{e_n, v_P^\text{vrf}}, S_k^{\text{id}}, \pi^{\text{e}}\textsf{)}$.
             \EndIf
         \EndFor
         \lstinline|// Commit to participate in the e_{n + 3} consensus lottery:|

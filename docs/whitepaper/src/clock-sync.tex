@@ -12,9 +12,9 @@ and it is based on the following logical blocks:
     generate so-called synchronization beacons.
     For every local slot $sl_{i, j}^{\text{loc}} \in [n \cdot R + 1,\dots,n \cdot R + R \// 6], n \in \mathbb{N}$\
     every $PK_i$ evaluates $\mathcal{F}_{\text{VRF}}$ functionality with input\
-    ${x_{i, j}^{\textsf{sync}, n} = (\eta_n || sl_{i, j}^{\text{loc}})}$ to get a proof $\pi_{i, j}^{\text{sl}}$\
+    ${x_{j}^{\textsf{sync}, n} = (\eta_n || sl_{i, j}^{\text{loc}})}$ to get a proof $\pi_{i, j}^{\text{sl}}$\
     and checks if he has the right to release a beacon by comparing the pseudo-random value\
-    ${y_{i, j}^{\textsf{sync}} = \mathcal{H}(r_{i, j}^{\text{sl}} || \textsf{SYNC})}$\
+    ${y_{i, j}^{\textsf{sync}} = \mathcal{H}(r_{j}^{\text{sl}} || \textsf{SYNC})}$\
     with the corresponding threshold $T_{i, n}^{\text{sync}} = 2^{l_{\text{VRF}}} \cdot \phi(\alpha_{i}^{n - 2})$.
     If ${y_{i, j}^{\textsf{sync}} < T_{i, n}^{\text{sync}}}$ then the participant broadcasts a beacon\
     $b_{i, j}^{\text{sync}} = (v^{\text{vrf}}_i, sl_{i, j}^{\text{loc}}, \pi_{i, j}^{\text{sl}})$.
