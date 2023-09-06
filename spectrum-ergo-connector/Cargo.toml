@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 async-trait = "0.1.68"
 base16 = "0.2"
+base64 = "0.21.3"
 bytes = "1.0.1"
 ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
 #spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
