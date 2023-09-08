@@ -15,6 +15,8 @@ ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain
 #spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
 #spectrum-chain-connector = { version = "0.1.0", path = "../spectrum-chain-connector" }
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
+spectrum-sigma = { version = "0.1.0", path = "../spectrum-sigma" }
+spectrum-handel = { version = "0.1.0", path = "../spectrum-handel" }
 scorex_crypto_avltree = "0.1.0"
 indexmap = "1.9.2"
 isahc = { version = "1.7.2", features = ["json"] }
@@ -31,3 +33,4 @@ k256 = { version = "0.13.*", features = ["serde", "arithmetic", "expose-field", 
 num-bigint = "0.4"
 num-traits = "0.2"
 num256 = "0.3.5"
+blake2 = "0.10.6"

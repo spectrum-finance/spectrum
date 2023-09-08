@@ -45,7 +45,7 @@ impl From<AggregateCommitment> for ProjectivePoint {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, derive_more::From, derive_more::Into)]
-pub struct Commitment(VerifyingKey);
+pub struct Commitment(pub VerifyingKey);
 
 impl Commitment {
     pub fn as_bytes(&self) -> Vec<u8> {
