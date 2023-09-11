@@ -66,21 +66,24 @@
   }
   
   // Computes X~ = X_0^{a_0} * X_1^{a_1} * ... * X_{n-1}^{a_{n-1}}
-  def calcFullAggregateKey(committeeMembers: Coll[GroupElement]) : GroupElement = {
+  def calcFullAggregateKey(e: (Coll[GroupElement], Coll[(Coll[Byte], Int)] )) : GroupElement = {
+    val committeeMembers = e._1
+    val aiValues = e._2
     committeeMembers.fold(
       (groupElementIdentity, 0),
       { (acc: (GroupElement, Int ), x: GroupElement) =>
           val x_acc = acc._1
           val i = acc._2
-          (x_acc.multiply(myExp((x, calcA((committeeMembers, i))))), i + 1)
+          (x_acc.multiply(myExp((x, aiValues(i)))), i + 1)
       }
     )._1
   }
 
   // Computes X'
-  def calcPartialAggregateKey(e: (Coll[GroupElement], Coll[Int])) : GroupElement = {
-    val committeeMembers = e._1
-    val excludedIndices = e._2
+  def calcPartialAggregateKey(e: ((Coll[GroupElement], Coll[Int]), Coll[(Coll[Byte], Int)])) : GroupElement = {
+    val committeeMembers = e._1._1
+    val excludedIndices = e._1._2
+    val aiValues = e._2
     committeeMembers.fold(
       (groupElementIdentity, 0),
       { (acc: (GroupElement, Int), x: GroupElement) =>
@@ -89,7 +92,7 @@
           if (excludedIndices.exists { (ix: Int) => ix == i }) {
              (xAcc, i + 1)
           } else {
-            (xAcc.multiply(myExp((x, calcA((committeeMembers, i))))), i + 1)
+            (xAcc.multiply(myExp((x, aiValues(i)))), i + 1)
           }
           
       }
@@ -117,9 +120,13 @@
   // BIP-0340 uses so-called tagged hashes
   val challengeTag = sha256(Coll(66, 73, 80, 48, 51, 52, 48, 47, 99, 104, 97, 108, 108, 101, 110, 103, 101).map { (x:Int) => x.toByte })
   
+  // Precompute a_i values
+  val aiValues = committee.indices.map { (ix: Int) =>
+    calcA((committee, ix))
+  }
 
   // c
-  val challengeRaw = blake2b256(calcFullAggregateKey(committee).getEncoded ++ aggregateCommitment.getEncoded ++ message )
+  val challengeRaw = blake2b256(calcFullAggregateKey((committee, aiValues)).getEncoded ++ aggregateCommitment.getEncoded ++ message )
   val challenge    = encodeUnsigned256BitInt(challengeRaw)
 
   val excludedIndices = verificationData.map { (e: ((Int, (GroupElement, Coll[Byte])), ((Coll[Byte], Int), (GroupElement, Coll[Byte])))) =>
@@ -132,7 +139,7 @@
 
   val YDash = calcAggregateCommitment(excludedCommitments)
 
-  val partialAggregateKey = calcPartialAggregateKey((committee, excludedIndices))
+  val partialAggregateKey = calcPartialAggregateKey(((committee, excludedIndices), aiValues))
 
   // Verifies that Y'*g^z == (X')^c * Y
   val verifyAggregateResponse = ( myExp((groupGenerator, aggregateResponseRaw)).multiply(YDash) 
