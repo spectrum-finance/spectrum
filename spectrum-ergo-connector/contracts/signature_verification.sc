@@ -5,12 +5,7 @@
   val committee            = INPUTS(0).R7[Coll[GroupElement]].get
   val threshold            = INPUTS(0).R8[Int].get
 
-  val verificationData =
-    getVar[Coll[
-      (
-        (Int, (GroupElement, Coll[Byte])),
-        ((Coll[Byte], Int), (GroupElement, Coll[Byte]))
-      )]](0).get
+  val verificationData = getVar[Coll[((Int, (GroupElement, Coll[Byte])), ((Coll[Byte], Int), (GroupElement, Coll[Byte])) )]](0).get
   val aggregateResponseRaw = getVar[(Coll[Byte], Int)](1).get // z
   val aggregateCommitment = getVar[GroupElement](2).get // Y
  
@@ -61,15 +56,11 @@
   def calcA(e: (Coll[GroupElement], Int)) : (Coll[Byte], Int) = {
     val committeeMembers = e._1
     val i = e._2
-    val bytes = committeeMembers
-      .slice(1, committeeMembers.size)
-      .fold(
-        committeeMembers(0).getEncoded,
-        { (b: Coll[Byte], elem: GroupElement) => b.append(elem.getEncoded) }
-      )
+    val bytes = committeeMembers.slice(1, committeeMembers.size).fold(committeeMembers(0).getEncoded, {(b: Coll[Byte], elem: GroupElement) => b.append(elem.getEncoded) })
     val raw = blake2b256(bytes.append(committeeMembers(i).getEncoded))
-    val firstInt = toSignedBytes(raw.slice(0,16))
-    val concatBytes = firstInt.append(toSignedBytes(raw.slice(16,raw.size)))
+    val split = raw.size - 16
+    val firstInt = toSignedBytes(raw.slice(0, split))
+    val concatBytes = firstInt.append(toSignedBytes(raw.slice(split, raw.size)))
     val firstIntNumBytes = firstInt.size
     (concatBytes, firstIntNumBytes)
   }
@@ -116,8 +107,9 @@
   }
 
   def encodeUnsigned256BitInt(bytes: Coll[Byte]) : (Coll[Byte], Int) = {
-    val firstInt = toSignedBytes(bytes.slice(0,16))
-    val concatBytes = firstInt.append(toSignedBytes(bytes.slice(16,bytes.size)))
+    val split = bytes.size - 16
+    val firstInt = toSignedBytes(bytes.slice(0, split))
+    val concatBytes = firstInt.append(toSignedBytes(bytes.slice(split, bytes.size)))
     val firstIntNumBytes = firstInt.size
     (concatBytes, firstIntNumBytes)
   }
@@ -160,9 +152,10 @@
 
       val raw = sha256(challengeTag ++ challengeTag ++ rBytes ++ pkBytes ++ message)
  
-      // Note that the output of SHA256 is a collection of bytes that represents an unsigned 256bit integer. 
-      val first = toSignedBytes(raw.slice(0,16))
-      val concatBytes = first.append(toSignedBytes(raw.slice(16,raw.size)))
+      // Note that the output of SHA256 is a collection of bytes that represents an unsigned 256bit integer.
+      val split = raw.size - 16
+      val first = toSignedBytes(raw.slice(0, split))
+      val concatBytes = first.append(toSignedBytes(raw.slice(split, raw.size)))
       val firstIntNumBytes = first.size
       myExp((groupGenerator, s)) ==  myExp((pubKey, (concatBytes, firstIntNumBytes))).multiply(response)
     }
