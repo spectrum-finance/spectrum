@@ -4,6 +4,7 @@
   val groupElementIdentity = INPUTS(0).R6[GroupElement].get
   val committee            = INPUTS(0).R7[Coll[GroupElement]].get
   val threshold            = INPUTS(0).R8[Int].get
+  val innerBytes           = INPUTS(0).R9[Coll[Byte]].get
 
   val verificationData = getVar[Coll[((Int, (GroupElement, Coll[Byte])), ((Coll[Byte], Int), (GroupElement, Coll[Byte])) )]](0).get
   val aggregateResponseRaw = getVar[(Coll[Byte], Int)](1).get // z
@@ -56,8 +57,7 @@
   def calcA(e: (Coll[GroupElement], Int)) : (Coll[Byte], Int) = {
     val committeeMembers = e._1
     val i = e._2
-    val bytes = committeeMembers.slice(1, committeeMembers.size).fold(committeeMembers(0).getEncoded, {(b: Coll[Byte], elem: GroupElement) => b.append(elem.getEncoded) })
-    val raw = blake2b256(bytes.append(committeeMembers(i).getEncoded))
+    val raw = blake2b256(innerBytes.append(committeeMembers(i).getEncoded))
     val split = raw.size - 16
     val firstInt = toSignedBytes(raw.slice(0, split))
     val concatBytes = firstInt.append(toSignedBytes(raw.slice(split, raw.size)))

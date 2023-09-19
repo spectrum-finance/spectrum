@@ -63,6 +63,7 @@ mod tests {
     use ergo_lib::ergo_chain_types::PreHeader;
     use ergo_lib::ergo_chain_types::Votes;
     use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
+    use ergo_lib::ergotree_ir::base16_str::Base16Str;
     use ergo_lib::ergotree_ir::bigint256::BigInt256;
     use ergo_lib::ergotree_ir::chain::address::AddressEncoder;
     use ergo_lib::ergotree_ir::chain::address::NetworkPrefix;
@@ -76,6 +77,7 @@ mod tests {
     use ergo_lib::ergotree_ir::mir::constant::Constant;
     use ergo_lib::ergotree_ir::mir::constant::Literal;
     use ergo_lib::ergotree_ir::mir::value::CollKind;
+    use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
     use ergo_lib::ergotree_ir::types::stuple::STuple;
     use ergo_lib::ergotree_ir::types::stuple::TupleItems;
     use ergo_lib::ergotree_ir::types::stype::SType;
@@ -95,13 +97,14 @@ mod tests {
     use num_bigint::BigUint;
     use num_bigint::Sign;
     use num_bigint::ToBigUint;
-    use num_traits::Num;
     use rand::rngs::OsRng;
     use rand::Rng;
     use scorex_crypto_avltree::authenticated_tree_ops::*;
     use scorex_crypto_avltree::batch_avl_prover::BatchAVLProver;
     use scorex_crypto_avltree::batch_node::*;
     use scorex_crypto_avltree::operation::*;
+    use serde::Deserialize;
+    use serde::Serialize;
     use sha2::Digest as OtherDigest;
     use sha2::Sha256;
     use spectrum_crypto::digest::blake2b256_hash;
@@ -126,6 +129,9 @@ mod tests {
     use crate::script::schnorr_signature_verification_ergoscript_type;
 
     use super::dummy_resolver;
+
+    // Script URL: https://wallet.plutomonkey.com/p2s/?source=ewogIHZhbCBtZXNzYWdlICAgICAgICAgICAgICA9IElOUFVUUygwKS5SNFtDb2xsW0J5dGVdXS5nZXQKICB2YWwgZ3JvdXBHZW5lcmF0b3IgICAgICAgPSBJTlBVVFMoMCkuUjVbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgZ3JvdXBFbGVtZW50SWRlbnRpdHkgPSBJTlBVVFMoMCkuUjZbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgY29tbWl0dGVlICAgICAgICAgICAgPSBJTlBVVFMoMCkuUjdbQ29sbFtHcm91cEVsZW1lbnRdXS5nZXQKICB2YWwgdGhyZXNob2xkICAgICAgICAgICAgPSBJTlBVVFMoMCkuUjhbSW50XS5nZXQKICB2YWwgaW5uZXJCeXRlcyAgICAgICAgICAgPSBJTlBVVFMoMCkuUjlbQ29sbFtCeXRlXV0uZ2V0CgogIHZhbCB2ZXJpZmljYXRpb25EYXRhID0gZ2V0VmFyW0NvbGxbKChJbnQsIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSwgKChDb2xsW0J5dGVdLCBJbnQpLCAoR3JvdXBFbGVtZW50LCBDb2xsW0J5dGVdKSkgKV1dKDApLmdldAogIHZhbCBhZ2dyZWdhdGVSZXNwb25zZVJhdyA9IGdldFZhclsoQ29sbFtCeXRlXSwgSW50KV0oMSkuZ2V0IC8vIHoKICB2YWwgYWdncmVnYXRlQ29tbWl0bWVudCA9IGdldFZhcltHcm91cEVsZW1lbnRdKDIpLmdldCAvLyBZCiAKICAvLyBQZXJmb3JtcyBleHBvbmVudGlhdGlvbiBvZiBhIEdyb3VwRWxlbWVudCBieSBhbiB1bnNpZ25lZCAyNTZiaXQKICAvLyBpbnRlZ2VyIEkgdXNpbmcgdGhlIGZvbGxvd2luZyBkZWNvbXBvc2l0aW9uIG9mIEk6CiAgLy8gTGV0IGUgPSAoZywgKGIsIG4pKS4gVGhlbiB0aGlzIGZ1bmN0aW9uIGNvbXB1dGVzOgogIC8vCiAgLy8gICBnXkkgPT0gKGdeYigwLG4pKV5wICogZ14oYihuLi4pKQogIC8vIHdoZXJlCiAgLy8gIC0gYigwLG4pIGlzIHRoZSBmaXJzdCBuIGJ5dGVzIG9mIGEgcG9zaXRpdmUgQmlnSW50IGBVYAogIC8vICAtIGIobi4uKSBhcmUgdGhlIHJlbWFpbmluZyBieXRlcyBzdGFydGluZyBmcm9tIGluZGV4IG4uIFRoZXNlIGJ5dGVzCiAgLy8gICAgYWxzbyByZXByZXNlbnQgYSBwb3NpdGl2ZSBCaWdJbnQgYExgLgogIC8vICAtIHAgaXMgMzQwMjgyMzY2OTIwOTM4NDYzNDYzMzc0NjA3NDMxNzY4MjExNDU2IGJhc2UgMTAuCiAgLy8gIC0gSSA9PSBVICogcCArIEwKICBkZWYgbXlFeHAoZTogKEdyb3VwRWxlbWVudCwgKENvbGxbQnl0ZV0sIEludCkpKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIHZhbCB4ID0gZS5fMQogICAgdmFsIHkgPSBlLl8yLl8xCiAgICB2YWwgbGVuID0gZS5fMi5fMgogICAgdmFsIHVwcGVyID0gYnl0ZUFycmF5VG9CaWdJbnQoeS5zbGljZSgwLCBsZW4pKQogICAgdmFsIGxvd2VyID0gYnl0ZUFycmF5VG9CaWdJbnQoeS5zbGljZShsZW4sIHkuc2l6ZSkpCgogICAgLy8gVGhlIGZvbGxvd2luZyB2YWx1ZSBpcyAzNDAyODIzNjY5MjA5Mzg0NjM0NjMzNzQ2MDc0MzE3NjgyMTE0NTYgYmFzZS0xMC4KICAgIHZhbCBwID0gYnl0ZUFycmF5VG9CaWdJbnQoZnJvbUJhc2U2NCgiQVFBQUFBQUFBQUFBQUFBQUFBQUFBQUEiKSkKICAgCiAgICB4LmV4cCh1cHBlcikuZXhwKHApLm11bHRpcGx5KHguZXhwKGxvd2VyKSkKICB9CgogIC8vIENvbnZlcnRzIGEgYmlnLWVuZGlhbiBieXRlIHJlcHJlc2VudGF0aW9uIG9mIGFuIHVuc2lnbmVkIGludGVnZXIgaW50byBpdHMKICAvLyBlcXVpdmFsZW50IHNpZ25lZCByZXByZXNlbnRhdGlvbgogIGRlZiB0b1NpZ25lZEJ5dGVzKGI6IENvbGxbQnl0ZV0pIDogQ29sbFtCeXRlXSA9IHsKICAgIC8vIE5vdGUgdGhhdCBhbGwgaW50ZWdlcnMgKGluY2x1ZGluZyBCeXRlKSBpbiBFcmdvc2NyaXB0IGFyZSBzaWduZWQuIEluIHN1Y2gKICAgIC8vIGEgcmVwcmVzZW50YXRpb24sIHRoZSBtb3N0LXNpZ25pZmljYW50IGJpdCAoTVNCKSBpcyB1c2VkIHRvIHJlcHJlc2VudCB0aGUKICAgIC8vIHNpZ247IDAgZm9yIGEgcG9zaXRpdmUgaW50ZWdlciBhbmQgMSBmb3IgbmVnYXRpdmUuIE5vdyBzaW5jZSBgYmAgaXMgYmlnLQogICAgLy8gZW5kaWFuLCB0aGUgTVNCIHJlc2lkZXMgaW4gdGhlIGZpcnN0IGJ5dGUgYW5kIE1TQiA9PSAxIGluZGljYXRlcyB0aGF0IGV2ZXJ5CiAgICAvLyBiaXQgaXMgdXNlZCB0byBzcGVjaWZ5IHRoZSBtYWduaXR1ZGUgb2YgdGhlIGludGVnZXIuIFRoaXMgbWVhbnMgdGhhdCBhbgogICAgLy8gZXh0cmEgMC1iaXQgbXVzdCBiZSBwcmVwZW5kZWQgdG8gYGJgIHRvIHJlbmRlciBpdCBhIHZhbGlkIHBvc2l0aXZlIHNpZ25lZAogICAgLy8gaW50ZWdlci4KICAgIC8vCiAgICAvLyBOb3cgc2lnbmVkIGludGVnZXJzIGFyZSBuZWdhdGl2ZSBpZmYgTVNCID09IDEsIGhlbmNlIHRoZSBjb25kaXRpb24gYmVsb3cuCiAgICBpZiAoYigwKSA8IDAgKSB7CiAgICAgICAgQ29sbCgwLnRvQnl0ZSkuYXBwZW5kKGIpCiAgICB9IGVsc2UgewogICAgICAgIGIKICAgIH0KICB9CgogIC8vIENvbXB1dGVzIGFfaSA9IEgoWF8xLCBYXzIsLi4sIFhfbjsgWF9pKQogIGRlZiBjYWxjQShlOiAoQ29sbFtHcm91cEVsZW1lbnRdLCBJbnQpKSA6IChDb2xsW0J5dGVdLCBJbnQpID0gewogICAgdmFsIGNvbW1pdHRlZU1lbWJlcnMgPSBlLl8xCiAgICB2YWwgaSA9IGUuXzIKICAgIHZhbCByYXcgPSBibGFrZTJiMjU2KGlubmVyQnl0ZXMuYXBwZW5kKGNvbW1pdHRlZU1lbWJlcnMoaSkuZ2V0RW5jb2RlZCkpCiAgICB2YWwgc3BsaXQgPSByYXcuc2l6ZSAtIDE2CiAgICB2YWwgZmlyc3RJbnQgPSB0b1NpZ25lZEJ5dGVzKHJhdy5zbGljZSgwLCBzcGxpdCkpCiAgICB2YWwgY29uY2F0Qnl0ZXMgPSBmaXJzdEludC5hcHBlbmQodG9TaWduZWRCeXRlcyhyYXcuc2xpY2Uoc3BsaXQsIHJhdy5zaXplKSkpCiAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0SW50LnNpemUKICAgIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykKICB9CiAgCiAgLy8gQ29tcHV0ZXMgWH4gPSBYXzBee2FfMH0gKiBYXzFee2FfMX0gKiAuLi4gKiBYX3tuLTF9XnthX3tuLTF9fQogIGRlZiBjYWxjRnVsbEFnZ3JlZ2F0ZUtleShlOiAoQ29sbFtHcm91cEVsZW1lbnRdLCBDb2xsWyhDb2xsW0J5dGVdLCBJbnQpXSApKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIHZhbCBjb21taXR0ZWVNZW1iZXJzID0gZS5fMQogICAgdmFsIGFpVmFsdWVzID0gZS5fMgogICAgY29tbWl0dGVlTWVtYmVycy5mb2xkKAogICAgICAoZ3JvdXBFbGVtZW50SWRlbnRpdHksIDApLAogICAgICB7IChhY2M6IChHcm91cEVsZW1lbnQsIEludCApLCB4OiBHcm91cEVsZW1lbnQpID0+CiAgICAgICAgICB2YWwgeF9hY2MgPSBhY2MuXzEKICAgICAgICAgIHZhbCBpID0gYWNjLl8yCiAgICAgICAgICAoeF9hY2MubXVsdGlwbHkobXlFeHAoKHgsIGFpVmFsdWVzKGkpKSkpLCBpICsgMSkKICAgICAgfQogICAgKS5fMQogIH0KCiAgLy8gQ29tcHV0ZXMgWCcKICBkZWYgY2FsY1BhcnRpYWxBZ2dyZWdhdGVLZXkoZTogKChDb2xsW0dyb3VwRWxlbWVudF0sIENvbGxbSW50XSksIENvbGxbKENvbGxbQnl0ZV0sIEludCldKSkgOiBHcm91cEVsZW1lbnQgPSB7CiAgICB2YWwgY29tbWl0dGVlTWVtYmVycyA9IGUuXzEuXzEKICAgIHZhbCBleGNsdWRlZEluZGljZXMgPSBlLl8xLl8yCiAgICB2YWwgYWlWYWx1ZXMgPSBlLl8yCiAgICBjb21taXR0ZWVNZW1iZXJzLmZvbGQoCiAgICAgIChncm91cEVsZW1lbnRJZGVudGl0eSwgMCksCiAgICAgIHsgKGFjYzogKEdyb3VwRWxlbWVudCwgSW50KSwgeDogR3JvdXBFbGVtZW50KSA9PgogICAgICAgICAgdmFsIHhBY2MgPSBhY2MuXzEKICAgICAgICAgIHZhbCBpID0gYWNjLl8yCiAgICAgICAgICBpZiAoZXhjbHVkZWRJbmRpY2VzLmV4aXN0cyB7IChpeDogSW50KSA9PiBpeCA9PSBpIH0pIHsKICAgICAgICAgICAgICh4QWNjLCBpICsgMSkKICAgICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgICh4QWNjLm11bHRpcGx5KG15RXhwKCh4LCBhaVZhbHVlcyhpKSkpKSwgaSArIDEpCiAgICAgICAgICB9CiAgICAgICAgICAKICAgICAgfQogICAgKS5fMQogIH0KCiAgLy8gQ2FsY3VsYXRlcyBhZ2dyZWdhdGUgY29tbWl0bWVudCBZJwogIGRlZiBjYWxjQWdncmVnYXRlQ29tbWl0bWVudChjb21taXRtZW50czogQ29sbFtHcm91cEVsZW1lbnRdKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIGNvbW1pdG1lbnRzLmZvbGQoCiAgICAgIGdyb3VwRWxlbWVudElkZW50aXR5LAogICAgICB7IChhY2M6IEdyb3VwRWxlbWVudCwgeTogR3JvdXBFbGVtZW50KSA9PgogICAgICAgICAgYWNjLm11bHRpcGx5KHkpCiAgICAgIH0KICAgICkgIAogIH0KCiAgZGVmIGVuY29kZVVuc2lnbmVkMjU2Qml0SW50KGJ5dGVzOiBDb2xsW0J5dGVdKSA6IChDb2xsW0J5dGVdLCBJbnQpID0gewogICAgdmFsIHNwbGl0ID0gYnl0ZXMuc2l6ZSAtIDE2CiAgICB2YWwgZmlyc3RJbnQgPSB0b1NpZ25lZEJ5dGVzKGJ5dGVzLnNsaWNlKDAsIHNwbGl0KSkKICAgIHZhbCBjb25jYXRCeXRlcyA9IGZpcnN0SW50LmFwcGVuZCh0b1NpZ25lZEJ5dGVzKGJ5dGVzLnNsaWNlKHNwbGl0LCBieXRlcy5zaXplKSkpCiAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0SW50LnNpemUKICAgIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykKICB9CiAgICAKICAvLyBCSVAtMDM0MCB1c2VzIHNvLWNhbGxlZCB0YWdnZWQgaGFzaGVzCiAgdmFsIGNoYWxsZW5nZVRhZyA9IHNoYTI1NihDb2xsKDY2LCA3MywgODAsIDQ4LCA1MSwgNTIsIDQ4LCA0NywgOTksIDEwNCwgOTcsIDEwOCwgMTA4LCAxMDEsIDExMCwgMTAzLCAxMDEpLm1hcCB7ICh4OkludCkgPT4geC50b0J5dGUgfSkKICAKICAvLyBQcmVjb21wdXRlIGFfaSB2YWx1ZXMKICB2YWwgYWlWYWx1ZXMgPSBjb21taXR0ZWUuaW5kaWNlcy5tYXAgeyAoaXg6IEludCkgPT4KICAgIGNhbGNBKChjb21taXR0ZWUsIGl4KSkKICB9CgogIC8vIGMKICB2YWwgY2hhbGxlbmdlUmF3ID0gYmxha2UyYjI1NihjYWxjRnVsbEFnZ3JlZ2F0ZUtleSgoY29tbWl0dGVlLCBhaVZhbHVlcykpLmdldEVuY29kZWQgKysgYWdncmVnYXRlQ29tbWl0bWVudC5nZXRFbmNvZGVkICsrIG1lc3NhZ2UgKQogIHZhbCBjaGFsbGVuZ2UgICAgPSBlbmNvZGVVbnNpZ25lZDI1NkJpdEludChjaGFsbGVuZ2VSYXcpCgogIHZhbCBleGNsdWRlZEluZGljZXMgPSB2ZXJpZmljYXRpb25EYXRhLm1hcCB7IChlOiAoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSkpID0+CiAgICBlLl8xLl8xIAogIH0KCiAgdmFsIGV4Y2x1ZGVkQ29tbWl0bWVudHMgPSB2ZXJpZmljYXRpb25EYXRhLm1hcCB7IChlOiAoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSkpID0+CiAgICBlLl8xLl8yLl8xIAogIH0KCiAgdmFsIFlEYXNoID0gY2FsY0FnZ3JlZ2F0ZUNvbW1pdG1lbnQoZXhjbHVkZWRDb21taXRtZW50cykKCiAgdmFsIHBhcnRpYWxBZ2dyZWdhdGVLZXkgPSBjYWxjUGFydGlhbEFnZ3JlZ2F0ZUtleSgoKGNvbW1pdHRlZSwgZXhjbHVkZWRJbmRpY2VzKSwgYWlWYWx1ZXMpKQoKICAvLyBWZXJpZmllcyB0aGF0IFknKmdeeiA9PSAoWCcpXmMgKiBZCiAgdmFsIHZlcmlmeUFnZ3JlZ2F0ZVJlc3BvbnNlID0gKCBteUV4cCgoZ3JvdXBHZW5lcmF0b3IsIGFnZ3JlZ2F0ZVJlc3BvbnNlUmF3KSkubXVsdGlwbHkoWURhc2gpIAogICAgICA9PSBteUV4cCgocGFydGlhbEFnZ3JlZ2F0ZUtleSwgY2hhbGxlbmdlKSkubXVsdGlwbHkoYWdncmVnYXRlQ29tbWl0bWVudCkgKQoKICB2YWwgdmVyaWZ5U2lnbmF0dXJlc0luRXhjbHVzaW9uU2V0ID0KICAgIHZlcmlmaWNhdGlvbkRhdGEuZm9yYWxsIHsgKGU6ICgoSW50LCAoR3JvdXBFbGVtZW50LCBDb2xsW0J5dGVdKSksICgoQ29sbFtCeXRlXSwgSW50KSwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpKSkgPT4KICAgICAgdmFsIHB1YktleVR1cGxlID0gZS5fMS5fMgogICAgICB2YWwgcyAgPSBlLl8yLl8xCiAgICAgIHZhbCByZXNwb25zZVR1cGxlID0gZS5fMi5fMgoKICAgICAgdmFsIHB1YktleSAgICAgICAgID0gcHViS2V5VHVwbGUuXzEgLy8gWV9pCiAgICAgIHZhbCBwa0J5dGVzICAgICAgICA9IHB1YktleVR1cGxlLl8yIC8vIGVuY29kZWQgeC1jb29yZGluYXRlIG9mIFlfaQogICAgICB2YWwgcmVzcG9uc2UgICAgICAgPSByZXNwb25zZVR1cGxlLl8xIC8vIFIgaW4gQklQLTAzNDAKICAgICAgdmFsIHJCeXRlcyAgICAgICAgID0gcmVzcG9uc2VUdXBsZS5fMiAvLyBCeXRlIHJlcHJlc2VudGF0aW9uIG9mICdyJwoKCiAgICAgIHZhbCByYXcgPSBzaGEyNTYoY2hhbGxlbmdlVGFnICsrIGNoYWxsZW5nZVRhZyArKyByQnl0ZXMgKysgcGtCeXRlcyArKyBtZXNzYWdlKQogCiAgICAgIC8vIE5vdGUgdGhhdCB0aGUgb3V0cHV0IG9mIFNIQTI1NiBpcyBhIGNvbGxlY3Rpb24gb2YgYnl0ZXMgdGhhdCByZXByZXNlbnRzIGFuIHVuc2lnbmVkIDI1NmJpdCBpbnRlZ2VyLgogICAgICB2YWwgc3BsaXQgPSByYXcuc2l6ZSAtIDE2CiAgICAgIHZhbCBmaXJzdCA9IHRvU2lnbmVkQnl0ZXMocmF3LnNsaWNlKDAsIHNwbGl0KSkKICAgICAgdmFsIGNvbmNhdEJ5dGVzID0gZmlyc3QuYXBwZW5kKHRvU2lnbmVkQnl0ZXMocmF3LnNsaWNlKHNwbGl0LCByYXcuc2l6ZSkpKQogICAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0LnNpemUKICAgICAgbXlFeHAoKGdyb3VwR2VuZXJhdG9yLCBzKSkgPT0gIG15RXhwKChwdWJLZXksIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykpKS5tdWx0aXBseShyZXNwb25zZSkKICAgIH0KCiAgdmFsIHZlcmlmeVRocmVzaG9sZCA9IChjb21taXR0ZWUuc2l6ZSAtIHZlcmlmaWNhdGlvbkRhdGEuc2l6ZSkgPj0gdGhyZXNob2xkCgogIHNpZ21hUHJvcCAoCiAgICB2ZXJpZnlBZ2dyZWdhdGVSZXNwb25zZSAmJgogICAgdmVyaWZ5U2lnbmF0dXJlc0luRXhjbHVzaW9uU2V0ICYmCiAgICB2ZXJpZnlUaHJlc2hvbGQKICApCn0=
+    const SIGNATURE_AGGREGATE_SCRIPT_BYTES: &str = "EGjwdMbZryMkdccbbfHfX1ZNQU9ipQSXvHwc4STmNE1U52Cjh3HrwqLmHwWA6n5fMhtt6JFmCVZCNhqoNsFF3PTa1y9XLzCWy8FHkbtuECAdsyaK8rNjj28cmjwkVaf2SqctZXnAR2QYAadC8YZNKEzYBwDz8bSJ55jayZufcHXA5db8qLaauVXXK5tp3wG4vfk9ub49KRzFKpsbXEMWKRh2NwApR46oPMHCWLusEu44MdRW3BLdcvz7C9DzRKpX1EKLxssGARLT5idFLHcc6FzjZgrgGNCAJKCwaAosMh9imMespUM9H6NMn9zdhX9RPZdSp82gxYhHwxG4dgKrfG5yJ5DVWeXS87zsdcq9osiskbBkyniz4JPZf6UWq8553WFxnwME1bLkFfm2E86UwE5f6X6FhHBgcZWRxkYxcWCQWnR8dzPnJiXSuVFTqrmiWeNaSU2ABpaeEvKvBXcaj8zNj4hN2p6JexP4F2UagtAbFWmVSHdafQG6c1yypsDw1WySqsTy4A6CmxzsnNTMiyyQLano4NXBzjuRjWL8QPwYG6STRtjWQM9qLo92NR41HehiTzkpjszoh64rnMESGpmdWt2z3Z7544LbctUxv2RSVdykfMWUmtQKMg4SMZ93Z17F64B9sDZhAmApPTABwdgX7iT6QkPHo7Wazv5zyFkWTCxfLqV7j1NmVGAC76UWJSTvPX6CDSX1kFv2E3HNrkj2aErmwz4GPVjiYnSTYUBFCSF4SnyjV4qKk3CToFbMpyBB3vj7VbPu9Jo5L5cpBSocRpWmk1MA9vtDgfsiESyXnA6TXibQQC7hnfsXha39CvWz1UEcbcGNZK63osepZXZnumJRso7bQeQH5yQpQwDAUhajDmrJQRbKmKnaPmZDjGSWgzgPnnXBNAjNMdvv8gKU8uVdPqWZk6Hg4ffR1eZASbhdWATDu5oyNKuxVxW6JHXXsxpVoG6hHxVNaQaHkHZv216nDycwLWJeFZToEYSqLKH5h6HpSckMTbvYFteVbW5d5Z7Vg9kUyUfmx1DMTRwZayK5kgQrEPWXhrsGBicpQWnhfXkATnXaGFy5sQu1GoABTdN9kD9Wk9tB5h7aT6T9W6S4CRBtS43LSPYVy5gu9sVVsG3aDwxys2tazYizgEL1PVXDsJv2t7SvLCR5p1MaT1FcWf7skzoN8JK4M7yjA87q8zEX4vb46PPsXCbJMoRzMtMBGPV";
 
     const KEY_LENGTH: usize = 32;
     const VALUE_LENGTH: usize = 8;
@@ -564,7 +570,7 @@ mod tests {
                 Threshold { num: 1, denom: 1 }
             ));
 
-            verify_ergoscript(
+            verify_ergoscript_with_sigma_rust(
                 committee,
                 num_participants,
                 aggregate_commitment,
@@ -577,11 +583,11 @@ mod tests {
 
     #[test]
     fn verify_byzantine_ergoscript() {
-        let num_byzantine_nodes = vec![1, 2, 3, 10, 20, 32, 64];
+        let num_byzantine_nodes = vec![34];
 
         for num_byzantine in num_byzantine_nodes {
             println!("# byzantine nodes: {}", num_byzantine);
-            let num_participants = 256;
+            let num_participants = 128;
             let mut rng = OsRng;
             let mut byz_indexes = vec![];
             loop {
@@ -671,7 +677,7 @@ mod tests {
                 .into_iter()
                 .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
                 .collect();
-            verify_ergoscript(
+            verify_ergoscript_with_sigma_rust(
                 committee,
                 (num_participants * threshold.num / threshold.denom) as i32,
                 aggregate_commitment,
@@ -682,7 +688,115 @@ mod tests {
         }
     }
 
-    fn verify_ergoscript(
+    #[tokio::test]
+    async fn verify_byzantine_ergoscript_sigmastate() {
+        let num_byzantine_nodes = vec![40];
+
+        for num_byzantine in num_byzantine_nodes {
+            println!("# byzantine nodes: {}", num_byzantine);
+            let num_participants = 512;
+            let mut rng = OsRng;
+            let mut byz_indexes = vec![];
+            loop {
+                let rng = rng.gen_range(0usize..num_participants);
+                if !byz_indexes.contains(&rng) {
+                    byz_indexes.push(rng);
+                }
+                if byz_indexes.len() == num_byzantine {
+                    break;
+                }
+            }
+            let md = blake2b256_hash(b"foo");
+            let individual_keys = (0..num_participants)
+                .map(|_| {
+                    let sk = SecretKey::random(&mut rng);
+                    let pk = PublicKey::from(sk.public_key());
+                    let (commitment_sk, commitment) = schnorr_commitment_pair();
+                    (sk, pk, commitment_sk, commitment)
+                })
+                .collect::<Vec<_>>();
+            let committee = individual_keys
+                .iter()
+                .map(|(_, pk, _, _)| pk.clone())
+                .collect::<Vec<_>>();
+            let individual_inputs = individual_keys
+                .iter()
+                .map(|(_, pki, _, _)| individual_input::<Blake2b<U32>>(committee.clone(), pki.clone()))
+                .collect::<Vec<_>>();
+            let aggregate_x = aggregate_pk(
+                individual_keys.iter().map(|(_, pk, _, _)| pk.clone()).collect(),
+                individual_inputs.clone(),
+            );
+            let aggregate_commitment = aggregate_commitment(
+                individual_keys
+                    .iter()
+                    .map(|(_, _, _, commitment)| commitment.clone())
+                    .collect(),
+            );
+            let challenge = challenge(aggregate_x, aggregate_commitment.clone(), md);
+            let (byz_keys, active_keys): (Vec<_>, Vec<_>) = individual_keys
+                .clone()
+                .into_iter()
+                .enumerate()
+                .partition(|(i, _)| byz_indexes.contains(i));
+            let individual_responses_subset = active_keys
+                .iter()
+                .map(|(i, (sk, _, commitment_sk, _))| {
+                    (
+                        *i,
+                        response(
+                            commitment_sk.clone(),
+                            sk.clone(),
+                            challenge,
+                            individual_inputs[*i],
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>();
+            for (i, zi) in individual_responses_subset.iter() {
+                let (_, pk, _, commitment) = &individual_keys[*i];
+                assert!(verify_response(
+                    zi,
+                    &individual_inputs[*i],
+                    &challenge,
+                    commitment.clone(),
+                    pk.clone()
+                ))
+            }
+            let aggregate_response =
+                aggregate_response(individual_responses_subset.into_iter().map(|(_, x)| x).collect());
+            let exclusion_set = byz_keys
+                .iter()
+                .map(|(i, (_, _, sk, commitment))| {
+                    (*i, Some((commitment.clone(), exclusion_proof(sk.clone(), md))))
+                })
+                .collect::<Vec<_>>();
+            let threshold = Threshold { num: 2, denom: 4 };
+            assert!(verify(
+                aggregate_commitment.clone(),
+                aggregate_response,
+                exclusion_set.clone(),
+                committee.clone(),
+                md,
+                threshold,
+            ));
+            let exclusion_set: Vec<_> = exclusion_set
+                .into_iter()
+                .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
+                .collect();
+            verify_ergoscript_with_sigmastate(
+                committee,
+                (num_participants * threshold.num / threshold.denom) as i32,
+                aggregate_commitment,
+                aggregate_response,
+                exclusion_set,
+                md,
+            )
+            .await;
+        }
+    }
+
+    async fn verify_ergoscript_with_sigmastate(
         committee: Vec<PublicKey>,
         threshold: i32,
         aggregate_commitment: AggregateCommitment,
@@ -733,15 +847,138 @@ mod tests {
         let first_len = aggregate_response_bytes.len() as i32;
         aggregate_response_bytes.extend(lower_256.to_signed_bytes_be());
 
-        // Script URL: https://wallet.plutomonkey.com/p2s/?source=ewogIHZhbCBtZXNzYWdlICAgICAgICAgICAgICA9IElOUFVUUygwKS5SNFtDb2xsW0J5dGVdXS5nZXQKICB2YWwgZ3JvdXBHZW5lcmF0b3IgICAgICAgPSBJTlBVVFMoMCkuUjVbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgZ3JvdXBFbGVtZW50SWRlbnRpdHkgPSBJTlBVVFMoMCkuUjZbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgY29tbWl0dGVlICAgICAgICAgICAgPSBJTlBVVFMoMCkuUjdbQ29sbFtHcm91cEVsZW1lbnRdXS5nZXQKICB2YWwgdGhyZXNob2xkICAgICAgICAgICAgPSBJTlBVVFMoMCkuUjhbSW50XS5nZXQKCiAgdmFsIHZlcmlmaWNhdGlvbkRhdGEgPSBnZXRWYXJbQ29sbFsoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSApXV0oMCkuZ2V0CiAgdmFsIGFnZ3JlZ2F0ZVJlc3BvbnNlUmF3ID0gZ2V0VmFyWyhDb2xsW0J5dGVdLCBJbnQpXSgxKS5nZXQgLy8gegogIHZhbCBhZ2dyZWdhdGVDb21taXRtZW50ID0gZ2V0VmFyW0dyb3VwRWxlbWVudF0oMikuZ2V0IC8vIFkKIAogIC8vIFBlcmZvcm1zIGV4cG9uZW50aWF0aW9uIG9mIGEgR3JvdXBFbGVtZW50IGJ5IGFuIHVuc2lnbmVkIDI1NmJpdAogIC8vIGludGVnZXIgSSB1c2luZyB0aGUgZm9sbG93aW5nIGRlY29tcG9zaXRpb24gb2YgSToKICAvLyBMZXQgZSA9IChnLCAoYiwgbikpLiBUaGVuIHRoaXMgZnVuY3Rpb24gY29tcHV0ZXM6CiAgLy8KICAvLyAgIGdeSSA9PSAoZ15iKDAsbikpXnAgKiBnXihiKG4uLikpCiAgLy8gd2hlcmUKICAvLyAgLSBiKDAsbikgaXMgdGhlIGZpcnN0IG4gYnl0ZXMgb2YgYSBwb3NpdGl2ZSBCaWdJbnQgYFVgCiAgLy8gIC0gYihuLi4pIGFyZSB0aGUgcmVtYWluaW5nIGJ5dGVzIHN0YXJ0aW5nIGZyb20gaW5kZXggbi4gVGhlc2UgYnl0ZXMKICAvLyAgICBhbHNvIHJlcHJlc2VudCBhIHBvc2l0aXZlIEJpZ0ludCBgTGAuCiAgLy8gIC0gcCBpcyAzNDAyODIzNjY5MjA5Mzg0NjM0NjMzNzQ2MDc0MzE3NjgyMTE0NTYgYmFzZSAxMC4KICAvLyAgLSBJID09IFUgKiBwICsgTAogIGRlZiBteUV4cChlOiAoR3JvdXBFbGVtZW50LCAoQ29sbFtCeXRlXSwgSW50KSkpIDogR3JvdXBFbGVtZW50ID0gewogICAgdmFsIHggPSBlLl8xCiAgICB2YWwgeSA9IGUuXzIuXzEKICAgIHZhbCBsZW4gPSBlLl8yLl8yCiAgICB2YWwgdXBwZXIgPSBieXRlQXJyYXlUb0JpZ0ludCh5LnNsaWNlKDAsIGxlbikpCiAgICB2YWwgbG93ZXIgPSBieXRlQXJyYXlUb0JpZ0ludCh5LnNsaWNlKGxlbiwgeS5zaXplKSkKCiAgICAvLyBUaGUgZm9sbG93aW5nIHZhbHVlIGlzIDM0MDI4MjM2NjkyMDkzODQ2MzQ2MzM3NDYwNzQzMTc2ODIxMTQ1NiBiYXNlLTEwLgogICAgdmFsIHAgPSBieXRlQXJyYXlUb0JpZ0ludChmcm9tQmFzZTY0KCJBUUFBQUFBQUFBQUFBQUFBQUFBQUFBQSIpKQogICAKICAgIHguZXhwKHVwcGVyKS5leHAocCkubXVsdGlwbHkoeC5leHAobG93ZXIpKQogIH0KCiAgLy8gQ29udmVydHMgYSBiaWctZW5kaWFuIGJ5dGUgcmVwcmVzZW50YXRpb24gb2YgYW4gdW5zaWduZWQgaW50ZWdlciBpbnRvIGl0cwogIC8vIGVxdWl2YWxlbnQgc2lnbmVkIHJlcHJlc2VudGF0aW9uCiAgZGVmIHRvU2lnbmVkQnl0ZXMoYjogQ29sbFtCeXRlXSkgOiBDb2xsW0J5dGVdID0gewogICAgLy8gTm90ZSB0aGF0IGFsbCBpbnRlZ2VycyAoaW5jbHVkaW5nIEJ5dGUpIGluIEVyZ29zY3JpcHQgYXJlIHNpZ25lZC4gSW4gc3VjaAogICAgLy8gYSByZXByZXNlbnRhdGlvbiwgdGhlIG1vc3Qtc2lnbmlmaWNhbnQgYml0IChNU0IpIGlzIHVzZWQgdG8gcmVwcmVzZW50IHRoZQogICAgLy8gc2lnbjsgMCBmb3IgYSBwb3NpdGl2ZSBpbnRlZ2VyIGFuZCAxIGZvciBuZWdhdGl2ZS4gTm93IHNpbmNlIGBiYCBpcyBiaWctCiAgICAvLyBlbmRpYW4sIHRoZSBNU0IgcmVzaWRlcyBpbiB0aGUgZmlyc3QgYnl0ZSBhbmQgTVNCID09IDEgaW5kaWNhdGVzIHRoYXQgZXZlcnkKICAgIC8vIGJpdCBpcyB1c2VkIHRvIHNwZWNpZnkgdGhlIG1hZ25pdHVkZSBvZiB0aGUgaW50ZWdlci4gVGhpcyBtZWFucyB0aGF0IGFuCiAgICAvLyBleHRyYSAwLWJpdCBtdXN0IGJlIHByZXBlbmRlZCB0byBgYmAgdG8gcmVuZGVyIGl0IGEgdmFsaWQgcG9zaXRpdmUgc2lnbmVkCiAgICAvLyBpbnRlZ2VyLgogICAgLy8KICAgIC8vIE5vdyBzaWduZWQgaW50ZWdlcnMgYXJlIG5lZ2F0aXZlIGlmZiBNU0IgPT0gMSwgaGVuY2UgdGhlIGNvbmRpdGlvbiBiZWxvdy4KICAgIGlmIChiKDApIDwgMCApIHsKICAgICAgICBDb2xsKDAudG9CeXRlKS5hcHBlbmQoYikKICAgIH0gZWxzZSB7CiAgICAgICAgYgogICAgfQogIH0KCiAgLy8gQ29tcHV0ZXMgYV9pID0gSChYXzEsIFhfMiwuLiwgWF9uOyBYX2kpCiAgZGVmIGNhbGNBKGU6IChDb2xsW0dyb3VwRWxlbWVudF0sIEludCkpIDogKENvbGxbQnl0ZV0sIEludCkgPSB7CiAgICB2YWwgY29tbWl0dGVlTWVtYmVycyA9IGUuXzEKICAgIHZhbCBpID0gZS5fMgogICAgdmFsIGJ5dGVzID0gY29tbWl0dGVlTWVtYmVycy5zbGljZSgxLCBjb21taXR0ZWVNZW1iZXJzLnNpemUpLmZvbGQoY29tbWl0dGVlTWVtYmVycygwKS5nZXRFbmNvZGVkLCB7KGI6IENvbGxbQnl0ZV0sIGVsZW06IEdyb3VwRWxlbWVudCkgPT4gYi5hcHBlbmQoZWxlbS5nZXRFbmNvZGVkKSB9KQogICAgdmFsIHJhdyA9IGJsYWtlMmIyNTYoYnl0ZXMuYXBwZW5kKGNvbW1pdHRlZU1lbWJlcnMoaSkuZ2V0RW5jb2RlZCkpCiAgICB2YWwgc3BsaXQgPSByYXcuc2l6ZSAtIDE2CiAgICB2YWwgZmlyc3RJbnQgPSB0b1NpZ25lZEJ5dGVzKHJhdy5zbGljZSgwLCBzcGxpdCkpCiAgICB2YWwgY29uY2F0Qnl0ZXMgPSBmaXJzdEludC5hcHBlbmQodG9TaWduZWRCeXRlcyhyYXcuc2xpY2Uoc3BsaXQsIHJhdy5zaXplKSkpCiAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0SW50LnNpemUKICAgIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykKICB9CiAgCiAgLy8gQ29tcHV0ZXMgWH4gPSBYXzBee2FfMH0gKiBYXzFee2FfMX0gKiAuLi4gKiBYX3tuLTF9XnthX3tuLTF9fQogIGRlZiBjYWxjRnVsbEFnZ3JlZ2F0ZUtleShlOiAoQ29sbFtHcm91cEVsZW1lbnRdLCBDb2xsWyhDb2xsW0J5dGVdLCBJbnQpXSApKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIHZhbCBjb21taXR0ZWVNZW1iZXJzID0gZS5fMQogICAgdmFsIGFpVmFsdWVzID0gZS5fMgogICAgY29tbWl0dGVlTWVtYmVycy5mb2xkKAogICAgICAoZ3JvdXBFbGVtZW50SWRlbnRpdHksIDApLAogICAgICB7IChhY2M6IChHcm91cEVsZW1lbnQsIEludCApLCB4OiBHcm91cEVsZW1lbnQpID0+CiAgICAgICAgICB2YWwgeF9hY2MgPSBhY2MuXzEKICAgICAgICAgIHZhbCBpID0gYWNjLl8yCiAgICAgICAgICAoeF9hY2MubXVsdGlwbHkobXlFeHAoKHgsIGFpVmFsdWVzKGkpKSkpLCBpICsgMSkKICAgICAgfQogICAgKS5fMQogIH0KCiAgLy8gQ29tcHV0ZXMgWCcKICBkZWYgY2FsY1BhcnRpYWxBZ2dyZWdhdGVLZXkoZTogKChDb2xsW0dyb3VwRWxlbWVudF0sIENvbGxbSW50XSksIENvbGxbKENvbGxbQnl0ZV0sIEludCldKSkgOiBHcm91cEVsZW1lbnQgPSB7CiAgICB2YWwgY29tbWl0dGVlTWVtYmVycyA9IGUuXzEuXzEKICAgIHZhbCBleGNsdWRlZEluZGljZXMgPSBlLl8xLl8yCiAgICB2YWwgYWlWYWx1ZXMgPSBlLl8yCiAgICBjb21taXR0ZWVNZW1iZXJzLmZvbGQoCiAgICAgIChncm91cEVsZW1lbnRJZGVudGl0eSwgMCksCiAgICAgIHsgKGFjYzogKEdyb3VwRWxlbWVudCwgSW50KSwgeDogR3JvdXBFbGVtZW50KSA9PgogICAgICAgICAgdmFsIHhBY2MgPSBhY2MuXzEKICAgICAgICAgIHZhbCBpID0gYWNjLl8yCiAgICAgICAgICBpZiAoZXhjbHVkZWRJbmRpY2VzLmV4aXN0cyB7IChpeDogSW50KSA9PiBpeCA9PSBpIH0pIHsKICAgICAgICAgICAgICh4QWNjLCBpICsgMSkKICAgICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgICh4QWNjLm11bHRpcGx5KG15RXhwKCh4LCBhaVZhbHVlcyhpKSkpKSwgaSArIDEpCiAgICAgICAgICB9CiAgICAgICAgICAKICAgICAgfQogICAgKS5fMQogIH0KCiAgLy8gQ2FsY3VsYXRlcyBhZ2dyZWdhdGUgY29tbWl0bWVudCBZJwogIGRlZiBjYWxjQWdncmVnYXRlQ29tbWl0bWVudChjb21taXRtZW50czogQ29sbFtHcm91cEVsZW1lbnRdKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIGNvbW1pdG1lbnRzLmZvbGQoCiAgICAgIGdyb3VwRWxlbWVudElkZW50aXR5LAogICAgICB7IChhY2M6IEdyb3VwRWxlbWVudCwgeTogR3JvdXBFbGVtZW50KSA9PgogICAgICAgICAgYWNjLm11bHRpcGx5KHkpCiAgICAgIH0KICAgICkgIAogIH0KCiAgZGVmIGVuY29kZVVuc2lnbmVkMjU2Qml0SW50KGJ5dGVzOiBDb2xsW0J5dGVdKSA6IChDb2xsW0J5dGVdLCBJbnQpID0gewogICAgdmFsIHNwbGl0ID0gYnl0ZXMuc2l6ZSAtIDE2CiAgICB2YWwgZmlyc3RJbnQgPSB0b1NpZ25lZEJ5dGVzKGJ5dGVzLnNsaWNlKDAsIHNwbGl0KSkKICAgIHZhbCBjb25jYXRCeXRlcyA9IGZpcnN0SW50LmFwcGVuZCh0b1NpZ25lZEJ5dGVzKGJ5dGVzLnNsaWNlKHNwbGl0LCBieXRlcy5zaXplKSkpCiAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0SW50LnNpemUKICAgIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykKICB9CiAgICAKICAvLyBCSVAtMDM0MCB1c2VzIHNvLWNhbGxlZCB0YWdnZWQgaGFzaGVzCiAgdmFsIGNoYWxsZW5nZVRhZyA9IHNoYTI1NihDb2xsKDY2LCA3MywgODAsIDQ4LCA1MSwgNTIsIDQ4LCA0NywgOTksIDEwNCwgOTcsIDEwOCwgMTA4LCAxMDEsIDExMCwgMTAzLCAxMDEpLm1hcCB7ICh4OkludCkgPT4geC50b0J5dGUgfSkKICAKICAvLyBQcmVjb21wdXRlIGFfaSB2YWx1ZXMKICB2YWwgYWlWYWx1ZXMgPSBjb21taXR0ZWUuaW5kaWNlcy5tYXAgeyAoaXg6IEludCkgPT4KICAgIGNhbGNBKChjb21taXR0ZWUsIGl4KSkKICB9CgogIC8vIGMKICB2YWwgY2hhbGxlbmdlUmF3ID0gYmxha2UyYjI1NihjYWxjRnVsbEFnZ3JlZ2F0ZUtleSgoY29tbWl0dGVlLCBhaVZhbHVlcykpLmdldEVuY29kZWQgKysgYWdncmVnYXRlQ29tbWl0bWVudC5nZXRFbmNvZGVkICsrIG1lc3NhZ2UgKQogIHZhbCBjaGFsbGVuZ2UgICAgPSBlbmNvZGVVbnNpZ25lZDI1NkJpdEludChjaGFsbGVuZ2VSYXcpCgogIHZhbCBleGNsdWRlZEluZGljZXMgPSB2ZXJpZmljYXRpb25EYXRhLm1hcCB7IChlOiAoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSkpID0+CiAgICBlLl8xLl8xIAogIH0KCiAgdmFsIGV4Y2x1ZGVkQ29tbWl0bWVudHMgPSB2ZXJpZmljYXRpb25EYXRhLm1hcCB7IChlOiAoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSkpID0+CiAgICBlLl8xLl8yLl8xIAogIH0KCiAgdmFsIFlEYXNoID0gY2FsY0FnZ3JlZ2F0ZUNvbW1pdG1lbnQoZXhjbHVkZWRDb21taXRtZW50cykKCiAgdmFsIHBhcnRpYWxBZ2dyZWdhdGVLZXkgPSBjYWxjUGFydGlhbEFnZ3JlZ2F0ZUtleSgoKGNvbW1pdHRlZSwgZXhjbHVkZWRJbmRpY2VzKSwgYWlWYWx1ZXMpKQoKICAvLyBWZXJpZmllcyB0aGF0IFknKmdeeiA9PSAoWCcpXmMgKiBZCiAgdmFsIHZlcmlmeUFnZ3JlZ2F0ZVJlc3BvbnNlID0gKCBteUV4cCgoZ3JvdXBHZW5lcmF0b3IsIGFnZ3JlZ2F0ZVJlc3BvbnNlUmF3KSkubXVsdGlwbHkoWURhc2gpIAogICAgICA9PSBteUV4cCgocGFydGlhbEFnZ3JlZ2F0ZUtleSwgY2hhbGxlbmdlKSkubXVsdGlwbHkoYWdncmVnYXRlQ29tbWl0bWVudCkgKQoKICB2YWwgdmVyaWZ5U2lnbmF0dXJlc0luRXhjbHVzaW9uU2V0ID0KICAgIHZlcmlmaWNhdGlvbkRhdGEuZm9yYWxsIHsgKGU6ICgoSW50LCAoR3JvdXBFbGVtZW50LCBDb2xsW0J5dGVdKSksICgoQ29sbFtCeXRlXSwgSW50KSwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpKSkgPT4KICAgICAgdmFsIHB1YktleVR1cGxlID0gZS5fMS5fMgogICAgICB2YWwgcyAgPSBlLl8yLl8xCiAgICAgIHZhbCByZXNwb25zZVR1cGxlID0gZS5fMi5fMgoKICAgICAgdmFsIHB1YktleSAgICAgICAgID0gcHViS2V5VHVwbGUuXzEgLy8gWV9pCiAgICAgIHZhbCBwa0J5dGVzICAgICAgICA9IHB1YktleVR1cGxlLl8yIC8vIGVuY29kZWQgeC1jb29yZGluYXRlIG9mIFlfaQogICAgICB2YWwgcmVzcG9uc2UgICAgICAgPSByZXNwb25zZVR1cGxlLl8xIC8vIFIgaW4gQklQLTAzNDAKICAgICAgdmFsIHJCeXRlcyAgICAgICAgID0gcmVzcG9uc2VUdXBsZS5fMiAvLyBCeXRlIHJlcHJlc2VudGF0aW9uIG9mICdyJwoKCiAgICAgIHZhbCByYXcgPSBzaGEyNTYoY2hhbGxlbmdlVGFnICsrIGNoYWxsZW5nZVRhZyArKyByQnl0ZXMgKysgcGtCeXRlcyArKyBtZXNzYWdlKQogCiAgICAgIC8vIE5vdGUgdGhhdCB0aGUgb3V0cHV0IG9mIFNIQTI1NiBpcyBhIGNvbGxlY3Rpb24gb2YgYnl0ZXMgdGhhdCByZXByZXNlbnRzIGFuIHVuc2lnbmVkIDI1NmJpdCBpbnRlZ2VyLgogICAgICB2YWwgc3BsaXQgPSByYXcuc2l6ZSAtIDE2CiAgICAgIHZhbCBmaXJzdCA9IHRvU2lnbmVkQnl0ZXMocmF3LnNsaWNlKDAsIHNwbGl0KSkKICAgICAgdmFsIGNvbmNhdEJ5dGVzID0gZmlyc3QuYXBwZW5kKHRvU2lnbmVkQnl0ZXMocmF3LnNsaWNlKHNwbGl0LCByYXcuc2l6ZSkpKQogICAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0LnNpemUKICAgICAgbXlFeHAoKGdyb3VwR2VuZXJhdG9yLCBzKSkgPT0gIG15RXhwKChwdWJLZXksIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykpKS5tdWx0aXBseShyZXNwb25zZSkKICAgIH0KCiAgdmFsIHZlcmlmeVRocmVzaG9sZCA9IChjb21taXR0ZWUuc2l6ZSAtIHZlcmlmaWNhdGlvbkRhdGEuc2l6ZSkgPj0gdGhyZXNob2xkCgogIHNpZ21hUHJvcCAoCiAgICB2ZXJpZnlBZ2dyZWdhdGVSZXNwb25zZSAmJgogICAgdmVyaWZ5U2lnbmF0dXJlc0luRXhjbHVzaW9uU2V0ICYmCiAgICB2ZXJpZnlUaHJlc2hvbGQKICApCn0=
-        const SCRIPT_BYTES: &str = "EGjwdMbZryMkdccbbfHfX1ZNQU9ipQSXvHwc4STmNE1U52Cjh3HrwqLmHwWA6n5fMhtt6JFmCVZCNhqoNsFF3PTa1y9XLzCWy8FHkbtuECAdsyaK8rNjj28cmjwkVaf2SqctZXnAR2QYAadC8YZNKEzYBwDz8bSJ55jayZufcHXA5db8qLaauVXXK5tp3wG4vfk9ub49KRzFKpsbXEMWKRh2NwApR46oPMHCWLusEu44MdRW3BLdcvz7C9DzRKpX1EKLxssGARLT5idFLHcc6FzjZgrgGNCAJKCwaAosMh9imMespUM9H6NMn9zdhX9RPZdSp82gxYhHwxG4dgKrfG5yJ5DVWeXS87zsdcq9osiskbBkyniz4JPZf6UWq8553WFxnwME1bLkFfm2E86UwE5f6X6FhHBgcZWRxkYxcWCQWnR8dzPnJiXSuVFTqrmiWeNaSU2ABpaeEvKvBXcaj8zNj4hN2p6JexP4F2UagtAbFWmVSHdafQG6c1yypsDw1WySqsTy4A6CmxzsnNTMiyyQLano4NXBzjuRjWL8QPwYG6STRtjWQM9qLo92NR41HehiTzkpjszoh64rnMESGpmdWt2z3Z7544LbctUxv2RSVdykfMWUmtQKMg4SMZ93Z17F64B9sDZhAmApPTABwdgX7iT6QkPHo7Wazv5zyFkWTCxfLqV7j1NmVGAC76UWJSTvPX6CDSX1kFv2E3HNrkj2aErmwz4GPVjiYnSTYUBFCSF4SnyjV4qKk3CToFbMpyBB3vj7VbPu9Jo5L5cpBSocRpWmk1MA9vtDgfsiESyXnA6TXibQQC7hnfsXha39CvWz1UEcbcGNZK63osepZXZnumJRso7bQeQH5yQpQwDAUhajDmrJQRbKmKnaPmZDjGSWgzgPnnXBNAjNMdvv8gKU8uVdPqWZk6Hg4ffR1eZASbhdWATDu5oyNKuxVxW6JHXXsxpVoG6hHxVNaQaHkHZv216nDycwLWJeFZToEYSqLKH5h6HpSckMTbvYFteVbW5d5Z7Vg9kUyUfmx1DMTRwZayK5kgQrEPWXhrsGBicpQWnhfXkATnXaGFy5sQu1GoABTdN9kD9Wk9tB5h7aT6T9W6S4CRBtS43LSPYVy5gu9sVVsG3aDwxys2tazYizgEL1PVXDsJv2t7SvLCR5p1MaT1FcWf7skzoN8JK4M7yjA87q8zEX4vb46PPsXCbJMoRzMtMBGPV";
+        let exclusion_set_data = serialize_exclusion_set(exclusion_set, md.as_ref());
+        let aggregate_response: Constant = (
+            Constant::from(aggregate_response_bytes),
+            Constant::from(first_len),
+        )
+            .into();
+
+        let input = SignatureValidationInput {
+            contract: SIGNATURE_AGGREGATE_SCRIPT_BYTES.to_string(),
+            exclusion_set: exclusion_set_data.base16_str().unwrap(),
+            aggregate_response: aggregate_response.base16_str().unwrap(),
+            aggregate_commitment: serialized_aggregate_commitment.base16_str().unwrap(),
+            generator: Constant::from(generator()).base16_str().unwrap(),
+            identity: Constant::from(EcPoint::from(ProjectivePoint::IDENTITY))
+                .base16_str()
+                .unwrap(),
+            committee: serialized_committee.base16_str().unwrap(),
+            md: Constant::from(md.as_ref().to_vec()).base16_str().unwrap(),
+            threshold: Constant::from(threshold).base16_str().unwrap(),
+            hash_bytes: Constant::from(committee_bytes.clone()).base16_str().unwrap(),
+        };
+
+        let raw = reqwest::Client::new()
+            .put("http://localhost:8080/validate")
+            .json(&input)
+            .send()
+            .await
+            .unwrap();
+        println!("{:?}", raw);
+        let details = raw.json::<ValidationResponse>().await.unwrap();
+
+        println!("{}", serde_json::to_string(&details).unwrap());
+    }
+
+    fn verify_ergoscript_with_sigma_rust(
+        committee: Vec<PublicKey>,
+        threshold: i32,
+        aggregate_commitment: AggregateCommitment,
+        aggregate_response: Scalar,
+        exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
+        md: Blake2bDigest256,
+    ) {
+        let c_bytes = committee.iter().fold(Vec::<u8>::new(), |mut b, p| {
+            b.extend_from_slice(
+                k256::PublicKey::from(p.clone())
+                    .to_projective()
+                    .to_bytes()
+                    .as_slice(),
+            );
+            b
+        });
+        let committee_bytes = blake2b256_hash(&c_bytes).as_ref().to_vec();
+        let committee_lit = Literal::from(
+            committee
+                .into_iter()
+                .map(|p| EcPoint::from(k256::PublicKey::from(p).to_projective()))
+                .collect::<Vec<_>>(),
+        );
+
+        let serialized_committee = Constant {
+            tpe: SType::SColl(Box::new(SType::SGroupElement)),
+            v: committee_lit,
+        };
+
+        let serialized_aggregate_commitment =
+            Constant::from(EcPoint::from(ProjectivePoint::from(aggregate_commitment)));
+
+        let s_biguint = scalar_to_biguint(aggregate_response);
+        let biguint_bytes = s_biguint.to_bytes_be();
+        if biguint_bytes.len() < 32 {
+            println!("# bytes: {}", biguint_bytes.len());
+        }
+        let split = biguint_bytes.len() - 16;
+        let upper = BigUint::from_bytes_be(&biguint_bytes[..split]);
+        let upper_256 = BigInt256::try_from(upper).unwrap();
+        assert_eq!(upper_256.sign(), Sign::Plus);
+        let lower = BigUint::from_bytes_be(&biguint_bytes[split..]);
+        let lower_256 = BigInt256::try_from(lower).unwrap();
+        assert_eq!(lower_256.sign(), Sign::Plus);
+
+        let mut aggregate_response_bytes = upper_256.to_signed_bytes_be();
+        // Need this variable because we could add an extra byte to the encoding for signed-representation.
+        let first_len = aggregate_response_bytes.len() as i32;
+        aggregate_response_bytes.extend(lower_256.to_signed_bytes_be());
 
         let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
-        let address = encoder.parse_address_from_str(SCRIPT_BYTES).unwrap();
+        let address = encoder
+            .parse_address_from_str(SIGNATURE_AGGREGATE_SCRIPT_BYTES)
+            .unwrap();
         let ergo_tree = address.script().unwrap();
         let erg_value = BoxValue::try_from(1000000_u64).unwrap();
 
         let mut registers = HashMap::new();
+
+        let exclusion_set_data = serialize_exclusion_set(exclusion_set, md.as_ref());
+        let aggregate_response: Constant = (
+            Constant::from(aggregate_response_bytes),
+            Constant::from(first_len),
+        )
+            .into();
+
+        let num_bytes_needed: usize = vec![
+            address.content_bytes().len(),
+            exclusion_set_data.sigma_serialize_bytes().unwrap().len(),
+            aggregate_response.sigma_serialize_bytes().unwrap().len(),
+            serialized_aggregate_commitment
+                .sigma_serialize_bytes()
+                .unwrap()
+                .len(),
+            //Constant::from(generator()).sigma_serialize_bytes().unwrap().len(),
+            //Constant::from(EcPoint::from(ProjectivePoint::IDENTITY))
+            //    .sigma_serialize_bytes()
+            //    .unwrap()
+            //    .len(),
+            //serialized_committee.sigma_serialize_bytes().unwrap().len(),
+            Constant::from(md.as_ref().to_vec())
+                .sigma_serialize_bytes()
+                .unwrap()
+                .len(),
+            Constant::from(threshold).sigma_serialize_bytes().unwrap().len(),
+            Constant::from(committee_bytes.clone())
+                .sigma_serialize_bytes()
+                .unwrap()
+                .len(),
+        ]
+        .into_iter()
+        .sum();
+
+        println!(
+            "# bytes in exclusion set: {}",
+            exclusion_set_data.sigma_serialize_bytes().unwrap().len()
+        );
 
         registers.insert(NonMandatoryRegisterId::R4, Constant::from(md.as_ref().to_vec()));
         registers.insert(NonMandatoryRegisterId::R5, Constant::from(generator()));
@@ -753,14 +990,8 @@ mod tests {
         registers.insert(NonMandatoryRegisterId::R8, threshold.into());
         registers.insert(NonMandatoryRegisterId::R9, committee_bytes.into());
         let mut values = IndexMap::new();
-        let s_tuple: Constant = (
-            Constant::from(aggregate_response_bytes),
-            Constant::from(first_len),
-        )
-            .into();
-        let exclusion_set_data = serialize_exclusion_set(exclusion_set, md.as_ref());
         values.insert(0, exclusion_set_data);
-        values.insert(1, s_tuple);
+        values.insert(1, aggregate_response);
         values.insert(2, serialized_aggregate_commitment);
         let input_box = ErgoBox::new(
             erg_value,
@@ -786,6 +1017,8 @@ mod tests {
         let unsigned_tx =
             UnsignedTransaction::new(TxIoVec::from_vec(vec![unsigned_input]).unwrap(), None, outputs)
                 .unwrap();
+        //let unsigned_tx_json = serde_json::to_string(&unsigned_tx).unwrap();
+        //println!("{}", unsigned_tx_json);
         let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], vec![]).unwrap();
         let wallet = get_wallet();
         let ergo_state_context: ErgoStateContext = dummy_ergo_state_context();
@@ -796,5 +1029,49 @@ mod tests {
             panic!("{:?}", res);
         }
         println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
+    }
+
+    #[derive(Serialize)]
+    struct SignatureValidationInput {
+        contract: String,
+        #[serde(rename = "exclusionSet")]
+        exclusion_set: String,
+        #[serde(rename = "aggregateResponse")]
+        aggregate_response: String,
+        #[serde(rename = "aggregateCommitment")]
+        aggregate_commitment: String,
+        generator: String,
+        identity: String,
+        committee: String,
+        md: String,
+        threshold: String,
+        #[serde(rename = "hashBytes")]
+        hash_bytes: String,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    struct ValidationResponse {
+        #[serde(rename = "Right")]
+        right: Value,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    struct Value {
+        value: ValidationDetails,
+    }
+    #[derive(Deserialize, Serialize)]
+    //#[serde(from = "ValidationResponse")]   // Would be nice to have this, but it fails in practice.
+    struct ValidationDetails {
+        result: bool,
+        #[serde(rename = "txCost")]
+        tx_cost: usize,
+        #[serde(rename = "validationTimeMillis")]
+        validation_time_millis: usize,
+    }
+
+    impl From<ValidationResponse> for ValidationDetails {
+        fn from(value: ValidationResponse) -> Self {
+            value.right.value
+        }
     }
 }
