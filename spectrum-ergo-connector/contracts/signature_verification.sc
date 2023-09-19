@@ -2,9 +2,24 @@
   val message              = INPUTS(0).R4[Coll[Byte]].get
   val groupGenerator       = INPUTS(0).R5[GroupElement].get
   val groupElementIdentity = INPUTS(0).R6[GroupElement].get
-  val committee            = INPUTS(0).R7[Coll[GroupElement]].get
-  val threshold            = INPUTS(0).R8[Int].get
-  val innerBytes           = INPUTS(0).R9[Coll[Byte]].get
+  val threshold            = INPUTS(0).R7[Int].get
+
+  // Byte representation of H(X_1, ..., X_n)
+  val innerBytes           = INPUTS(0).R8[Coll[Byte]].get
+
+
+  // Represents the number of data inputs that contain the GroupElement of committee members.
+  val numberCommitteeDataInputBoxes = CONTEXT.dataInputs(0).R5[Short].get
+  
+  // The GroupElements of each committee member are arranged within a Coll[GroupElement]
+  // residing within the R4 register of the first 'n == numberCommitteeDataInputBoxes'
+  // data inputs.
+  val committee = CONTEXT.dataInputs.slice(0, numberCommitteeDataInputBoxes.toInt).fold(
+    Coll[GroupElement](),
+    { (acc: Coll[GroupElement], x: Box) =>
+        acc.append(x.R4[Coll[GroupElement]].get)
+    }
+  )
 
   val verificationData = getVar[Coll[((Int, (GroupElement, Coll[Byte])), ((Coll[Byte], Int), (GroupElement, Coll[Byte])) )]](0).get
   val aggregateResponseRaw = getVar[(Coll[Byte], Int)](1).get // z
