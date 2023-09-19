@@ -1,11 +1,170 @@
-use ergo_lib::ergotree_ir::types::{
-    stuple::{STuple, TupleItems},
-    stype::SType,
+use elliptic_curve::ops::{LinearCombination, Reduce};
+use ergo_lib::{
+    ergo_chain_types::EcPoint,
+    ergotree_ir::{
+        bigint256::BigInt256,
+        mir::{
+            constant::{Constant, Literal},
+            value::CollKind,
+        },
+        types::{
+            stuple::{STuple, TupleItems},
+            stype::SType,
+        },
+    },
 };
+use k256::{schnorr::Signature, FieldElement, NonZeroScalar, ProjectivePoint, Scalar, U256};
+use num_bigint::{BigUint, Sign, ToBigUint};
 use scorex_crypto_avltree::{
     batch_node::{Node, NodeHeader},
     operation::Digest32,
 };
+use sha2::Digest as OtherDigest;
+use sha2::Sha256;
+use spectrum_sigma::Commitment;
+
+fn tagged_hash(tag: &[u8]) -> Sha256 {
+    let tag_hash = Sha256::digest(tag);
+    let mut digest = Sha256::new();
+    digest.update(tag_hash);
+    digest.update(tag_hash);
+    digest
+}
+
+fn serialize_exclusion_set(
+    exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
+    md: &[u8],
+) -> Constant {
+    let mut elem_tpe = None;
+    let mut items = vec![];
+    let filtered_exclusion_set = exclusion_set.into_iter().filter_map(|(ix, pair)| {
+        if let Some((Commitment(verifying_key), sig)) = pair {
+            Some((ix, verifying_key, sig))
+        } else {
+            None
+        }
+    });
+    for (ix, verifying_key, signature) in filtered_exclusion_set {
+        let signature_bytes = signature.to_bytes();
+
+        // The components (r,s) of the taproot `Signature` struct are not public, but we can
+        // extract it through its byte representation.
+        let (r_bytes, s_bytes) = signature_bytes.split_at(32);
+        let r: FieldElement = Option::from(FieldElement::from_bytes(r_bytes.into())).unwrap();
+
+        const CHALLENGE_TAG: &[u8] = b"BIP0340/challenge";
+        //  int(sha256(sha256(CHALLENGE_TAG) || sha256(CHALLENGE_TAG) || bytes(r) || bytes(P) || m)) mod n
+        let e = <Scalar as Reduce<U256>>::reduce_bytes(
+            &tagged_hash(CHALLENGE_TAG)
+                .chain_update(r.to_bytes())
+                .chain_update(verifying_key.to_bytes())
+                .chain_update(md)
+                .finalize(),
+        );
+        let s = NonZeroScalar::try_from(s_bytes).unwrap();
+
+        // R
+        let r_point = ProjectivePoint::lincomb(
+            &ProjectivePoint::GENERATOR,
+            &s,
+            &ProjectivePoint::from(verifying_key.as_affine()),
+            &-e,
+        );
+
+        // The taproot signature satisfies:
+        //     g ^ s == R * P^e
+        // Note: `k256` uses additive notation for elliptic-curves, so we can compute the right
+        // hand side with:
+        //   r_point + ProjectivePoint::from(verifying_key.as_affine()) * e;
+        //
+        // Note in the above equation that the values `s` and `e` have a 256bit UNSIGNED integer
+        // representation. This is a problem for Ergoscript since the largest integer values it
+        // allows for is 256bit signed. We can work around the problem by splitting the value
+        // into 2 signed ints.
+        //
+        // Let `B` denote the big-endian unsigned byte representation of `s`. Let `U` and `L`
+        // denote the first 16 and last 16 bytes of `B`, respectively. Then `U` and `L` are
+        // themselves unsigned integers. Moreover,
+        //    B == U*p + L, where p == 340282366920938463463374607431768211456
+        //
+        // We want to use this decomposition on the ergo side, but we need to convert `U` and `L`
+        // into signed integers, `U_S` and `L_S`. We need to be careful as `U_S` and/or `L_S` could
+        // each require 17 bytes if the most-significant-bit of `U`/`L` is 1 (and so we need to
+        // prepend a zero byte to accomodate the sign-bit).
+        //
+        // So we can transport `s` across the boundary with the bytes of [U_S | L_S], and decoding
+        // `U_S` and `L_S` within Ergoscript.
+        let s_biguint = scalar_to_biguint(*s.as_ref());
+        let biguint_bytes = s_biguint.to_bytes_be();
+        let split = biguint_bytes.len() - 16;
+        //println!("# bytes: {}", s_biguint.to_bytes_be().len());
+        let upper = BigUint::from_bytes_be(&biguint_bytes[..split]);
+        let upper_256 = BigInt256::try_from(upper).unwrap();
+        assert_eq!(upper_256.sign(), Sign::Plus);
+        let lower = BigUint::from_bytes_be(&s_biguint.to_bytes_be()[split..]);
+        let lower_256 = BigInt256::try_from(lower).unwrap();
+        assert_eq!(lower_256.sign(), Sign::Plus);
+
+        let mut s_bytes = upper_256.to_signed_bytes_be();
+        // Need this variable because we could add an extra byte to the encoding for signed-representation.
+        let first_len = s_bytes.len() as i32;
+        s_bytes.extend(lower_256.to_signed_bytes_be());
+
+        //println!("first_len: {}, S_BYTES_LEN: {}", first_len, s_bytes.len());
+        //let p = BigInt256::from_str_radix("340282366920938463463374607431768211456", 10).unwrap();
+
+        //println!(
+        //    "PP_base64: {}",
+        //    base64::engine::general_purpose::STANDARD_NO_PAD.encode(p.to_signed_bytes_be())
+        //);
+
+        // P from BIP-0340
+        let pubkey_point = EcPoint::from(ProjectivePoint::from(verifying_key.as_affine()));
+        // The x-coordinate of P
+        let pubkey_x_coords = verifying_key.to_bytes().to_vec();
+
+        let pubkey_tuple: Constant = (Constant::from(pubkey_point), Constant::from(pubkey_x_coords)).into();
+        let with_ix: Constant = (Constant::from(ix as i32), pubkey_tuple).into();
+        let s_tuple: Constant = (Constant::from(s_bytes), Constant::from(first_len)).into();
+        let r_tuple: Constant = (
+            Constant::from(EcPoint::from(r_point)),
+            Constant::from(r.to_bytes().to_vec()),
+        )
+            .into();
+        let s_r_tuple: Constant = (s_tuple, r_tuple).into();
+        let elem: Constant = (with_ix, s_r_tuple).into();
+
+        items.push(elem.v);
+
+        if elem_tpe.is_none() {
+            elem_tpe = Some(elem.tpe.clone());
+        }
+    }
+    if let Some(elem_tpe) = elem_tpe {
+        Constant {
+            tpe: SType::SColl(Box::new(elem_tpe.clone())),
+            v: Literal::Coll(CollKind::WrappedColl { elem_tpe, items }),
+        }
+    } else {
+        let schnorr_sig_elem_type = schnorr_signature_verification_ergoscript_type();
+        Constant {
+            tpe: SType::SColl(Box::new(schnorr_sig_elem_type.clone())),
+            v: Literal::Coll(CollKind::WrappedColl {
+                elem_tpe: schnorr_sig_elem_type,
+                items: vec![],
+            }),
+        }
+    }
+}
+
+fn scalar_to_biguint(scalar: Scalar) -> BigUint {
+    scalar
+        .to_bytes()
+        .iter()
+        .enumerate()
+        .map(|(i, w)| w.to_biguint().unwrap() << ((31 - i) * 8))
+        .sum()
+}
 
 fn dummy_resolver(digest: &Digest32) -> Node {
     Node::LabelOnly(NodeHeader::new(Some(digest.clone()), None))
@@ -43,13 +202,10 @@ fn schnorr_signature_verification_ergoscript_type() -> SType {
 
 #[cfg(test)]
 mod tests {
-    use base64::Engine;
     use blake2::Blake2b;
     use bytes::Bytes;
     use elliptic_curve::consts::U32;
     use elliptic_curve::group::GroupEncoding;
-    use elliptic_curve::ops::LinearCombination;
-    use elliptic_curve::ops::Reduce;
     use ergo_lib::chain::ergo_state_context::ErgoStateContext;
     use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
     use ergo_lib::chain::transaction::TxId;
@@ -88,15 +244,11 @@ mod tests {
     use k256::schnorr::signature::Signer;
     use k256::schnorr::Signature;
     use k256::schnorr::SigningKey;
-    use k256::FieldElement;
-    use k256::NonZeroScalar;
     use k256::ProjectivePoint;
     use k256::Scalar;
     use k256::SecretKey;
-    use k256::U256;
     use num_bigint::BigUint;
     use num_bigint::Sign;
-    use num_bigint::ToBigUint;
     use rand::rngs::OsRng;
     use rand::Rng;
     use scorex_crypto_avltree::authenticated_tree_ops::*;
@@ -105,8 +257,6 @@ mod tests {
     use scorex_crypto_avltree::operation::*;
     use serde::Deserialize;
     use serde::Serialize;
-    use sha2::Digest as OtherDigest;
-    use sha2::Sha256;
     use spectrum_crypto::digest::blake2b256_hash;
     use spectrum_crypto::digest::Blake2bDigest256;
     use spectrum_crypto::pubkey::PublicKey;
@@ -126,7 +276,8 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Instant;
 
-    use crate::script::schnorr_signature_verification_ergoscript_type;
+    use crate::script::scalar_to_biguint;
+    use crate::script::serialize_exclusion_set;
 
     use super::dummy_resolver;
 
@@ -308,152 +459,9 @@ mod tests {
         assert!(res.is_ok());
     }
 
-    fn tagged_hash(tag: &[u8]) -> Sha256 {
-        let tag_hash = Sha256::digest(tag);
-        let mut digest = Sha256::new();
-        digest.update(tag_hash);
-        digest.update(tag_hash);
-        digest
-    }
-
-    fn serialize_exclusion_set(
-        exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
-        md: &[u8],
-    ) -> Constant {
-        let mut elem_tpe = None;
-        let mut items = vec![];
-        let filtered_exclusion_set = exclusion_set.into_iter().filter_map(|(ix, pair)| {
-            if let Some((Commitment(verifying_key), sig)) = pair {
-                Some((ix, verifying_key, sig))
-            } else {
-                None
-            }
-        });
-        for (ix, verifying_key, signature) in filtered_exclusion_set {
-            let signature_bytes = signature.to_bytes();
-
-            // The components (r,s) of the taproot `Signature` struct are not public, but we can
-            // extract it through its byte representation.
-            let (r_bytes, s_bytes) = signature_bytes.split_at(32);
-            let r: FieldElement = Option::from(FieldElement::from_bytes(r_bytes.into())).unwrap();
-
-            const CHALLENGE_TAG: &[u8] = b"BIP0340/challenge";
-            //  int(sha256(sha256(CHALLENGE_TAG) || sha256(CHALLENGE_TAG) || bytes(r) || bytes(P) || m)) mod n
-            let e = <Scalar as Reduce<U256>>::reduce_bytes(
-                &tagged_hash(CHALLENGE_TAG)
-                    .chain_update(r.to_bytes())
-                    .chain_update(verifying_key.to_bytes())
-                    .chain_update(md)
-                    .finalize(),
-            );
-            let s = NonZeroScalar::try_from(s_bytes).unwrap();
-
-            // R
-            let r_point = ProjectivePoint::lincomb(
-                &ProjectivePoint::GENERATOR,
-                &s,
-                &ProjectivePoint::from(verifying_key.as_affine()),
-                &-e,
-            );
-
-            // The taproot signature satisfies:
-            //     g ^ s == R * P^e
-            // Note: `k256` uses additive notation for elliptic-curves, so we can compute the right
-            // hand side with:
-            //   r_point + ProjectivePoint::from(verifying_key.as_affine()) * e;
-            //
-            // Note in the above equation that the values `s` and `e` have a 256bit UNSIGNED integer
-            // representation. This is a problem for Ergoscript since the largest integer values it
-            // allows for is 256bit signed. We can work around the problem by splitting the value
-            // into 2 signed ints.
-            //
-            // Let `B` denote the big-endian unsigned byte representation of `s`. Let `U` and `L`
-            // denote the first 16 and last 16 bytes of `B`, respectively. Then `U` and `L` are
-            // themselves unsigned integers. Moreover,
-            //    B == U*p + L, where p == 340282366920938463463374607431768211456
-            //
-            // We want to use this decomposition on the ergo side, but we need to convert `U` and `L`
-            // into signed integers, `U_S` and `L_S`. We need to be careful as `U_S` and/or `L_S` could
-            // each require 17 bytes if the most-significant-bit of `U`/`L` is 1 (and so we need to
-            // prepend a zero byte to accomodate the sign-bit).
-            //
-            // So we can transport `s` across the boundary with the bytes of [U_S | L_S], and decoding
-            // `U_S` and `L_S` within Ergoscript.
-            let s_biguint = scalar_to_biguint(*s.as_ref());
-            let biguint_bytes = s_biguint.to_bytes_be();
-            let split = biguint_bytes.len() - 16;
-            //println!("# bytes: {}", s_biguint.to_bytes_be().len());
-            let upper = BigUint::from_bytes_be(&biguint_bytes[..split]);
-            let upper_256 = BigInt256::try_from(upper).unwrap();
-            assert_eq!(upper_256.sign(), Sign::Plus);
-            let lower = BigUint::from_bytes_be(&s_biguint.to_bytes_be()[split..]);
-            let lower_256 = BigInt256::try_from(lower).unwrap();
-            assert_eq!(lower_256.sign(), Sign::Plus);
-
-            let mut s_bytes = upper_256.to_signed_bytes_be();
-            // Need this variable because we could add an extra byte to the encoding for signed-representation.
-            let first_len = s_bytes.len() as i32;
-            s_bytes.extend(lower_256.to_signed_bytes_be());
-
-            //println!("first_len: {}, S_BYTES_LEN: {}", first_len, s_bytes.len());
-            //let p = BigInt256::from_str_radix("340282366920938463463374607431768211456", 10).unwrap();
-
-            //println!(
-            //    "PP_base64: {}",
-            //    base64::engine::general_purpose::STANDARD_NO_PAD.encode(p.to_signed_bytes_be())
-            //);
-
-            // P from BIP-0340
-            let pubkey_point = EcPoint::from(ProjectivePoint::from(verifying_key.as_affine()));
-            // The x-coordinate of P
-            let pubkey_x_coords = verifying_key.to_bytes().to_vec();
-
-            let pubkey_tuple: Constant =
-                (Constant::from(pubkey_point), Constant::from(pubkey_x_coords)).into();
-            let with_ix: Constant = (Constant::from(ix as i32), pubkey_tuple).into();
-            let s_tuple: Constant = (Constant::from(s_bytes), Constant::from(first_len)).into();
-            let r_tuple: Constant = (
-                Constant::from(EcPoint::from(r_point)),
-                Constant::from(r.to_bytes().to_vec()),
-            )
-                .into();
-            let s_r_tuple: Constant = (s_tuple, r_tuple).into();
-            let elem: Constant = (with_ix, s_r_tuple).into();
-
-            items.push(elem.v);
-
-            if elem_tpe.is_none() {
-                elem_tpe = Some(elem.tpe.clone());
-            }
-        }
-        if let Some(elem_tpe) = elem_tpe {
-            Constant {
-                tpe: SType::SColl(Box::new(elem_tpe.clone())),
-                v: Literal::Coll(CollKind::WrappedColl { elem_tpe, items }),
-            }
-        } else {
-            let schnorr_sig_elem_type = schnorr_signature_verification_ergoscript_type();
-            Constant {
-                tpe: SType::SColl(Box::new(schnorr_sig_elem_type.clone())),
-                v: Literal::Coll(CollKind::WrappedColl {
-                    elem_tpe: schnorr_sig_elem_type,
-                    items: vec![],
-                }),
-            }
-        }
-    }
     fn get_wallet() -> Wallet {
         const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
         Wallet::from_mnemonic(SEED_PHRASE, "").expect("Invalid seed")
-    }
-
-    fn scalar_to_biguint(scalar: Scalar) -> BigUint {
-        scalar
-            .to_bytes()
-            .iter()
-            .enumerate()
-            .map(|(i, w)| w.to_biguint().unwrap() << ((31 - i) * 8))
-            .sum()
     }
 
     fn dummy_ergo_state_context() -> ErgoStateContext {
@@ -1017,8 +1025,6 @@ mod tests {
         let unsigned_tx =
             UnsignedTransaction::new(TxIoVec::from_vec(vec![unsigned_input]).unwrap(), None, outputs)
                 .unwrap();
-        //let unsigned_tx_json = serde_json::to_string(&unsigned_tx).unwrap();
-        //println!("{}", unsigned_tx_json);
         let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], vec![]).unwrap();
         let wallet = get_wallet();
         let ergo_state_context: ErgoStateContext = dummy_ergo_state_context();
