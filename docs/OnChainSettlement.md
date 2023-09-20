@@ -33,10 +33,6 @@ we denote by $r^*$. The report $r^*$ consists of:
    it while maintaining proofs of its construction. The verifier also starts
    from an empty structure and is given a proof, which is then used to construct
    data structure. Then a digest is computed and checked for equality with $D$.
-   
-   The hash value of the root of a Merkle tree formed by taking
-   the above list of effects as leaf nodes. Note that we must define a partial
-   order on these effects to enable proper verification (see appendix A).
 
 ### Report notarization
 
@@ -47,16 +43,18 @@ committee members. Each committee member will:
     choose to not participate at all in the upcoming aggregation rounds.
  2. Confirm that each effect hash corresponds to a valid terminal cell
     belonging to its local pool of observed effects.
- 3. Recreate the Merkle tree from these effects and confirms that the root hash
-    equals the hash within $r^*$. Then using $\mathcal{F}_{SIG}$, the committee
-    computes the aggregated signature of the root hash value. We can then
-    define the _notarized report_ $R^*$ as $r^*$ appended with the aggregated
-    signature. $R^*$ is disseminated to all committee members.
+ 3. Recreate the authenticated data structure from these effects and confirms
+    that the resulting digest equals the digest within $r^*$. Then using
+    $\mathcal{F}_{SIG}$, the committee computes the aggregated signature of the
+    root hash value. We can then define the _notarized report_ $R^*$ as $r^*$
+    appended with the aggregated signature. $R^*$ is disseminated to all
+    committee members.
 
 ```rust
 struct NotarizedReport {
     certificate: ReportCertificate,
-    value_to_export: Vec<(TermCell, rs_merkle::MerkleProof)>,
+    value_to_export: Vec<TermCell>,
+    authenticated_digest: Vec<u8>,
 }
 ```
 
@@ -71,14 +69,14 @@ guarded with a smart contract that performs the following validations:
  - Verify the aggregated signature $\sigma^k_n$ in the notarized report. Recall
    that the vault is guarded by the aggregated public key $\alpha PK_n^k$,
    which must be the same as the aggregated key of the current committee.
- - For each cell $C^k_j, j \in \{1, \ldots, m\}$, perform the Merkle proof to
+ - For each cell $C^k_j, j \in \{1, \ldots, m\}$, perform the proof to
    authenticate the existence of $C^k_j$ in the report.
 
 
 ### Vault API
 
 ```rust
-trait Vault {
+trait VaultManager {
     type ChainId;
     type PointUpdate;
 
@@ -93,7 +91,7 @@ trait Vault {
     ) -> Result<(), VaultError>;
 
     /// Rollback to a previous progress point.
-	async fn rollback_to(point: ProgressPoint);
+	  async fn rollback_to(point: ProgressPoint);
     
     async fn change_epoch(&mut self) -> Result<(), VaultError>;
 }
