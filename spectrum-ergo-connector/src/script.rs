@@ -243,6 +243,7 @@ mod tests {
     use ergo_lib::wallet::tx_context::TransactionContext;
     use ergo_lib::wallet::Wallet;
     use indexmap::IndexMap;
+    use itertools::Itertools;
     use k256::schnorr::signature::Signer;
     use k256::schnorr::Signature;
     use k256::schnorr::SigningKey;
@@ -284,7 +285,7 @@ mod tests {
     use super::dummy_resolver;
 
     // Script URL: https://wallet.plutomonkey.com/p2s/?source=ewogIHZhbCBtZXNzYWdlICAgICAgICAgICAgICA9IElOUFVUUygwKS5SNFtDb2xsW0J5dGVdXS5nZXQKICB2YWwgZ3JvdXBHZW5lcmF0b3IgICAgICAgPSBJTlBVVFMoMCkuUjVbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgZ3JvdXBFbGVtZW50SWRlbnRpdHkgPSBJTlBVVFMoMCkuUjZbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgdGhyZXNob2xkICAgICAgICAgICAgPSBJTlBVVFMoMCkuUjdbSW50XS5nZXQKCiAgLy8gQnl0ZSByZXByZXNlbnRhdGlvbiBvZiBIKFhfMSwgLi4uLCBYX24pCiAgdmFsIGlubmVyQnl0ZXMgICAgICAgICAgID0gSU5QVVRTKDApLlI4W0NvbGxbQnl0ZV1dLmdldAoKCiAgLy8gUmVwcmVzZW50cyB0aGUgbnVtYmVyIG9mIGRhdGEgaW5wdXRzIHRoYXQgY29udGFpbiB0aGUgR3JvdXBFbGVtZW50IG9mIGNvbW1pdHRlZSBtZW1iZXJzLgogIHZhbCBudW1iZXJDb21taXR0ZWVEYXRhSW5wdXRCb3hlcyA9IENPTlRFWFQuZGF0YUlucHV0cygwKS5SNVtTaG9ydF0uZ2V0CiAgCiAgLy8gVGhlIEdyb3VwRWxlbWVudHMgb2YgZWFjaCBjb21taXR0ZWUgbWVtYmVyIGFyZSBhcnJhbmdlZCB3aXRoaW4gYSBDb2xsW0dyb3VwRWxlbWVudF0KICAvLyByZXNpZGluZyB3aXRoaW4gdGhlIFI0IHJlZ2lzdGVyIG9mIHRoZSBmaXJzdCAnbiA9PSBudW1iZXJDb21taXR0ZWVEYXRhSW5wdXRCb3hlcycKICAvLyBkYXRhIGlucHV0cy4KICB2YWwgY29tbWl0dGVlID0gQ09OVEVYVC5kYXRhSW5wdXRzLnNsaWNlKDAsIG51bWJlckNvbW1pdHRlZURhdGFJbnB1dEJveGVzLnRvSW50KS5mb2xkKAogICAgQ29sbFtHcm91cEVsZW1lbnRdKCksCiAgICB7IChhY2M6IENvbGxbR3JvdXBFbGVtZW50XSwgeDogQm94KSA9PgogICAgICAgIGFjYy5hcHBlbmQoeC5SNFtDb2xsW0dyb3VwRWxlbWVudF1dLmdldCkKICAgIH0KICApCgogIHZhbCB2ZXJpZmljYXRpb25EYXRhID0gZ2V0VmFyW0NvbGxbKChJbnQsIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSwgKChDb2xsW0J5dGVdLCBJbnQpLCAoR3JvdXBFbGVtZW50LCBDb2xsW0J5dGVdKSkgKV1dKDApLmdldAogIHZhbCBhZ2dyZWdhdGVSZXNwb25zZVJhdyA9IGdldFZhclsoQ29sbFtCeXRlXSwgSW50KV0oMSkuZ2V0IC8vIHoKICB2YWwgYWdncmVnYXRlQ29tbWl0bWVudCA9IGdldFZhcltHcm91cEVsZW1lbnRdKDIpLmdldCAvLyBZCiAKICAvLyBQZXJmb3JtcyBleHBvbmVudGlhdGlvbiBvZiBhIEdyb3VwRWxlbWVudCBieSBhbiB1bnNpZ25lZCAyNTZiaXQKICAvLyBpbnRlZ2VyIEkgdXNpbmcgdGhlIGZvbGxvd2luZyBkZWNvbXBvc2l0aW9uIG9mIEk6CiAgLy8gTGV0IGUgPSAoZywgKGIsIG4pKS4gVGhlbiB0aGlzIGZ1bmN0aW9uIGNvbXB1dGVzOgogIC8vCiAgLy8gICBnXkkgPT0gKGdeYigwLG4pKV5wICogZ14oYihuLi4pKQogIC8vIHdoZXJlCiAgLy8gIC0gYigwLG4pIGlzIHRoZSBmaXJzdCBuIGJ5dGVzIG9mIGEgcG9zaXRpdmUgQmlnSW50IGBVYAogIC8vICAtIGIobi4uKSBhcmUgdGhlIHJlbWFpbmluZyBieXRlcyBzdGFydGluZyBmcm9tIGluZGV4IG4uIFRoZXNlIGJ5dGVzCiAgLy8gICAgYWxzbyByZXByZXNlbnQgYSBwb3NpdGl2ZSBCaWdJbnQgYExgLgogIC8vICAtIHAgaXMgMzQwMjgyMzY2OTIwOTM4NDYzNDYzMzc0NjA3NDMxNzY4MjExNDU2IGJhc2UgMTAuCiAgLy8gIC0gSSA9PSBVICogcCArIEwKICBkZWYgbXlFeHAoZTogKEdyb3VwRWxlbWVudCwgKENvbGxbQnl0ZV0sIEludCkpKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIHZhbCB4ID0gZS5fMQogICAgdmFsIHkgPSBlLl8yLl8xCiAgICB2YWwgbGVuID0gZS5fMi5fMgogICAgdmFsIHVwcGVyID0gYnl0ZUFycmF5VG9CaWdJbnQoeS5zbGljZSgwLCBsZW4pKQogICAgdmFsIGxvd2VyID0gYnl0ZUFycmF5VG9CaWdJbnQoeS5zbGljZShsZW4sIHkuc2l6ZSkpCgogICAgLy8gVGhlIGZvbGxvd2luZyB2YWx1ZSBpcyAzNDAyODIzNjY5MjA5Mzg0NjM0NjMzNzQ2MDc0MzE3NjgyMTE0NTYgYmFzZS0xMC4KICAgIHZhbCBwID0gYnl0ZUFycmF5VG9CaWdJbnQoZnJvbUJhc2U2NCgiQVFBQUFBQUFBQUFBQUFBQUFBQUFBQUEiKSkKICAgCiAgICB4LmV4cCh1cHBlcikuZXhwKHApLm11bHRpcGx5KHguZXhwKGxvd2VyKSkKICB9CgogIC8vIENvbnZlcnRzIGEgYmlnLWVuZGlhbiBieXRlIHJlcHJlc2VudGF0aW9uIG9mIGFuIHVuc2lnbmVkIGludGVnZXIgaW50byBpdHMKICAvLyBlcXVpdmFsZW50IHNpZ25lZCByZXByZXNlbnRhdGlvbgogIGRlZiB0b1NpZ25lZEJ5dGVzKGI6IENvbGxbQnl0ZV0pIDogQ29sbFtCeXRlXSA9IHsKICAgIC8vIE5vdGUgdGhhdCBhbGwgaW50ZWdlcnMgKGluY2x1ZGluZyBCeXRlKSBpbiBFcmdvc2NyaXB0IGFyZSBzaWduZWQuIEluIHN1Y2gKICAgIC8vIGEgcmVwcmVzZW50YXRpb24sIHRoZSBtb3N0LXNpZ25pZmljYW50IGJpdCAoTVNCKSBpcyB1c2VkIHRvIHJlcHJlc2VudCB0aGUKICAgIC8vIHNpZ247IDAgZm9yIGEgcG9zaXRpdmUgaW50ZWdlciBhbmQgMSBmb3IgbmVnYXRpdmUuIE5vdyBzaW5jZSBgYmAgaXMgYmlnLQogICAgLy8gZW5kaWFuLCB0aGUgTVNCIHJlc2lkZXMgaW4gdGhlIGZpcnN0IGJ5dGUgYW5kIE1TQiA9PSAxIGluZGljYXRlcyB0aGF0IGV2ZXJ5CiAgICAvLyBiaXQgaXMgdXNlZCB0byBzcGVjaWZ5IHRoZSBtYWduaXR1ZGUgb2YgdGhlIGludGVnZXIuIFRoaXMgbWVhbnMgdGhhdCBhbgogICAgLy8gZXh0cmEgMC1iaXQgbXVzdCBiZSBwcmVwZW5kZWQgdG8gYGJgIHRvIHJlbmRlciBpdCBhIHZhbGlkIHBvc2l0aXZlIHNpZ25lZAogICAgLy8gaW50ZWdlci4KICAgIC8vCiAgICAvLyBOb3cgc2lnbmVkIGludGVnZXJzIGFyZSBuZWdhdGl2ZSBpZmYgTVNCID09IDEsIGhlbmNlIHRoZSBjb25kaXRpb24gYmVsb3cuCiAgICBpZiAoYigwKSA8IDAgKSB7CiAgICAgICAgQ29sbCgwLnRvQnl0ZSkuYXBwZW5kKGIpCiAgICB9IGVsc2UgewogICAgICAgIGIKICAgIH0KICB9CgogIC8vIENvbXB1dGVzIGFfaSA9IEgoWF8xLCBYXzIsLi4sIFhfbjsgWF9pKQogIGRlZiBjYWxjQShlOiAoQ29sbFtHcm91cEVsZW1lbnRdLCBJbnQpKSA6IChDb2xsW0J5dGVdLCBJbnQpID0gewogICAgdmFsIGNvbW1pdHRlZU1lbWJlcnMgPSBlLl8xCiAgICB2YWwgaSA9IGUuXzIKICAgIHZhbCByYXcgPSBibGFrZTJiMjU2KGlubmVyQnl0ZXMuYXBwZW5kKGNvbW1pdHRlZU1lbWJlcnMoaSkuZ2V0RW5jb2RlZCkpCiAgICB2YWwgc3BsaXQgPSByYXcuc2l6ZSAtIDE2CiAgICB2YWwgZmlyc3RJbnQgPSB0b1NpZ25lZEJ5dGVzKHJhdy5zbGljZSgwLCBzcGxpdCkpCiAgICB2YWwgY29uY2F0Qnl0ZXMgPSBmaXJzdEludC5hcHBlbmQodG9TaWduZWRCeXRlcyhyYXcuc2xpY2Uoc3BsaXQsIHJhdy5zaXplKSkpCiAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0SW50LnNpemUKICAgIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykKICB9CiAgCiAgLy8gQ29tcHV0ZXMgWH4gPSBYXzBee2FfMH0gKiBYXzFee2FfMX0gKiAuLi4gKiBYX3tuLTF9XnthX3tuLTF9fQogIGRlZiBjYWxjRnVsbEFnZ3JlZ2F0ZUtleShlOiAoQ29sbFtHcm91cEVsZW1lbnRdLCBDb2xsWyhDb2xsW0J5dGVdLCBJbnQpXSApKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIHZhbCBjb21taXR0ZWVNZW1iZXJzID0gZS5fMQogICAgdmFsIGFpVmFsdWVzID0gZS5fMgogICAgY29tbWl0dGVlTWVtYmVycy5mb2xkKAogICAgICAoZ3JvdXBFbGVtZW50SWRlbnRpdHksIDApLAogICAgICB7IChhY2M6IChHcm91cEVsZW1lbnQsIEludCApLCB4OiBHcm91cEVsZW1lbnQpID0+CiAgICAgICAgICB2YWwgeF9hY2MgPSBhY2MuXzEKICAgICAgICAgIHZhbCBpID0gYWNjLl8yCiAgICAgICAgICAoeF9hY2MubXVsdGlwbHkobXlFeHAoKHgsIGFpVmFsdWVzKGkpKSkpLCBpICsgMSkKICAgICAgfQogICAgKS5fMQogIH0KCiAgLy8gQ29tcHV0ZXMgWCcKICBkZWYgY2FsY1BhcnRpYWxBZ2dyZWdhdGVLZXkoZTogKChDb2xsW0dyb3VwRWxlbWVudF0sIENvbGxbSW50XSksIENvbGxbKENvbGxbQnl0ZV0sIEludCldKSkgOiBHcm91cEVsZW1lbnQgPSB7CiAgICB2YWwgY29tbWl0dGVlTWVtYmVycyA9IGUuXzEuXzEKICAgIHZhbCBleGNsdWRlZEluZGljZXMgPSBlLl8xLl8yCiAgICB2YWwgYWlWYWx1ZXMgPSBlLl8yCiAgICBjb21taXR0ZWVNZW1iZXJzLmZvbGQoCiAgICAgIChncm91cEVsZW1lbnRJZGVudGl0eSwgMCksCiAgICAgIHsgKGFjYzogKEdyb3VwRWxlbWVudCwgSW50KSwgeDogR3JvdXBFbGVtZW50KSA9PgogICAgICAgICAgdmFsIHhBY2MgPSBhY2MuXzEKICAgICAgICAgIHZhbCBpID0gYWNjLl8yCiAgICAgICAgICBpZiAoZXhjbHVkZWRJbmRpY2VzLmV4aXN0cyB7IChpeDogSW50KSA9PiBpeCA9PSBpIH0pIHsKICAgICAgICAgICAgICh4QWNjLCBpICsgMSkKICAgICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgICh4QWNjLm11bHRpcGx5KG15RXhwKCh4LCBhaVZhbHVlcyhpKSkpKSwgaSArIDEpCiAgICAgICAgICB9CiAgICAgICAgICAKICAgICAgfQogICAgKS5fMQogIH0KCiAgLy8gQ2FsY3VsYXRlcyBhZ2dyZWdhdGUgY29tbWl0bWVudCBZJwogIGRlZiBjYWxjQWdncmVnYXRlQ29tbWl0bWVudChjb21taXRtZW50czogQ29sbFtHcm91cEVsZW1lbnRdKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIGNvbW1pdG1lbnRzLmZvbGQoCiAgICAgIGdyb3VwRWxlbWVudElkZW50aXR5LAogICAgICB7IChhY2M6IEdyb3VwRWxlbWVudCwgeTogR3JvdXBFbGVtZW50KSA9PgogICAgICAgICAgYWNjLm11bHRpcGx5KHkpCiAgICAgIH0KICAgICkgIAogIH0KCiAgZGVmIGVuY29kZVVuc2lnbmVkMjU2Qml0SW50KGJ5dGVzOiBDb2xsW0J5dGVdKSA6IChDb2xsW0J5dGVdLCBJbnQpID0gewogICAgdmFsIHNwbGl0ID0gYnl0ZXMuc2l6ZSAtIDE2CiAgICB2YWwgZmlyc3RJbnQgPSB0b1NpZ25lZEJ5dGVzKGJ5dGVzLnNsaWNlKDAsIHNwbGl0KSkKICAgIHZhbCBjb25jYXRCeXRlcyA9IGZpcnN0SW50LmFwcGVuZCh0b1NpZ25lZEJ5dGVzKGJ5dGVzLnNsaWNlKHNwbGl0LCBieXRlcy5zaXplKSkpCiAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0SW50LnNpemUKICAgIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykKICB9CiAgICAKICAvLyBCSVAtMDM0MCB1c2VzIHNvLWNhbGxlZCB0YWdnZWQgaGFzaGVzCiAgdmFsIGNoYWxsZW5nZVRhZyA9IHNoYTI1NihDb2xsKDY2LCA3MywgODAsIDQ4LCA1MSwgNTIsIDQ4LCA0NywgOTksIDEwNCwgOTcsIDEwOCwgMTA4LCAxMDEsIDExMCwgMTAzLCAxMDEpLm1hcCB7ICh4OkludCkgPT4geC50b0J5dGUgfSkKICAKICAvLyBQcmVjb21wdXRlIGFfaSB2YWx1ZXMKICB2YWwgYWlWYWx1ZXMgPSBjb21taXR0ZWUuaW5kaWNlcy5tYXAgeyAoaXg6IEludCkgPT4KICAgIGNhbGNBKChjb21taXR0ZWUsIGl4KSkKICB9CgogIC8vIGMKICB2YWwgY2hhbGxlbmdlUmF3ID0gYmxha2UyYjI1NihjYWxjRnVsbEFnZ3JlZ2F0ZUtleSgoY29tbWl0dGVlLCBhaVZhbHVlcykpLmdldEVuY29kZWQgKysgYWdncmVnYXRlQ29tbWl0bWVudC5nZXRFbmNvZGVkICsrIG1lc3NhZ2UgKQogIHZhbCBjaGFsbGVuZ2UgICAgPSBlbmNvZGVVbnNpZ25lZDI1NkJpdEludChjaGFsbGVuZ2VSYXcpCgogIHZhbCBleGNsdWRlZEluZGljZXMgPSB2ZXJpZmljYXRpb25EYXRhLm1hcCB7IChlOiAoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSkpID0+CiAgICBlLl8xLl8xIAogIH0KCiAgdmFsIGV4Y2x1ZGVkQ29tbWl0bWVudHMgPSB2ZXJpZmljYXRpb25EYXRhLm1hcCB7IChlOiAoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSkpID0+CiAgICBlLl8xLl8yLl8xIAogIH0KCiAgdmFsIFlEYXNoID0gY2FsY0FnZ3JlZ2F0ZUNvbW1pdG1lbnQoZXhjbHVkZWRDb21taXRtZW50cykKCiAgdmFsIHBhcnRpYWxBZ2dyZWdhdGVLZXkgPSBjYWxjUGFydGlhbEFnZ3JlZ2F0ZUtleSgoKGNvbW1pdHRlZSwgZXhjbHVkZWRJbmRpY2VzKSwgYWlWYWx1ZXMpKQoKICAvLyBWZXJpZmllcyB0aGF0IFknKmdeeiA9PSAoWCcpXmMgKiBZCiAgdmFsIHZlcmlmeUFnZ3JlZ2F0ZVJlc3BvbnNlID0gKCBteUV4cCgoZ3JvdXBHZW5lcmF0b3IsIGFnZ3JlZ2F0ZVJlc3BvbnNlUmF3KSkubXVsdGlwbHkoWURhc2gpIAogICAgICA9PSBteUV4cCgocGFydGlhbEFnZ3JlZ2F0ZUtleSwgY2hhbGxlbmdlKSkubXVsdGlwbHkoYWdncmVnYXRlQ29tbWl0bWVudCkgKQoKICB2YWwgdmVyaWZ5U2lnbmF0dXJlc0luRXhjbHVzaW9uU2V0ID0KICAgIHZlcmlmaWNhdGlvbkRhdGEuZm9yYWxsIHsgKGU6ICgoSW50LCAoR3JvdXBFbGVtZW50LCBDb2xsW0J5dGVdKSksICgoQ29sbFtCeXRlXSwgSW50KSwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpKSkgPT4KICAgICAgdmFsIHB1YktleVR1cGxlID0gZS5fMS5fMgogICAgICB2YWwgcyAgPSBlLl8yLl8xCiAgICAgIHZhbCByZXNwb25zZVR1cGxlID0gZS5fMi5fMgoKICAgICAgdmFsIHB1YktleSAgICAgICAgID0gcHViS2V5VHVwbGUuXzEgLy8gWV9pCiAgICAgIHZhbCBwa0J5dGVzICAgICAgICA9IHB1YktleVR1cGxlLl8yIC8vIGVuY29kZWQgeC1jb29yZGluYXRlIG9mIFlfaQogICAgICB2YWwgcmVzcG9uc2UgICAgICAgPSByZXNwb25zZVR1cGxlLl8xIC8vIFIgaW4gQklQLTAzNDAKICAgICAgdmFsIHJCeXRlcyAgICAgICAgID0gcmVzcG9uc2VUdXBsZS5fMiAvLyBCeXRlIHJlcHJlc2VudGF0aW9uIG9mICdyJwoKCiAgICAgIHZhbCByYXcgPSBzaGEyNTYoY2hhbGxlbmdlVGFnICsrIGNoYWxsZW5nZVRhZyArKyByQnl0ZXMgKysgcGtCeXRlcyArKyBtZXNzYWdlKQogCiAgICAgIC8vIE5vdGUgdGhhdCB0aGUgb3V0cHV0IG9mIFNIQTI1NiBpcyBhIGNvbGxlY3Rpb24gb2YgYnl0ZXMgdGhhdCByZXByZXNlbnRzIGFuIHVuc2lnbmVkIDI1NmJpdCBpbnRlZ2VyLgogICAgICB2YWwgc3BsaXQgPSByYXcuc2l6ZSAtIDE2CiAgICAgIHZhbCBmaXJzdCA9IHRvU2lnbmVkQnl0ZXMocmF3LnNsaWNlKDAsIHNwbGl0KSkKICAgICAgdmFsIGNvbmNhdEJ5dGVzID0gZmlyc3QuYXBwZW5kKHRvU2lnbmVkQnl0ZXMocmF3LnNsaWNlKHNwbGl0LCByYXcuc2l6ZSkpKQogICAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0LnNpemUKICAgICAgbXlFeHAoKGdyb3VwR2VuZXJhdG9yLCBzKSkgPT0gIG15RXhwKChwdWJLZXksIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykpKS5tdWx0aXBseShyZXNwb25zZSkKICAgIH0KCiAgdmFsIHZlcmlmeVRocmVzaG9sZCA9IChjb21taXR0ZWUuc2l6ZSAtIHZlcmlmaWNhdGlvbkRhdGEuc2l6ZSkgPj0gdGhyZXNob2xkCgogIHNpZ21hUHJvcCAoCiAgICB2ZXJpZnlBZ2dyZWdhdGVSZXNwb25zZSAmJgogICAgdmVyaWZ5U2lnbmF0dXJlc0luRXhjbHVzaW9uU2V0ICYmCiAgICB2ZXJpZnlUaHJlc2hvbGQKICApCn0=
-    const SIGNATURE_AGGREGATE_SCRIPT_BYTES: &str = "L3f7CYfrFdi8dDWURXX1g4mj2YqQ9u5thnPg2NRxehg49bhLs1FxZVRiJcAC76ZrrbBowRSwy3YnoJoBY1fVeyYVwv6qJ41Yibp7HLvNCEC1GtdbfSTf2U2tBxv7mgz5jxvX4XA5AHstZoiawk4ekCjqkk6ugYDkVF54Chx673jmZ7HSZ8V8sQhCBAfqMtBLpcgfMJg9T7eSMEx3cUAsEUZa7Yw9Z93eKDvi1bpy3CH8KarTjw5hMEP457hcpMVQpZNiS56UPCFZMCoxZYSpmnNq5DymSxxqtvg7AeXckturg5zzxoMTBRSaD5uhTWdfSjGvWBDAwZbZS5HdwYeaL6mdAafskwFSQYZsUhwmvN9m1YZ4KDXQVHe8Hc5E56T3kUubi25uELdHcRhbon8A8F3b44jamz7bffdrkSrHZYccz2BD7JShVfgkmRdCoKP5VxKMLXQspnhnw6jktKgE1n5tw9LQxXaxfxwzBG7A6NTbTFpjw2ZPscpSEgrADPp6Vi2CP8xYL6N8Yevjnpnd1qWs8ACWm8TEZsk4NoP9bXh49779QxjjVUwzWWzn45BQdJ3gpAJqVFFvpu1eSMwmu78nNneWK7Lsr9r5Lm69afjzvHbW62qQvVZbBazMjrkMC5iuYneJ8wAAaWqfTe1AP4fWsWmHu7W3WjPEFBUioWnA1rb5AkDskxLQzf43zJdp6qLH2DFCh3zyQ7xrh5nZSSy81tzesotRuyWGyjbLpbqoytqaAmxLDgA3RLUbmkUFCUAZPJjJQjbiYof4AWLrY9F3FFCgrqhvutP73ssuAycm7BMkM9M9M6Sh5gk8xhLjnef3VFvA9oFuWhu6irrbkJ8PKfsXgrBL2L1jNCe17AHq6fRv5ujs3G7TStggvBhmYcnaqedqfAUmK9orENBZnWGQdyEYoh5gQS2zyog6xatGdzXUx8CShQTS7x7faKM3VCQ3Nan5ALmxZkqQDmAWU1mXLFBgufQ2sMFcDCcSyZSxo6vPRvKH9XvREpPQ9eNbGasKec7YeSzdTESW99DTrv2csDBH1WuxCSDSYL8wfRpMLbZdfYUpLpTY1YaHHNw1uHGVgwGWnywn2ob9T9GnWAFcrEGUJtbUaMpDMacJvaEWiQyMNcYbUiQZEFNgVXTYT9ns73kHiL3UBTKy37a12XPDFSzoX2BXhv1Vqj65DxLXDKxXAe8D4wgkNtyeHecuc2C76XFhbkxi9tGb8FCK2KLojw9Q4ursuKDhCHwXEQWJJxe1DMimHN5V1VyWVPKbRfabkSy";
+    const SIGNATURE_AGGREGATE_SCRIPT_BYTES: &str = "39dVC8p3ASoJP5jaRtZK78RxuTAp9UzZp6vXsBQgxF8gzz98pt2YvMAvjD29TWa8ENyB7pmwFf223gcNbgwg79kBZLp8MehMP6doK6mLXW93JXv9FtZvkH995z7t3xpSMgEQsFXwxMUnoKzATs1Ci3efLKZYCS1AjsdxB2zrri5BkJH34SBvyGTiGjHBuVmFsxyaESn7CQ3CYoYTRTMhdDbf2XP3eQWNGWeheUTbvLnxo4yEBGHSNdnsoWtBPxR3vNK4spQ3LjsYMARBXMnxZupmUwq2kHkxRxhDEfiStC75aMKsRogxBhMEqWSpqvyh9FM2X6Z4KaJQNLbanFyNnAfRUAHuqUcQGZJigeewLxq4JtWfkyoNNyZD33oV4pR4zqGeJpdrgCoyzw6rBcZ7E64aPpiZ5h4YFCxZxVrtHEuehfyADTW3pjoJBPkXejaKgejN8GR3HFuPJU3A3WXCkXM1iSgotQ7c88kT5jDVk13XFmQbBvAJ2K1MfT7uhwigSRwnfWHXQgZofjC4gc78qdcXQYJBWtuLJ3Vr3GHrMDsUYgLFEaNQBCSDCGD5Res9eZhB58gM8mQgVyKkySJpdX8xEXtUbNkTZRLUTw62GimxomQG1rr7PYXwBhLuo3gHYosSDRLt6jiBBmqmDq3iK5iXSs7UpQggJwXzzyupfYoeTSJZB65iYLYENT41w8J6yquccTvwCsHguJmyKs5awNFHUZoK21CXXvYisTZ1B5ZLRk3eWHpQdN9NKCUENpBngxZaExttzXoFJNCu2QXRQeecbBCP3CdP8aMsY9mhcnFBFPpwjku4PhacoHjUoHb9YQMwKYrDSMKHtEaCDenv2yYRTdFiR1BfFngjYwJ28a8BUH7bT7Pfp2pDA57sMGRrFepyEHgRQyKMLTnDxjx8EwmKL5gFYsnJ5AiweW1gPKhnKSbBy5fm66xWC1bhZFsSLv33KUis6na5p1d6dbEjnbw4t3RcWS2NqjDok5PTyGmi8zzqhydYYTHsSYFEA3WVTiomBL9p2GrqkZTFVkBV5GwRxELSAvbmyL7TaymtEvdszJezZQdmRi9bRetBtM3eUqihBf7A3tMcQizyFudJeVdY3pJkMquaBTAA35zaHZ3pm62CN3oKg4c8nG6GF5xYWDc4DbykSqqyVRjmJA7hadLf24QCre3MVG3ydaX7GgSa3LodJDDRZ1rfxfBWMpJ9wsEPtjHmpaFmzMb9tPikf8HCtQ1WJdTE5JvQrS6Ce8ckD2CAKGZzLEaojXHdpoWHRAQ5oDY4Yzzx7";
 
     const KEY_LENGTH: usize = 32;
     const VALUE_LENGTH: usize = 8;
@@ -893,7 +894,7 @@ mod tests {
 
     #[test]
     fn test_committee_box_size() {
-        let num_participants = 118;
+        let num_participants = 115;
         let mut rng = OsRng;
         let individual_keys = (0..num_participants)
             .map(|_| {
@@ -905,11 +906,12 @@ mod tests {
             .collect::<Vec<_>>();
         let vault_sk = ergo_lib::wallet::secret_key::SecretKey::random_dlog();
         let ergo_tree = vault_sk.get_address_from_public_image().script().unwrap();
-        let committee = individual_keys
-            .iter()
-            .map(|(_, pk, _, _)| pk.clone())
-            .collect::<Vec<_>>();
-        create_committee_input_box(&committee, ergo_tree, Some(9));
+        let committee = individual_keys.iter().map(|(_, pk, _, _)| pk);
+        create_committee_input_box(
+            committee,
+            ergo_tree,
+            Some((9, blake2b256_hash(b"blah").as_ref().to_vec())),
+        );
     }
 
     fn verify_ergoscript_with_sigma_rust(
@@ -1001,13 +1003,7 @@ mod tests {
         );
 
         registers.insert(NonMandatoryRegisterId::R4, Constant::from(md.as_ref().to_vec()));
-        registers.insert(NonMandatoryRegisterId::R5, Constant::from(generator()));
-        registers.insert(
-            NonMandatoryRegisterId::R6,
-            Constant::from(EcPoint::from(ProjectivePoint::IDENTITY)),
-        );
-        registers.insert(NonMandatoryRegisterId::R7, threshold.into());
-        registers.insert(NonMandatoryRegisterId::R8, committee_bytes.into());
+        registers.insert(NonMandatoryRegisterId::R5, threshold.into());
         let mut values = IndexMap::new();
         values.insert(0, exclusion_set_data);
         values.insert(1, aggregate_response);
@@ -1034,16 +1030,32 @@ mod tests {
         let outputs = TxIoVec::from_vec(vec![miner_output]).unwrap();
         let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension { values });
 
+        // The first committee box can hold 115 public keys together with other data necessary to
+        // verify signatures.
+        const NUM_COMMITTEE_ELEMENTS_IN_FIRST_BOX: usize = 115;
+
         // We've determined empirically that we can fit at most 118 public keys into a single box.
         const MAX_NUM_COMMITTEE_ELEMENTS_PER_BOX: usize = 118;
 
         let vault_sk = ergo_lib::wallet::secret_key::SecretKey::random_dlog();
         let ergo_tree = vault_sk.get_address_from_public_image().script().unwrap();
         let num_data_inputs = committee.len() / MAX_NUM_COMMITTEE_ELEMENTS_PER_BOX + 1;
-        let data_boxes: Vec<_> = committee
-            .chunks(MAX_NUM_COMMITTEE_ELEMENTS_PER_BOX)
-            .map(|chunk| create_committee_input_box(chunk, ergo_tree.clone(), Some(num_data_inputs as i16)))
-            .collect();
+
+        let mut data_boxes = vec![create_committee_input_box(
+            committee.iter().take(NUM_COMMITTEE_ELEMENTS_IN_FIRST_BOX),
+            ergo_tree.clone(),
+            Some((num_data_inputs as i16, committee_bytes)),
+        )];
+
+        let chunks = committee
+            .iter()
+            .skip(NUM_COMMITTEE_ELEMENTS_IN_FIRST_BOX)
+            .chunks(MAX_NUM_COMMITTEE_ELEMENTS_PER_BOX);
+        let remaining_data_boxes = chunks
+            .into_iter()
+            .map(|chunk| create_committee_input_box(chunk, ergo_tree.clone(), None));
+
+        data_boxes.extend(remaining_data_boxes);
 
         let data_inputs: Vec<_> = data_boxes
             .iter()
@@ -1069,14 +1081,13 @@ mod tests {
         println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
     }
 
-    fn create_committee_input_box(
-        committee_members: &[PublicKey],
+    fn create_committee_input_box<'a>(
+        committee_members: impl Iterator<Item = &'a PublicKey>,
         ergo_tree: ErgoTree,
-        number_of_boxes: Option<i16>,
+        first_box_register_data: Option<(i16, Vec<u8>)>,
     ) -> ErgoBox {
         let committee_lit = Literal::from(
             committee_members
-                .iter()
                 .map(|p| EcPoint::from(k256::PublicKey::from(p.clone()).to_projective()))
                 .collect::<Vec<_>>(),
         );
@@ -1088,8 +1099,14 @@ mod tests {
 
         let mut registers = HashMap::new();
         registers.insert(NonMandatoryRegisterId::R4, serialized_committee);
-        if let Some(num_boxes) = number_of_boxes {
+        if let Some((num_boxes, committee_hash)) = first_box_register_data {
             registers.insert(NonMandatoryRegisterId::R5, num_boxes.into());
+            registers.insert(NonMandatoryRegisterId::R6, Constant::from(generator()));
+            registers.insert(
+                NonMandatoryRegisterId::R7,
+                Constant::from(EcPoint::from(ProjectivePoint::IDENTITY)),
+            );
+            registers.insert(NonMandatoryRegisterId::R8, Constant::from(committee_hash));
         }
         let erg_value = BoxValue::try_from(1000000_u64).unwrap();
         let input_box = ErgoBox::new(

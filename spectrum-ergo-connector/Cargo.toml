@@ -33,6 +33,7 @@ num256 = "0.3.5"
 blake2 = "0.10.6"
 num-bigint = "0.4"
 num-traits = "0.2"
+itertools = "0.11"
 
 [dev-dependencies]
 rand = "0.8.5"
