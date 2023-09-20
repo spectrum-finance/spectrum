@@ -1,16 +1,12 @@
 {
-  val message              = INPUTS(0).R4[Coll[Byte]].get
-  val groupGenerator       = INPUTS(0).R5[GroupElement].get
-  val groupElementIdentity = INPUTS(0).R6[GroupElement].get
-  val threshold            = INPUTS(0).R7[Int].get
-
-  // Byte representation of H(X_1, ..., X_n)
-  val innerBytes           = INPUTS(0).R8[Coll[Byte]].get
-
 
   // Represents the number of data inputs that contain the GroupElement of committee members.
   val numberCommitteeDataInputBoxes = CONTEXT.dataInputs(0).R5[Short].get
-  
+  val groupGenerator       = CONTEXT.dataInputs(0).R6[GroupElement].get
+  val groupElementIdentity = CONTEXT.dataInputs(0).R7[GroupElement].get
+  // Byte representation of H(X_1, ..., X_n)
+  val innerBytes           = CONTEXT.dataInputs(0).R8[Coll[Byte]].get 
+
   // The GroupElements of each committee member are arranged within a Coll[GroupElement]
   // residing within the R4 register of the first 'n == numberCommitteeDataInputBoxes'
   // data inputs.
@@ -21,10 +17,12 @@
     }
   )
 
-  val verificationData = getVar[Coll[((Int, (GroupElement, Coll[Byte])), ((Coll[Byte], Int), (GroupElement, Coll[Byte])) )]](0).get
+  val verificationData     = getVar[Coll[((Int, (GroupElement, Coll[Byte])), ((Coll[Byte], Int), (GroupElement, Coll[Byte])) )]](0).get
   val aggregateResponseRaw = getVar[(Coll[Byte], Int)](1).get // z
-  val aggregateCommitment = getVar[GroupElement](2).get // Y
- 
+  val aggregateCommitment  = getVar[GroupElement](2).get // Y
+  val message              = getVar[Coll[Byte]](3).get
+  val threshold            = getVar[Int](4).get 
+
   // Performs exponentiation of a GroupElement by an unsigned 256bit
   // integer I using the following decomposition of I:
   // Let e = (g, (b, n)). Then this function computes:
