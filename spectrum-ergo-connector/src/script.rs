@@ -1,12 +1,19 @@
+use derive_more::From;
 use elliptic_curve::ops::{LinearCombination, Reduce};
 use ergo_lib::{
-    ergo_chain_types::EcPoint,
+    ergo_chain_types::{Digest32 as ELDigest32, DigestNError, EcPoint},
     ergotree_ir::{
         bigint256::BigInt256,
+        chain::{
+            address::Address,
+            ergo_box::box_value::{BoxValue, BoxValueError},
+            token::{Token, TokenAmount, TokenAmountError, TokenId},
+        },
         mir::{
             constant::{Constant, Literal},
             value::CollKind,
         },
+        serialization::{SigmaParsingError, SigmaSerializable},
         types::{
             stuple::{STuple, TupleItems},
             stype::SType,
@@ -15,13 +22,104 @@ use ergo_lib::{
 };
 use k256::{schnorr::Signature, FieldElement, NonZeroScalar, ProjectivePoint, Scalar, U256};
 use num_bigint::{BigUint, Sign, ToBigUint};
-use scorex_crypto_avltree::{
-    batch_node::{Node, NodeHeader},
-    operation::Digest32,
-};
+use scorex_crypto_avltree::batch_node::{Node, NodeHeader};
 use sha2::Digest as OtherDigest;
 use sha2::Sha256;
+use spectrum_ledger::{cell::TermCell, ERGO_CHAIN_ID};
 use spectrum_sigma::Commitment;
+
+pub struct ErgoTermCell {
+    ergs: BoxValue,
+    address: Address,
+    tokens: Vec<Token>,
+}
+
+#[derive(From)]
+pub enum ErgoTermCellError {
+    BoxValue(BoxValueError),
+    SigmaParsing(SigmaParsingError),
+    DigestN(DigestNError),
+    TokenAmount(TokenAmountError),
+    WrongChainId,
+}
+
+impl TryFrom<TermCell> for ErgoTermCell {
+    type Error = ErgoTermCellError;
+
+    fn try_from(value: TermCell) -> Result<Self, Self::Error> {
+        if value.dst.target == ERGO_CHAIN_ID {
+            let ergs = BoxValue::try_from(value.value.native.0)?;
+            let address_bytes: Vec<u8> = value.dst.address.into();
+            let address = Address::p2pk_from_pk_bytes(&address_bytes)?;
+            let mut token_details = vec![];
+            for (_, assets) in value.value.assets {
+                for (id, a) in assets {
+                    let digest = ELDigest32::try_from(id.0.as_ref())?;
+                    let amount = TokenAmount::try_from(a.0)?;
+                    token_details.push((digest, amount));
+                }
+            }
+
+            token_details.sort_by(|a, b| a.0.cmp(&b.0));
+
+            let tokens = token_details
+                .into_iter()
+                .map(|(digest, amount)| Token {
+                    token_id: TokenId::from(digest),
+                    amount,
+                })
+                .collect();
+
+            Ok(ErgoTermCell {
+                ergs,
+                address,
+                tokens,
+            })
+        } else {
+            Err(ErgoTermCellError::WrongChainId)
+        }
+    }
+}
+
+impl From<ErgoTermCell> for Constant {
+    fn from(cell: ErgoTermCell) -> Self {
+        // The Constant is of the form (nanoErg, (propositionBytes, tokens)), with type
+        //    (Long, (Coll[Byte], Coll[(Coll[Byte], Long)]))
+        //
+        let nano_ergs: Constant = cell.ergs.into();
+        let prop_bytes: Constant = cell
+            .address
+            .script()
+            .unwrap()
+            .sigma_serialize_bytes()
+            .unwrap()
+            .into();
+        let tokens: Vec<Literal> = cell
+            .tokens
+            .into_iter()
+            .map(|t| {
+                let tup: Constant = (
+                    Constant::from(t.token_id),
+                    Constant::from(*t.amount.as_u64() as i64),
+                )
+                    .into();
+                tup.v
+            })
+            .collect();
+        let elem_tpe = SType::STuple(STuple {
+            items: TupleItems::from_vec(vec![SType::SColl(Box::new(SType::SByte)), SType::SLong]).unwrap(),
+        });
+        let tokens = Constant {
+            tpe: SType::SColl(Box::new(elem_tpe.clone())),
+            v: Literal::Coll(CollKind::WrappedColl {
+                elem_tpe,
+                items: tokens,
+            }),
+        };
+        let inner_tuple: Constant = (prop_bytes, tokens).into();
+        (nano_ergs, inner_tuple).into()
+    }
+}
 
 fn tagged_hash(tag: &[u8]) -> Sha256 {
     let tag_hash = Sha256::digest(tag);
@@ -166,7 +264,7 @@ fn scalar_to_biguint(scalar: Scalar) -> BigUint {
         .sum()
 }
 
-fn dummy_resolver(digest: &Digest32) -> Node {
+fn dummy_resolver(digest: &scorex_crypto_avltree::operation::Digest32) -> Node {
     Node::LabelOnly(NodeHeader::new(Some(digest.clone()), None))
 }
 
@@ -206,86 +304,72 @@ mod tests {
     use bytes::Bytes;
     use elliptic_curve::consts::U32;
     use elliptic_curve::group::GroupEncoding;
-    use ergo_lib::chain::ergo_state_context::ErgoStateContext;
-    use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
-    use ergo_lib::chain::transaction::DataInput;
-    use ergo_lib::chain::transaction::TxId;
-    use ergo_lib::chain::transaction::TxIoVec;
-    use ergo_lib::chain::transaction::UnsignedInput;
-    use ergo_lib::ergo_chain_types::ec_point::generator;
-    use ergo_lib::ergo_chain_types::BlockId;
-    use ergo_lib::ergo_chain_types::Digest;
-    use ergo_lib::ergo_chain_types::EcPoint;
-    use ergo_lib::ergo_chain_types::Header;
-    use ergo_lib::ergo_chain_types::PreHeader;
-    use ergo_lib::ergo_chain_types::Votes;
+    use ergo_lib::chain::{
+        ergo_state_context::ErgoStateContext,
+        transaction::{unsigned::UnsignedTransaction, DataInput, TxId, TxIoVec, UnsignedInput},
+    };
+    use ergo_lib::ergo_chain_types::{
+        ec_point::generator, BlockId, Digest, EcPoint, Header, PreHeader, Votes,
+    };
     use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
-    use ergo_lib::ergotree_ir::base16_str::Base16Str;
-    use ergo_lib::ergotree_ir::bigint256::BigInt256;
-    use ergo_lib::ergotree_ir::chain::address::AddressEncoder;
-    use ergo_lib::ergotree_ir::chain::address::NetworkPrefix;
-    use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
-    use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
-    use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBoxCandidate;
-    use ergo_lib::ergotree_ir::chain::ergo_box::NonMandatoryRegisterId;
-    use ergo_lib::ergotree_ir::chain::ergo_box::NonMandatoryRegisters;
-    use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
-    use ergo_lib::ergotree_ir::mir::avl_tree_data::AvlTreeData;
-    use ergo_lib::ergotree_ir::mir::avl_tree_data::AvlTreeFlags;
-    use ergo_lib::ergotree_ir::mir::constant::Constant;
-    use ergo_lib::ergotree_ir::mir::constant::Literal;
-    use ergo_lib::ergotree_ir::mir::value::CollKind;
-    use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
-    use ergo_lib::ergotree_ir::types::stuple::STuple;
-    use ergo_lib::ergotree_ir::types::stuple::TupleItems;
-    use ergo_lib::ergotree_ir::types::stype::SType;
-    use ergo_lib::wallet::miner_fee::MINERS_FEE_ADDRESS;
-    use ergo_lib::wallet::tx_context::TransactionContext;
-    use ergo_lib::wallet::Wallet;
+    use ergo_lib::ergotree_ir::{
+        base16_str::Base16Str,
+        bigint256::BigInt256,
+        chain::{
+            address::{AddressEncoder, NetworkPrefix},
+            ergo_box::{
+                box_value::BoxValue, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
+            },
+        },
+        ergo_tree::ErgoTree,
+        mir::{
+            avl_tree_data::{AvlTreeData, AvlTreeFlags},
+            constant::{Constant, Literal},
+        },
+        types::stype::SType,
+    };
+    use ergo_lib::ergotree_ir::{
+        mir::value::CollKind,
+        serialization::SigmaSerializable,
+        types::stuple::{STuple, TupleItems},
+    };
+    use ergo_lib::wallet::{miner_fee::MINERS_FEE_ADDRESS, tx_context::TransactionContext, Wallet};
     use indexmap::IndexMap;
     use itertools::Itertools;
-    use k256::schnorr::signature::Signer;
-    use k256::schnorr::Signature;
-    use k256::schnorr::SigningKey;
-    use k256::ProjectivePoint;
-    use k256::Scalar;
-    use k256::SecretKey;
+    use k256::{
+        schnorr::{signature::Signer, Signature, SigningKey},
+        ProjectivePoint, Scalar, SecretKey,
+    };
     use num_bigint::BigUint;
     use num_bigint::Sign;
     use rand::rngs::OsRng;
     use rand::Rng;
-    use scorex_crypto_avltree::authenticated_tree_ops::*;
-    use scorex_crypto_avltree::batch_avl_prover::BatchAVLProver;
-    use scorex_crypto_avltree::batch_node::*;
-    use scorex_crypto_avltree::operation::*;
+    use scorex_crypto_avltree::{
+        authenticated_tree_ops::*, batch_avl_prover::BatchAVLProver, batch_node::*, operation::*,
+    };
     use serde::Deserialize;
     use serde::Serialize;
-    use spectrum_crypto::digest::blake2b256_hash;
-    use spectrum_crypto::digest::Blake2bDigest256;
-    use spectrum_crypto::pubkey::PublicKey;
+    use spectrum_crypto::{
+        digest::{blake2b256_hash, Blake2bDigest256},
+        pubkey::PublicKey,
+    };
     use spectrum_handel::Threshold;
-    use spectrum_sigma::crypto::aggregate_commitment;
-    use spectrum_sigma::crypto::aggregate_pk;
-    use spectrum_sigma::crypto::aggregate_response;
-    use spectrum_sigma::crypto::challenge;
-    use spectrum_sigma::crypto::exclusion_proof;
-    use spectrum_sigma::crypto::individual_input;
-    use spectrum_sigma::crypto::response;
-    use spectrum_sigma::crypto::schnorr_commitment_pair;
-    use spectrum_sigma::crypto::verify;
-    use spectrum_sigma::crypto::verify_response;
-    use spectrum_sigma::AggregateCommitment;
-    use spectrum_sigma::Commitment;
+    use spectrum_sigma::{
+        crypto::{
+            aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof,
+            individual_input, response, schnorr_commitment_pair, verify, verify_response,
+        },
+        AggregateCommitment, Commitment,
+    };
     use std::collections::HashMap;
     use std::time::Instant;
 
-    use crate::script::scalar_to_biguint;
-    use crate::script::serialize_exclusion_set;
+    use crate::script::{scalar_to_biguint, serialize_exclusion_set};
 
     use super::dummy_resolver;
 
     // Script URL: ewoKICAvLyBSZXByZXNlbnRzIHRoZSBudW1iZXIgb2YgZGF0YSBpbnB1dHMgdGhhdCBjb250YWluIHRoZSBHcm91cEVsZW1lbnQgb2YgY29tbWl0dGVlIG1lbWJlcnMuCiAgdmFsIG51bWJlckNvbW1pdHRlZURhdGFJbnB1dEJveGVzID0gQ09OVEVYVC5kYXRhSW5wdXRzKDApLlI1W1Nob3J0XS5nZXQKICB2YWwgZ3JvdXBHZW5lcmF0b3IgICAgICAgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjZbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgZ3JvdXBFbGVtZW50SWRlbnRpdHkgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjdbR3JvdXBFbGVtZW50XS5nZXQKICAvLyBCeXRlIHJlcHJlc2VudGF0aW9uIG9mIEgoWF8xLCAuLi4sIFhfbikKICB2YWwgaW5uZXJCeXRlcyAgICAgICAgICAgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjhbQ29sbFtCeXRlXV0uZ2V0IAoKICAvLyBUaGUgR3JvdXBFbGVtZW50cyBvZiBlYWNoIGNvbW1pdHRlZSBtZW1iZXIgYXJlIGFycmFuZ2VkIHdpdGhpbiBhIENvbGxbR3JvdXBFbGVtZW50XQogIC8vIHJlc2lkaW5nIHdpdGhpbiB0aGUgUjQgcmVnaXN0ZXIgb2YgdGhlIGZpcnN0ICduID09IG51bWJlckNvbW1pdHRlZURhdGFJbnB1dEJveGVzJwogIC8vIGRhdGEgaW5wdXRzLgogIHZhbCBjb21taXR0ZWUgPSBDT05URVhULmRhdGFJbnB1dHMuc2xpY2UoMCwgbnVtYmVyQ29tbWl0dGVlRGF0YUlucHV0Qm94ZXMudG9JbnQpLmZvbGQoCiAgICBDb2xsW0dyb3VwRWxlbWVudF0oKSwKICAgIHsgKGFjYzogQ29sbFtHcm91cEVsZW1lbnRdLCB4OiBCb3gpID0
-    const SIGNATURE_AGGREGATE_SCRIPT_BYTES: &str = "6r15oRzuDZbNeMDGSXfSMJhyD7fu95LkC8wR2YekrBEGoSJnEC4BncB8WDVWAMNmWYrLUTdQdNZnwJJXyQjyUnjLDAnqHtPBgq8QvHvEux3YsibhqCMRi1aAcjcdFAbuwXpfbRVt4MkSfHYyovvTHGVAL3JgMpvdjYXwB7DoirYAYZgLSZCRZW2uAN5ZGNL9tzeDPS1BR2cc8ZmYEEFMQdq59s2AXKF4CPkTh2gNxFpeNyJsRNVG3phUJc2nAN1kbYakVZVojwRXkZ6qeGspnG8NaRcKj2KXuvQ4S7dhEeDaEW1qNm2JNNxWhS2hLrkBh6CgpSjVyRhEyvQ4vQxUaPtigfjKVo7jZZETc5uYaRrA4h3tCDZJNcNTaaezpAbmyyak3EjQRGmCziTgwk6g4D9beLobiZQp8Ex3XjMGybr7BSm26idk6yRV5kegj3s835WZvFi6XVXVNwtCTjCVNopZDF6qyvssK1ZKR3sYmLkXSJ4tyi2C94xNbkALrjHcmv2iVZ384dfkAqgsYVyCs1P3tPza1ho5oLcZMbto3YKZD9tDDkawJZH2eA5Grr2cjp2Xbhx61D96d7i1a7uMU95MKEmbVRmRzie2f3RRgn5dPu19wtHrPSHnTXXbWnEvnjbRPtJGGZEUZUawNNNEapU3TK8T83nYDmfVkbRB7VipqPxm7sAFm9LYhch8evmy9YQWurYhvGwTmdmPbmA5PUEpeVmA59cekaK6piN6dXrXx7aX9u6QR3PCtbZqfpSXEk1gmeZ218NK5DXgQZ6jcdVFcQnh62m1RGacuxAoFLeRPh5A2GCb39iguyAnsYDD8sAME2i88AArHfUN3Wor5V6KuJcpeorzdFd5SZPc3ezUckqcXNs3fSXBKK5Yy3SUKQoYGeAsUPucQ3Mha4p3CduGWVbfrrmr8pXARFGU8eHJq9aPHQSYrwEg1WY9mDvDhSC1eXEU3hEfTHEyjRLQzCfTMDNcK2GXYbTfomnKEsSVq3uowXYGKwbMKuuArEkC8cfMFZq4XenvNBW91jkJkZvpG688q5Nk1WqCxBYF8tyo7Y7nLhWC7pQY7nZJgWtgTH1ubzu1TBWmP72YxfFwqua2iLFrwreDg9tNtFFhP9j5fwASM6GBheUPrkDbjoBXDdvYVZrmLyfkcEhgKpaGUkh5UYg85RDRkntqpgrctRAgG6B1Ahq2UNCVLq2V5WWj9pAUmV7SQaCfmb8N3dXCcTF4KgnZ3AdPF8UnWNsvjwfagqEV3x1EyfnhhDs";
+    const SIGNATURE_AGGREGATION_SCRIPT_BYTES: &str = "6r15oRzuDZbNeMDGSXfSMJhyD7fu95LkC8wR2YekrBEGoSJnEC4BncB8WDVWAMNmWYrLUTdQdNZnwJJXyQjyUnjLDAnqHtPBgq8QvHvEux3YsibhqCMRi1aAcjcdFAbuwXpfbRVt4MkSfHYyovvTHGVAL3JgMpvdjYXwB7DoirYAYZgLSZCRZW2uAN5ZGNL9tzeDPS1BR2cc8ZmYEEFMQdq59s2AXKF4CPkTh2gNxFpeNyJsRNVG3phUJc2nAN1kbYakVZVojwRXkZ6qeGspnG8NaRcKj2KXuvQ4S7dhEeDaEW1qNm2JNNxWhS2hLrkBh6CgpSjVyRhEyvQ4vQxUaPtigfjKVo7jZZETc5uYaRrA4h3tCDZJNcNTaaezpAbmyyak3EjQRGmCziTgwk6g4D9beLobiZQp8Ex3XjMGybr7BSm26idk6yRV5kegj3s835WZvFi6XVXVNwtCTjCVNopZDF6qyvssK1ZKR3sYmLkXSJ4tyi2C94xNbkALrjHcmv2iVZ384dfkAqgsYVyCs1P3tPza1ho5oLcZMbto3YKZD9tDDkawJZH2eA5Grr2cjp2Xbhx61D96d7i1a7uMU95MKEmbVRmRzie2f3RRgn5dPu19wtHrPSHnTXXbWnEvnjbRPtJGGZEUZUawNNNEapU3TK8T83nYDmfVkbRB7VipqPxm7sAFm9LYhch8evmy9YQWurYhvGwTmdmPbmA5PUEpeVmA59cekaK6piN6dXrXx7aX9u6QR3PCtbZqfpSXEk1gmeZ218NK5DXgQZ6jcdVFcQnh62m1RGacuxAoFLeRPh5A2GCb39iguyAnsYDD8sAME2i88AArHfUN3Wor5V6KuJcpeorzdFd5SZPc3ezUckqcXNs3fSXBKK5Yy3SUKQoYGeAsUPucQ3Mha4p3CduGWVbfrrmr8pXARFGU8eHJq9aPHQSYrwEg1WY9mDvDhSC1eXEU3hEfTHEyjRLQzCfTMDNcK2GXYbTfomnKEsSVq3uowXYGKwbMKuuArEkC8cfMFZq4XenvNBW91jkJkZvpG688q5Nk1WqCxBYF8tyo7Y7nLhWC7pQY7nZJgWtgTH1ubzu1TBWmP72YxfFwqua2iLFrwreDg9tNtFFhP9j5fwASM6GBheUPrkDbjoBXDdvYVZrmLyfkcEhgKpaGUkh5UYg85RDRkntqpgrctRAgG6B1Ahq2UNCVLq2V5WWj9pAUmV7SQaCfmb8N3dXCcTF4KgnZ3AdPF8UnWNsvjwfagqEV3x1EyfnhhDs";
 
     const KEY_LENGTH: usize = 32;
     const VALUE_LENGTH: usize = 8;
@@ -596,94 +680,16 @@ mod tests {
     fn verify_byzantine_ergoscript() {
         let num_byzantine_nodes = vec![34];
 
+        let num_participants = 128;
+        let md = blake2b256_hash(b"foo");
         for num_byzantine in num_byzantine_nodes {
-            println!("# byzantine nodes: {}", num_byzantine);
-            let num_participants = 128;
-            let mut rng = OsRng;
-            let mut byz_indexes = vec![];
-            loop {
-                let rng = rng.gen_range(0usize..num_participants);
-                if !byz_indexes.contains(&rng) {
-                    byz_indexes.push(rng);
-                }
-                if byz_indexes.len() == num_byzantine {
-                    break;
-                }
-            }
-            let md = blake2b256_hash(b"foo");
-            let individual_keys = (0..num_participants)
-                .map(|_| {
-                    let sk = SecretKey::random(&mut rng);
-                    let pk = PublicKey::from(sk.public_key());
-                    let (commitment_sk, commitment) = schnorr_commitment_pair();
-                    (sk, pk, commitment_sk, commitment)
-                })
-                .collect::<Vec<_>>();
-            let committee = individual_keys
-                .iter()
-                .map(|(_, pk, _, _)| pk.clone())
-                .collect::<Vec<_>>();
-            let individual_inputs = individual_keys
-                .iter()
-                .map(|(_, pki, _, _)| individual_input::<Blake2b<U32>>(committee.clone(), pki.clone()))
-                .collect::<Vec<_>>();
-            let aggregate_x = aggregate_pk(
-                individual_keys.iter().map(|(_, pk, _, _)| pk.clone()).collect(),
-                individual_inputs.clone(),
-            );
-            let aggregate_commitment = aggregate_commitment(
-                individual_keys
-                    .iter()
-                    .map(|(_, _, _, commitment)| commitment.clone())
-                    .collect(),
-            );
-            let challenge = challenge(aggregate_x, aggregate_commitment.clone(), md);
-            let (byz_keys, active_keys): (Vec<_>, Vec<_>) = individual_keys
-                .clone()
-                .into_iter()
-                .enumerate()
-                .partition(|(i, _)| byz_indexes.contains(i));
-            let individual_responses_subset = active_keys
-                .iter()
-                .map(|(i, (sk, _, commitment_sk, _))| {
-                    (
-                        *i,
-                        response(
-                            commitment_sk.clone(),
-                            sk.clone(),
-                            challenge,
-                            individual_inputs[*i],
-                        ),
-                    )
-                })
-                .collect::<Vec<_>>();
-            for (i, zi) in individual_responses_subset.iter() {
-                let (_, pk, _, commitment) = &individual_keys[*i];
-                assert!(verify_response(
-                    zi,
-                    &individual_inputs[*i],
-                    &challenge,
-                    commitment.clone(),
-                    pk.clone()
-                ))
-            }
-            let aggregate_response =
-                aggregate_response(individual_responses_subset.into_iter().map(|(_, x)| x).collect());
-            let exclusion_set = byz_keys
-                .iter()
-                .map(|(i, (_, _, sk, commitment))| {
-                    (*i, Some((commitment.clone(), exclusion_proof(sk.clone(), md))))
-                })
-                .collect::<Vec<_>>();
-            let threshold = Threshold { num: 2, denom: 4 };
-            assert!(verify(
-                aggregate_commitment.clone(),
+            let SignatureAggregationElements {
+                aggregate_commitment,
                 aggregate_response,
-                exclusion_set.clone(),
-                committee.clone(),
-                md,
+                exclusion_set,
+                committee,
                 threshold,
-            ));
+            } = simulate_signature_aggregation(num_participants, num_byzantine, md);
             let exclusion_set: Vec<_> = exclusion_set
                 .into_iter()
                 .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
@@ -703,94 +709,16 @@ mod tests {
     async fn verify_byzantine_ergoscript_sigmastate() {
         let num_byzantine_nodes = vec![40];
 
+        let md = blake2b256_hash(b"foo");
+        let num_participants = 512;
         for num_byzantine in num_byzantine_nodes {
-            println!("# byzantine nodes: {}", num_byzantine);
-            let num_participants = 512;
-            let mut rng = OsRng;
-            let mut byz_indexes = vec![];
-            loop {
-                let rng = rng.gen_range(0usize..num_participants);
-                if !byz_indexes.contains(&rng) {
-                    byz_indexes.push(rng);
-                }
-                if byz_indexes.len() == num_byzantine {
-                    break;
-                }
-            }
-            let md = blake2b256_hash(b"foo");
-            let individual_keys = (0..num_participants)
-                .map(|_| {
-                    let sk = SecretKey::random(&mut rng);
-                    let pk = PublicKey::from(sk.public_key());
-                    let (commitment_sk, commitment) = schnorr_commitment_pair();
-                    (sk, pk, commitment_sk, commitment)
-                })
-                .collect::<Vec<_>>();
-            let committee = individual_keys
-                .iter()
-                .map(|(_, pk, _, _)| pk.clone())
-                .collect::<Vec<_>>();
-            let individual_inputs = individual_keys
-                .iter()
-                .map(|(_, pki, _, _)| individual_input::<Blake2b<U32>>(committee.clone(), pki.clone()))
-                .collect::<Vec<_>>();
-            let aggregate_x = aggregate_pk(
-                individual_keys.iter().map(|(_, pk, _, _)| pk.clone()).collect(),
-                individual_inputs.clone(),
-            );
-            let aggregate_commitment = aggregate_commitment(
-                individual_keys
-                    .iter()
-                    .map(|(_, _, _, commitment)| commitment.clone())
-                    .collect(),
-            );
-            let challenge = challenge(aggregate_x, aggregate_commitment.clone(), md);
-            let (byz_keys, active_keys): (Vec<_>, Vec<_>) = individual_keys
-                .clone()
-                .into_iter()
-                .enumerate()
-                .partition(|(i, _)| byz_indexes.contains(i));
-            let individual_responses_subset = active_keys
-                .iter()
-                .map(|(i, (sk, _, commitment_sk, _))| {
-                    (
-                        *i,
-                        response(
-                            commitment_sk.clone(),
-                            sk.clone(),
-                            challenge,
-                            individual_inputs[*i],
-                        ),
-                    )
-                })
-                .collect::<Vec<_>>();
-            for (i, zi) in individual_responses_subset.iter() {
-                let (_, pk, _, commitment) = &individual_keys[*i];
-                assert!(verify_response(
-                    zi,
-                    &individual_inputs[*i],
-                    &challenge,
-                    commitment.clone(),
-                    pk.clone()
-                ))
-            }
-            let aggregate_response =
-                aggregate_response(individual_responses_subset.into_iter().map(|(_, x)| x).collect());
-            let exclusion_set = byz_keys
-                .iter()
-                .map(|(i, (_, _, sk, commitment))| {
-                    (*i, Some((commitment.clone(), exclusion_proof(sk.clone(), md))))
-                })
-                .collect::<Vec<_>>();
-            let threshold = Threshold { num: 2, denom: 4 };
-            assert!(verify(
-                aggregate_commitment.clone(),
+            let SignatureAggregationElements {
+                aggregate_commitment,
                 aggregate_response,
-                exclusion_set.clone(),
-                committee.clone(),
-                md,
+                exclusion_set,
+                committee,
                 threshold,
-            ));
+            } = simulate_signature_aggregation(num_participants, num_byzantine, md);
             let exclusion_set: Vec<_> = exclusion_set
                 .into_iter()
                 .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
@@ -866,7 +794,7 @@ mod tests {
             .into();
 
         let input = SignatureValidationInput {
-            contract: SIGNATURE_AGGREGATE_SCRIPT_BYTES.to_string(),
+            contract: SIGNATURE_AGGREGATION_SCRIPT_BYTES.to_string(),
             exclusion_set: exclusion_set_data.base16_str().unwrap(),
             aggregate_response: aggregate_response.base16_str().unwrap(),
             aggregate_commitment: serialized_aggregate_commitment.base16_str().unwrap(),
@@ -914,6 +842,112 @@ mod tests {
         );
     }
 
+    fn simulate_signature_aggregation(
+        num_participants: usize,
+        num_byzantine_nodes: usize,
+        md: Blake2bDigest256,
+    ) -> SignatureAggregationElements {
+        let mut rng = OsRng;
+        let mut byz_indexes = vec![];
+        loop {
+            let rng = rng.gen_range(0usize..num_participants);
+            if !byz_indexes.contains(&rng) {
+                byz_indexes.push(rng);
+            }
+            if byz_indexes.len() == num_byzantine_nodes {
+                break;
+            }
+        }
+        let individual_keys = (0..num_participants)
+            .map(|_| {
+                let sk = SecretKey::random(&mut rng);
+                let pk = PublicKey::from(sk.public_key());
+                let (commitment_sk, commitment) = schnorr_commitment_pair();
+                (sk, pk, commitment_sk, commitment)
+            })
+            .collect::<Vec<_>>();
+        let committee = individual_keys
+            .iter()
+            .map(|(_, pk, _, _)| pk.clone())
+            .collect::<Vec<_>>();
+        let individual_inputs = individual_keys
+            .iter()
+            .map(|(_, pki, _, _)| individual_input::<Blake2b<U32>>(committee.clone(), pki.clone()))
+            .collect::<Vec<_>>();
+        let aggregate_x = aggregate_pk(
+            individual_keys.iter().map(|(_, pk, _, _)| pk.clone()).collect(),
+            individual_inputs.clone(),
+        );
+        let aggregate_commitment = aggregate_commitment(
+            individual_keys
+                .iter()
+                .map(|(_, _, _, commitment)| commitment.clone())
+                .collect(),
+        );
+        let challenge = challenge(aggregate_x, aggregate_commitment.clone(), md);
+        let (byz_keys, active_keys): (Vec<_>, Vec<_>) = individual_keys
+            .clone()
+            .into_iter()
+            .enumerate()
+            .partition(|(i, _)| byz_indexes.contains(i));
+        let individual_responses_subset = active_keys
+            .iter()
+            .map(|(i, (sk, _, commitment_sk, _))| {
+                (
+                    *i,
+                    response(
+                        commitment_sk.clone(),
+                        sk.clone(),
+                        challenge,
+                        individual_inputs[*i],
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (i, zi) in individual_responses_subset.iter() {
+            let (_, pk, _, commitment) = &individual_keys[*i];
+            assert!(verify_response(
+                zi,
+                &individual_inputs[*i],
+                &challenge,
+                commitment.clone(),
+                pk.clone()
+            ))
+        }
+        let aggregate_response =
+            aggregate_response(individual_responses_subset.into_iter().map(|(_, x)| x).collect());
+        let exclusion_set = byz_keys
+            .iter()
+            .map(|(i, (_, _, sk, commitment))| {
+                (*i, Some((commitment.clone(), exclusion_proof(sk.clone(), md))))
+            })
+            .collect::<Vec<_>>();
+        let threshold = Threshold { num: 2, denom: 4 };
+        assert!(verify(
+            aggregate_commitment.clone(),
+            aggregate_response,
+            exclusion_set.clone(),
+            committee.clone(),
+            md,
+            threshold,
+        ));
+        SignatureAggregationElements {
+            aggregate_commitment,
+            aggregate_response,
+            exclusion_set,
+            committee,
+            threshold,
+        }
+    }
+
+    struct SignatureAggregationElements {
+        aggregate_commitment: AggregateCommitment,
+        aggregate_response: Scalar,
+        exclusion_set: Vec<(usize, Option<(Commitment, spectrum_sigma::Signature)>)>,
+        committee: Vec<PublicKey>,
+        threshold: Threshold,
+    }
+
     fn verify_ergoscript_with_sigma_rust(
         committee: Vec<PublicKey>,
         threshold: i32,
@@ -956,7 +990,7 @@ mod tests {
 
         let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
         let address = encoder
-            .parse_address_from_str(SIGNATURE_AGGREGATE_SCRIPT_BYTES)
+            .parse_address_from_str(SIGNATURE_AGGREGATION_SCRIPT_BYTES)
             .unwrap();
         let ergo_tree = address.script().unwrap();
         let erg_value = BoxValue::try_from(1000000_u64).unwrap();

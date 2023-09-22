@@ -10,6 +10,7 @@ async-trait = "0.1.68"
 base16 = "0.2"
 base64 = "0.21.3"
 bytes = "1.0.1"
+derive_more = "0.99"
 ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
 #spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
 #spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
@@ -17,6 +18,7 @@ ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
 spectrum-sigma = { version = "0.1.0", path = "../spectrum-sigma" }
 spectrum-handel = { version = "0.1.0", path = "../spectrum-handel" }
+spectrum-ledger = {version = "0.1.0", path = "../spectrum-ledger"}
 scorex_crypto_avltree = "0.1.0"
 indexmap = "1.9.2"
 isahc = { version = "1.7.2", features = ["json"] }

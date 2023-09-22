@@ -46,16 +46,16 @@ pub enum CellPtr {
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct NativeCoin(u64);
+pub struct NativeCoin(pub u64);
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct CustomAsset(u64);
+pub struct CustomAsset(pub u64);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PolicyId(Blake2bDigest256);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct AssetId(Blake2bDigest256);
+pub struct AssetId(pub Blake2bDigest256);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AssetRef(PolicyId, AssetId);
@@ -98,9 +98,9 @@ pub struct BridgeInputs(Witness);
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BoxDestination {
-    target: ChainId,
-    address: SerializedValue,
-    inputs: Option<BridgeInputs>,
+    pub target: ChainId,
+    pub address: SerializedValue,
+    pub inputs: Option<BridgeInputs>,
 }
 
 /// Progress point on external chain.
