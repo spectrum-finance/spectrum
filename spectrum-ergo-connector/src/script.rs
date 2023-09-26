@@ -34,6 +34,32 @@ pub struct ErgoTermCell {
     tokens: Vec<Token>,
 }
 
+pub struct ErgoTermCells(Vec<ErgoTermCell>);
+
+impl ErgoTermCell {
+    fn get_stype() -> SType {
+        SType::STuple(STuple {
+            items: TupleItems::from_vec(vec![
+                SType::SLong,
+                SType::STuple(STuple {
+                    items: TupleItems::from_vec(vec![
+                        SType::SColl(Box::new(SType::SByte)),
+                        SType::SColl(Box::new(SType::STuple(STuple {
+                            items: TupleItems::from_vec(vec![
+                                SType::SColl(Box::new(SType::SByte)),
+                                SType::SLong,
+                            ])
+                            .unwrap(),
+                        }))),
+                    ])
+                    .unwrap(),
+                }),
+            ])
+            .unwrap(),
+        })
+    }
+}
+
 #[derive(From)]
 pub enum ErgoTermCellError {
     BoxValue(BoxValueError),
@@ -94,6 +120,7 @@ impl From<ErgoTermCell> for Constant {
             .sigma_serialize_bytes()
             .unwrap()
             .into();
+        let elem_tpe = ErgoTermCell::get_stype();
         let tokens: Vec<Literal> = cell
             .tokens
             .into_iter()
@@ -106,9 +133,6 @@ impl From<ErgoTermCell> for Constant {
                 tup.v
             })
             .collect();
-        let elem_tpe = SType::STuple(STuple {
-            items: TupleItems::from_vec(vec![SType::SColl(Box::new(SType::SByte)), SType::SLong]).unwrap(),
-        });
         let tokens = Constant {
             tpe: SType::SColl(Box::new(elem_tpe.clone())),
             v: Literal::Coll(CollKind::WrappedColl {
@@ -118,6 +142,26 @@ impl From<ErgoTermCell> for Constant {
         };
         let inner_tuple: Constant = (prop_bytes, tokens).into();
         (nano_ergs, inner_tuple).into()
+    }
+}
+
+impl From<ErgoTermCells> for Constant {
+    fn from(value: ErgoTermCells) -> Self {
+        let lits: Vec<_> = value
+            .0
+            .into_iter()
+            .map(|e| {
+                let c = Constant::from(e);
+                c.v
+            })
+            .collect();
+        Constant {
+            tpe: SType::SColl(Box::new(ErgoTermCell::get_stype())),
+            v: Literal::Coll(CollKind::WrappedColl {
+                elem_tpe: ErgoTermCell::get_stype(),
+                items: lits,
+            }),
+        }
     }
 }
 
@@ -304,14 +348,12 @@ mod tests {
     use bytes::Bytes;
     use elliptic_curve::consts::U32;
     use elliptic_curve::group::GroupEncoding;
-    use ergo_lib::chain::{
-        ergo_state_context::ErgoStateContext,
-        transaction::{unsigned::UnsignedTransaction, DataInput, TxId, TxIoVec, UnsignedInput},
-    };
     use ergo_lib::ergo_chain_types::{
         ec_point::generator, BlockId, Digest, EcPoint, Header, PreHeader, Votes,
     };
     use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
+    use ergo_lib::ergotree_ir::chain::ergo_box::BoxTokens;
+    use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount};
     use ergo_lib::ergotree_ir::{
         base16_str::Base16Str,
         bigint256::BigInt256,
@@ -334,6 +376,13 @@ mod tests {
         types::stuple::{STuple, TupleItems},
     };
     use ergo_lib::wallet::{miner_fee::MINERS_FEE_ADDRESS, tx_context::TransactionContext, Wallet};
+    use ergo_lib::{
+        chain::{
+            ergo_state_context::ErgoStateContext,
+            transaction::{unsigned::UnsignedTransaction, DataInput, TxId, TxIoVec, UnsignedInput},
+        },
+        ergotree_ir::chain::token::TokenId,
+    };
     use indexmap::IndexMap;
     use itertools::Itertools;
     use k256::{
@@ -364,12 +413,14 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Instant;
 
-    use crate::script::{scalar_to_biguint, serialize_exclusion_set};
+    use crate::script::{scalar_to_biguint, serialize_exclusion_set, ErgoTermCell, ErgoTermCells};
 
     use super::dummy_resolver;
 
     // Script URL: ewoKICAvLyBSZXByZXNlbnRzIHRoZSBudW1iZXIgb2YgZGF0YSBpbnB1dHMgdGhhdCBjb250YWluIHRoZSBHcm91cEVsZW1lbnQgb2YgY29tbWl0dGVlIG1lbWJlcnMuCiAgdmFsIG51bWJlckNvbW1pdHRlZURhdGFJbnB1dEJveGVzID0gQ09OVEVYVC5kYXRhSW5wdXRzKDApLlI1W1Nob3J0XS5nZXQKICB2YWwgZ3JvdXBHZW5lcmF0b3IgICAgICAgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjZbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgZ3JvdXBFbGVtZW50SWRlbnRpdHkgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjdbR3JvdXBFbGVtZW50XS5nZXQKICAvLyBCeXRlIHJlcHJlc2VudGF0aW9uIG9mIEgoWF8xLCAuLi4sIFhfbikKICB2YWwgaW5uZXJCeXRlcyAgICAgICAgICAgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjhbQ29sbFtCeXRlXV0uZ2V0IAoKICAvLyBUaGUgR3JvdXBFbGVtZW50cyBvZiBlYWNoIGNvbW1pdHRlZSBtZW1iZXIgYXJlIGFycmFuZ2VkIHdpdGhpbiBhIENvbGxbR3JvdXBFbGVtZW50XQogIC8vIHJlc2lkaW5nIHdpdGhpbiB0aGUgUjQgcmVnaXN0ZXIgb2YgdGhlIGZpcnN0ICduID09IG51bWJlckNvbW1pdHRlZURhdGFJbnB1dEJveGVzJwogIC8vIGRhdGEgaW5wdXRzLgogIHZhbCBjb21taXR0ZWUgPSBDT05URVhULmRhdGFJbnB1dHMuc2xpY2UoMCwgbnVtYmVyQ29tbWl0dGVlRGF0YUlucHV0Qm94ZXMudG9JbnQpLmZvbGQoCiAgICBDb2xsW0dyb3VwRWxlbWVudF0oKSwKICAgIHsgKGFjYzogQ29sbFtHcm91cEVsZW1lbnRdLCB4OiBCb3gpID0
     const SIGNATURE_AGGREGATION_SCRIPT_BYTES: &str = "6r15oRzuDZbNeMDGSXfSMJhyD7fu95LkC8wR2YekrBEGoSJnEC4BncB8WDVWAMNmWYrLUTdQdNZnwJJXyQjyUnjLDAnqHtPBgq8QvHvEux3YsibhqCMRi1aAcjcdFAbuwXpfbRVt4MkSfHYyovvTHGVAL3JgMpvdjYXwB7DoirYAYZgLSZCRZW2uAN5ZGNL9tzeDPS1BR2cc8ZmYEEFMQdq59s2AXKF4CPkTh2gNxFpeNyJsRNVG3phUJc2nAN1kbYakVZVojwRXkZ6qeGspnG8NaRcKj2KXuvQ4S7dhEeDaEW1qNm2JNNxWhS2hLrkBh6CgpSjVyRhEyvQ4vQxUaPtigfjKVo7jZZETc5uYaRrA4h3tCDZJNcNTaaezpAbmyyak3EjQRGmCziTgwk6g4D9beLobiZQp8Ex3XjMGybr7BSm26idk6yRV5kegj3s835WZvFi6XVXVNwtCTjCVNopZDF6qyvssK1ZKR3sYmLkXSJ4tyi2C94xNbkALrjHcmv2iVZ384dfkAqgsYVyCs1P3tPza1ho5oLcZMbto3YKZD9tDDkawJZH2eA5Grr2cjp2Xbhx61D96d7i1a7uMU95MKEmbVRmRzie2f3RRgn5dPu19wtHrPSHnTXXbWnEvnjbRPtJGGZEUZUawNNNEapU3TK8T83nYDmfVkbRB7VipqPxm7sAFm9LYhch8evmy9YQWurYhvGwTmdmPbmA5PUEpeVmA59cekaK6piN6dXrXx7aX9u6QR3PCtbZqfpSXEk1gmeZ218NK5DXgQZ6jcdVFcQnh62m1RGacuxAoFLeRPh5A2GCb39iguyAnsYDD8sAME2i88AArHfUN3Wor5V6KuJcpeorzdFd5SZPc3ezUckqcXNs3fSXBKK5Yy3SUKQoYGeAsUPucQ3Mha4p3CduGWVbfrrmr8pXARFGU8eHJq9aPHQSYrwEg1WY9mDvDhSC1eXEU3hEfTHEyjRLQzCfTMDNcK2GXYbTfomnKEsSVq3uowXYGKwbMKuuArEkC8cfMFZq4XenvNBW91jkJkZvpG688q5Nk1WqCxBYF8tyo7Y7nLhWC7pQY7nZJgWtgTH1ubzu1TBWmP72YxfFwqua2iLFrwreDg9tNtFFhP9j5fwASM6GBheUPrkDbjoBXDdvYVZrmLyfkcEhgKpaGUkh5UYg85RDRkntqpgrctRAgG6B1Ahq2UNCVLq2V5WWj9pAUmV7SQaCfmb8N3dXCcTF4KgnZ3AdPF8UnWNsvjwfagqEV3x1EyfnhhDs";
+
+    const VAULT_CONTRACT_SCRIPT_BYTES: &str = "5qvovJe4jYUgkZqdeosH5ogC1fMChsEhjVgN5fw7tPe4iwZZeFevDeauJH8kJXZeVEofJ2ieXQwWT2B8SswGLZquG72W8NdzNoUrqMGQJLHMvnz7pkuLLYgaxvvrbq2S9vxXCYj6MVi7gsgBy6AhXY3CAVAqU98LbTrGmjaGwYtTqhCJphkZX18VT6C1yyQD2ogYFPLVGwojFcooYXtEHS4tLYD1wUCY9pkaHshH1ZWJUAyQgEM9R39XdQJua4pArh33Fpzjxq1mH3wJbiLsAZTx9uhfX6fEdvLjZW6W72uAaBEpTKh8ss9Xm9z7aLfLvhXdBw9vNtZAZZvQqj9AW8nKUisHd8PkGjE2RHDmehA9Ls1PWGHPiHUXcYKTJviKpuLfiKVeYSGkMmVsq2QUv6TaucGvoyJW1EcHoygp1UwxivhCXSqiZeDTHavYyM4Xsk1VNm3nDiyfRAeUwdKZ9XHqFz91QirE3QmhFvocvgZbZKVijq1VriRynS81M9uW1WaNecQdMxaBAnmytCoBgBcEBuhL28P76DrMHY27AJwxtYA9VwsGWGtcqrnu9YsqiBXuAbLuA2tSbj5fMGVJPzwXxqC7oXjya8k85kENGBg9nz2bFRYPjvLmTDYJ22Ra4wLCyiFFVaYDFerqPQZc4MJx5CEEYMt5WMnJioL7VmD7XcHMmQzUxxNTZXAMjtpyfnXUaidXj8ehXE6S5koh4Yytke7gaMgEU7uCLmt7A1sr63YBVkGFWo6mqeyJvfFEz5Wf6C8xz9eorVG8quM41yCSL2hDYbAZEEdnQfChJ6PQtRMtSrYBipG2B9NZRWuSPNSo4wN2ZYm4pjKnAHdCovLEmLjb1r3tV3QK4FkwXb7faZkHUUM6CABt2gvb9QyuozJ1Y3HYWmXwEDpN3aHxyibXD2JeBZMuubpTPTYJioEgsWa13kr5aMvmZKbTGab8nRYbLGgBcHSHReJK31wP4mgSAvkN4RxUTFSh3QLEUwMMBb4m5ouzQ38mA1z5qorFiEueT9BwZfajPZThibbUtLGjWmLkSmvUFUGJvN5zVN5j3qHv73wUpxT9oLjG62MseheBfLkLN5o7zFrPg6qGKd2KYwtxFYrDJxvx7pYTwRvMUDsmXg2aCHjgtBv9gmT42TS58eBHtUYeSoUr44Ewt19W51TPmqFVVaMmpte4fxDDnuBoXWeQF2pPfhn6jsN1Z8QUoTaz5mJD93qCrka94htBh5e3oRXGUCWu2CTuLpm7vQPQtviCfwssV4KfXBB1kbwtjAjaDmHUPHG84XVoSbsoB4QrZE49A73BCPwWerXs4MXvnvYaX7chw411EQjceLKV1QmX2NBp3d4vWHxME1Lts3RCdYBwXxEJMLdmcZH5TkN36XEC2anzj9i3gDJBAtJEU8ssLwBw9ZEMGg8J";
 
     const KEY_LENGTH: usize = 32;
     const VALUE_LENGTH: usize = 8;
@@ -665,7 +716,7 @@ mod tests {
                 Threshold { num: 1, denom: 1 }
             ));
 
-            verify_ergoscript_with_sigma_rust(
+            verify_sig_aggr_ergoscript_with_sigma_rust(
                 committee,
                 num_participants,
                 aggregate_commitment,
@@ -694,7 +745,36 @@ mod tests {
                 .into_iter()
                 .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
                 .collect();
-            verify_ergoscript_with_sigma_rust(
+            verify_sig_aggr_ergoscript_with_sigma_rust(
+                committee,
+                (num_participants * threshold.num / threshold.denom) as i32,
+                aggregate_commitment,
+                aggregate_response,
+                exclusion_set,
+                md,
+            );
+        }
+    }
+
+    #[test]
+    fn verify_vault_contract_sigma_rust() {
+        let num_byzantine_nodes = vec![34];
+
+        let num_participants = 128;
+        let md = blake2b256_hash(b"foo");
+        for num_byzantine in num_byzantine_nodes {
+            let SignatureAggregationElements {
+                aggregate_commitment,
+                aggregate_response,
+                exclusion_set,
+                committee,
+                threshold,
+            } = simulate_signature_aggregation(num_participants, num_byzantine, md);
+            let exclusion_set: Vec<_> = exclusion_set
+                .into_iter()
+                .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
+                .collect();
+            verify_vault_contract_ergoscript_with_sigma_rust(
                 committee,
                 (num_participants * threshold.num / threshold.denom) as i32,
                 aggregate_commitment,
@@ -723,7 +803,7 @@ mod tests {
                 .into_iter()
                 .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
                 .collect();
-            verify_ergoscript_with_sigmastate(
+            verify_sig_aggr_ergoscript_with_sigmastate(
                 committee,
                 (num_participants * threshold.num / threshold.denom) as i32,
                 aggregate_commitment,
@@ -735,7 +815,7 @@ mod tests {
         }
     }
 
-    async fn verify_ergoscript_with_sigmastate(
+    async fn verify_sig_aggr_ergoscript_with_sigmastate(
         committee: Vec<PublicKey>,
         threshold: i32,
         aggregate_commitment: AggregateCommitment,
@@ -820,6 +900,137 @@ mod tests {
         println!("{}", serde_json::to_string(&details).unwrap());
     }
 
+    #[tokio::test]
+    async fn verify_vault_ergoscript_sigmastate() {
+        let num_byzantine_nodes = vec![40];
+
+        let md = blake2b256_hash(b"foo");
+        let num_participants = 128;
+        for num_byzantine in num_byzantine_nodes {
+            let SignatureAggregationElements {
+                aggregate_commitment,
+                aggregate_response,
+                exclusion_set,
+                committee,
+                threshold,
+            } = simulate_signature_aggregation(num_participants, num_byzantine, md);
+            let exclusion_set: Vec<_> = exclusion_set
+                .into_iter()
+                .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
+                .collect();
+            verify_vault_ergoscript_with_sigmastate(
+                committee,
+                (num_participants * threshold.num / threshold.denom) as i32,
+                aggregate_commitment,
+                aggregate_response,
+                exclusion_set,
+                md,
+            )
+            .await;
+        }
+    }
+
+    async fn verify_vault_ergoscript_with_sigmastate(
+        committee: Vec<PublicKey>,
+        threshold: i32,
+        aggregate_commitment: AggregateCommitment,
+        aggregate_response: Scalar,
+        exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
+        md: Blake2bDigest256,
+    ) {
+        let c_bytes = committee.iter().fold(Vec::<u8>::new(), |mut b, p| {
+            b.extend_from_slice(
+                k256::PublicKey::from(p.clone())
+                    .to_projective()
+                    .to_bytes()
+                    .as_slice(),
+            );
+            b
+        });
+        let committee_bytes = blake2b256_hash(&c_bytes).as_ref().to_vec();
+        let committee_lit = Literal::from(
+            committee
+                .into_iter()
+                .map(|p| EcPoint::from(k256::PublicKey::from(p).to_projective()))
+                .collect::<Vec<_>>(),
+        );
+
+        let serialized_committee = Constant {
+            tpe: SType::SColl(Box::new(SType::SGroupElement)),
+            v: committee_lit,
+        };
+
+        let serialized_aggregate_commitment =
+            Constant::from(EcPoint::from(ProjectivePoint::from(aggregate_commitment)));
+
+        let s_biguint = scalar_to_biguint(aggregate_response);
+        let biguint_bytes = s_biguint.to_bytes_be();
+        if biguint_bytes.len() < 32 {
+            println!("# bytes: {}", biguint_bytes.len());
+        }
+        let split = biguint_bytes.len() - 16;
+        let upper = BigUint::from_bytes_be(&biguint_bytes[..split]);
+        let upper_256 = BigInt256::try_from(upper).unwrap();
+        assert_eq!(upper_256.sign(), Sign::Plus);
+        let lower = BigUint::from_bytes_be(&biguint_bytes[split..]);
+        let lower_256 = BigInt256::try_from(lower).unwrap();
+        assert_eq!(lower_256.sign(), Sign::Plus);
+
+        let mut aggregate_response_bytes = upper_256.to_signed_bytes_be();
+        // Need this variable because we could add an extra byte to the encoding for signed-representation.
+        let first_len = aggregate_response_bytes.len() as i32;
+        aggregate_response_bytes.extend(lower_256.to_signed_bytes_be());
+
+        let exclusion_set_data = serialize_exclusion_set(exclusion_set, md.as_ref());
+        let aggregate_response: Constant = (
+            Constant::from(aggregate_response_bytes),
+            Constant::from(first_len),
+        )
+            .into();
+
+        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
+        let address = encoder.parse_address_from_str("4MQyML64GnzMxZgm").unwrap();
+        let token_id = TokenId::from(ergo_lib::ergo_chain_types::Digest32::zero());
+        let amount = TokenAmount::try_from(3_u64).unwrap();
+        let term_cell = ErgoTermCell {
+            ergs: BoxValue::try_from(3000000_u64).unwrap(),
+            address,
+            tokens: vec![Token { token_id, amount }], //token.clone()],
+        };
+
+        let signature_input = SignatureValidationInput {
+            contract: VAULT_CONTRACT_SCRIPT_BYTES.to_string(),
+            exclusion_set: exclusion_set_data.base16_str().unwrap(),
+            aggregate_response: aggregate_response.base16_str().unwrap(),
+            aggregate_commitment: serialized_aggregate_commitment.base16_str().unwrap(),
+            generator: Constant::from(generator()).base16_str().unwrap(),
+            identity: Constant::from(EcPoint::from(ProjectivePoint::IDENTITY))
+                .base16_str()
+                .unwrap(),
+            committee: serialized_committee.base16_str().unwrap(),
+            md: Constant::from(md.as_ref().to_vec()).base16_str().unwrap(),
+            threshold: Constant::from(threshold).base16_str().unwrap(),
+            hash_bytes: Constant::from(committee_bytes.clone()).base16_str().unwrap(),
+        };
+
+        let input = VaultValidationInput {
+            signature_input,
+            terminal_cells: Constant::from(ErgoTermCells(vec![term_cell]))
+                .base16_str()
+                .unwrap(),
+        };
+
+        let raw = reqwest::Client::new()
+            .put("http://localhost:8080/validateVault")
+            .json(&input)
+            .send()
+            .await
+            .unwrap();
+        println!("{:?}", raw);
+        let details = raw.json::<ValidationResponse>().await.unwrap();
+
+        println!("{}", serde_json::to_string(&details).unwrap());
+    }
     #[test]
     fn test_committee_box_size() {
         let num_participants = 115;
@@ -948,7 +1159,7 @@ mod tests {
         threshold: Threshold,
     }
 
-    fn verify_ergoscript_with_sigma_rust(
+    fn verify_sig_aggr_ergoscript_with_sigma_rust(
         committee: Vec<PublicKey>,
         threshold: i32,
         aggregate_commitment: AggregateCommitment,
@@ -1115,6 +1326,190 @@ mod tests {
         println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
     }
 
+    fn verify_vault_contract_ergoscript_with_sigma_rust(
+        committee: Vec<PublicKey>,
+        threshold: i32,
+        aggregate_commitment: AggregateCommitment,
+        aggregate_response: Scalar,
+        exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
+        md: Blake2bDigest256,
+    ) {
+        let c_bytes = committee.iter().fold(Vec::<u8>::new(), |mut b, p| {
+            b.extend_from_slice(
+                k256::PublicKey::from(p.clone())
+                    .to_projective()
+                    .to_bytes()
+                    .as_slice(),
+            );
+            b
+        });
+        let committee_bytes = blake2b256_hash(&c_bytes).as_ref().to_vec();
+
+        let serialized_aggregate_commitment =
+            Constant::from(EcPoint::from(ProjectivePoint::from(aggregate_commitment)));
+
+        let s_biguint = scalar_to_biguint(aggregate_response);
+        let biguint_bytes = s_biguint.to_bytes_be();
+        if biguint_bytes.len() < 32 {
+            println!("# bytes: {}", biguint_bytes.len());
+        }
+        let split = biguint_bytes.len() - 16;
+        let upper = BigUint::from_bytes_be(&biguint_bytes[..split]);
+        let upper_256 = BigInt256::try_from(upper).unwrap();
+        assert_eq!(upper_256.sign(), Sign::Plus);
+        let lower = BigUint::from_bytes_be(&biguint_bytes[split..]);
+        let lower_256 = BigInt256::try_from(lower).unwrap();
+        assert_eq!(lower_256.sign(), Sign::Plus);
+
+        let mut aggregate_response_bytes = upper_256.to_signed_bytes_be();
+        // Need this variable because we could add an extra byte to the encoding for signed-representation.
+        let first_len = aggregate_response_bytes.len() as i32;
+        aggregate_response_bytes.extend(lower_256.to_signed_bytes_be());
+
+        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
+        let address = encoder
+            .parse_address_from_str(VAULT_CONTRACT_SCRIPT_BYTES)
+            .unwrap();
+        let ergo_tree = address.script().unwrap();
+        let erg_value = BoxValue::try_from(1000000_u64).unwrap();
+
+        let exclusion_set_data = serialize_exclusion_set(exclusion_set, md.as_ref());
+        let aggregate_response: Constant = (
+            Constant::from(aggregate_response_bytes),
+            Constant::from(first_len),
+        )
+            .into();
+
+        let num_bytes_needed: usize = vec![
+            address.content_bytes().len(),
+            exclusion_set_data.sigma_serialize_bytes().unwrap().len(),
+            aggregate_response.sigma_serialize_bytes().unwrap().len(),
+            serialized_aggregate_commitment
+                .sigma_serialize_bytes()
+                .unwrap()
+                .len(),
+            //Constant::from(generator()).sigma_serialize_bytes().unwrap().len(),
+            //Constant::from(EcPoint::from(ProjectivePoint::IDENTITY))
+            //    .sigma_serialize_bytes()
+            //    .unwrap()
+            //    .len(),
+            //serialized_committee.sigma_serialize_bytes().unwrap().len(),
+            Constant::from(md.as_ref().to_vec())
+                .sigma_serialize_bytes()
+                .unwrap()
+                .len(),
+            Constant::from(threshold).sigma_serialize_bytes().unwrap().len(),
+            Constant::from(committee_bytes.clone())
+                .sigma_serialize_bytes()
+                .unwrap()
+                .len(),
+        ]
+        .into_iter()
+        .sum();
+
+        println!(
+            "# bytes in exclusion set: {}",
+            exclusion_set_data.sigma_serialize_bytes().unwrap().len()
+        );
+
+        let mut values = IndexMap::new();
+        values.insert(0, exclusion_set_data);
+        values.insert(1, aggregate_response);
+        values.insert(2, serialized_aggregate_commitment);
+        values.insert(3, Constant::from(md.as_ref().to_vec()));
+        values.insert(4, threshold.into());
+
+        let token_id = TokenId::from(ergo_lib::ergo_chain_types::Digest32::zero());
+        let amount = TokenAmount::try_from(100_u64).unwrap();
+        let token = Token { token_id, amount };
+
+        let term_cell = ErgoTermCell {
+            ergs: BoxValue::try_from(3000000_u64).unwrap(),
+            address,
+            tokens: vec![], //token.clone()],
+        };
+        let output_0 = ErgoBoxCandidate {
+            value: term_cell.ergs,
+            ergo_tree: term_cell.address.script().unwrap(),
+            tokens: None, //Some(BoxTokens::from_vec(vec![token]).unwrap()),
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: 900001,
+        };
+
+        values.insert(5, ErgoTermCells(vec![term_cell]).into());
+
+        let input_box = ErgoBox::new(
+            erg_value,
+            ergo_tree,
+            None,
+            NonMandatoryRegisters::empty(),
+            900000,
+            TxId::zero(),
+            0,
+        )
+        .unwrap();
+
+        // Send all Ergs to miner fee
+        let miner_output = ErgoBoxCandidate {
+            value: erg_value,
+            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: 900001,
+        };
+        let outputs = TxIoVec::from_vec(vec![output_0, miner_output]).unwrap();
+        let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension { values });
+
+        // The first committee box can hold 115 public keys together with other data necessary to
+        // verify signatures.
+        const NUM_COMMITTEE_ELEMENTS_IN_FIRST_BOX: usize = 115;
+
+        // We've determined empirically that we can fit at most 118 public keys into a single box.
+        const MAX_NUM_COMMITTEE_ELEMENTS_PER_BOX: usize = 118;
+
+        let vault_sk = ergo_lib::wallet::secret_key::SecretKey::random_dlog();
+        let ergo_tree = vault_sk.get_address_from_public_image().script().unwrap();
+        let num_data_inputs = committee.len() / MAX_NUM_COMMITTEE_ELEMENTS_PER_BOX + 1;
+
+        let mut data_boxes = vec![create_committee_input_box(
+            committee.iter().take(NUM_COMMITTEE_ELEMENTS_IN_FIRST_BOX),
+            ergo_tree.clone(),
+            Some((num_data_inputs as i16, committee_bytes)),
+        )];
+
+        let chunks = committee
+            .iter()
+            .skip(NUM_COMMITTEE_ELEMENTS_IN_FIRST_BOX)
+            .chunks(MAX_NUM_COMMITTEE_ELEMENTS_PER_BOX);
+        let remaining_data_boxes = chunks
+            .into_iter()
+            .map(|chunk| create_committee_input_box(chunk, ergo_tree.clone(), None));
+
+        data_boxes.extend(remaining_data_boxes);
+
+        let data_inputs: Vec<_> = data_boxes
+            .iter()
+            .map(|d| DataInput { box_id: d.box_id() })
+            .collect();
+        let data_inputs = Some(TxIoVec::from_vec(data_inputs).unwrap());
+
+        let unsigned_tx = UnsignedTransaction::new(
+            TxIoVec::from_vec(vec![unsigned_input]).unwrap(),
+            data_inputs,
+            outputs,
+        )
+        .unwrap();
+        let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], data_boxes).unwrap();
+        let wallet = get_wallet();
+        let ergo_state_context: ErgoStateContext = dummy_ergo_state_context();
+        let now = Instant::now();
+        println!("Signing TX...");
+        let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
+        if res.is_err() {
+            panic!("{:?}", res);
+        }
+        println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
+    }
     fn create_committee_input_box<'a>(
         committee_members: impl Iterator<Item = &'a PublicKey>,
         ergo_tree: ErgoTree,
@@ -1178,6 +1573,14 @@ mod tests {
         threshold: String,
         #[serde(rename = "hashBytes")]
         hash_bytes: String,
+    }
+
+    #[derive(Serialize)]
+    struct VaultValidationInput {
+        #[serde(rename = "signatureInput")]
+        signature_input: SignatureValidationInput,
+        #[serde(rename = "terminalCells")]
+        terminal_cells: String,
     }
 
     #[derive(Deserialize, Serialize)]
