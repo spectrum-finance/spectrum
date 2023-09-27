@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use derive_more::From;
 use elliptic_curve::ops::{LinearCombination, Reduce};
 use ergo_lib::{
@@ -32,6 +34,34 @@ pub struct ErgoTermCell {
     ergs: BoxValue,
     address: Address,
     tokens: Vec<Token>,
+}
+
+impl ErgoTermCell {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut res = vec![];
+        res.extend_from_slice(&self.ergs.as_i64().to_be_bytes());
+        let prop_bytes = self.address.script().unwrap().sigma_serialize_bytes().unwrap();
+        res.extend(prop_bytes);
+        for Token { token_id, amount } in &self.tokens {
+            let digest = ergo_lib::ergo_chain_types::Digest32::from(*token_id);
+            res.extend(digest.0);
+            res.extend(&(*amount.as_u64() as i64).to_be_bytes());
+        }
+        res
+    }
+}
+
+impl Hash for ErgoTermCell {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.ergs.as_i64().hash(state);
+        let prop_bytes = self.address.script().unwrap().sigma_serialize_bytes().unwrap();
+        prop_bytes.hash(state);
+        for Token { token_id, amount } in &self.tokens {
+            let digest = ergo_lib::ergo_chain_types::Digest32::from(*token_id);
+            digest.0.hash(state);
+            (*amount.as_u64() as i64).hash(state);
+        }
+    }
 }
 
 pub struct ErgoTermCells(Vec<ErgoTermCell>);
@@ -352,6 +382,7 @@ mod tests {
         ec_point::generator, BlockId, Digest, EcPoint, Header, PreHeader, Votes,
     };
     use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
+    use ergo_lib::ergotree_ir::chain::address::{Address, NetworkAddress};
     use ergo_lib::ergotree_ir::chain::ergo_box::BoxTokens;
     use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount};
     use ergo_lib::ergotree_ir::{
@@ -398,6 +429,7 @@ mod tests {
     };
     use serde::Deserialize;
     use serde::Serialize;
+    use sigma_test_util::force_any_val;
     use spectrum_crypto::{
         digest::{blake2b256_hash, Blake2bDigest256},
         pubkey::PublicKey,
@@ -411,6 +443,7 @@ mod tests {
         AggregateCommitment, Commitment,
     };
     use std::collections::HashMap;
+    use std::hash::Hash;
     use std::time::Instant;
 
     use crate::script::{scalar_to_biguint, serialize_exclusion_set, ErgoTermCell, ErgoTermCells};
@@ -420,10 +453,10 @@ mod tests {
     // Script URL: ewoKICAvLyBSZXByZXNlbnRzIHRoZSBudW1iZXIgb2YgZGF0YSBpbnB1dHMgdGhhdCBjb250YWluIHRoZSBHcm91cEVsZW1lbnQgb2YgY29tbWl0dGVlIG1lbWJlcnMuCiAgdmFsIG51bWJlckNvbW1pdHRlZURhdGFJbnB1dEJveGVzID0gQ09OVEVYVC5kYXRhSW5wdXRzKDApLlI1W1Nob3J0XS5nZXQKICB2YWwgZ3JvdXBHZW5lcmF0b3IgICAgICAgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjZbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgZ3JvdXBFbGVtZW50SWRlbnRpdHkgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjdbR3JvdXBFbGVtZW50XS5nZXQKICAvLyBCeXRlIHJlcHJlc2VudGF0aW9uIG9mIEgoWF8xLCAuLi4sIFhfbikKICB2YWwgaW5uZXJCeXRlcyAgICAgICAgICAgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjhbQ29sbFtCeXRlXV0uZ2V0IAoKICAvLyBUaGUgR3JvdXBFbGVtZW50cyBvZiBlYWNoIGNvbW1pdHRlZSBtZW1iZXIgYXJlIGFycmFuZ2VkIHdpdGhpbiBhIENvbGxbR3JvdXBFbGVtZW50XQogIC8vIHJlc2lkaW5nIHdpdGhpbiB0aGUgUjQgcmVnaXN0ZXIgb2YgdGhlIGZpcnN0ICduID09IG51bWJlckNvbW1pdHRlZURhdGFJbnB1dEJveGVzJwogIC8vIGRhdGEgaW5wdXRzLgogIHZhbCBjb21taXR0ZWUgPSBDT05URVhULmRhdGFJbnB1dHMuc2xpY2UoMCwgbnVtYmVyQ29tbWl0dGVlRGF0YUlucHV0Qm94ZXMudG9JbnQpLmZvbGQoCiAgICBDb2xsW0dyb3VwRWxlbWVudF0oKSwKICAgIHsgKGFjYzogQ29sbFtHcm91cEVsZW1lbnRdLCB4OiBCb3gpID0
     const SIGNATURE_AGGREGATION_SCRIPT_BYTES: &str = "6r15oRzuDZbNeMDGSXfSMJhyD7fu95LkC8wR2YekrBEGoSJnEC4BncB8WDVWAMNmWYrLUTdQdNZnwJJXyQjyUnjLDAnqHtPBgq8QvHvEux3YsibhqCMRi1aAcjcdFAbuwXpfbRVt4MkSfHYyovvTHGVAL3JgMpvdjYXwB7DoirYAYZgLSZCRZW2uAN5ZGNL9tzeDPS1BR2cc8ZmYEEFMQdq59s2AXKF4CPkTh2gNxFpeNyJsRNVG3phUJc2nAN1kbYakVZVojwRXkZ6qeGspnG8NaRcKj2KXuvQ4S7dhEeDaEW1qNm2JNNxWhS2hLrkBh6CgpSjVyRhEyvQ4vQxUaPtigfjKVo7jZZETc5uYaRrA4h3tCDZJNcNTaaezpAbmyyak3EjQRGmCziTgwk6g4D9beLobiZQp8Ex3XjMGybr7BSm26idk6yRV5kegj3s835WZvFi6XVXVNwtCTjCVNopZDF6qyvssK1ZKR3sYmLkXSJ4tyi2C94xNbkALrjHcmv2iVZ384dfkAqgsYVyCs1P3tPza1ho5oLcZMbto3YKZD9tDDkawJZH2eA5Grr2cjp2Xbhx61D96d7i1a7uMU95MKEmbVRmRzie2f3RRgn5dPu19wtHrPSHnTXXbWnEvnjbRPtJGGZEUZUawNNNEapU3TK8T83nYDmfVkbRB7VipqPxm7sAFm9LYhch8evmy9YQWurYhvGwTmdmPbmA5PUEpeVmA59cekaK6piN6dXrXx7aX9u6QR3PCtbZqfpSXEk1gmeZ218NK5DXgQZ6jcdVFcQnh62m1RGacuxAoFLeRPh5A2GCb39iguyAnsYDD8sAME2i88AArHfUN3Wor5V6KuJcpeorzdFd5SZPc3ezUckqcXNs3fSXBKK5Yy3SUKQoYGeAsUPucQ3Mha4p3CduGWVbfrrmr8pXARFGU8eHJq9aPHQSYrwEg1WY9mDvDhSC1eXEU3hEfTHEyjRLQzCfTMDNcK2GXYbTfomnKEsSVq3uowXYGKwbMKuuArEkC8cfMFZq4XenvNBW91jkJkZvpG688q5Nk1WqCxBYF8tyo7Y7nLhWC7pQY7nZJgWtgTH1ubzu1TBWmP72YxfFwqua2iLFrwreDg9tNtFFhP9j5fwASM6GBheUPrkDbjoBXDdvYVZrmLyfkcEhgKpaGUkh5UYg85RDRkntqpgrctRAgG6B1Ahq2UNCVLq2V5WWj9pAUmV7SQaCfmb8N3dXCcTF4KgnZ3AdPF8UnWNsvjwfagqEV3x1EyfnhhDs";
 
-    const VAULT_CONTRACT_SCRIPT_BYTES: &str = "5qvovJe4jYUgkZqdeosH5ogC1fMChsEhjVgN5fw7tPe4iwZZeFevDeauJH8kJXZeVEofJ2ieXQwWT2B8SswGLZquG72W8NdzNoUrqMGQJLHMvnz7pkuLLYgaxvvrbq2S9vxXCYj6MVi7gsgBy6AhXY3CAVAqU98LbTrGmjaGwYtTqhCJphkZX18VT6C1yyQD2ogYFPLVGwojFcooYXtEHS4tLYD1wUCY9pkaHshH1ZWJUAyQgEM9R39XdQJua4pArh33Fpzjxq1mH3wJbiLsAZTx9uhfX6fEdvLjZW6W72uAaBEpTKh8ss9Xm9z7aLfLvhXdBw9vNtZAZZvQqj9AW8nKUisHd8PkGjE2RHDmehA9Ls1PWGHPiHUXcYKTJviKpuLfiKVeYSGkMmVsq2QUv6TaucGvoyJW1EcHoygp1UwxivhCXSqiZeDTHavYyM4Xsk1VNm3nDiyfRAeUwdKZ9XHqFz91QirE3QmhFvocvgZbZKVijq1VriRynS81M9uW1WaNecQdMxaBAnmytCoBgBcEBuhL28P76DrMHY27AJwxtYA9VwsGWGtcqrnu9YsqiBXuAbLuA2tSbj5fMGVJPzwXxqC7oXjya8k85kENGBg9nz2bFRYPjvLmTDYJ22Ra4wLCyiFFVaYDFerqPQZc4MJx5CEEYMt5WMnJioL7VmD7XcHMmQzUxxNTZXAMjtpyfnXUaidXj8ehXE6S5koh4Yytke7gaMgEU7uCLmt7A1sr63YBVkGFWo6mqeyJvfFEz5Wf6C8xz9eorVG8quM41yCSL2hDYbAZEEdnQfChJ6PQtRMtSrYBipG2B9NZRWuSPNSo4wN2ZYm4pjKnAHdCovLEmLjb1r3tV3QK4FkwXb7faZkHUUM6CABt2gvb9QyuozJ1Y3HYWmXwEDpN3aHxyibXD2JeBZMuubpTPTYJioEgsWa13kr5aMvmZKbTGab8nRYbLGgBcHSHReJK31wP4mgSAvkN4RxUTFSh3QLEUwMMBb4m5ouzQ38mA1z5qorFiEueT9BwZfajPZThibbUtLGjWmLkSmvUFUGJvN5zVN5j3qHv73wUpxT9oLjG62MseheBfLkLN5o7zFrPg6qGKd2KYwtxFYrDJxvx7pYTwRvMUDsmXg2aCHjgtBv9gmT42TS58eBHtUYeSoUr44Ewt19W51TPmqFVVaMmpte4fxDDnuBoXWeQF2pPfhn6jsN1Z8QUoTaz5mJD93qCrka94htBh5e3oRXGUCWu2CTuLpm7vQPQtviCfwssV4KfXBB1kbwtjAjaDmHUPHG84XVoSbsoB4QrZE49A73BCPwWerXs4MXvnvYaX7chw411EQjceLKV1QmX2NBp3d4vWHxME1Lts3RCdYBwXxEJMLdmcZH5TkN36XEC2anzj9i3gDJBAtJEU8ssLwBw9ZEMGg8J";
+    const VAULT_CONTRACT_SCRIPT_BYTES: &str = "8Z4GpqruzZoTPWK3uhBjRKyameD4Rr8BdsWC5ZHhpeQgzm6r3rjxeyiePX9HGs4m6whFHG7v1cYRVXSA8MxEEMvBfVVZmjd2LU4cRrgMpSQHjm8SZpwLjMTDgW1kutonuXj5NysngFtF5J3QKh2pxiJPkpRnAWsVa84R4EMG5q3ZqYgt2jmFJbvjUhvPe4ScNdM32oc9T7YVVqePnzmsgp7QP3LzQYyWuxWCMoC5MPa2ZdCzdQNHZ8v1f4HVvJRvkL9QebpjvBjWX6mEXX4UPjtEwofjFjeBH3KWXq5zRmqjuvDPk2qCQ4hLY7NJ6HLmiCAyCV3UzFkqcCHn6yT3JuS4PHhzzYo7MCpGyEPEe9bG5s94rjqfKzFSuj2QfSkNwkRM4KuzcAGNSAMcvaMo5fV3L3ZjpjcQKnvUXKYu2gU6Jf2PCNnenH21bsuTMXURMWRygMv44Z9ZuNWjzcLq3gFMSBun4FoV5udhLznE75Gs7mUgBphLCZyv1nwLM1sYtxjjuQZnqx7DP2vcyji7Efsn6iGPkbY5Xype1Y37Lsr76ZZYbaDQL19qNnXpqTW8pMWyUptaooKFFMG32z1ARMZQ8SJdNe4RYYHFCWmydvLMU34nGMu5if2tvKcbtDyNiL33yhycgV2nm7Q414brukTakxirA9K7qPemmjVLuNtuVhs5mHWh9TXKM32k84tKfCQgSnb9mfmuXya4q2ttzCsJ2kieHTwMvA4Mrwy9CVoThzT8nLzhEeTW9f9gJvL1tgAyxmajtYknXsbnz2nPDYFYxhuNcT2xK3d1c9Kxwru8GcMBBSmNmpp91SvVdyBQndtsyKGCvkhBbQt79o3bzMUbjCAQQum9QyWfYR2X9qDdpqB3ZECgVhEHP61NxKuNAAYFjmby5UMQY1vNB6SkUZrCHAA4djiiwyct6p6ioTjwT3GCGkkQqXptxzSc9hbe4YqfLmX76hvYjfHvZD2wxsgbHV6MBLyD1PHTVhmgPa9DSxcomndWGbvm9HojT61wpDWS3C3CkAFt94VniqCFfEHFmik8Tb7BtLQfmTnL5hHzEs5gWEb4HAngdBTmY9G9bT11YSdVKAc9mLAuHaeL7Qp2gF93jTpmz9Wr2rtXZaVkYZMeoaNgvXo2LU7UF34CnBBMX9GDfXUXkHf32JZ6VAKNX3gfwQShHGmE9crB2LTPm9zoZ8jpE4ixajdeusY9vHFkY2nowmzzHn9Sxauiu4svrz6HpRWNHRGccDcUpCgcVKmbGRVxT6URaEwq8M8F2dmtfrY3pAA4sXP8WfbqbsAiQaevN2oeDi7mZAfMR6akDLW5YoyUNv5YijLVeU4sZokBrCft8S17Uk6pXBcF8Jmsk7Vpovbr8woT7wpqks1Z9vYRwrnREQSRC4H1QywXLCKUMjFgvojYK3U55ZtyGxZKQTsLwPFLWuZj5uHDodvTAnCDPDTtdP9W7fiV4mtonbUkht22T2U35fkE6wp22MJpMJd3N2C7hSYbDBQPGACaAqULpdSZrbVGAHETpPuwgxPFUerjLwHttmRU1FWY5o8jumVixiGHNLCXtzUhX46FYxfSC9fEni78ydPQZUoYpcMRPyRZU1af3oFcyzsZXiysz2P9Q4NG75cbqkMperPhoZjBWo8mAfKbqmoXgfHdg6LduHk8fukz3Hfya5Grzo";
 
-    const KEY_LENGTH: usize = 32;
-    const VALUE_LENGTH: usize = 8;
+    const KEY_LENGTH: usize = 8;
+    const VALUE_LENGTH: usize = 32;
     const MIN_KEY: [u8; KEY_LENGTH] = [0u8; KEY_LENGTH];
     const MAX_KEY: [u8; KEY_LENGTH] = [0xFFu8; KEY_LENGTH];
 
@@ -527,7 +560,7 @@ mod tests {
                 .unwrap();
         let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], vec![]).unwrap();
         let wallet = get_wallet();
-        let ergo_state_context: ErgoStateContext = dummy_ergo_state_context();
+        let ergo_state_context = force_any_val::<ErgoStateContext>();
         let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
         println!("{:?}", res);
         assert!(res.is_ok());
@@ -591,7 +624,7 @@ mod tests {
                 .unwrap();
         let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], vec![]).unwrap();
         let wallet = get_wallet();
-        let ergo_state_context: ErgoStateContext = dummy_ergo_state_context();
+        let ergo_state_context = force_any_val::<ErgoStateContext>();
         let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
         println!("{:?}", res);
         assert!(res.is_ok());
@@ -600,56 +633,6 @@ mod tests {
     fn get_wallet() -> Wallet {
         const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
         Wallet::from_mnemonic(SEED_PHRASE, "").expect("Invalid seed")
-    }
-
-    fn dummy_ergo_state_context() -> ErgoStateContext {
-        let mut rng = OsRng;
-        let pre_header = PreHeader {
-            version: 1,
-            parent_id: BlockId(Digest::zero()),
-            timestamp: 1234,
-            n_bits: 1234,
-            height: 900000,
-            miner_pk: Box::new(EcPoint::from(
-                SecretKey::random(&mut rng).public_key().to_projective(),
-            )),
-            votes: Votes([0, 0, 0]),
-        };
-
-        let header = Header {
-            version: 1,
-            id: BlockId(Digest::zero()),
-            parent_id: BlockId(Digest::zero()),
-            ad_proofs_root: Digest::zero(),
-            state_root: Digest::zero(),
-            transaction_root: Digest::zero(),
-            timestamp: 1234,
-            n_bits: 1234,
-            height: 900000,
-            extension_root: Digest::zero(),
-            autolykos_solution: ergo_lib::ergo_chain_types::AutolykosSolution {
-                miner_pk: Box::new(EcPoint::from(
-                    SecretKey::random(&mut rng).public_key().to_projective(),
-                )),
-                pow_onetime_pk: None,
-                nonce: vec![0, 1, 2, 3],
-                pow_distance: None,
-            },
-            votes: Votes([0, 0, 0]),
-        };
-        let headers = [
-            header.clone(),
-            header.clone(),
-            header.clone(),
-            header.clone(),
-            header.clone(),
-            header.clone(),
-            header.clone(),
-            header.clone(),
-            header.clone(),
-            header.clone(),
-        ];
-        ErgoStateContext { pre_header, headers }
     }
 
     #[test]
@@ -988,15 +971,25 @@ mod tests {
         )
             .into();
 
-        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
-        let address = encoder.parse_address_from_str("4MQyML64GnzMxZgm").unwrap();
-        let token_id = TokenId::from(ergo_lib::ergo_chain_types::Digest32::zero());
-        let amount = TokenAmount::try_from(3_u64).unwrap();
-        let term_cell = ErgoTermCell {
-            ergs: BoxValue::try_from(3000000_u64).unwrap(),
-            address,
-            tokens: vec![Token { token_id, amount }], //token.clone()],
-        };
+        let mut rng = OsRng;
+        let term_cells: Vec<_> = (0..10)
+            .map(|_| {
+                let address = generate_address();
+                let ergs = BoxValue::try_from(rng.gen_range(1_u64..=9000000000)).unwrap();
+                let contains_tokens = rng.gen_bool(0.5);
+                let tokens = if contains_tokens {
+                    let num_tokens = rng.gen_range(0_usize..=10);
+                    (0..num_tokens).map(|_| gen_random_token()).collect()
+                } else {
+                    vec![]
+                };
+                ErgoTermCell {
+                    ergs,
+                    address,
+                    tokens,
+                }
+            })
+            .collect();
 
         let signature_input = SignatureValidationInput {
             contract: VAULT_CONTRACT_SCRIPT_BYTES.to_string(),
@@ -1013,11 +1006,62 @@ mod tests {
             hash_bytes: Constant::from(committee_bytes.clone()).base16_str().unwrap(),
         };
 
+        let empty_tree = AVLTree::new(dummy_resolver, KEY_LENGTH, Some(VALUE_LENGTH));
+        let mut prover = BatchAVLProver::new(empty_tree.clone(), true);
+        let initial_digest = prover.digest().unwrap().to_vec();
+
+        let mut pairs = vec![];
+        for (i, cell) in term_cells.iter().enumerate() {
+            let value = Bytes::copy_from_slice(blake2b256_hash(&cell.to_bytes()).as_ref());
+            let key_bytes = ((i + 1) as i64).to_be_bytes();
+            let key = Bytes::copy_from_slice(&key_bytes);
+            let kv = KeyValue { key, value };
+            let insert = Operation::Insert(kv.clone());
+            pairs.push(kv);
+            prover.perform_one_operation(&insert).unwrap();
+        }
+
+        let operations_vec: Vec<_> = pairs
+            .into_iter()
+            .map(|kv| {
+                let key_const = Literal::from(kv.key.to_vec());
+                let value_const = Literal::from(kv.value.to_vec());
+                Literal::Tup(TupleItems::try_from(vec![key_const, value_const]).unwrap())
+            })
+            .collect();
+
+        let operations_tpe = SType::SColl(Box::new(SType::STuple(STuple::pair(
+            SType::SColl(Box::new(SType::SByte)),
+            SType::SColl(Box::new(SType::SByte)),
+        ))));
+        let operations_lit = Literal::Coll(CollKind::WrappedColl {
+            elem_tpe: SType::STuple(STuple::pair(
+                SType::SColl(Box::new(SType::SByte)),
+                SType::SColl(Box::new(SType::SByte)),
+            )),
+            items: operations_vec,
+        });
+        let operations_const = Constant {
+            tpe: operations_tpe,
+            v: operations_lit,
+        };
+
+        let proof = Constant::from(prover.generate_proof().to_vec());
+        let resulting_digest = Constant::from(prover.digest().unwrap().to_vec());
+        let avl_tree_data = AvlTreeData {
+            digest: Digest::<33>::try_from(initial_digest).unwrap(),
+            tree_flags: AvlTreeFlags::new(true, false, false),
+            key_length: KEY_LENGTH as u32,
+            value_length_opt: Some(Box::new(VALUE_LENGTH as u32)),
+        };
+        let avl_const = Constant::from(avl_tree_data);
         let input = VaultValidationInput {
             signature_input,
-            terminal_cells: Constant::from(ErgoTermCells(vec![term_cell]))
-                .base16_str()
-                .unwrap(),
+            terminal_cells: Constant::from(ErgoTermCells(term_cells)).base16_str().unwrap(),
+            starting_avl_tree: avl_const.base16_str().unwrap(),
+            avl_operations: operations_const.base16_str().unwrap(),
+            avl_proof: proof.base16_str().unwrap(),
+            resulting_avl_digest: resulting_digest.base16_str().unwrap(),
         };
 
         let raw = reqwest::Client::new()
@@ -1031,6 +1075,7 @@ mod tests {
 
         println!("{}", serde_json::to_string(&details).unwrap());
     }
+
     #[test]
     fn test_committee_box_size() {
         let num_participants = 115;
@@ -1316,7 +1361,7 @@ mod tests {
         .unwrap();
         let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], data_boxes).unwrap();
         let wallet = get_wallet();
-        let ergo_state_context: ErgoStateContext = dummy_ergo_state_context();
+        let ergo_state_context = force_any_val::<ErgoStateContext>();
         let now = Instant::now();
         println!("Signing TX...");
         let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
@@ -1501,7 +1546,7 @@ mod tests {
         .unwrap();
         let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], data_boxes).unwrap();
         let wallet = get_wallet();
-        let ergo_state_context: ErgoStateContext = dummy_ergo_state_context();
+        let ergo_state_context = force_any_val::<ErgoStateContext>();
         let now = Instant::now();
         println!("Signing TX...");
         let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
@@ -1581,6 +1626,14 @@ mod tests {
         signature_input: SignatureValidationInput,
         #[serde(rename = "terminalCells")]
         terminal_cells: String,
+        #[serde(rename = "startingAvlTree")]
+        starting_avl_tree: String,
+        #[serde(rename = "avlOperations")]
+        avl_operations: String,
+        #[serde(rename = "avlProof")]
+        avl_proof: String,
+        #[serde(rename = "resultingAvlDigest")]
+        resulting_avl_digest: String,
     }
 
     #[derive(Deserialize, Serialize)]
@@ -1607,5 +1660,25 @@ mod tests {
         fn from(value: ValidationResponse) -> Self {
             value.right.value
         }
+    }
+
+    fn gen_random_token() -> Token {
+        let mut token = force_any_val::<Token>();
+        let mut digest = ergo_lib::ergo_chain_types::Digest32::zero();
+
+        let mut rng = rand::thread_rng();
+        rng.fill(&mut digest.0);
+        token.token_id = TokenId::from(digest);
+        token
+    }
+
+    fn generate_address() -> Address {
+        let mut rng = OsRng;
+        let sk = SecretKey::random(&mut rng);
+        let pk = PublicKey::from(sk.public_key());
+        let proj = k256::PublicKey::from(pk.clone()).to_projective();
+        Address::P2Pk(
+            ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::ProveDlog::from(EcPoint::from(proj)),
+        )
     }
 }
