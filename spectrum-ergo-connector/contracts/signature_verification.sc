@@ -21,7 +21,13 @@
   val aggregateResponseRaw = getVar[(Coll[Byte], Int)](1).get // z
   val aggregateCommitment  = getVar[GroupElement](2).get // Y
   val message              = getVar[Coll[Byte]](3).get
-  val threshold            = getVar[Int](4).get 
+  val threshold            = getVar[Int](4).get
+  val terminalCells        = getVar[Coll[(Long, (Coll[Byte], Coll[(Coll[Byte], Long)]))]](5).get
+
+  val tree                 = getVar[AvlTree](6).get
+  val operations           = getVar[Coll[(Coll[Byte], Coll[Byte])]](7).get
+  val proof                = getVar[Coll[Byte]](8).get
+  val digest               = getVar[Coll[Byte]](9).get
 
   // Performs exponentiation of a GroupElement by an unsigned 256bit
   // integer I using the following decomposition of I:
@@ -182,9 +188,51 @@
 
   val verifyThreshold = (committee.size - verificationData.size) >= threshold
 
+  val verifyTxOutputs = terminalCells.zip(OUTPUTS).forall { (e: ((Long, (Coll[Byte], Coll[(Coll[Byte], Long)])), Box)) => 
+    val termCell = e._1
+    val outputBox = e._2
+    val termCellTokens: Coll[(Coll[Byte], Long)] = termCell._2._2
+    outputBox.value == termCell._1 &&
+    outputBox.propositionBytes == termCell._2._1 &&
+    outputBox.tokens.size == termCell._2._2.size &&
+    outputBox.tokens.zip(termCellTokens).forall { (e: ((Coll[Byte], Long), (Coll[Byte], Long))) =>
+      e._1 == e._2      
+    }
+  }
+
+  def hashTerminalCell(cell: (Long, (Coll[Byte], Coll[(Coll[Byte], Long)]))) : Coll[Byte] = {
+    val nanoErgs = cell._1
+    val propBytes = cell._2._1
+    val tokens = cell._2._2
+    val tokenBytes = tokens.fold(
+      Coll[Byte](),
+      { (acc: Coll[Byte], t: (Coll[Byte], Long)) =>
+          acc ++ t._1 ++ longToByteArray(t._2)
+      }      
+    )
+    val bytes = longToByteArray(nanoErgs) ++ propBytes ++ tokenBytes
+    blake2b256(bytes) 
+  }
+
+  val endTree = tree.insert(operations, proof).get
+  val verifyDigest = endTree.digest == digest && blake2b256(digest) == message
+
+  val verifyOperations = operations.size > 0 && operations.zip(terminalCells.zip(terminalCells.indices)).forall {
+    (e: ((Coll[Byte], Coll[Byte]), ((Long, (Coll[Byte], Coll[(Coll[Byte], Long)])), Int)) ) =>
+      val key = e._1._1
+      val value = e._1._2
+      val terminalCell = e._2._1
+      val ix = e._2._2 + 1
+      key == longToByteArray(ix.toLong) &&
+        value == hashTerminalCell(terminalCell)
+  }
+
   sigmaProp (
+    verifyDigest &&
+    verifyOperations &&
     verifyAggregateResponse &&
     verifySignaturesInExclusionSet &&
-    verifyThreshold
+    verifyThreshold &&
+    verifyTxOutputs
   )
 }

@@ -443,7 +443,6 @@ mod tests {
         AggregateCommitment, Commitment,
     };
     use std::collections::HashMap;
-    use std::hash::Hash;
     use std::time::Instant;
 
     use crate::script::{scalar_to_biguint, serialize_exclusion_set, ErgoTermCell, ErgoTermCells};
@@ -453,7 +452,8 @@ mod tests {
     // Script URL: ewoKICAvLyBSZXByZXNlbnRzIHRoZSBudW1iZXIgb2YgZGF0YSBpbnB1dHMgdGhhdCBjb250YWluIHRoZSBHcm91cEVsZW1lbnQgb2YgY29tbWl0dGVlIG1lbWJlcnMuCiAgdmFsIG51bWJlckNvbW1pdHRlZURhdGFJbnB1dEJveGVzID0gQ09OVEVYVC5kYXRhSW5wdXRzKDApLlI1W1Nob3J0XS5nZXQKICB2YWwgZ3JvdXBHZW5lcmF0b3IgICAgICAgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjZbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgZ3JvdXBFbGVtZW50SWRlbnRpdHkgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjdbR3JvdXBFbGVtZW50XS5nZXQKICAvLyBCeXRlIHJlcHJlc2VudGF0aW9uIG9mIEgoWF8xLCAuLi4sIFhfbikKICB2YWwgaW5uZXJCeXRlcyAgICAgICAgICAgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjhbQ29sbFtCeXRlXV0uZ2V0IAoKICAvLyBUaGUgR3JvdXBFbGVtZW50cyBvZiBlYWNoIGNvbW1pdHRlZSBtZW1iZXIgYXJlIGFycmFuZ2VkIHdpdGhpbiBhIENvbGxbR3JvdXBFbGVtZW50XQogIC8vIHJlc2lkaW5nIHdpdGhpbiB0aGUgUjQgcmVnaXN0ZXIgb2YgdGhlIGZpcnN0ICduID09IG51bWJlckNvbW1pdHRlZURhdGFJbnB1dEJveGVzJwogIC8vIGRhdGEgaW5wdXRzLgogIHZhbCBjb21taXR0ZWUgPSBDT05URVhULmRhdGFJbnB1dHMuc2xpY2UoMCwgbnVtYmVyQ29tbWl0dGVlRGF0YUlucHV0Qm94ZXMudG9JbnQpLmZvbGQoCiAgICBDb2xsW0dyb3VwRWxlbWVudF0oKSwKICAgIHsgKGFjYzogQ29sbFtHcm91cEVsZW1lbnRdLCB4OiBCb3gpID0
     const SIGNATURE_AGGREGATION_SCRIPT_BYTES: &str = "6r15oRzuDZbNeMDGSXfSMJhyD7fu95LkC8wR2YekrBEGoSJnEC4BncB8WDVWAMNmWYrLUTdQdNZnwJJXyQjyUnjLDAnqHtPBgq8QvHvEux3YsibhqCMRi1aAcjcdFAbuwXpfbRVt4MkSfHYyovvTHGVAL3JgMpvdjYXwB7DoirYAYZgLSZCRZW2uAN5ZGNL9tzeDPS1BR2cc8ZmYEEFMQdq59s2AXKF4CPkTh2gNxFpeNyJsRNVG3phUJc2nAN1kbYakVZVojwRXkZ6qeGspnG8NaRcKj2KXuvQ4S7dhEeDaEW1qNm2JNNxWhS2hLrkBh6CgpSjVyRhEyvQ4vQxUaPtigfjKVo7jZZETc5uYaRrA4h3tCDZJNcNTaaezpAbmyyak3EjQRGmCziTgwk6g4D9beLobiZQp8Ex3XjMGybr7BSm26idk6yRV5kegj3s835WZvFi6XVXVNwtCTjCVNopZDF6qyvssK1ZKR3sYmLkXSJ4tyi2C94xNbkALrjHcmv2iVZ384dfkAqgsYVyCs1P3tPza1ho5oLcZMbto3YKZD9tDDkawJZH2eA5Grr2cjp2Xbhx61D96d7i1a7uMU95MKEmbVRmRzie2f3RRgn5dPu19wtHrPSHnTXXbWnEvnjbRPtJGGZEUZUawNNNEapU3TK8T83nYDmfVkbRB7VipqPxm7sAFm9LYhch8evmy9YQWurYhvGwTmdmPbmA5PUEpeVmA59cekaK6piN6dXrXx7aX9u6QR3PCtbZqfpSXEk1gmeZ218NK5DXgQZ6jcdVFcQnh62m1RGacuxAoFLeRPh5A2GCb39iguyAnsYDD8sAME2i88AArHfUN3Wor5V6KuJcpeorzdFd5SZPc3ezUckqcXNs3fSXBKK5Yy3SUKQoYGeAsUPucQ3Mha4p3CduGWVbfrrmr8pXARFGU8eHJq9aPHQSYrwEg1WY9mDvDhSC1eXEU3hEfTHEyjRLQzCfTMDNcK2GXYbTfomnKEsSVq3uowXYGKwbMKuuArEkC8cfMFZq4XenvNBW91jkJkZvpG688q5Nk1WqCxBYF8tyo7Y7nLhWC7pQY7nZJgWtgTH1ubzu1TBWmP72YxfFwqua2iLFrwreDg9tNtFFhP9j5fwASM6GBheUPrkDbjoBXDdvYVZrmLyfkcEhgKpaGUkh5UYg85RDRkntqpgrctRAgG6B1Ahq2UNCVLq2V5WWj9pAUmV7SQaCfmb8N3dXCcTF4KgnZ3AdPF8UnWNsvjwfagqEV3x1EyfnhhDs";
 
-    const VAULT_CONTRACT_SCRIPT_BYTES: &str = "8Z4GpqruzZoTPWK3uhBjRKyameD4Rr8BdsWC5ZHhpeQgzm6r3rjxeyiePX9HGs4m6whFHG7v1cYRVXSA8MxEEMvBfVVZmjd2LU4cRrgMpSQHjm8SZpwLjMTDgW1kutonuXj5NysngFtF5J3QKh2pxiJPkpRnAWsVa84R4EMG5q3ZqYgt2jmFJbvjUhvPe4ScNdM32oc9T7YVVqePnzmsgp7QP3LzQYyWuxWCMoC5MPa2ZdCzdQNHZ8v1f4HVvJRvkL9QebpjvBjWX6mEXX4UPjtEwofjFjeBH3KWXq5zRmqjuvDPk2qCQ4hLY7NJ6HLmiCAyCV3UzFkqcCHn6yT3JuS4PHhzzYo7MCpGyEPEe9bG5s94rjqfKzFSuj2QfSkNwkRM4KuzcAGNSAMcvaMo5fV3L3ZjpjcQKnvUXKYu2gU6Jf2PCNnenH21bsuTMXURMWRygMv44Z9ZuNWjzcLq3gFMSBun4FoV5udhLznE75Gs7mUgBphLCZyv1nwLM1sYtxjjuQZnqx7DP2vcyji7Efsn6iGPkbY5Xype1Y37Lsr76ZZYbaDQL19qNnXpqTW8pMWyUptaooKFFMG32z1ARMZQ8SJdNe4RYYHFCWmydvLMU34nGMu5if2tvKcbtDyNiL33yhycgV2nm7Q414brukTakxirA9K7qPemmjVLuNtuVhs5mHWh9TXKM32k84tKfCQgSnb9mfmuXya4q2ttzCsJ2kieHTwMvA4Mrwy9CVoThzT8nLzhEeTW9f9gJvL1tgAyxmajtYknXsbnz2nPDYFYxhuNcT2xK3d1c9Kxwru8GcMBBSmNmpp91SvVdyBQndtsyKGCvkhBbQt79o3bzMUbjCAQQum9QyWfYR2X9qDdpqB3ZECgVhEHP61NxKuNAAYFjmby5UMQY1vNB6SkUZrCHAA4djiiwyct6p6ioTjwT3GCGkkQqXptxzSc9hbe4YqfLmX76hvYjfHvZD2wxsgbHV6MBLyD1PHTVhmgPa9DSxcomndWGbvm9HojT61wpDWS3C3CkAFt94VniqCFfEHFmik8Tb7BtLQfmTnL5hHzEs5gWEb4HAngdBTmY9G9bT11YSdVKAc9mLAuHaeL7Qp2gF93jTpmz9Wr2rtXZaVkYZMeoaNgvXo2LU7UF34CnBBMX9GDfXUXkHf32JZ6VAKNX3gfwQShHGmE9crB2LTPm9zoZ8jpE4ixajdeusY9vHFkY2nowmzzHn9Sxauiu4svrz6HpRWNHRGccDcUpCgcVKmbGRVxT6URaEwq8M8F2dmtfrY3pAA4sXP8WfbqbsAiQaevN2oeDi7mZAfMR6akDLW5YoyUNv5YijLVeU4sZokBrCft8S17Uk6pXBcF8Jmsk7Vpovbr8woT7wpqks1Z9vYRwrnREQSRC4H1QywXLCKUMjFgvojYK3U55ZtyGxZKQTsLwPFLWuZj5uHDodvTAnCDPDTtdP9W7fiV4mtonbUkht22T2U35fkE6wp22MJpMJd3N2C7hSYbDBQPGACaAqULpdSZrbVGAHETpPuwgxPFUerjLwHttmRU1FWY5o8jumVixiGHNLCXtzUhX46FYxfSC9fEni78ydPQZUoYpcMRPyRZU1af3oFcyzsZXiysz2P9Q4NG75cbqkMperPhoZjBWo8mAfKbqmoXgfHdg6LduHk8fukz3Hfya5Grzo";
+    // Script URL: https://wallet.plutomonkey.com/p2s/?source=ewoKICAvLyBSZXByZXNlbnRzIHRoZSBudW1iZXIgb2YgZGF0YSBpbnB1dHMgdGhhdCBjb250YWluIHRoZSBHcm91cEVsZW1lbnQgb2YgY29tbWl0dGVlIG1lbWJlcnMuCiAgdmFsIG51bWJlckNvbW1pdHRlZURhdGFJbnB1dEJveGVzID0gQ09OVEVYVC5kYXRhSW5wdXRzKDApLlI1W1Nob3J0XS5nZXQKICB2YWwgZ3JvdXBHZW5lcmF0b3IgICAgICAgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjZbR3JvdXBFbGVtZW50XS5nZXQKICB2YWwgZ3JvdXBFbGVtZW50SWRlbnRpdHkgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjdbR3JvdXBFbGVtZW50XS5nZXQKICAvLyBCeXRlIHJlcHJlc2VudGF0aW9uIG9mIEgoWF8xLCAuLi4sIFhfbikKICB2YWwgaW5uZXJCeXRlcyAgICAgICAgICAgPSBDT05URVhULmRhdGFJbnB1dHMoMCkuUjhbQ29sbFtCeXRlXV0uZ2V0IAoKICAvLyBUaGUgR3JvdXBFbGVtZW50cyBvZiBlYWNoIGNvbW1pdHRlZSBtZW1iZXIgYXJlIGFycmFuZ2VkIHdpdGhpbiBhIENvbGxbR3JvdXBFbGVtZW50XQogIC8vIHJlc2lkaW5nIHdpdGhpbiB0aGUgUjQgcmVnaXN0ZXIgb2YgdGhlIGZpcnN0ICduID09IG51bWJlckNvbW1pdHRlZURhdGFJbnB1dEJveGVzJwogIC8vIGRhdGEgaW5wdXRzLgogIHZhbCBjb21taXR0ZWUgPSBDT05URVhULmRhdGFJbnB1dHMuc2xpY2UoMCwgbnVtYmVyQ29tbWl0dGVlRGF0YUlucHV0Qm94ZXMudG9JbnQpLmZvbGQoCiAgICBDb2xsW0dyb3VwRWxlbWVudF0oKSwKICAgIHsgKGFjYzogQ29sbFtHcm91cEVsZW1lbnRdLCB4OiBCb3gpID0+CiAgICAgICAgYWNjLmFwcGVuZCh4LlI0W0NvbGxbR3JvdXBFbGVtZW50XV0uZ2V0KQogICAgfQogICkKCiAgdmFsIHZlcmlmaWNhdGlvbkRhdGEgICAgID0gZ2V0VmFyW0NvbGxbKChJbnQsIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSwgKChDb2xsW0J5dGVdLCBJbnQpLCAoR3JvdXBFbGVtZW50LCBDb2xsW0J5dGVdKSkgKV1dKDApLmdldAogIHZhbCBhZ2dyZWdhdGVSZXNwb25zZVJhdyA9IGdldFZhclsoQ29sbFtCeXRlXSwgSW50KV0oMSkuZ2V0IC8vIHoKICB2YWwgYWdncmVnYXRlQ29tbWl0bWVudCAgPSBnZXRWYXJbR3JvdXBFbGVtZW50XSgyKS5nZXQgLy8gWQogIHZhbCBtZXNzYWdlICAgICAgICAgICAgICA9IGdldFZhcltDb2xsW0J5dGVdXSgzKS5nZXQKICB2YWwgdGhyZXNob2xkICAgICAgICAgICAgPSBnZXRWYXJbSW50XSg0KS5nZXQKICB2YWwgdGVybWluYWxDZWxscyAgICAgICAgPSBnZXRWYXJbQ29sbFsoTG9uZywgKENvbGxbQnl0ZV0sIENvbGxbKENvbGxbQnl0ZV0sIExvbmcpXSkpXV0oNSkuZ2V0CgogIHZhbCB0cmVlICAgICAgICA9IGdldFZhcltBdmxUcmVlXSg2KS5nZXQKICB2YWwgb3BlcmF0aW9ucyAgPSBnZXRWYXJbQ29sbFsoQ29sbFtCeXRlXSwgQ29sbFtCeXRlXSldXSg3KS5nZXQKICB2YWwgcHJvb2YgICAgICAgPSBnZXRWYXJbQ29sbFtCeXRlXV0oOCkuZ2V0CiAgdmFsIGRpZ2VzdCAgICAgID0gZ2V0VmFyW0NvbGxbQnl0ZV1dKDkpLmdldAoKICAvLyBQZXJmb3JtcyBleHBvbmVudGlhdGlvbiBvZiBhIEdyb3VwRWxlbWVudCBieSBhbiB1bnNpZ25lZCAyNTZiaXQKICAvLyBpbnRlZ2VyIEkgdXNpbmcgdGhlIGZvbGxvd2luZyBkZWNvbXBvc2l0aW9uIG9mIEk6CiAgLy8gTGV0IGUgPSAoZywgKGIsIG4pKS4gVGhlbiB0aGlzIGZ1bmN0aW9uIGNvbXB1dGVzOgogIC8vCiAgLy8gICBnXkkgPT0gKGdeYigwLG4pKV5wICogZ14oYihuLi4pKQogIC8vIHdoZXJlCiAgLy8gIC0gYigwLG4pIGlzIHRoZSBmaXJzdCBuIGJ5dGVzIG9mIGEgcG9zaXRpdmUgQmlnSW50IGBVYAogIC8vICAtIGIobi4uKSBhcmUgdGhlIHJlbWFpbmluZyBieXRlcyBzdGFydGluZyBmcm9tIGluZGV4IG4uIFRoZXNlIGJ5dGVzCiAgLy8gICAgYWxzbyByZXByZXNlbnQgYSBwb3NpdGl2ZSBCaWdJbnQgYExgLgogIC8vICAtIHAgaXMgMzQwMjgyMzY2OTIwOTM4NDYzNDYzMzc0NjA3NDMxNzY4MjExNDU2IGJhc2UgMTAuCiAgLy8gIC0gSSA9PSBVICogcCArIEwKICBkZWYgbXlFeHAoZTogKEdyb3VwRWxlbWVudCwgKENvbGxbQnl0ZV0sIEludCkpKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIHZhbCB4ID0gZS5fMQogICAgdmFsIHkgPSBlLl8yLl8xCiAgICB2YWwgbGVuID0gZS5fMi5fMgogICAgdmFsIHVwcGVyID0gYnl0ZUFycmF5VG9CaWdJbnQoeS5zbGljZSgwLCBsZW4pKQogICAgdmFsIGxvd2VyID0gYnl0ZUFycmF5VG9CaWdJbnQoeS5zbGljZShsZW4sIHkuc2l6ZSkpCgogICAgLy8gVGhlIGZvbGxvd2luZyB2YWx1ZSBpcyAzNDAyODIzNjY5MjA5Mzg0NjM0NjMzNzQ2MDc0MzE3NjgyMTE0NTYgYmFzZS0xMC4KICAgIHZhbCBwID0gYnl0ZUFycmF5VG9CaWdJbnQoZnJvbUJhc2U2NCgiQVFBQUFBQUFBQUFBQUFBQUFBQUFBQUEiKSkKICAgCiAgICB4LmV4cCh1cHBlcikuZXhwKHApLm11bHRpcGx5KHguZXhwKGxvd2VyKSkKICB9CgogIC8vIENvbnZlcnRzIGEgYmlnLWVuZGlhbiBieXRlIHJlcHJlc2VudGF0aW9uIG9mIGFuIHVuc2lnbmVkIGludGVnZXIgaW50byBpdHMKICAvLyBlcXVpdmFsZW50IHNpZ25lZCByZXByZXNlbnRhdGlvbgogIGRlZiB0b1NpZ25lZEJ5dGVzKGI6IENvbGxbQnl0ZV0pIDogQ29sbFtCeXRlXSA9IHsKICAgIC8vIE5vdGUgdGhhdCBhbGwgaW50ZWdlcnMgKGluY2x1ZGluZyBCeXRlKSBpbiBFcmdvc2NyaXB0IGFyZSBzaWduZWQuIEluIHN1Y2gKICAgIC8vIGEgcmVwcmVzZW50YXRpb24sIHRoZSBtb3N0LXNpZ25pZmljYW50IGJpdCAoTVNCKSBpcyB1c2VkIHRvIHJlcHJlc2VudCB0aGUKICAgIC8vIHNpZ247IDAgZm9yIGEgcG9zaXRpdmUgaW50ZWdlciBhbmQgMSBmb3IgbmVnYXRpdmUuIE5vdyBzaW5jZSBgYmAgaXMgYmlnLQogICAgLy8gZW5kaWFuLCB0aGUgTVNCIHJlc2lkZXMgaW4gdGhlIGZpcnN0IGJ5dGUgYW5kIE1TQiA9PSAxIGluZGljYXRlcyB0aGF0IGV2ZXJ5CiAgICAvLyBiaXQgaXMgdXNlZCB0byBzcGVjaWZ5IHRoZSBtYWduaXR1ZGUgb2YgdGhlIGludGVnZXIuIFRoaXMgbWVhbnMgdGhhdCBhbgogICAgLy8gZXh0cmEgMC1iaXQgbXVzdCBiZSBwcmVwZW5kZWQgdG8gYGJgIHRvIHJlbmRlciBpdCBhIHZhbGlkIHBvc2l0aXZlIHNpZ25lZAogICAgLy8gaW50ZWdlci4KICAgIC8vCiAgICAvLyBOb3cgc2lnbmVkIGludGVnZXJzIGFyZSBuZWdhdGl2ZSBpZmYgTVNCID09IDEsIGhlbmNlIHRoZSBjb25kaXRpb24gYmVsb3cuCiAgICBpZiAoYigwKSA8IDAgKSB7CiAgICAgICAgQ29sbCgwLnRvQnl0ZSkuYXBwZW5kKGIpCiAgICB9IGVsc2UgewogICAgICAgIGIKICAgIH0KICB9CgogIC8vIENvbXB1dGVzIGFfaSA9IEgoWF8xLCBYXzIsLi4sIFhfbjsgWF9pKQogIGRlZiBjYWxjQShlOiAoQ29sbFtHcm91cEVsZW1lbnRdLCBJbnQpKSA6IChDb2xsW0J5dGVdLCBJbnQpID0gewogICAgdmFsIGNvbW1pdHRlZU1lbWJlcnMgPSBlLl8xCiAgICB2YWwgaSA9IGUuXzIKICAgIHZhbCByYXcgPSBibGFrZTJiMjU2KGlubmVyQnl0ZXMuYXBwZW5kKGNvbW1pdHRlZU1lbWJlcnMoaSkuZ2V0RW5jb2RlZCkpCiAgICB2YWwgc3BsaXQgPSByYXcuc2l6ZSAtIDE2CiAgICB2YWwgZmlyc3RJbnQgPSB0b1NpZ25lZEJ5dGVzKHJhdy5zbGljZSgwLCBzcGxpdCkpCiAgICB2YWwgY29uY2F0Qnl0ZXMgPSBmaXJzdEludC5hcHBlbmQodG9TaWduZWRCeXRlcyhyYXcuc2xpY2Uoc3BsaXQsIHJhdy5zaXplKSkpCiAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0SW50LnNpemUKICAgIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykKICB9CiAgCiAgLy8gQ29tcHV0ZXMgWH4gPSBYXzBee2FfMH0gKiBYXzFee2FfMX0gKiAuLi4gKiBYX3tuLTF9XnthX3tuLTF9fQogIGRlZiBjYWxjRnVsbEFnZ3JlZ2F0ZUtleShlOiAoQ29sbFtHcm91cEVsZW1lbnRdLCBDb2xsWyhDb2xsW0J5dGVdLCBJbnQpXSApKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIHZhbCBjb21taXR0ZWVNZW1iZXJzID0gZS5fMQogICAgdmFsIGFpVmFsdWVzID0gZS5fMgogICAgY29tbWl0dGVlTWVtYmVycy5mb2xkKAogICAgICAoZ3JvdXBFbGVtZW50SWRlbnRpdHksIDApLAogICAgICB7IChhY2M6IChHcm91cEVsZW1lbnQsIEludCApLCB4OiBHcm91cEVsZW1lbnQpID0+CiAgICAgICAgICB2YWwgeF9hY2MgPSBhY2MuXzEKICAgICAgICAgIHZhbCBpID0gYWNjLl8yCiAgICAgICAgICAoeF9hY2MubXVsdGlwbHkobXlFeHAoKHgsIGFpVmFsdWVzKGkpKSkpLCBpICsgMSkKICAgICAgfQogICAgKS5fMQogIH0KCiAgLy8gQ29tcHV0ZXMgWCcKICBkZWYgY2FsY1BhcnRpYWxBZ2dyZWdhdGVLZXkoZTogKChDb2xsW0dyb3VwRWxlbWVudF0sIENvbGxbSW50XSksIENvbGxbKENvbGxbQnl0ZV0sIEludCldKSkgOiBHcm91cEVsZW1lbnQgPSB7CiAgICB2YWwgY29tbWl0dGVlTWVtYmVycyA9IGUuXzEuXzEKICAgIHZhbCBleGNsdWRlZEluZGljZXMgPSBlLl8xLl8yCiAgICB2YWwgYWlWYWx1ZXMgPSBlLl8yCiAgICBjb21taXR0ZWVNZW1iZXJzLmZvbGQoCiAgICAgIChncm91cEVsZW1lbnRJZGVudGl0eSwgMCksCiAgICAgIHsgKGFjYzogKEdyb3VwRWxlbWVudCwgSW50KSwgeDogR3JvdXBFbGVtZW50KSA9PgogICAgICAgICAgdmFsIHhBY2MgPSBhY2MuXzEKICAgICAgICAgIHZhbCBpID0gYWNjLl8yCiAgICAgICAgICBpZiAoZXhjbHVkZWRJbmRpY2VzLmV4aXN0cyB7IChpeDogSW50KSA9PiBpeCA9PSBpIH0pIHsKICAgICAgICAgICAgICh4QWNjLCBpICsgMSkKICAgICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgICh4QWNjLm11bHRpcGx5KG15RXhwKCh4LCBhaVZhbHVlcyhpKSkpKSwgaSArIDEpCiAgICAgICAgICB9CiAgICAgICAgICAKICAgICAgfQogICAgKS5fMQogIH0KCiAgLy8gQ2FsY3VsYXRlcyBhZ2dyZWdhdGUgY29tbWl0bWVudCBZJwogIGRlZiBjYWxjQWdncmVnYXRlQ29tbWl0bWVudChjb21taXRtZW50czogQ29sbFtHcm91cEVsZW1lbnRdKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIGNvbW1pdG1lbnRzLmZvbGQoCiAgICAgIGdyb3VwRWxlbWVudElkZW50aXR5LAogICAgICB7IChhY2M6IEdyb3VwRWxlbWVudCwgeTogR3JvdXBFbGVtZW50KSA9PgogICAgICAgICAgYWNjLm11bHRpcGx5KHkpCiAgICAgIH0KICAgICkgIAogIH0KCiAgZGVmIGVuY29kZVVuc2lnbmVkMjU2Qml0SW50KGJ5dGVzOiBDb2xsW0J5dGVdKSA6IChDb2xsW0J5dGVdLCBJbnQpID0gewogICAgdmFsIHNwbGl0ID0gYnl0ZXMuc2l6ZSAtIDE2CiAgICB2YWwgZmlyc3RJbnQgPSB0b1NpZ25lZEJ5dGVzKGJ5dGVzLnNsaWNlKDAsIHNwbGl0KSkKICAgIHZhbCBjb25jYXRCeXRlcyA9IGZpcnN0SW50LmFwcGVuZCh0b1NpZ25lZEJ5dGVzKGJ5dGVzLnNsaWNlKHNwbGl0LCBieXRlcy5zaXplKSkpCiAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0SW50LnNpemUKICAgIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykKICB9CiAgICAKICAvLyBCSVAtMDM0MCB1c2VzIHNvLWNhbGxlZCB0YWdnZWQgaGFzaGVzCiAgdmFsIGNoYWxsZW5nZVRhZyA9IHNoYTI1NihDb2xsKDY2LCA3MywgODAsIDQ4LCA1MSwgNTIsIDQ4LCA0NywgOTksIDEwNCwgOTcsIDEwOCwgMTA4LCAxMDEsIDExMCwgMTAzLCAxMDEpLm1hcCB7ICh4OkludCkgPT4geC50b0J5dGUgfSkKICAKICAvLyBQcmVjb21wdXRlIGFfaSB2YWx1ZXMKICB2YWwgYWlWYWx1ZXMgPSBjb21taXR0ZWUuaW5kaWNlcy5tYXAgeyAoaXg6IEludCkgPT4KICAgIGNhbGNBKChjb21taXR0ZWUsIGl4KSkKICB9CgogIC8vIGMKICB2YWwgY2hhbGxlbmdlUmF3ID0gYmxha2UyYjI1NihjYWxjRnVsbEFnZ3JlZ2F0ZUtleSgoY29tbWl0dGVlLCBhaVZhbHVlcykpLmdldEVuY29kZWQgKysgYWdncmVnYXRlQ29tbWl0bWVudC5nZXRFbmNvZGVkICsrIG1lc3NhZ2UgKQogIHZhbCBjaGFsbGVuZ2UgICAgPSBlbmNvZGVVbnNpZ25lZDI1NkJpdEludChjaGFsbGVuZ2VSYXcpCgogIHZhbCBleGNsdWRlZEluZGljZXMgPSB2ZXJpZmljYXRpb25EYXRhLm1hcCB7IChlOiAoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSkpID0+CiAgICBlLl8xLl8xIAogIH0KCiAgdmFsIGV4Y2x1ZGVkQ29tbWl0bWVudHMgPSB2ZXJpZmljYXRpb25EYXRhLm1hcCB7IChlOiAoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSkpID0+CiAgICBlLl8xLl8yLl8xIAogIH0KCiAgdmFsIFlEYXNoID0gY2FsY0FnZ3JlZ2F0ZUNvbW1pdG1lbnQoZXhjbHVkZWRDb21taXRtZW50cykKCiAgdmFsIHBhcnRpYWxBZ2dyZWdhdGVLZXkgPSBjYWxjUGFydGlhbEFnZ3JlZ2F0ZUtleSgoKGNvbW1pdHRlZSwgZXhjbHVkZWRJbmRpY2VzKSwgYWlWYWx1ZXMpKQoKICAvLyBWZXJpZmllcyB0aGF0IFknKmdeeiA9PSAoWCcpXmMgKiBZCiAgdmFsIHZlcmlmeUFnZ3JlZ2F0ZVJlc3BvbnNlID0gKCBteUV4cCgoZ3JvdXBHZW5lcmF0b3IsIGFnZ3JlZ2F0ZVJlc3BvbnNlUmF3KSkubXVsdGlwbHkoWURhc2gpIAogICAgICA9PSBteUV4cCgocGFydGlhbEFnZ3JlZ2F0ZUtleSwgY2hhbGxlbmdlKSkubXVsdGlwbHkoYWdncmVnYXRlQ29tbWl0bWVudCkgKQoKICB2YWwgdmVyaWZ5U2lnbmF0dXJlc0luRXhjbHVzaW9uU2V0ID0KICAgIHZlcmlmaWNhdGlvbkRhdGEuZm9yYWxsIHsgKGU6ICgoSW50LCAoR3JvdXBFbGVtZW50LCBDb2xsW0J5dGVdKSksICgoQ29sbFtCeXRlXSwgSW50KSwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpKSkgPT4KICAgICAgdmFsIHB1YktleVR1cGxlID0gZS5fMS5fMgogICAgICB2YWwgcyAgPSBlLl8yLl8xCiAgICAgIHZhbCByZXNwb25zZVR1cGxlID0gZS5fMi5fMgoKICAgICAgdmFsIHB1YktleSAgICAgICAgID0gcHViS2V5VHVwbGUuXzEgLy8gWV9pCiAgICAgIHZhbCBwa0J5dGVzICAgICAgICA9IHB1YktleVR1cGxlLl8yIC8vIGVuY29kZWQgeC1jb29yZGluYXRlIG9mIFlfaQogICAgICB2YWwgcmVzcG9uc2UgICAgICAgPSByZXNwb25zZVR1cGxlLl8xIC8vIFIgaW4gQklQLTAzNDAKICAgICAgdmFsIHJCeXRlcyAgICAgICAgID0gcmVzcG9uc2VUdXBsZS5fMiAvLyBCeXRlIHJlcHJlc2VudGF0aW9uIG9mICdyJwoKCiAgICAgIHZhbCByYXcgPSBzaGEyNTYoY2hhbGxlbmdlVGFnICsrIGNoYWxsZW5nZVRhZyArKyByQnl0ZXMgKysgcGtCeXRlcyArKyBtZXNzYWdlKQogCiAgICAgIC8vIE5vdGUgdGhhdCB0aGUgb3V0cHV0IG9mIFNIQTI1NiBpcyBhIGNvbGxlY3Rpb24gb2YgYnl0ZXMgdGhhdCByZXByZXNlbnRzIGFuIHVuc2lnbmVkIDI1NmJpdCBpbnRlZ2VyLgogICAgICB2YWwgc3BsaXQgPSByYXcuc2l6ZSAtIDE2CiAgICAgIHZhbCBmaXJzdCA9IHRvU2lnbmVkQnl0ZXMocmF3LnNsaWNlKDAsIHNwbGl0KSkKICAgICAgdmFsIGNvbmNhdEJ5dGVzID0gZmlyc3QuYXBwZW5kKHRvU2lnbmVkQnl0ZXMocmF3LnNsaWNlKHNwbGl0LCByYXcuc2l6ZSkpKQogICAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0LnNpemUKICAgICAgbXlFeHAoKGdyb3VwR2VuZXJhdG9yLCBzKSkgPT0gIG15RXhwKChwdWJLZXksIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykpKS5tdWx0aXBseShyZXNwb25zZSkKICAgIH0KCiAgdmFsIHZlcmlmeVRocmVzaG9sZCA9IChjb21taXR0ZWUuc2l6ZSAtIHZlcmlmaWNhdGlvbkRhdGEuc2l6ZSkgPj0gdGhyZXNob2xkCgogIHZhbCB2ZXJpZnlUeE91dHB1dHMgPSB0ZXJtaW5hbENlbGxzLnppcChPVVRQVVRTKS5mb3JhbGwgeyAoZTogKChMb25nLCAoQ29sbFtCeXRlXSwgQ29sbFsoQ29sbFtCeXRlXSwgTG9uZyldKSksIEJveCkpID0+IAogICAgdmFsIHRlcm1DZWxsID0gZS5fMQogICAgdmFsIG91dHB1dEJveCA9IGUuXzIKICAgIHZhbCB0ZXJtQ2VsbFRva2VuczogQ29sbFsoQ29sbFtCeXRlXSwgTG9uZyldID0gdGVybUNlbGwuXzIuXzIKICAgIG91dHB1dEJveC52YWx1ZSA9PSB0ZXJtQ2VsbC5fMSAmJgogICAgb3V0cHV0Qm94LnByb3Bvc2l0aW9uQnl0ZXMgPT0gdGVybUNlbGwuXzIuXzEgJiYKICAgIG91dHB1dEJveC50b2tlbnMuc2l6ZSA9PSB0ZXJtQ2VsbC5fMi5fMi5zaXplICYmCiAgICBvdXRwdXRCb3gudG9rZW5zLnppcCh0ZXJtQ2VsbFRva2VucykuZm9yYWxsIHsgKGU6ICgoQ29sbFtCeXRlXSwgTG9uZyksIChDb2xsW0J5dGVdLCBMb25nKSkpID0+CiAgICAgIGUuXzEgPT0gZS5fMiAgICAgIAogICAgfQogIH0KCiAgZGVmIGhhc2hUZXJtaW5hbENlbGwoY2VsbDogKExvbmcsIChDb2xsW0J5dGVdLCBDb2xsWyhDb2xsW0J5dGVdLCBMb25nKV0pKSkgOiBDb2xsW0J5dGVdID0gewogICAgdmFsIG5hbm9FcmdzID0gY2VsbC5fMQogICAgdmFsIHByb3BCeXRlcyA9IGNlbGwuXzIuXzEKICAgIHZhbCB0b2tlbnMgPSBjZWxsLl8yLl8yCiAgICB2YWwgdG9rZW5CeXRlcyA9IHRva2Vucy5mb2xkKAogICAgICBDb2xsW0J5dGVdKCksCiAgICAgIHsgKGFjYzogQ29sbFtCeXRlXSwgdDogKENvbGxbQnl0ZV0sIExvbmcpKSA9PgogICAgICAgICAgYWNjICsrIHQuXzEgKysgbG9uZ1RvQnl0ZUFycmF5KHQuXzIpCiAgICAgIH0gICAgICAKICAgICkKICAgIHZhbCBieXRlcyA9IGxvbmdUb0J5dGVBcnJheShuYW5vRXJncykgKysgcHJvcEJ5dGVzICsrIHRva2VuQnl0ZXMKICAgIGJsYWtlMmIyNTYoYnl0ZXMpIAogIH0KCiAgdmFsIGVuZFRyZWUgPSB0cmVlLmluc2VydChvcGVyYXRpb25zLCBwcm9vZikuZ2V0CiAgdmFsIHZlcmlmeURpZ2VzdCA9IGVuZFRyZWUuZGlnZXN0ID09IGRpZ2VzdCAmJiBibGFrZTJiMjU2KGRpZ2VzdCkgPT0gbWVzc2FnZQoKICAvLyBWZXJpZmllcyB0aGF0IGVhY2ggQVZMIGluc2VydGlvbiBvcGVyYXRpb24gY29ycmVzcG9uZHMgdG8gdGhlIGdpdmVuICAKICB2YWwgdmVyaWZ5T3BlcmF0aW9ucyA9IG9wZXJhdGlvbnMuc2l6ZSA+IDAgJiYgb3BlcmF0aW9ucy56aXAodGVybWluYWxDZWxscy56aXAodGVybWluYWxDZWxscy5pbmRpY2VzKSkuZm9yYWxsIHsKICAgIChlOiAoKENvbGxbQnl0ZV0sIENvbGxbQnl0ZV0pLCAoKExvbmcsIChDb2xsW0J5dGVdLCBDb2xsWyhDb2xsW0J5dGVdLCBMb25nKV0pKSwgSW50KSkgKSA9PgogICAgICB2YWwga2V5ID0gZS5fMS5fMQogICAgICB2YWwgdmFsdWUgPSBlLl8xLl8yCiAgICAgIHZhbCB0ZXJtaW5hbENlbGwgPSBlLl8yLl8xCiAgICAgIHZhbCBpeCA9IGUuXzIuXzIgKyAxCiAgICAgIGtleSA9PSBsb25nVG9CeXRlQXJyYXkoaXgudG9Mb25nKSAmJgogICAgICAgIHZhbHVlID09IGhhc2hUZXJtaW5hbENlbGwodGVybWluYWxDZWxsKQogIH0KCiAgc2lnbWFQcm9wICgKICAgIHZlcmlmeURpZ2VzdCAmJgogICAgdmVyaWZ5T3BlcmF0aW9ucyAmJgogICAgdmVyaWZ5QWdncmVnYXRlUmVzcG9uc2UgJiYKICAgIHZlcmlmeVNpZ25hdHVyZXNJbkV4Y2x1c2lvblNldCAmJgogICAgdmVyaWZ5VGhyZXNob2xkICYmCiAgICB2ZXJpZnlUeE91dHB1dHMKICApCn0=
+    const VAULT_CONTRACT_SCRIPT_BYTES: &str = "9GTWkhcvDSWKaWKTWRvqUMP946pb2ArCFBLoDXk352SeyHtoR4QjWXQzEFn4hh7Mka7WFGLztdxwa6oaRij4gPQsG9sJaCxNkEptuJE8R1RMtggKtnKDGWhtcaqvmt6cLXoWHmjjmdkrEjWm71KzH54PZ2srKgqrT5YHaAcGXbfDxLSnfLj6Cycst7Hobvsg94hjFoGUNmompjyxeBUGinAUjy2sphhXStDoUAZxPCrtsXm1awqvEYJWewzEuiTagQt4sM8zAZ5ATLtsCNE78Ttmztx5F4iRQJ7iThTcP3fzHMQBfVt4eE44wGaRGpJy5PQNMviYuJYgpfvsrBFNrCBq59vY4fPKWziWvrw45kmaXqApmfySKrDaqmQtPmrF65yXqagKEcrEfmnhH25RgXKvaNdKDAJAG6oseE2icQ6wnbain6xi3tFQQFcZUhZKGZKj2eECYQyAzp2WrxxJr12JiMHDBGjhkLBG2wrFsVe1icPPxjiXhbkpejRhzy1rMfsocGcSe2sPLGPcakLu3BN8FJaD3uHwZgSXyTSzpb96z7wuRWJ84rz3JTj5UmE3sCJ3hDQxcKAMouTZRLqcaZsvkxV7qXyYiaDXz4RQY61kM8fe1zGp7ctay31dXkVqxVaLRmFK6gi8caJHVyJCnyhN33e5L6m4CbrAZkX8wb1R29AeoWNnhBZd7UALgSXPbGKL2MTCx71akbfn98xKkuKUnnHELPNQ1yK1x7rBr1J4EJpY1eJEURWUbCeE49xE4nN19ko4zt5odLDDmCgaV3ij7rCxTtERMszJ7tto1yiC9xRG5JRwmM2HPHERwFZ8CYgWCxofoCiKryh4TNZ9C1iGm53iZSGKw1eq3bNddLBaMWg7auRDAm3N4bxATTjsyjeUesqEFssJ4tvhCnmH44m4CUsBBbmsdzt7AGigZL76q1wY5NXAodRjC5BJuHqeJh2zp6X7PVre9LpqACFbNaN96kmehsjYHSbAaWjvUjFo5W4fxcF9Ebvfv135gXnCPVGCKbLf8BWY6eryVUdfur7j3rag86ikWcnP9Gyw8mwJmscNCoPP897TWRYKj3HfDq3pMtvLF884L8QhBjPCv1t3B4AYu2YiY56RDdk2gohs8rP8ygkDgzuxnUwvMnsDcfX52quSSkX6WdnqvpzWDnvgaZnctNyRDarb4bKcS3qDn1b4Msr6EkJYLcCHAyBy5gLx3SFhiigR7NvD3oMwFXZPGB9qm94tZtn6Tp55Gnn1ARy5prK3NBXpkNya4Qfa1kScDinvXD46mgSRKN3Vp1BZNYNW27EqrjbKuUQiaQUFV6VNhab8zsY7HZFvsUiZbb6NJhgu4pmvZWojzuR9mRCNJGVixB2DP14gMg8H8pByHPJ2Kxmj37Jaj4QtTgnMDSLLAEyG2aydyroHe8CQEXp79t4tzSfXEMWz55xMMDc65b5JEHff6bHYihYesonX1u5qJ8qkByDTM95pu3M4jLg1U8NTg7JRpHc8Yf4hqXtveRq7qUi2wzHrTKsFQbDbtaaZNfVUb6ajxcUsZeZrfrA7GnWZy7eHnocVzGstb1oV91xaHzj2mdCL4cr3sT1mwry74A9CjQWxxoFubS8nh4csrr6aZsaibKKPShDCseLwpuVNoYjYiXifcRX5cHjCsYir3aAwahxA9AKBg8iG1Y8okbf3NXFY2i3YR";
 
     const KEY_LENGTH: usize = 8;
     const VALUE_LENGTH: usize = 32;
@@ -723,7 +723,7 @@ mod tests {
                 exclusion_set,
                 committee,
                 threshold,
-            } = simulate_signature_aggregation(num_participants, num_byzantine, md);
+            } = simulate_signature_aggregation_with_predefined_digest(num_participants, num_byzantine, md);
             let exclusion_set: Vec<_> = exclusion_set
                 .into_iter()
                 .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
@@ -752,7 +752,7 @@ mod tests {
                 exclusion_set,
                 committee,
                 threshold,
-            } = simulate_signature_aggregation(num_participants, num_byzantine, md);
+            } = simulate_signature_aggregation_with_predefined_digest(num_participants, num_byzantine, md);
             let exclusion_set: Vec<_> = exclusion_set
                 .into_iter()
                 .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
@@ -781,7 +781,7 @@ mod tests {
                 exclusion_set,
                 committee,
                 threshold,
-            } = simulate_signature_aggregation(num_participants, num_byzantine, md);
+            } = simulate_signature_aggregation_with_predefined_digest(num_participants, num_byzantine, md);
             let exclusion_set: Vec<_> = exclusion_set
                 .into_iter()
                 .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
@@ -887,16 +887,20 @@ mod tests {
     async fn verify_vault_ergoscript_sigmastate() {
         let num_byzantine_nodes = vec![40];
 
-        let md = blake2b256_hash(b"foo");
         let num_participants = 128;
         for num_byzantine in num_byzantine_nodes {
-            let SignatureAggregationElements {
+            let SignatureAggregationWithNotarizationElements {
                 aggregate_commitment,
                 aggregate_response,
                 exclusion_set,
                 committee,
                 threshold,
-            } = simulate_signature_aggregation(num_participants, num_byzantine, md);
+                starting_avl_tree,
+                avl_operations,
+                proof,
+                resulting_digest,
+                terminal_cells,
+            } = simulate_signature_aggregation_notarized_proofs(num_participants, num_byzantine);
             let exclusion_set: Vec<_> = exclusion_set
                 .into_iter()
                 .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
@@ -907,7 +911,11 @@ mod tests {
                 aggregate_commitment,
                 aggregate_response,
                 exclusion_set,
-                md,
+                starting_avl_tree,
+                avl_operations,
+                proof,
+                resulting_digest,
+                terminal_cells,
             )
             .await;
         }
@@ -919,7 +927,11 @@ mod tests {
         aggregate_commitment: AggregateCommitment,
         aggregate_response: Scalar,
         exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
-        md: Blake2bDigest256,
+        starting_avl_tree: AvlTreeData,
+        avl_operations: Vec<KeyValue>,
+        proof: Vec<u8>,
+        resulting_digest: Vec<u8>,
+        terminal_cells: Vec<ErgoTermCell>,
     ) {
         let c_bytes = committee.iter().fold(Vec::<u8>::new(), |mut b, p| {
             b.extend_from_slice(
@@ -964,32 +976,13 @@ mod tests {
         let first_len = aggregate_response_bytes.len() as i32;
         aggregate_response_bytes.extend(lower_256.to_signed_bytes_be());
 
+        let md = blake2b256_hash(&resulting_digest);
         let exclusion_set_data = serialize_exclusion_set(exclusion_set, md.as_ref());
         let aggregate_response: Constant = (
             Constant::from(aggregate_response_bytes),
             Constant::from(first_len),
         )
             .into();
-
-        let mut rng = OsRng;
-        let term_cells: Vec<_> = (0..10)
-            .map(|_| {
-                let address = generate_address();
-                let ergs = BoxValue::try_from(rng.gen_range(1_u64..=9000000000)).unwrap();
-                let contains_tokens = rng.gen_bool(0.5);
-                let tokens = if contains_tokens {
-                    let num_tokens = rng.gen_range(0_usize..=10);
-                    (0..num_tokens).map(|_| gen_random_token()).collect()
-                } else {
-                    vec![]
-                };
-                ErgoTermCell {
-                    ergs,
-                    address,
-                    tokens,
-                }
-            })
-            .collect();
 
         let signature_input = SignatureValidationInput {
             contract: VAULT_CONTRACT_SCRIPT_BYTES.to_string(),
@@ -1006,22 +999,7 @@ mod tests {
             hash_bytes: Constant::from(committee_bytes.clone()).base16_str().unwrap(),
         };
 
-        let empty_tree = AVLTree::new(dummy_resolver, KEY_LENGTH, Some(VALUE_LENGTH));
-        let mut prover = BatchAVLProver::new(empty_tree.clone(), true);
-        let initial_digest = prover.digest().unwrap().to_vec();
-
-        let mut pairs = vec![];
-        for (i, cell) in term_cells.iter().enumerate() {
-            let value = Bytes::copy_from_slice(blake2b256_hash(&cell.to_bytes()).as_ref());
-            let key_bytes = ((i + 1) as i64).to_be_bytes();
-            let key = Bytes::copy_from_slice(&key_bytes);
-            let kv = KeyValue { key, value };
-            let insert = Operation::Insert(kv.clone());
-            pairs.push(kv);
-            prover.perform_one_operation(&insert).unwrap();
-        }
-
-        let operations_vec: Vec<_> = pairs
+        let operations_lit: Vec<_> = avl_operations
             .into_iter()
             .map(|kv| {
                 let key_const = Literal::from(kv.key.to_vec());
@@ -1039,25 +1017,21 @@ mod tests {
                 SType::SColl(Box::new(SType::SByte)),
                 SType::SColl(Box::new(SType::SByte)),
             )),
-            items: operations_vec,
+            items: operations_lit,
         });
         let operations_const = Constant {
             tpe: operations_tpe,
             v: operations_lit,
         };
 
-        let proof = Constant::from(prover.generate_proof().to_vec());
-        let resulting_digest = Constant::from(prover.digest().unwrap().to_vec());
-        let avl_tree_data = AvlTreeData {
-            digest: Digest::<33>::try_from(initial_digest).unwrap(),
-            tree_flags: AvlTreeFlags::new(true, false, false),
-            key_length: KEY_LENGTH as u32,
-            value_length_opt: Some(Box::new(VALUE_LENGTH as u32)),
-        };
-        let avl_const = Constant::from(avl_tree_data);
+        let proof = Constant::from(proof);
+        let resulting_digest = Constant::from(resulting_digest);
+        let avl_const = Constant::from(starting_avl_tree);
         let input = VaultValidationInput {
             signature_input,
-            terminal_cells: Constant::from(ErgoTermCells(term_cells)).base16_str().unwrap(),
+            terminal_cells: Constant::from(ErgoTermCells(terminal_cells))
+                .base16_str()
+                .unwrap(),
             starting_avl_tree: avl_const.base16_str().unwrap(),
             avl_operations: operations_const.base16_str().unwrap(),
             avl_proof: proof.base16_str().unwrap(),
@@ -1098,7 +1072,7 @@ mod tests {
         );
     }
 
-    fn simulate_signature_aggregation(
+    fn simulate_signature_aggregation_with_predefined_digest(
         num_participants: usize,
         num_byzantine_nodes: usize,
         md: Blake2bDigest256,
@@ -1196,12 +1170,172 @@ mod tests {
         }
     }
 
+    fn simulate_signature_aggregation_notarized_proofs(
+        num_participants: usize,
+        num_byzantine_nodes: usize,
+    ) -> SignatureAggregationWithNotarizationElements {
+        let mut rng = OsRng;
+        let mut byz_indexes = vec![];
+        loop {
+            let rng = rng.gen_range(0usize..num_participants);
+            if !byz_indexes.contains(&rng) {
+                byz_indexes.push(rng);
+            }
+            if byz_indexes.len() == num_byzantine_nodes {
+                break;
+            }
+        }
+        let individual_keys = (0..num_participants)
+            .map(|_| {
+                let sk = SecretKey::random(&mut rng);
+                let pk = PublicKey::from(sk.public_key());
+                let (commitment_sk, commitment) = schnorr_commitment_pair();
+                (sk, pk, commitment_sk, commitment)
+            })
+            .collect::<Vec<_>>();
+        let committee = individual_keys
+            .iter()
+            .map(|(_, pk, _, _)| pk.clone())
+            .collect::<Vec<_>>();
+        let individual_inputs = individual_keys
+            .iter()
+            .map(|(_, pki, _, _)| individual_input::<Blake2b<U32>>(committee.clone(), pki.clone()))
+            .collect::<Vec<_>>();
+        let aggregate_x = aggregate_pk(
+            individual_keys.iter().map(|(_, pk, _, _)| pk.clone()).collect(),
+            individual_inputs.clone(),
+        );
+        let aggregate_commitment = aggregate_commitment(
+            individual_keys
+                .iter()
+                .map(|(_, _, _, commitment)| commitment.clone())
+                .collect(),
+        );
+        let terminal_cells: Vec<_> = (0..10)
+            .map(|_| {
+                let address = generate_address();
+                let ergs = BoxValue::try_from(rng.gen_range(1_u64..=9000000000)).unwrap();
+                let contains_tokens = rng.gen_bool(0.5);
+                let tokens = if contains_tokens {
+                    let num_tokens = rng.gen_range(0_usize..=10);
+                    (0..num_tokens).map(|_| gen_random_token()).collect()
+                } else {
+                    vec![]
+                };
+                ErgoTermCell {
+                    ergs,
+                    address,
+                    tokens,
+                }
+            })
+            .collect();
+
+        let empty_tree = AVLTree::new(dummy_resolver, KEY_LENGTH, Some(VALUE_LENGTH));
+        let mut prover = BatchAVLProver::new(empty_tree.clone(), true);
+        let initial_digest = prover.digest().unwrap().to_vec();
+
+        let mut avl_operations = vec![];
+        for (i, cell) in terminal_cells.iter().enumerate() {
+            let value = Bytes::copy_from_slice(blake2b256_hash(&cell.to_bytes()).as_ref());
+            let key_bytes = ((i + 1) as i64).to_be_bytes();
+            let key = Bytes::copy_from_slice(&key_bytes);
+            let kv = KeyValue { key, value };
+            let insert = Operation::Insert(kv.clone());
+            prover.perform_one_operation(&insert).unwrap();
+            avl_operations.push(kv);
+        }
+
+        let proof = prover.generate_proof().to_vec();
+        let resulting_digest = prover.digest().unwrap().to_vec();
+        let avl_tree_data = AvlTreeData {
+            digest: Digest::<33>::try_from(initial_digest).unwrap(),
+            tree_flags: AvlTreeFlags::new(true, false, false),
+            key_length: KEY_LENGTH as u32,
+            value_length_opt: Some(Box::new(VALUE_LENGTH as u32)),
+        };
+
+        let md = blake2b256_hash(&resulting_digest);
+
+        let challenge = challenge(aggregate_x, aggregate_commitment.clone(), md);
+        let (byz_keys, active_keys): (Vec<_>, Vec<_>) = individual_keys
+            .clone()
+            .into_iter()
+            .enumerate()
+            .partition(|(i, _)| byz_indexes.contains(i));
+        let individual_responses_subset = active_keys
+            .iter()
+            .map(|(i, (sk, _, commitment_sk, _))| {
+                (
+                    *i,
+                    response(
+                        commitment_sk.clone(),
+                        sk.clone(),
+                        challenge,
+                        individual_inputs[*i],
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (i, zi) in individual_responses_subset.iter() {
+            let (_, pk, _, commitment) = &individual_keys[*i];
+            assert!(verify_response(
+                zi,
+                &individual_inputs[*i],
+                &challenge,
+                commitment.clone(),
+                pk.clone()
+            ))
+        }
+        let aggregate_response =
+            aggregate_response(individual_responses_subset.into_iter().map(|(_, x)| x).collect());
+        let exclusion_set = byz_keys
+            .iter()
+            .map(|(i, (_, _, sk, commitment))| {
+                (*i, Some((commitment.clone(), exclusion_proof(sk.clone(), md))))
+            })
+            .collect::<Vec<_>>();
+        let threshold = Threshold { num: 2, denom: 4 };
+        assert!(verify(
+            aggregate_commitment.clone(),
+            aggregate_response,
+            exclusion_set.clone(),
+            committee.clone(),
+            md,
+            threshold,
+        ));
+        SignatureAggregationWithNotarizationElements {
+            aggregate_commitment,
+            aggregate_response,
+            exclusion_set,
+            committee,
+            threshold,
+            starting_avl_tree: avl_tree_data,
+            avl_operations,
+            proof,
+            resulting_digest,
+            terminal_cells,
+        }
+    }
+
     struct SignatureAggregationElements {
         aggregate_commitment: AggregateCommitment,
         aggregate_response: Scalar,
         exclusion_set: Vec<(usize, Option<(Commitment, spectrum_sigma::Signature)>)>,
         committee: Vec<PublicKey>,
         threshold: Threshold,
+    }
+
+    struct SignatureAggregationWithNotarizationElements {
+        aggregate_commitment: AggregateCommitment,
+        aggregate_response: Scalar,
+        exclusion_set: Vec<(usize, Option<(Commitment, spectrum_sigma::Signature)>)>,
+        committee: Vec<PublicKey>,
+        threshold: Threshold,
+        starting_avl_tree: AvlTreeData,
+        avl_operations: Vec<KeyValue>,
+        proof: Vec<u8>,
+        resulting_digest: Vec<u8>,
+        terminal_cells: Vec<ErgoTermCell>,
     }
 
     fn verify_sig_aggr_ergoscript_with_sigma_rust(
