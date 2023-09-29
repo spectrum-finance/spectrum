@@ -50,18 +50,15 @@
   //  4: Verification threshold
   //  5: Terminal cells describing withdrawals from spectrum-network
   //  6: Starting AVL tree that is used in report notarization
-  //  7: Insertion operations for AVL tree
-  //  8: AVL tree proof, used to reconstruct part of the tree
+  //  7: AVL tree proof, used to reconstruct part of the tree
   val verificationData     = getVar[Coll[((Int, (GroupElement, Coll[Byte])), ((Coll[Byte], Int), (GroupElement, Coll[Byte])) )]](0).get
   val aggregateResponseRaw = getVar[(Coll[Byte], Int)](1).get
   val aggregateCommitment  = getVar[GroupElement](2).get
   val message              = getVar[Coll[Byte]](3).get
   val threshold            = getVar[Int](4).get
   val terminalCells        = getVar[Coll[(Long, (Coll[Byte], Coll[(Coll[Byte], Long)]))]](5).get
-
   val tree        = getVar[AvlTree](6).get
-  val operations  = getVar[Coll[(Coll[Byte], Coll[Byte])]](7).get
-  val proof       = getVar[Coll[Byte]](8).get
+  val proof       = getVar[Coll[Byte]](7).get
 
   // Performs exponentiation of a GroupElement by an unsigned 256bit
   // integer I using the following decomposition of I:
@@ -196,7 +193,11 @@
   // X' from WP
   val partialAggregateKey = calcPartialAggregateKey(((committee, excludedIndices), aiValues))
 
-  // Verifies that Y'*g^z == (X')^c * Y
+  // Verifies that
+  //   Y'*g^z == (X')^c * Y
+  // which is equivalent to the condition
+  //   g^z  == (X')^c * Y * (Y')^(-1)
+  // as specified in WP.
   val verifyAggregateResponse = ( myExp((groupGenerator, aggregateResponseRaw)).multiply(YDash) 
       == myExp((partialAggregateKey, challenge)).multiply(aggregateCommitment) )
 
@@ -254,23 +255,24 @@
     blake2b256(bytes)
   }
 
+  val verifyAtLeastOneWithdrawal = terminalCells.size > 0
+
+  // Encode each terminal cell into a key-value pair for an AVL insertion operation.  
+  val operations = terminalCells.zip(terminalCells.indices).map {
+    (e: ((Long, (Coll[Byte], Coll[(Coll[Byte], Long)])), Int) ) =>
+      val terminalCell = e._1
+      val ix = e._2 + 1
+      val key = longToByteArray(ix.toLong)
+      val value = hashTerminalCell(terminalCell)
+      (key, value)
+  }
+
   val endTree = tree.insert(operations, proof).get
   val verifyDigest = blake2b256(endTree.digest) == message
 
-  // Verifies that each AVL insertion operation corresponds to the associated terminal cell  
-  val verifyOperations = operations.size > 0 && operations.zip(terminalCells.zip(terminalCells.indices)).forall {
-    (e: ((Coll[Byte], Coll[Byte]), ((Long, (Coll[Byte], Coll[(Coll[Byte], Long)])), Int)) ) =>
-      val key = e._1._1
-      val value = e._1._2
-      val terminalCell = e._2._1
-      val ix = e._2._2 + 1
-      key == longToByteArray(ix.toLong) &&
-        value == hashTerminalCell(terminalCell)
-  }
-
   sigmaProp (
+    verifyAtLeastOneWithdrawal &&
     verifyDigest &&
-    verifyOperations &&
     verifyAggregateResponse &&
     verifySignaturesInExclusionSet &&
     verifyThreshold &&
