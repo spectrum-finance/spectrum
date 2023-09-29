@@ -1,14 +1,39 @@
-{
+{ // ===== Contract Information ===== //
+  // Name: VaultSignatureVerification
+  // Description: Contract that validates the aggregated signature of a message digest 'm' and
+  // also verifies that all transactions in a given report were notarized by the current committee
+  // (validator set).
+  //
+  // This is how the overall process works:
+  //  1. The 'report' consists of a collection of 'terminal cells', which describes the value
+  //     (ERGs and tokens) that will be transferred to a particular address.
+  //  2. Each terminal cell is encoded as bytes which are used in an insertion operation of an AVL
+  //     tree.
+  //  3. The insertions are performed off-chain and the resulting AVL tree digest is hashed by
+  //     blake2b256; this value is the message digest 'm'.
+  //  4. The committee performs the signature aggregation process to sign 'm'.
+  //  5. This contract verifies that the committee signed 'm', encodes the terminal cells and
+  //     recreates the AVL tree proof, and checks that the hash of the resulting AVL digest is equal
+  //     to 'm'.
+  //
+  // ===== Data inputs =====
+  // Registers of dataInput(0):
+  //   R4[Coll[GroupElement]]: Public keys of committee members
+  //   R5[Short]: The number 'D' of data input boxes that needed to store committee information.
+  //   R6[GroupElement]: Generator of the secp256k1 curve.
+  //   R7[GroupElement]: Identity element of secp256k1.
+  //   R8[Coll[Byte]]: Byte representation of H(X_1, ..., X_n)
+  //
+  // Registers of dataInput(1), ..., dataInput(D):
+  //   R4[Coll[GroupElement]]: Public keys of committee members
 
-  // Represents the number of data inputs that contain the GroupElement of committee members.
   val numberCommitteeDataInputBoxes = CONTEXT.dataInputs(0).R5[Short].get
   val groupGenerator       = CONTEXT.dataInputs(0).R6[GroupElement].get
   val groupElementIdentity = CONTEXT.dataInputs(0).R7[GroupElement].get
-  // Byte representation of H(X_1, ..., X_n)
   val innerBytes           = CONTEXT.dataInputs(0).R8[Coll[Byte]].get 
 
   // The GroupElements of each committee member are arranged within a Coll[GroupElement]
-  // residing within the R4 register of the first 'n == numberCommitteeDataInputBoxes'
+  // residing within the R4 register of the first 'D == numberCommitteeDataInputBoxes'
   // data inputs.
   val committee = CONTEXT.dataInputs.slice(0, numberCommitteeDataInputBoxes.toInt).fold(
     Coll[GroupElement](),
@@ -17,17 +42,26 @@
     }
   )
 
+  // ContextExtension constants:
+  //  0: Data to verify the signatures within the exclusion set
+  //  1: Aggregate response 'z' from WP.
+  //  2: Aggregate commitment 'Y' from WP.
+  //  3: Message digest 'm' from WP.
+  //  4: Verification threshold
+  //  5: Terminal cells describing withdrawals from spectrum-network
+  //  6: Starting AVL tree that is used in report notarization
+  //  7: Insertion operations for AVL tree
+  //  8: AVL tree proof, used to reconstruct part of the tree
   val verificationData     = getVar[Coll[((Int, (GroupElement, Coll[Byte])), ((Coll[Byte], Int), (GroupElement, Coll[Byte])) )]](0).get
-  val aggregateResponseRaw = getVar[(Coll[Byte], Int)](1).get // z
-  val aggregateCommitment  = getVar[GroupElement](2).get // Y
+  val aggregateResponseRaw = getVar[(Coll[Byte], Int)](1).get
+  val aggregateCommitment  = getVar[GroupElement](2).get
   val message              = getVar[Coll[Byte]](3).get
   val threshold            = getVar[Int](4).get
   val terminalCells        = getVar[Coll[(Long, (Coll[Byte], Coll[(Coll[Byte], Long)]))]](5).get
 
-  val tree                 = getVar[AvlTree](6).get
-  val operations           = getVar[Coll[(Coll[Byte], Coll[Byte])]](7).get
-  val proof                = getVar[Coll[Byte]](8).get
-  val digest               = getVar[Coll[Byte]](9).get
+  val tree        = getVar[AvlTree](6).get
+  val operations  = getVar[Coll[(Coll[Byte], Coll[Byte])]](7).get
+  val proof       = getVar[Coll[Byte]](8).get
 
   // Performs exponentiation of a GroupElement by an unsigned 256bit
   // integer I using the following decomposition of I:
@@ -72,7 +106,7 @@
     }
   }
 
-  // Computes a_i = H(X_1, X_2,.., X_n; X_i)
+  // Computes a_i = H(H(X_1, X_2,.., X_n); X_i)
   def calcA(e: (Coll[GroupElement], Int)) : (Coll[Byte], Int) = {
     val committeeMembers = e._1
     val i = e._2
@@ -156,14 +190,17 @@
     e._1._2._1 
   }
 
+  // Y' from WP
   val YDash = calcAggregateCommitment(excludedCommitments)
 
+  // X' from WP
   val partialAggregateKey = calcPartialAggregateKey(((committee, excludedIndices), aiValues))
 
   // Verifies that Y'*g^z == (X')^c * Y
   val verifyAggregateResponse = ( myExp((groupGenerator, aggregateResponseRaw)).multiply(YDash) 
       == myExp((partialAggregateKey, challenge)).multiply(aggregateCommitment) )
 
+  // Verifies each taproot signature in the exclusion set
   val verifySignaturesInExclusionSet =
     verificationData.forall { (e: ((Int, (GroupElement, Coll[Byte])), ((Coll[Byte], Int), (GroupElement, Coll[Byte])))) =>
       val pubKeyTuple = e._1._2
@@ -186,8 +223,11 @@
       myExp((groupGenerator, s)) ==  myExp((pubKey, (concatBytes, firstIntNumBytes))).multiply(response)
     }
 
+  // Check threshold condition from WP
   val verifyThreshold = (committee.size - verificationData.size) >= threshold
 
+  // Check that the address, nano-Erg value and tokens (if they exist) specified in each terminal cell T_i
+  // are properly specified in the i'th output box 
   val verifyTxOutputs = terminalCells.zip(OUTPUTS).forall { (e: ((Long, (Coll[Byte], Coll[(Coll[Byte], Long)])), Box)) => 
     val termCell = e._1
     val outputBox = e._2
@@ -211,12 +251,13 @@
       }      
     )
     val bytes = longToByteArray(nanoErgs) ++ propBytes ++ tokenBytes
-    blake2b256(bytes) 
+    blake2b256(bytes)
   }
 
   val endTree = tree.insert(operations, proof).get
-  val verifyDigest = endTree.digest == digest && blake2b256(digest) == message
+  val verifyDigest = blake2b256(endTree.digest) == message
 
+  // Verifies that each AVL insertion operation corresponds to the associated terminal cell  
   val verifyOperations = operations.size > 0 && operations.zip(terminalCells.zip(terminalCells.indices)).forall {
     (e: ((Coll[Byte], Coll[Byte]), ((Long, (Coll[Byte], Coll[(Coll[Byte], Long)])), Int)) ) =>
       val key = e._1._1
