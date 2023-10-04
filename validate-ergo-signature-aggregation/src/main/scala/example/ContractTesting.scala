@@ -86,12 +86,15 @@ object ContractTesting extends IOApp {
       signatureInput: SignatureValidationInput,
       terminalCells: String,
       startingAvlTree: String,
-      avlProof: String
+      avlProof: String,
+      epochLength: Int,
+      currentEpoch: Int
   )
 
   case class ValidateResponse(
       result: Boolean,
       txCost: Int,
+      txSizeInKb: Double,
       validationTimeMillis: Int
   )
 
@@ -99,7 +102,7 @@ object ContractTesting extends IOApp {
 
   implicit val ValidateEncoder: Encoder[ValidateResponse] =
     Encoder.instance { (v: ValidateResponse) =>
-      json"""{"result": ${v.result}, "txCost": ${v.txCost}, "validationTimeMillis": ${v.validationTimeMillis}}"""
+      json"""{"result": ${v.result}, "txCost": ${v.txCost}, "validationTimeMillis": ${v.validationTimeMillis},"txSizeInKb": ${v.txSizeInKb} }"""
     }
 
   implicit val ErrorResponseEncoder: Encoder[ErrorResponse] =
@@ -436,6 +439,7 @@ object ContractTesting extends IOApp {
           ValidateResponse(
             true,
             signed.getCost(),
+            signed.toBytes().length.toDouble / 1024.0,
             executionTimeInMillis.toInt
           )
         )
@@ -575,6 +579,8 @@ object ContractTesting extends IOApp {
             .asInstanceOf[Values.Constant[SCollection[SByte.type]]]
 
         val tb = ctx.newTxBuilder()
+
+        val currentHeight = tb.getCtx().getHeight()
 
         val aggrResponse =
           aggregateResponse.value.asInstanceOf[Tuple2[Coll[Byte], Int]]
@@ -735,6 +741,7 @@ object ContractTesting extends IOApp {
 
         val inputBoxBuilder = tb
           .outBoxBuilder()
+          .creationHeight(currentHeight - 10)
           .contract(validationContract)
           .value(INITIAL_VAULT_NANOERG_BALANCE + nanoergs_to_distribute)
 
@@ -831,11 +838,20 @@ object ContractTesting extends IOApp {
             val elements = tup._1
             val ix = tup._2
             if (ix == 0) {
+              val currentEpoch = input.currentEpoch
+              val epochLength = input.epochLength
+
+              // The following starting height for the vault ensures that the
+              // current height is within the epoch boundaries.
+              val vaultStart = currentHeight - epochLength * currentEpoch + 1
+              val vaultParameters =
+                Array(num_boxes, currentEpoch, epochLength, vaultStart)
               tb.outBoxBuilder()
                 .contract(dummyErgoContract)
                 .registers(
                   ErgoValue.of(elements, ErgoType.groupElementType()),
-                  ErgoValue.of(num_boxes.toShort),
+                  ErgoValue.of(ix),
+                  ErgoValue.of(vaultParameters),
                   ErgoValue.of(generator.value),
                   ErgoValue.of(identity.value),
                   ErgoValue.of(hash.value.toArray)
@@ -850,7 +866,8 @@ object ContractTesting extends IOApp {
               tb.outBoxBuilder()
                 .contract(dummyErgoContract)
                 .registers(
-                  ErgoValue.of(elements, ErgoType.groupElementType())
+                  ErgoValue.of(elements, ErgoType.groupElementType()),
+                  ErgoValue.of(ix)
                 )
                 .value(INITIAL_VAULT_NANOERG_BALANCE)
                 .build()
@@ -881,17 +898,19 @@ object ContractTesting extends IOApp {
         val signed = prover.sign(tx)
         val endTimeInMillis = System.currentTimeMillis()
         val executionTimeInMillis = endTimeInMillis - startTimeInMillis
+        val txSize = signed.toBytes().length.toFloat / 1024.0
 
         println(
-          s"The block of code took $executionTimeInMillis milliseconds to execute."
+          s"The block of code took $executionTimeInMillis milliseconds to execute. Size: $txSize Kb"
         )
 
-        println(s"signed tx: ${signed.toJson(false)}")
+        // println(s"signed tx: ${signed.toJson(false)}")
 
         Right(
           ValidateResponse(
             true,
             signed.getCost(),
+            txSize,
             executionTimeInMillis.toInt
           )
         )

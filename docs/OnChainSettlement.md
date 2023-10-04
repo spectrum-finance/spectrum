@@ -79,6 +79,7 @@ guarded with a smart contract that performs the following validations:
 trait VaultManager {
     type ChainId;
     type PointUpdate;
+    type Committee;
 
     /// Initiate transactions to settle exported value that's specified in the notarized
     /// report.
@@ -98,6 +99,7 @@ trait VaultManager {
 
 
 struct ProgressPointUpdates<T>(ProgressPoint, Vec<T>);
+struct CommitteeData<T>(T);
 ```
 
 ### Appendix A: Partial order of effects

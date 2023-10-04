@@ -17,25 +17,40 @@
   //     to 'm'.
   //
   // ===== Data inputs =====
-  // Registers of dataInput(0):
+  // Registers of dataInput(0), ..., dataInput(D):
   //   R4[Coll[GroupElement]]: Public keys of committee members
-  //   R5[Short]: The number 'D' of data input boxes that needed to store committee information.
-  //   R6[GroupElement]: Generator of the secp256k1 curve.
-  //   R7[GroupElement]: Identity element of secp256k1.
-  //   R8[Coll[Byte]]: Byte representation of H(X_1, ..., X_n)
+  //   R5[Int]: Index of committee data input. Note that it's not necessary to use this for validation here.
   //
-  // Registers of dataInput(1), ..., dataInput(D):
-  //   R4[Coll[GroupElement]]: Public keys of committee members
+  // Extra registers in dataInput(0):
+  //   R6[Coll[Int]]: Vault parameters
+  //     0: The number of UTXOs 'D' to store committee information.
+  //     1: Current epoch number E >= 1.
+  //     2: Epoch length as measured by number of blocks.
+  //     3: Starting block height of the Vault 
+  //   R7[GroupElement]: Generator of the secp256k1 curve.
+  //   R8[GroupElement]: Identity element of secp256k1.
+  //   R9[Coll[Byte]]: Byte representation of H(X_1, ..., X_n)
+  //
 
-  val numberCommitteeDataInputBoxes = CONTEXT.dataInputs(0).R5[Short].get
-  val groupGenerator       = CONTEXT.dataInputs(0).R6[GroupElement].get
-  val groupElementIdentity = CONTEXT.dataInputs(0).R7[GroupElement].get
-  val innerBytes           = CONTEXT.dataInputs(0).R8[Coll[Byte]].get 
+  val vaultParameters = CONTEXT.dataInputs(0).R6[Coll[Int]].get
+  val numberCommitteeDataInputBoxes = vaultParameters(0)
+  val currentEpoch = vaultParameters(1)
+  val epochLength = vaultParameters(2)
+  val vaultStart = vaultParameters(3)
+
+  // Verify epoch
+  val epochEnd   = vaultStart + currentEpoch * epochLength
+  val epochStart = vaultStart + (currentEpoch - 1) * epochLength
+  val verifyEpoch = HEIGHT >= epochStart && HEIGHT < epochEnd
+
+  val groupGenerator       = CONTEXT.dataInputs(0).R7[GroupElement].get
+  val groupElementIdentity = CONTEXT.dataInputs(0).R8[GroupElement].get
+  val innerBytes           = CONTEXT.dataInputs(0).R9[Coll[Byte]].get
 
   // The GroupElements of each committee member are arranged within a Coll[GroupElement]
   // residing within the R4 register of the first 'D == numberCommitteeDataInputBoxes'
   // data inputs.
-  val committee = CONTEXT.dataInputs.slice(0, numberCommitteeDataInputBoxes.toInt).fold(
+  val committee = CONTEXT.dataInputs.slice(0, numberCommitteeDataInputBoxes).fold(
     Coll[GroupElement](),
     { (acc: Coll[GroupElement], x: Box) =>
         acc.append(x.R4[Coll[GroupElement]].get)
@@ -271,6 +286,7 @@
   val verifyDigest = blake2b256(endTree.digest) == message
 
   sigmaProp (
+    verifyEpoch &&
     verifyAtLeastOneWithdrawal &&
     verifyDigest &&
     verifyAggregateResponse &&
