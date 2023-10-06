@@ -486,163 +486,6 @@ mod tests {
             }
         }
     }
-    #[test]
-    fn test_avl_tree_verification() {
-        let empty_tree = AVLTree::new(dummy_resolver, KEY_LENGTH, Some(VALUE_LENGTH));
-        let mut prover = BatchAVLProver::new(empty_tree.clone(), true);
-        let initial_digest = prover.digest().unwrap().to_vec();
-        let pairs: Vec<_> = (0..3).map(|_| random_kv()).collect();
-        for kv in &pairs {
-            let m = Operation::Insert(kv.clone());
-            prover.perform_one_operation(&m).unwrap();
-        }
-        let operations_vec: Vec<_> = pairs
-            .into_iter()
-            .map(|kv| {
-                let key_const = Literal::from(kv.key.to_vec());
-                let value_const = Literal::from(kv.value.to_vec());
-                Literal::Tup(TupleItems::try_from(vec![key_const, value_const]).unwrap())
-            })
-            .collect();
-
-        let operations_tpe = SType::SColl(Box::new(SType::STuple(STuple::pair(
-            SType::SColl(Box::new(SType::SByte)),
-            SType::SColl(Box::new(SType::SByte)),
-        ))));
-        let operations_lit = Literal::Coll(CollKind::WrappedColl {
-            elem_tpe: SType::STuple(STuple::pair(
-                SType::SColl(Box::new(SType::SByte)),
-                SType::SColl(Box::new(SType::SByte)),
-            )),
-            items: operations_vec,
-        });
-        let operations_const = Constant {
-            tpe: operations_tpe,
-            v: operations_lit,
-        };
-
-        let proof = Constant::from(prover.generate_proof().to_vec());
-        let resulting_digest = prover.digest().unwrap().to_vec();
-        let avl_tree_data = AvlTreeData {
-            digest: Digest::<33>::try_from(initial_digest).unwrap(),
-            tree_flags: AvlTreeFlags::new(true, false, false),
-            key_length: KEY_LENGTH as u32,
-            value_length_opt: Some(Box::new(VALUE_LENGTH as u32)),
-        };
-        let avl_const = Constant::from(avl_tree_data);
-
-        // Script: https://wallet.plutomonkey.com/p2s/?source=eyAvLyA9PT09PSBDb250cmFjdCBJbmZvcm1hdGlvbiA9PT09PSAvLwogIC8vIE5hbWU6IFZlcmlmeSBBVkwgdHJlZSB0ZXN0CiAgLy8KICAvLyBDb250ZXh0RXh0ZW5zaW9uIGNvbnN0YW50czoKICAvLyAwOiBBdmxUcmVlIC0gaW5pdGlhbCBzdGF0ZSBvZiB0aGUgQVZMIHRyZWUKICAvLyAxOiBDb2xsW0NvbGxbKEludCwgQ29sbFtCeXRlXSldXSAtIGluc2VydCBvcGVyYXRpb25zIGZvciBBVkwgdHJlZQogIC8vIDI6IENvbGxbQnl0ZV0gLSBBVkwgdHJlZSBwcm9vZgogIC8vIDM6IENvbGxbQnl0ZV0gLSBFeHBlY3RlZCBkaWdlc3QgYWZ0ZXIgaW5zZXJ0IG9wZXJhdGlvbnMgaGF2ZSBiZWVuIHBlcmZvcm1lZAogCgogIHZhbCB0cmVlICAgICAgICA9IGdldFZhcltBdmxUcmVlXSgwKS5nZXQKICB2YWwgb3BlcmF0aW9ucyAgPSBnZXRWYXJbQ29sbFsoQ29sbFtCeXRlXSwgQ29sbFtCeXRlXSldXSgxKS5nZXQKICB2YWwgcHJvb2YgICAgICAgPSBnZXRWYXJbQ29sbFtCeXRlXV0oMikuZ2V0CiAgdmFsIGRpZ2VzdCAgICAgID0gZ2V0VmFyW0NvbGxbQnl0ZV1dKDMpLmdldAoKICB2YWwgZW5kVHJlZSA9IHRyZWUuaW5zZXJ0KG9wZXJhdGlvbnMsIHByb29mKS5nZXQKICAKICBzaWdtYVByb3AgKGVuZFRyZWUuZGlnZXN0ID09IGRpZ2VzdCkKfQ==
-        const SCRIPT_BYTES: &str = "2MEDDujrWqP7AmJZKvCPfe9bzoWQgmaLB9ykrQ9rvtEoKBpTd";
-        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
-        let address = encoder.parse_address_from_str(SCRIPT_BYTES).unwrap();
-        let ergo_tree = address.script().unwrap();
-        let erg_value = BoxValue::try_from(1000000_u64).unwrap();
-        let input_box = ErgoBox::new(
-            erg_value,
-            ergo_tree,
-            None,
-            NonMandatoryRegisters::empty(),
-            900000,
-            TxId::zero(),
-            0,
-        )
-        .unwrap();
-
-        // Send all Ergs to miner fee
-        let miner_output = ErgoBoxCandidate {
-            value: erg_value,
-            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
-            tokens: None,
-            additional_registers: NonMandatoryRegisters::empty(),
-            creation_height: 900001,
-        };
-        let mut constants = IndexMap::new();
-        constants.insert(0_u8, avl_const);
-        constants.insert(1_u8, operations_const);
-        constants.insert(2_u8, proof);
-        constants.insert(3_u8, Constant::from(resulting_digest));
-
-        let outputs = TxIoVec::from_vec(vec![miner_output]).unwrap();
-        let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension { values: constants });
-        let unsigned_tx =
-            UnsignedTransaction::new(TxIoVec::from_vec(vec![unsigned_input]).unwrap(), None, outputs)
-                .unwrap();
-        let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], vec![]).unwrap();
-        let wallet = get_wallet();
-        let ergo_state_context = force_any_val::<ErgoStateContext>();
-        let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
-        println!("{:?}", res);
-        assert!(res.is_ok());
-    }
-
-    #[test]
-    fn test_verify_schnorr_signature() {
-        // Script: https://wallet.plutomonkey.com/p2s/?source=ewogIHZhbCBtZXNzYWdlICAgICAgICA9IElOUFVUUygwKS5SNFtDb2xsW0J5dGVdXS5nZXQKICB2YWwgZ3JvdXBHZW5lcmF0b3IgPSBJTlBVVFMoMCkuUjVbR3JvdXBFbGVtZW50XS5nZXQKCiAgdmFsIHZlcmlmaWNhdGlvbkRhdGEgPSBnZXRWYXJbQ29sbFsoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSApXV0oMCkuZ2V0CiAKICAvLyBQZXJmb3JtcyBleHBvbmVudGlhdGlvbiBvZiBhIEdyb3VwRWxlbWVudCBieSBhbiB1bnNpZ25lZCAyNTZiaXQKICAvLyBpbnRlZ2VyIEkgdXNpbmcgdGhlIGZvbGxvd2luZyBkZWNvbXBvc2l0aW9uIG9mIEk6CiAgLy8gTGV0IGUgPSAoZywgKGIsIG4pKS4gVGhlbiB0aGlzIGZ1bmN0aW9uIGNvbXB1dGVzOgogIC8vCiAgLy8gICBnXkkgPT0gKGdeYigwLG4pKV5wICogZ14oYihuLi4pKQogIC8vIHdoZXJlCiAgLy8gIC0gYigwLG4pIGlzIHRoZSBmaXJzdCBuIGJ5dGVzIG9mIGEgcG9zaXRpdmUgQmlnSW50IGBVYAogIC8vICAtIGIobi4uKSBhcmUgdGhlIHJlbWFpbmluZyBieXRlcyBzdGFydGluZyBmcm9tIGluZGV4IG4uIFRoZXNlIGJ5dGVzCiAgLy8gICAgYWxzbyByZXByZXNlbnQgYSBwb3NpdGl2ZSBCaWdJbnQgYExgLgogIC8vICAtIHAgaXMgMzQwMjgyMzY2OTIwOTM4NDYzNDYzMzc0NjA3NDMxNzY4MjExNDU2IGJhc2UgMTAuCiAgLy8gIC0gSSA9PSBVICogcCArIEwKICBkZWYgbXlFeHAoZTogKEdyb3VwRWxlbWVudCwgKENvbGxbQnl0ZV0sIEludCkpKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIHZhbCB4ID0gZS5fMQogICAgdmFsIHkgPSBlLl8yLl8xCiAgICB2YWwgbGVuID0gZS5fMi5fMgogICAgdmFsIHVwcGVyID0gYnl0ZUFycmF5VG9CaWdJbnQoeS5zbGljZSgwLCBsZW4pKQogICAgdmFsIGxvd2VyID0gYnl0ZUFycmF5VG9CaWdJbnQoeS5zbGljZShsZW4sIHkuc2l6ZSkpCgogICAgLy8gVGhlIGZvbGxvd2luZyB2YWx1ZSBpcyAzNDAyODIzNjY5MjA5Mzg0NjM0NjMzNzQ2MDc0MzE3NjgyMTE0NTYgYmFzZS0xMC4KICAgIHZhbCBwID0gYnl0ZUFycmF5VG9CaWdJbnQoZnJvbUJhc2U2NCgiQVFBQUFBQUFBQUFBQUFBQUFBQUFBQUEiKSkKICAgCiAgICB4LmV4cCh1cHBlcikuZXhwKHApLm11bHRpcGx5KHguZXhwKGxvd2VyKSkKICB9CgogIC8vIENvbnZlcnRzIGEgYmlnLWVuZGlhbiBieXRlIHJlcHJlc2VudGF0aW9uIG9mIGFuIHVuc2lnbmVkIGludGVnZXIgaW50byBpdHMKICAvLyBlcXVpdmFsZW50IHNpZ25lZCByZXByZXNlbnRhdGlvbgogIGRlZiB0b1NpZ25lZEJ5dGVzKGI6IENvbGxbQnl0ZV0pIDogQ29sbFtCeXRlXSA9IHsKICAgIC8vIE5vdGUgdGhhdCBhbGwgaW50ZWdlcnMgKGluY2x1ZGluZyBCeXRlKSBpbiBFcmdvc2NyaXB0IGFyZSBzaWduZWQuIEluIHN1Y2gKICAgIC8vIGEgcmVwcmVzZW50YXRpb24sIHRoZSBtb3N0LXNpZ25pZmljYW50IGJpdCAoTVNCKSBpcyB1c2VkIHRvIHJlcHJlc2VudCB0aGUKICAgIC8vIHNpZ247IDAgZm9yIGEgcG9zaXRpdmUgaW50ZWdlciBhbmQgMSBmb3IgbmVnYXRpdmUuIE5vdyBzaW5jZSBgYmAgaXMgYmlnLQogICAgLy8gZW5kaWFuLCB0aGUgTVNCIHJlc2lkZXMgaW4gdGhlIGZpcnN0IGJ5dGUgYW5kIE1TQiA9PSAxIGluZGljYXRlcyB0aGF0IGV2ZXJ5CiAgICAvLyBiaXQgaXMgdXNlZCB0byBzcGVjaWZ5IHRoZSBtYWduaXR1ZGUgb2YgdGhlIGludGVnZXIuIFRoaXMgbWVhbnMgdGhhdCBhbgogICAgLy8gZXh0cmEgMC1iaXQgbXVzdCBiZSBwcmVwZW5kZWQgdG8gYGJgIHRvIHJlbmRlciBpdCBhIHZhbGlkIHBvc2l0aXZlIHNpZ25lZAogICAgLy8gaW50ZWdlci4KICAgIC8vCiAgICAvLyBOb3cgc2lnbmVkIGludGVnZXJzIGFyZSBuZWdhdGl2ZSBpZmYgTVNCID09IDEsIGhlbmNlIHRoZSBjb25kaXRpb24gYmVsb3cuCiAgICBpZiAoYigwKSA8IDAgKSB7CiAgICAgICAgQ29sbCgwLnRvQnl0ZSkuYXBwZW5kKGIpCiAgICB9IGVsc2UgewogICAgICAgIGIKICAgIH0KICB9CiAgICAKICAvLyBCSVAtMDM0MCB1c2VzIHNvLWNhbGxlZCB0YWdnZWQgaGFzaGVzCiAgdmFsIGNoYWxsZW5nZVRhZyA9IHNoYTI1NihDb2xsKDY2LCA3MywgODAsIDQ4LCA1MSwgNTIsIDQ4LCA0NywgOTksIDEwNCwgOTcsIDEwOCwgMTA4LCAxMDEsIDExMCwgMTAzLCAxMDEpLm1hcCB7ICh4OkludCkgPT4geC50b0J5dGUgfSkKCgogIHNpZ21hUHJvcCAoCiAgICB2ZXJpZmljYXRpb25EYXRhLmZvcmFsbCB7IChlOiAoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSkpID0+CiAgICAgIHZhbCBwdWJLZXlUdXBsZSA9IGUuXzEuXzIKICAgICAgdmFsIHMgID0gZS5fMi5fMQogICAgICB2YWwgcmVzcG9uc2VUdXBsZSA9IGUuXzIuXzIKCiAgICAgIHZhbCBwdWJLZXkgICAgICAgICA9IHB1YktleVR1cGxlLl8xIC8vIFAKICAgICAgdmFsIHBrQnl0ZXMgICAgICAgID0gcHViS2V5VHVwbGUuXzIgLy8gZW5jb2RlZCB4LWNvb3JkaW5hdGUgb2YgUAogICAgICB2YWwgcmVzcG9uc2UgICAgICAgPSByZXNwb25zZVR1cGxlLl8xIC8vIFIgaW4gQklQLTAzNDAKICAgICAgdmFsIHJCeXRlcyAgICAgICAgID0gcmVzcG9uc2VUdXBsZS5fMiAvLyBCeXRlIHJlcHJlc2VudGF0aW9uIG9mICdyJwoKCiAgICAgIHZhbCByYXcgPSBzaGEyNTYoY2hhbGxlbmdlVGFnICsrIGNoYWxsZW5nZVRhZyArKyByQnl0ZXMgKysgcGtCeXRlcyArKyBtZXNzYWdlKQogCiAgICAgIC8vIE5vdGUgdGhhdCB0aGUgb3V0cHV0IG9mIFNIQTI1NiBpcyBhIGNvbGxlY3Rpb24gb2YgYnl0ZXMgdGhhdCByZXByZXNlbnRzIGFuIHVuc2lnbmVkIDI1NmJpdCBpbnRlZ2VyLiAKICAgICAgdmFsIGZpcnN0ID0gdG9TaWduZWRCeXRlcyhyYXcuc2xpY2UoMCwxNikpCiAgICAgIHZhbCBjb25jYXRCeXRlcyA9IGZpcnN0LmFwcGVuZCh0b1NpZ25lZEJ5dGVzKHJhdy5zbGljZSgxNixyYXcuc2l6ZSkpKQogICAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0LnNpemUKICAgICAgbXlFeHAoKGdyb3VwR2VuZXJhdG9yLCBzKSkgPT0gIG15RXhwKChwdWJLZXksIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykpKS5tdWx0aXBseShyZXNwb25zZSkKICAgIH0KICAgICAgCiAgKQp9
-        const SCRIPT_BYTES: &str = "291X3UroKTCRC8KCGxEMLgq35xFL9Hng8iuN1CWPjV8cYBzBr49FQ6KYioEMd6nfB7Vw7rt2m3pfU7sgCbzKv67pFj5iRVgxGvp5XzYSR43GJEjqkNL8HGoU7EDyqTDir9Bj6UJMKyACzzBr4ui7dqkKAwTrY4rYsvvgUp1GZYEKun6ZqSCYSRTyd4PztGUXVGmWykSajpjB9ddp5kwn15qNYT9HJ9rpENofSaeoroooLaAs3d9Z1idarto3zY2YnHN31fa67L3xDtRsCZ2wC3yp2RV9VroiWggAD98ddViYuHXD6eFhu9ifFuRPbR1k96CMo9U2Mup9kiJUcx6TPhKPBn8gWqqRemGAs4EVuz75d52wgqfQxgc6hEDQwUh7BedjusfXeSTneVCcZevRJFmgFnpo2dnNk5PotVXQGqHSJBbe48mU4S7eZ6px5ZtyjPsAdjMffHX3p33f9eCdJkzkQYhRDEzRYM29faVRemnDz3PfgrSUiMioFc68K54B";
-
-        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
-        let address = encoder.parse_address_from_str(SCRIPT_BYTES).unwrap();
-        let ergo_tree = address.script().unwrap();
-        let erg_value = BoxValue::try_from(1000000_u64).unwrap();
-
-        let msg = b"foo".as_slice();
-        let mut rng = OsRng;
-        let mut sigs = vec![];
-
-        for i in 0..100 {
-            let secret_key = SecretKey::random(&mut rng);
-            let signing_key = SigningKey::from(secret_key);
-            let signature = signing_key.sign(msg);
-            sigs.push((
-                i as usize,
-                Some((Commitment::from(*signing_key.verifying_key()), signature)),
-            ));
-        }
-
-        let schnorr_sig_data = serialize_exclusion_set(sigs, msg);
-
-        let mut registers = HashMap::new();
-
-        registers.insert(NonMandatoryRegisterId::R4, Constant::from(msg.to_vec()));
-        registers.insert(NonMandatoryRegisterId::R5, Constant::from(generator()));
-        let mut values = IndexMap::new();
-        values.insert(0, schnorr_sig_data);
-        let input_box = ErgoBox::new(
-            erg_value,
-            ergo_tree,
-            None,
-            NonMandatoryRegisters::new(registers).unwrap(),
-            900000,
-            TxId::zero(),
-            0,
-        )
-        .unwrap();
-
-        // Send all Ergs to miner fee
-        let miner_output = ErgoBoxCandidate {
-            value: erg_value,
-            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
-            tokens: None,
-            additional_registers: NonMandatoryRegisters::empty(),
-            creation_height: 900001,
-        };
-        let outputs = TxIoVec::from_vec(vec![miner_output]).unwrap();
-        let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension { values });
-        let unsigned_tx =
-            UnsignedTransaction::new(TxIoVec::from_vec(vec![unsigned_input]).unwrap(), None, outputs)
-                .unwrap();
-        let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], vec![]).unwrap();
-        let wallet = get_wallet();
-        let ergo_state_context = force_any_val::<ErgoStateContext>();
-        let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
-        println!("{:?}", res);
-        assert!(res.is_ok());
-    }
-
-    fn get_wallet() -> Wallet {
-        const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
-        Wallet::from_mnemonic(SEED_PHRASE, "").expect("Invalid seed")
-    }
 
     #[test]
     fn verify_vault_contract_sigma_rust() {
@@ -839,6 +682,164 @@ mod tests {
             ergo_tree,
             Some((9, blake2b256_hash(b"blah").as_ref().to_vec())),
         );
+    }
+
+    #[test]
+    fn test_avl_tree_verification() {
+        let empty_tree = AVLTree::new(dummy_resolver, KEY_LENGTH, Some(VALUE_LENGTH));
+        let mut prover = BatchAVLProver::new(empty_tree.clone(), true);
+        let initial_digest = prover.digest().unwrap().to_vec();
+        let pairs: Vec<_> = (0..3).map(|_| random_kv()).collect();
+        for kv in &pairs {
+            let m = Operation::Insert(kv.clone());
+            prover.perform_one_operation(&m).unwrap();
+        }
+        let operations_vec: Vec<_> = pairs
+            .into_iter()
+            .map(|kv| {
+                let key_const = Literal::from(kv.key.to_vec());
+                let value_const = Literal::from(kv.value.to_vec());
+                Literal::Tup(TupleItems::try_from(vec![key_const, value_const]).unwrap())
+            })
+            .collect();
+
+        let operations_tpe = SType::SColl(Box::new(SType::STuple(STuple::pair(
+            SType::SColl(Box::new(SType::SByte)),
+            SType::SColl(Box::new(SType::SByte)),
+        ))));
+        let operations_lit = Literal::Coll(CollKind::WrappedColl {
+            elem_tpe: SType::STuple(STuple::pair(
+                SType::SColl(Box::new(SType::SByte)),
+                SType::SColl(Box::new(SType::SByte)),
+            )),
+            items: operations_vec,
+        });
+        let operations_const = Constant {
+            tpe: operations_tpe,
+            v: operations_lit,
+        };
+
+        let proof = Constant::from(prover.generate_proof().to_vec());
+        let resulting_digest = prover.digest().unwrap().to_vec();
+        let avl_tree_data = AvlTreeData {
+            digest: Digest::<33>::try_from(initial_digest).unwrap(),
+            tree_flags: AvlTreeFlags::new(true, false, false),
+            key_length: KEY_LENGTH as u32,
+            value_length_opt: Some(Box::new(VALUE_LENGTH as u32)),
+        };
+        let avl_const = Constant::from(avl_tree_data);
+
+        // Script: https://wallet.plutomonkey.com/p2s/?source=eyAvLyA9PT09PSBDb250cmFjdCBJbmZvcm1hdGlvbiA9PT09PSAvLwogIC8vIE5hbWU6IFZlcmlmeSBBVkwgdHJlZSB0ZXN0CiAgLy8KICAvLyBDb250ZXh0RXh0ZW5zaW9uIGNvbnN0YW50czoKICAvLyAwOiBBdmxUcmVlIC0gaW5pdGlhbCBzdGF0ZSBvZiB0aGUgQVZMIHRyZWUKICAvLyAxOiBDb2xsW0NvbGxbKEludCwgQ29sbFtCeXRlXSldXSAtIGluc2VydCBvcGVyYXRpb25zIGZvciBBVkwgdHJlZQogIC8vIDI6IENvbGxbQnl0ZV0gLSBBVkwgdHJlZSBwcm9vZgogIC8vIDM6IENvbGxbQnl0ZV0gLSBFeHBlY3RlZCBkaWdlc3QgYWZ0ZXIgaW5zZXJ0IG9wZXJhdGlvbnMgaGF2ZSBiZWVuIHBlcmZvcm1lZAogCgogIHZhbCB0cmVlICAgICAgICA9IGdldFZhcltBdmxUcmVlXSgwKS5nZXQKICB2YWwgb3BlcmF0aW9ucyAgPSBnZXRWYXJbQ29sbFsoQ29sbFtCeXRlXSwgQ29sbFtCeXRlXSldXSgxKS5nZXQKICB2YWwgcHJvb2YgICAgICAgPSBnZXRWYXJbQ29sbFtCeXRlXV0oMikuZ2V0CiAgdmFsIGRpZ2VzdCAgICAgID0gZ2V0VmFyW0NvbGxbQnl0ZV1dKDMpLmdldAoKICB2YWwgZW5kVHJlZSA9IHRyZWUuaW5zZXJ0KG9wZXJhdGlvbnMsIHByb29mKS5nZXQKICAKICBzaWdtYVByb3AgKGVuZFRyZWUuZGlnZXN0ID09IGRpZ2VzdCkKfQ==
+        const SCRIPT_BYTES: &str = "2MEDDujrWqP7AmJZKvCPfe9bzoWQgmaLB9ykrQ9rvtEoKBpTd";
+        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
+        let address = encoder.parse_address_from_str(SCRIPT_BYTES).unwrap();
+        let ergo_tree = address.script().unwrap();
+        let erg_value = BoxValue::try_from(1000000_u64).unwrap();
+        let input_box = ErgoBox::new(
+            erg_value,
+            ergo_tree,
+            None,
+            NonMandatoryRegisters::empty(),
+            900000,
+            TxId::zero(),
+            0,
+        )
+        .unwrap();
+
+        // Send all Ergs to miner fee
+        let miner_output = ErgoBoxCandidate {
+            value: erg_value,
+            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: 900001,
+        };
+        let mut constants = IndexMap::new();
+        constants.insert(0_u8, avl_const);
+        constants.insert(1_u8, operations_const);
+        constants.insert(2_u8, proof);
+        constants.insert(3_u8, Constant::from(resulting_digest));
+
+        let outputs = TxIoVec::from_vec(vec![miner_output]).unwrap();
+        let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension { values: constants });
+        let unsigned_tx =
+            UnsignedTransaction::new(TxIoVec::from_vec(vec![unsigned_input]).unwrap(), None, outputs)
+                .unwrap();
+        let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], vec![]).unwrap();
+        let wallet = get_wallet();
+        let ergo_state_context = force_any_val::<ErgoStateContext>();
+        let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
+        println!("{:?}", res);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_verify_schnorr_signature() {
+        // Script: https://wallet.plutomonkey.com/p2s/?source=ewogIHZhbCBtZXNzYWdlICAgICAgICA9IElOUFVUUygwKS5SNFtDb2xsW0J5dGVdXS5nZXQKICB2YWwgZ3JvdXBHZW5lcmF0b3IgPSBJTlBVVFMoMCkuUjVbR3JvdXBFbGVtZW50XS5nZXQKCiAgdmFsIHZlcmlmaWNhdGlvbkRhdGEgPSBnZXRWYXJbQ29sbFsoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSApXV0oMCkuZ2V0CiAKICAvLyBQZXJmb3JtcyBleHBvbmVudGlhdGlvbiBvZiBhIEdyb3VwRWxlbWVudCBieSBhbiB1bnNpZ25lZCAyNTZiaXQKICAvLyBpbnRlZ2VyIEkgdXNpbmcgdGhlIGZvbGxvd2luZyBkZWNvbXBvc2l0aW9uIG9mIEk6CiAgLy8gTGV0IGUgPSAoZywgKGIsIG4pKS4gVGhlbiB0aGlzIGZ1bmN0aW9uIGNvbXB1dGVzOgogIC8vCiAgLy8gICBnXkkgPT0gKGdeYigwLG4pKV5wICogZ14oYihuLi4pKQogIC8vIHdoZXJlCiAgLy8gIC0gYigwLG4pIGlzIHRoZSBmaXJzdCBuIGJ5dGVzIG9mIGEgcG9zaXRpdmUgQmlnSW50IGBVYAogIC8vICAtIGIobi4uKSBhcmUgdGhlIHJlbWFpbmluZyBieXRlcyBzdGFydGluZyBmcm9tIGluZGV4IG4uIFRoZXNlIGJ5dGVzCiAgLy8gICAgYWxzbyByZXByZXNlbnQgYSBwb3NpdGl2ZSBCaWdJbnQgYExgLgogIC8vICAtIHAgaXMgMzQwMjgyMzY2OTIwOTM4NDYzNDYzMzc0NjA3NDMxNzY4MjExNDU2IGJhc2UgMTAuCiAgLy8gIC0gSSA9PSBVICogcCArIEwKICBkZWYgbXlFeHAoZTogKEdyb3VwRWxlbWVudCwgKENvbGxbQnl0ZV0sIEludCkpKSA6IEdyb3VwRWxlbWVudCA9IHsKICAgIHZhbCB4ID0gZS5fMQogICAgdmFsIHkgPSBlLl8yLl8xCiAgICB2YWwgbGVuID0gZS5fMi5fMgogICAgdmFsIHVwcGVyID0gYnl0ZUFycmF5VG9CaWdJbnQoeS5zbGljZSgwLCBsZW4pKQogICAgdmFsIGxvd2VyID0gYnl0ZUFycmF5VG9CaWdJbnQoeS5zbGljZShsZW4sIHkuc2l6ZSkpCgogICAgLy8gVGhlIGZvbGxvd2luZyB2YWx1ZSBpcyAzNDAyODIzNjY5MjA5Mzg0NjM0NjMzNzQ2MDc0MzE3NjgyMTE0NTYgYmFzZS0xMC4KICAgIHZhbCBwID0gYnl0ZUFycmF5VG9CaWdJbnQoZnJvbUJhc2U2NCgiQVFBQUFBQUFBQUFBQUFBQUFBQUFBQUEiKSkKICAgCiAgICB4LmV4cCh1cHBlcikuZXhwKHApLm11bHRpcGx5KHguZXhwKGxvd2VyKSkKICB9CgogIC8vIENvbnZlcnRzIGEgYmlnLWVuZGlhbiBieXRlIHJlcHJlc2VudGF0aW9uIG9mIGFuIHVuc2lnbmVkIGludGVnZXIgaW50byBpdHMKICAvLyBlcXVpdmFsZW50IHNpZ25lZCByZXByZXNlbnRhdGlvbgogIGRlZiB0b1NpZ25lZEJ5dGVzKGI6IENvbGxbQnl0ZV0pIDogQ29sbFtCeXRlXSA9IHsKICAgIC8vIE5vdGUgdGhhdCBhbGwgaW50ZWdlcnMgKGluY2x1ZGluZyBCeXRlKSBpbiBFcmdvc2NyaXB0IGFyZSBzaWduZWQuIEluIHN1Y2gKICAgIC8vIGEgcmVwcmVzZW50YXRpb24sIHRoZSBtb3N0LXNpZ25pZmljYW50IGJpdCAoTVNCKSBpcyB1c2VkIHRvIHJlcHJlc2VudCB0aGUKICAgIC8vIHNpZ247IDAgZm9yIGEgcG9zaXRpdmUgaW50ZWdlciBhbmQgMSBmb3IgbmVnYXRpdmUuIE5vdyBzaW5jZSBgYmAgaXMgYmlnLQogICAgLy8gZW5kaWFuLCB0aGUgTVNCIHJlc2lkZXMgaW4gdGhlIGZpcnN0IGJ5dGUgYW5kIE1TQiA9PSAxIGluZGljYXRlcyB0aGF0IGV2ZXJ5CiAgICAvLyBiaXQgaXMgdXNlZCB0byBzcGVjaWZ5IHRoZSBtYWduaXR1ZGUgb2YgdGhlIGludGVnZXIuIFRoaXMgbWVhbnMgdGhhdCBhbgogICAgLy8gZXh0cmEgMC1iaXQgbXVzdCBiZSBwcmVwZW5kZWQgdG8gYGJgIHRvIHJlbmRlciBpdCBhIHZhbGlkIHBvc2l0aXZlIHNpZ25lZAogICAgLy8gaW50ZWdlci4KICAgIC8vCiAgICAvLyBOb3cgc2lnbmVkIGludGVnZXJzIGFyZSBuZWdhdGl2ZSBpZmYgTVNCID09IDEsIGhlbmNlIHRoZSBjb25kaXRpb24gYmVsb3cuCiAgICBpZiAoYigwKSA8IDAgKSB7CiAgICAgICAgQ29sbCgwLnRvQnl0ZSkuYXBwZW5kKGIpCiAgICB9IGVsc2UgewogICAgICAgIGIKICAgIH0KICB9CiAgICAKICAvLyBCSVAtMDM0MCB1c2VzIHNvLWNhbGxlZCB0YWdnZWQgaGFzaGVzCiAgdmFsIGNoYWxsZW5nZVRhZyA9IHNoYTI1NihDb2xsKDY2LCA3MywgODAsIDQ4LCA1MSwgNTIsIDQ4LCA0NywgOTksIDEwNCwgOTcsIDEwOCwgMTA4LCAxMDEsIDExMCwgMTAzLCAxMDEpLm1hcCB7ICh4OkludCkgPT4geC50b0J5dGUgfSkKCgogIHNpZ21hUHJvcCAoCiAgICB2ZXJpZmljYXRpb25EYXRhLmZvcmFsbCB7IChlOiAoKEludCwgKEdyb3VwRWxlbWVudCwgQ29sbFtCeXRlXSkpLCAoKENvbGxbQnl0ZV0sIEludCksIChHcm91cEVsZW1lbnQsIENvbGxbQnl0ZV0pKSkpID0+CiAgICAgIHZhbCBwdWJLZXlUdXBsZSA9IGUuXzEuXzIKICAgICAgdmFsIHMgID0gZS5fMi5fMQogICAgICB2YWwgcmVzcG9uc2VUdXBsZSA9IGUuXzIuXzIKCiAgICAgIHZhbCBwdWJLZXkgICAgICAgICA9IHB1YktleVR1cGxlLl8xIC8vIFAKICAgICAgdmFsIHBrQnl0ZXMgICAgICAgID0gcHViS2V5VHVwbGUuXzIgLy8gZW5jb2RlZCB4LWNvb3JkaW5hdGUgb2YgUAogICAgICB2YWwgcmVzcG9uc2UgICAgICAgPSByZXNwb25zZVR1cGxlLl8xIC8vIFIgaW4gQklQLTAzNDAKICAgICAgdmFsIHJCeXRlcyAgICAgICAgID0gcmVzcG9uc2VUdXBsZS5fMiAvLyBCeXRlIHJlcHJlc2VudGF0aW9uIG9mICdyJwoKCiAgICAgIHZhbCByYXcgPSBzaGEyNTYoY2hhbGxlbmdlVGFnICsrIGNoYWxsZW5nZVRhZyArKyByQnl0ZXMgKysgcGtCeXRlcyArKyBtZXNzYWdlKQogCiAgICAgIC8vIE5vdGUgdGhhdCB0aGUgb3V0cHV0IG9mIFNIQTI1NiBpcyBhIGNvbGxlY3Rpb24gb2YgYnl0ZXMgdGhhdCByZXByZXNlbnRzIGFuIHVuc2lnbmVkIDI1NmJpdCBpbnRlZ2VyLiAKICAgICAgdmFsIGZpcnN0ID0gdG9TaWduZWRCeXRlcyhyYXcuc2xpY2UoMCwxNikpCiAgICAgIHZhbCBjb25jYXRCeXRlcyA9IGZpcnN0LmFwcGVuZCh0b1NpZ25lZEJ5dGVzKHJhdy5zbGljZSgxNixyYXcuc2l6ZSkpKQogICAgICB2YWwgZmlyc3RJbnROdW1CeXRlcyA9IGZpcnN0LnNpemUKICAgICAgbXlFeHAoKGdyb3VwR2VuZXJhdG9yLCBzKSkgPT0gIG15RXhwKChwdWJLZXksIChjb25jYXRCeXRlcywgZmlyc3RJbnROdW1CeXRlcykpKS5tdWx0aXBseShyZXNwb25zZSkKICAgIH0KICAgICAgCiAgKQp9
+        const SCRIPT_BYTES: &str = "291X3UroKTCRC8KCGxEMLgq35xFL9Hng8iuN1CWPjV8cYBzBr49FQ6KYioEMd6nfB7Vw7rt2m3pfU7sgCbzKv67pFj5iRVgxGvp5XzYSR43GJEjqkNL8HGoU7EDyqTDir9Bj6UJMKyACzzBr4ui7dqkKAwTrY4rYsvvgUp1GZYEKun6ZqSCYSRTyd4PztGUXVGmWykSajpjB9ddp5kwn15qNYT9HJ9rpENofSaeoroooLaAs3d9Z1idarto3zY2YnHN31fa67L3xDtRsCZ2wC3yp2RV9VroiWggAD98ddViYuHXD6eFhu9ifFuRPbR1k96CMo9U2Mup9kiJUcx6TPhKPBn8gWqqRemGAs4EVuz75d52wgqfQxgc6hEDQwUh7BedjusfXeSTneVCcZevRJFmgFnpo2dnNk5PotVXQGqHSJBbe48mU4S7eZ6px5ZtyjPsAdjMffHX3p33f9eCdJkzkQYhRDEzRYM29faVRemnDz3PfgrSUiMioFc68K54B";
+
+        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
+        let address = encoder.parse_address_from_str(SCRIPT_BYTES).unwrap();
+        let ergo_tree = address.script().unwrap();
+        let erg_value = BoxValue::try_from(1000000_u64).unwrap();
+
+        let msg = b"foo".as_slice();
+        let mut rng = OsRng;
+        let mut sigs = vec![];
+
+        for i in 0..100 {
+            let secret_key = SecretKey::random(&mut rng);
+            let signing_key = SigningKey::from(secret_key);
+            let signature = signing_key.sign(msg);
+            sigs.push((
+                i as usize,
+                Some((Commitment::from(*signing_key.verifying_key()), signature)),
+            ));
+        }
+
+        let schnorr_sig_data = serialize_exclusion_set(sigs, msg);
+
+        let mut registers = HashMap::new();
+
+        registers.insert(NonMandatoryRegisterId::R4, Constant::from(msg.to_vec()));
+        registers.insert(NonMandatoryRegisterId::R5, Constant::from(generator()));
+        let mut values = IndexMap::new();
+        values.insert(0, schnorr_sig_data);
+        let input_box = ErgoBox::new(
+            erg_value,
+            ergo_tree,
+            None,
+            NonMandatoryRegisters::new(registers).unwrap(),
+            900000,
+            TxId::zero(),
+            0,
+        )
+        .unwrap();
+
+        // Send all Ergs to miner fee
+        let miner_output = ErgoBoxCandidate {
+            value: erg_value,
+            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: 900001,
+        };
+        let outputs = TxIoVec::from_vec(vec![miner_output]).unwrap();
+        let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension { values });
+        let unsigned_tx =
+            UnsignedTransaction::new(TxIoVec::from_vec(vec![unsigned_input]).unwrap(), None, outputs)
+                .unwrap();
+        let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], vec![]).unwrap();
+        let wallet = get_wallet();
+        let ergo_state_context = force_any_val::<ErgoStateContext>();
+        let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
+        println!("{:?}", res);
+        assert!(res.is_ok());
+    }
+
+    fn get_wallet() -> Wallet {
+        const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
+        Wallet::from_mnemonic(SEED_PHRASE, "").expect("Invalid seed")
     }
 
     fn simulate_signature_aggregation_with_predefined_digest(
