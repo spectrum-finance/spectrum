@@ -10,5 +10,7 @@ log/
 .local
 .vscode
 **/auxil/
+**/.bloop
+**/.metals
 **/out/
 *.log
