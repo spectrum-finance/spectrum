@@ -785,6 +785,10 @@ object ContractTesting extends IOApp {
           outbox
         })
 
+        val withdrawalUTXOsNumKb =
+          outBoxes.map(o => o.getBytesWithNoRef().length).sum.toDouble / 1024.0
+        println(s"# bytes in withdrawals: $withdrawalUTXOsNumKb")
+
         val changeForMiner = 1000000.toLong
 
         val userOutBox = tb
@@ -827,6 +831,11 @@ object ContractTesting extends IOApp {
             ContextVar.of(6.toByte, ErgoValue.of(avlTreeData)),
             ContextVar.of(7.toByte, ErgoValue.of(avlProof.value.toArray))
           )
+
+        val bytesInContextExtension =
+          (exclusionSetBytes.length + aggregateResponseBytes.length
+            + aggregateCommitmentBytes.length + mdBytes.length + thresholdBytes.length + terminalCellsBytes.length
+            + startingAvlTreeBytes.length + avlProofBytes.length).toDouble / 1024.0
 
         val MAX_COMMITTEE_IN_BOX = 118
         val NUM_COMMITTEE_ELEMENTS_IN_FIRST_BOX = 115
@@ -900,8 +909,10 @@ object ContractTesting extends IOApp {
         val executionTimeInMillis = endTimeInMillis - startTimeInMillis
         val txSize = signed.toBytes().length.toFloat / 1024.0
 
+        val validationContractNumBytes =
+          validationContract.getErgoTree().bytes.length.toDouble / 1024.0
         println(
-          s"The block of code took $executionTimeInMillis milliseconds to execute. Size: $txSize Kb"
+          s"The block of code took $executionTimeInMillis milliseconds to execute. Size: $txSize Kb, bytes in context extension: $bytesInContextExtension Kb, # contract_bytes: $validationContractNumBytes"
         )
 
         // println(s"signed tx: ${signed.toJson(false)}")
