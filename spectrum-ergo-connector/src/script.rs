@@ -372,6 +372,16 @@ fn schnorr_signature_verification_ergoscript_type() -> SType {
     })
 }
 
+pub fn estimate_tx_size_in_kb(
+    num_withdrawals: usize,
+    num_byzantine_nodes: usize,
+    num_token_occurrences: usize,
+) -> f32 {
+    0.67 + 0.086 * (num_withdrawals as f32)
+        + (num_byzantine_nodes as f32) * 0.165
+        + (num_token_occurrences as f32) * 0.039
+}
+
 #[cfg(test)]
 mod tests {
     use blake2::Blake2b;
@@ -445,7 +455,9 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Instant;
 
-    use crate::script::{scalar_to_biguint, serialize_exclusion_set, ErgoTermCell, ErgoTermCells};
+    use crate::script::{
+        estimate_tx_size_in_kb, scalar_to_biguint, serialize_exclusion_set, ErgoTermCell, ErgoTermCells,
+    };
 
     use super::dummy_resolver;
 
@@ -885,13 +897,23 @@ mod tests {
 
     #[tokio::test]
     async fn verify_vault_ergoscript_sigmastate() {
-        let num_byzantine_nodes = vec![100, 150, 200, 250, 300, 340];
+        let num_byzantine_nodes = vec![0]; //, 100, 150, 200, 250, 300, 340];
 
         let num_participants = 1024;
         let epoch_len = 720;
         let current_epoch = 3;
-        for num_byzantine in num_byzantine_nodes {
-            let inputs = simulate_signature_aggregation_notarized_proofs(num_participants, num_byzantine);
+        let threshold = Threshold { num: 2, denom: 4 };
+        //let num_notarized_txs = 1;
+        let max_num_tokens = 122;
+        let num_byzantine = 50;
+        for num_notarized_txs in vec![10, 20, 30, 40, 50, 100] {
+            let inputs = simulate_signature_aggregation_notarized_proofs(
+                num_participants,
+                num_byzantine,
+                threshold,
+                num_notarized_txs,
+                max_num_tokens,
+            );
             verify_vault_ergoscript_with_sigmastate(inputs, num_participants, epoch_len, current_epoch).await;
         }
     }
@@ -984,6 +1006,8 @@ mod tests {
 
         let proof = Constant::from(proof);
         let avl_const = Constant::from(starting_avl_tree);
+        let num_withdrawals = terminal_cells.len();
+        let num_token_occurrences = terminal_cells.iter().fold(0, |acc, tc| tc.tokens.len() + acc);
         let input = VaultValidationInput {
             signature_input,
             terminal_cells: Constant::from(ErgoTermCells(terminal_cells))
@@ -1004,7 +1028,16 @@ mod tests {
         println!("{:?}", raw);
         let details = raw.json::<ValidationResponse>().await.unwrap();
 
-        println!("{} byzantine nodes", num_byzantine_nodes);
+        let actual_size = details.right.value.tx_size_in_kb;
+        let estiamted_size =
+            estimate_tx_size_in_kb(num_withdrawals, num_byzantine_nodes, 2 * num_token_occurrences);
+        println!(
+            "{} byzantine nodes, estimate tx size(kb): {}, actual size: {}, error: {}%",
+            num_byzantine_nodes,
+            estiamted_size,
+            actual_size,
+            (actual_size - estiamted_size) / actual_size * 100.0
+        );
         println!("{}", serde_json::to_string(&details).unwrap());
     }
 
@@ -1131,16 +1164,21 @@ mod tests {
     fn simulate_signature_aggregation_notarized_proofs(
         num_participants: usize,
         num_byzantine_nodes: usize,
+        threshold: Threshold,
+        num_notarized_txs: usize,
+        max_num_tokens: usize,
     ) -> SignatureAggregationWithNotarizationElements {
         let mut rng = OsRng;
         let mut byz_indexes = vec![];
-        loop {
-            let rng = rng.gen_range(0usize..num_participants);
-            if !byz_indexes.contains(&rng) {
-                byz_indexes.push(rng);
-            }
-            if byz_indexes.len() == num_byzantine_nodes {
-                break;
+        if num_byzantine_nodes > 0 {
+            loop {
+                let rng = rng.gen_range(0usize..num_participants);
+                if !byz_indexes.contains(&rng) {
+                    byz_indexes.push(rng);
+                }
+                if byz_indexes.len() == num_byzantine_nodes {
+                    break;
+                }
             }
         }
         let individual_keys = (0..num_participants)
@@ -1170,16 +1208,15 @@ mod tests {
                 .collect(),
         );
         let mut total_num_tokens = 0;
-        let max_tokens_per_box = 122;
 
-        let terminal_cells: Vec<_> = (0..200)
+        let terminal_cells: Vec<_> = (0..num_notarized_txs)
             .map(|_| {
                 let address = generate_address();
                 let ergs = BoxValue::try_from(rng.gen_range(1_u64..=9000000000)).unwrap();
                 let contains_tokens = rng.gen_bool(0.5);
                 let tokens = if contains_tokens {
                     let num_tokens = rng.gen_range(0_usize..=10);
-                    if total_num_tokens + num_tokens <= max_tokens_per_box {
+                    if total_num_tokens + num_tokens <= max_num_tokens {
                         total_num_tokens += num_tokens;
                         (0..num_tokens).map(|_| gen_random_token()).collect()
                     } else {
@@ -1260,7 +1297,6 @@ mod tests {
                 (*i, Some((commitment.clone(), exclusion_proof(sk.clone(), md))))
             })
             .collect::<Vec<_>>();
-        let threshold = Threshold { num: 2, denom: 4 };
         assert!(verify(
             aggregate_commitment.clone(),
             aggregate_response,
