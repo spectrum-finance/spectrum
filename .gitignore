@@ -12,5 +12,6 @@ log/
 **/auxil/
 **/.bloop
 **/.metals
+**/metals.sbt
 **/out/
 *.log
