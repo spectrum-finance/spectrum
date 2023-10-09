@@ -492,26 +492,23 @@ mod tests {
         let num_byzantine_nodes = vec![34];
 
         let num_participants = 128;
-        let md = blake2b256_hash(b"foo");
+        let epoch_len = 720;
+        let current_epoch = 3;
+        let threshold = Threshold { num: 2, denom: 4 };
+        let max_num_tokens = 122;
         for num_byzantine in num_byzantine_nodes {
-            let SignatureAggregationElements {
-                aggregate_commitment,
-                aggregate_response,
-                exclusion_set,
-                committee,
+            let inputs = simulate_signature_aggregation_notarized_proofs(
+                num_participants,
+                num_byzantine,
                 threshold,
-            } = simulate_signature_aggregation_with_predefined_digest(num_participants, num_byzantine, md);
-            let exclusion_set: Vec<_> = exclusion_set
-                .into_iter()
-                .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
-                .collect();
+                100,
+                max_num_tokens,
+            );
             verify_vault_contract_ergoscript_with_sigma_rust(
-                committee,
-                (num_participants * threshold.num / threshold.denom) as i32,
-                aggregate_commitment,
-                aggregate_response,
-                exclusion_set,
-                md,
+                inputs,
+                num_participants,
+                epoch_len,
+                current_epoch,
             );
         }
     }
@@ -680,7 +677,10 @@ mod tests {
         create_committee_input_box(
             committee,
             ergo_tree,
-            Some((9, blake2b256_hash(b"blah").as_ref().to_vec())),
+            Some(blake2b256_hash(b"blah").as_ref().to_vec()),
+            vec![1, 1, 1, 1],
+            900000,
+            0,
         );
     }
 
@@ -840,104 +840,6 @@ mod tests {
     fn get_wallet() -> Wallet {
         const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
         Wallet::from_mnemonic(SEED_PHRASE, "").expect("Invalid seed")
-    }
-
-    fn simulate_signature_aggregation_with_predefined_digest(
-        num_participants: usize,
-        num_byzantine_nodes: usize,
-        md: Blake2bDigest256,
-    ) -> SignatureAggregationElements {
-        let mut rng = OsRng;
-        let mut byz_indexes = vec![];
-        loop {
-            let rng = rng.gen_range(0usize..num_participants);
-            if !byz_indexes.contains(&rng) {
-                byz_indexes.push(rng);
-            }
-            if byz_indexes.len() == num_byzantine_nodes {
-                break;
-            }
-        }
-        let individual_keys = (0..num_participants)
-            .map(|_| {
-                let sk = SecretKey::random(&mut rng);
-                let pk = PublicKey::from(sk.public_key());
-                let (commitment_sk, commitment) = schnorr_commitment_pair();
-                (sk, pk, commitment_sk, commitment)
-            })
-            .collect::<Vec<_>>();
-        let committee = individual_keys
-            .iter()
-            .map(|(_, pk, _, _)| pk.clone())
-            .collect::<Vec<_>>();
-        let individual_inputs = individual_keys
-            .iter()
-            .map(|(_, pki, _, _)| individual_input::<Blake2b<U32>>(committee.clone(), pki.clone()))
-            .collect::<Vec<_>>();
-        let aggregate_x = aggregate_pk(
-            individual_keys.iter().map(|(_, pk, _, _)| pk.clone()).collect(),
-            individual_inputs.clone(),
-        );
-        let aggregate_commitment = aggregate_commitment(
-            individual_keys
-                .iter()
-                .map(|(_, _, _, commitment)| commitment.clone())
-                .collect(),
-        );
-        let challenge = challenge(aggregate_x, aggregate_commitment.clone(), md);
-        let (byz_keys, active_keys): (Vec<_>, Vec<_>) = individual_keys
-            .clone()
-            .into_iter()
-            .enumerate()
-            .partition(|(i, _)| byz_indexes.contains(i));
-        let individual_responses_subset = active_keys
-            .iter()
-            .map(|(i, (sk, _, commitment_sk, _))| {
-                (
-                    *i,
-                    response(
-                        commitment_sk.clone(),
-                        sk.clone(),
-                        challenge,
-                        individual_inputs[*i],
-                    ),
-                )
-            })
-            .collect::<Vec<_>>();
-        for (i, zi) in individual_responses_subset.iter() {
-            let (_, pk, _, commitment) = &individual_keys[*i];
-            assert!(verify_response(
-                zi,
-                &individual_inputs[*i],
-                &challenge,
-                commitment.clone(),
-                pk.clone()
-            ))
-        }
-        let aggregate_response =
-            aggregate_response(individual_responses_subset.into_iter().map(|(_, x)| x).collect());
-        let exclusion_set = byz_keys
-            .iter()
-            .map(|(i, (_, _, sk, commitment))| {
-                (*i, Some((commitment.clone(), exclusion_proof(sk.clone(), md))))
-            })
-            .collect::<Vec<_>>();
-        let threshold = Threshold { num: 2, denom: 4 };
-        assert!(verify(
-            aggregate_commitment.clone(),
-            aggregate_response,
-            exclusion_set.clone(),
-            committee.clone(),
-            md,
-            threshold,
-        ));
-        SignatureAggregationElements {
-            aggregate_commitment,
-            aggregate_response,
-            exclusion_set,
-            committee,
-            threshold,
-        }
     }
 
     fn simulate_signature_aggregation_notarized_proofs(
@@ -1101,14 +1003,6 @@ mod tests {
         }
     }
 
-    struct SignatureAggregationElements {
-        aggregate_commitment: AggregateCommitment,
-        aggregate_response: Scalar,
-        exclusion_set: Vec<(usize, Option<(Commitment, spectrum_sigma::Signature)>)>,
-        committee: Vec<PublicKey>,
-        threshold: Threshold,
-    }
-
     struct SignatureAggregationWithNotarizationElements {
         aggregate_commitment: AggregateCommitment,
         aggregate_response: Scalar,
@@ -1122,13 +1016,22 @@ mod tests {
     }
 
     fn verify_vault_contract_ergoscript_with_sigma_rust(
-        committee: Vec<PublicKey>,
-        threshold: i32,
-        aggregate_commitment: AggregateCommitment,
-        aggregate_response: Scalar,
-        exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
-        md: Blake2bDigest256,
+        inputs: SignatureAggregationWithNotarizationElements,
+        num_participants: usize,
+        epoch_len: i32,
+        current_epoch: i32,
     ) {
+        let SignatureAggregationWithNotarizationElements {
+            aggregate_commitment,
+            aggregate_response,
+            exclusion_set,
+            committee,
+            threshold,
+            starting_avl_tree,
+            proof,
+            resulting_digest,
+            terminal_cells,
+        } = inputs;
         let c_bytes = committee.iter().fold(Vec::<u8>::new(), |mut b, p| {
             b.extend_from_slice(
                 k256::PublicKey::from(p.clone())
@@ -1157,7 +1060,8 @@ mod tests {
         assert_eq!(lower_256.sign(), Sign::Plus);
 
         let mut aggregate_response_bytes = upper_256.to_signed_bytes_be();
-        // Need this variable because we could add an extra byte to the encoding for signed-representation.
+        // VERY IMPORTANT: Need this variable because we could add an extra byte to the encoding
+        // for signed-representation.
         let first_len = aggregate_response_bytes.len() as i32;
         aggregate_response_bytes.extend(lower_256.to_signed_bytes_be());
 
@@ -1166,46 +1070,50 @@ mod tests {
             .parse_address_from_str(VAULT_CONTRACT_SCRIPT_BYTES)
             .unwrap();
         let ergo_tree = address.script().unwrap();
-        let erg_value = BoxValue::try_from(1000000_u64).unwrap();
+        let change_for_miner = BoxValue::try_from(1000000_u64).unwrap();
 
+        let md = blake2b256_hash(&resulting_digest);
         let exclusion_set_data = serialize_exclusion_set(exclusion_set, md.as_ref());
         let aggregate_response: Constant = (
             Constant::from(aggregate_response_bytes),
             Constant::from(first_len),
         )
             .into();
+        let threshold = (num_participants * threshold.num / threshold.denom) as i32;
+        let proof = Constant::from(proof);
+        let avl_const = Constant::from(starting_avl_tree);
+        let num_withdrawals = terminal_cells.len();
+        let num_token_occurrences = terminal_cells.iter().fold(0, |acc, tc| tc.tokens.len() + acc);
 
-        let num_bytes_needed: usize = vec![
-            address.content_bytes().len(),
-            exclusion_set_data.sigma_serialize_bytes().unwrap().len(),
-            aggregate_response.sigma_serialize_bytes().unwrap().len(),
-            serialized_aggregate_commitment
-                .sigma_serialize_bytes()
-                .unwrap()
-                .len(),
-            //Constant::from(generator()).sigma_serialize_bytes().unwrap().len(),
-            //Constant::from(EcPoint::from(ProjectivePoint::IDENTITY))
-            //    .sigma_serialize_bytes()
-            //    .unwrap()
-            //    .len(),
-            //serialized_committee.sigma_serialize_bytes().unwrap().len(),
-            Constant::from(md.as_ref().to_vec())
-                .sigma_serialize_bytes()
-                .unwrap()
-                .len(),
-            Constant::from(threshold).sigma_serialize_bytes().unwrap().len(),
-            Constant::from(committee_bytes.clone())
-                .sigma_serialize_bytes()
-                .unwrap()
-                .len(),
-        ]
-        .into_iter()
-        .sum();
+        let current_height = 900000_i32;
 
-        println!(
-            "# bytes in exclusion set: {}",
-            exclusion_set_data.sigma_serialize_bytes().unwrap().len()
-        );
+        // Create outboxes for terminal cells
+        let mut term_cell_outputs: Vec<_> = terminal_cells
+            .iter()
+            .map(
+                |ErgoTermCell {
+                     ergs,
+                     address,
+                     tokens,
+                 }| {
+                    let tokens = if tokens.is_empty() {
+                        None
+                    } else {
+                        Some(BoxTokens::from_vec(tokens.clone()).unwrap())
+                    };
+                    ErgoBoxCandidate {
+                        value: *ergs,
+                        ergo_tree: address.script().unwrap(),
+                        tokens,
+                        additional_registers: NonMandatoryRegisters::empty(),
+                        creation_height: current_height as u32,
+                    }
+                },
+            )
+            .collect();
+
+        let initial_vault_balance = 2000000000_i64;
+        let ergs_to_distribute: i64 = terminal_cells.iter().map(|t| t.ergs.as_i64()).sum();
 
         let mut values = IndexMap::new();
         values.insert(0, exclusion_set_data);
@@ -1213,46 +1121,39 @@ mod tests {
         values.insert(2, serialized_aggregate_commitment);
         values.insert(3, Constant::from(md.as_ref().to_vec()));
         values.insert(4, threshold.into());
-
-        let token_id = TokenId::from(ergo_lib::ergo_chain_types::Digest32::zero());
-        let amount = TokenAmount::try_from(100_u64).unwrap();
-        let token = Token { token_id, amount };
-
-        let term_cell = ErgoTermCell {
-            ergs: BoxValue::try_from(3000000_u64).unwrap(),
-            address,
-            tokens: vec![], //token.clone()],
-        };
-        let output_0 = ErgoBoxCandidate {
-            value: term_cell.ergs,
-            ergo_tree: term_cell.address.script().unwrap(),
-            tokens: None, //Some(BoxTokens::from_vec(vec![token]).unwrap()),
-            additional_registers: NonMandatoryRegisters::empty(),
-            creation_height: 900001,
-        };
-
-        values.insert(5, ErgoTermCells(vec![term_cell]).into());
+        values.insert(5, ErgoTermCells(terminal_cells).into());
+        values.insert(6, avl_const);
+        values.insert(7, proof);
 
         let input_box = ErgoBox::new(
-            erg_value,
+            BoxValue::try_from(initial_vault_balance + ergs_to_distribute).unwrap(),
             ergo_tree,
             None,
             NonMandatoryRegisters::empty(),
-            900000,
+            (current_height as u32) - 10,
             TxId::zero(),
             0,
         )
         .unwrap();
 
-        // Send all Ergs to miner fee
+        let vault_output_box = ErgoBoxCandidate {
+            value: BoxValue::try_from(initial_vault_balance - change_for_miner.as_i64()).unwrap(),
+            ergo_tree: generate_address().script().unwrap(),
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: current_height as u32,
+        };
+
         let miner_output = ErgoBoxCandidate {
-            value: erg_value,
+            value: change_for_miner,
             ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
             tokens: None,
             additional_registers: NonMandatoryRegisters::empty(),
-            creation_height: 900001,
+            creation_height: current_height as u32,
         };
-        let outputs = TxIoVec::from_vec(vec![output_0, miner_output]).unwrap();
+        term_cell_outputs.push(vault_output_box);
+        term_cell_outputs.push(miner_output);
+        let outputs = TxIoVec::from_vec(term_cell_outputs).unwrap();
         let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension { values });
 
         // The first committee box can hold 115 public keys together with other data necessary to
@@ -1265,20 +1166,32 @@ mod tests {
         let vault_sk = ergo_lib::wallet::secret_key::SecretKey::random_dlog();
         let ergo_tree = vault_sk.get_address_from_public_image().script().unwrap();
         let num_data_inputs = committee.len() / MAX_NUM_COMMITTEE_ELEMENTS_PER_BOX + 1;
+        let vault_start: i32 = current_height - epoch_len * current_epoch + 1;
+        let vault_parameters = vec![num_data_inputs as i32, current_epoch, epoch_len, vault_start];
 
         let mut data_boxes = vec![create_committee_input_box(
             committee.iter().take(NUM_COMMITTEE_ELEMENTS_IN_FIRST_BOX),
             ergo_tree.clone(),
-            Some((num_data_inputs as i16, committee_bytes)),
+            Some(committee_bytes),
+            vault_parameters.clone(),
+            current_height as u32,
+            0,
         )];
 
         let chunks = committee
             .iter()
             .skip(NUM_COMMITTEE_ELEMENTS_IN_FIRST_BOX)
             .chunks(MAX_NUM_COMMITTEE_ELEMENTS_PER_BOX);
-        let remaining_data_boxes = chunks
-            .into_iter()
-            .map(|chunk| create_committee_input_box(chunk, ergo_tree.clone(), None));
+        let remaining_data_boxes = chunks.into_iter().enumerate().map(|(ix, chunk)| {
+            create_committee_input_box(
+                chunk,
+                ergo_tree.clone(),
+                None,
+                vault_parameters.clone(),
+                current_height as u32,
+                ix as i32,
+            )
+        });
 
         data_boxes.extend(remaining_data_boxes);
 
@@ -1296,7 +1209,12 @@ mod tests {
         .unwrap();
         let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], data_boxes).unwrap();
         let wallet = get_wallet();
-        let ergo_state_context = force_any_val::<ErgoStateContext>();
+        let mut ergo_state_context = force_any_val::<ErgoStateContext>();
+        // Set height in ergo context
+        ergo_state_context.pre_header.height = current_height as u32;
+        for c in &mut ergo_state_context.headers {
+            c.height = current_height as u32;
+        }
         let now = Instant::now();
         println!("Signing TX...");
         let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
@@ -1305,10 +1223,14 @@ mod tests {
         }
         println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
     }
+
     fn create_committee_input_box<'a>(
         committee_members: impl Iterator<Item = &'a PublicKey>,
         ergo_tree: ErgoTree,
-        first_box_register_data: Option<(i16, Vec<u8>)>,
+        first_box_committee_hash: Option<Vec<u8>>,
+        vault_parameters: Vec<i32>,
+        current_height: u32,
+        ix: i32,
     ) -> ErgoBox {
         let committee_lit = Literal::from(
             committee_members
@@ -1323,14 +1245,15 @@ mod tests {
 
         let mut registers = HashMap::new();
         registers.insert(NonMandatoryRegisterId::R4, serialized_committee);
-        if let Some((num_boxes, committee_hash)) = first_box_register_data {
-            registers.insert(NonMandatoryRegisterId::R5, num_boxes.into());
-            registers.insert(NonMandatoryRegisterId::R6, Constant::from(generator()));
+        registers.insert(NonMandatoryRegisterId::R5, ix.into());
+        if let Some(committee_hash) = first_box_committee_hash {
+            registers.insert(NonMandatoryRegisterId::R6, vault_parameters.into());
+            registers.insert(NonMandatoryRegisterId::R7, Constant::from(generator()));
             registers.insert(
-                NonMandatoryRegisterId::R7,
+                NonMandatoryRegisterId::R8,
                 Constant::from(EcPoint::from(ProjectivePoint::IDENTITY)),
             );
-            registers.insert(NonMandatoryRegisterId::R8, Constant::from(committee_hash));
+            registers.insert(NonMandatoryRegisterId::R9, Constant::from(committee_hash));
         }
         let erg_value = BoxValue::try_from(1000000_u64).unwrap();
         let input_box = ErgoBox::new(
@@ -1338,7 +1261,7 @@ mod tests {
             ergo_tree,
             None,
             NonMandatoryRegisters::new(registers).unwrap(),
-            900000,
+            current_height - 10,
             TxId::zero(),
             0,
         )
