@@ -1,0 +1,134 @@
+The purpose of this section is to describe in details the underlying Universally Composable model.
+
+\phantomsection
+\textbf{Relaxed Synchrony}.\label{apndx:imp-clock}
+All protocol participants use the imperfect local clocks functionality to proceed at
+approximately the same speed with the upper bound $\Delta^{\text{clock}}$ on the drift between any
+two honest parties:
+\begin{functionality}
+    \caption{Functionality $\mathcal{G}_{\text{ImpLClock}}$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:imp-clock}
+\end{functionality}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+Usual (perfect) version of the local clocks functionality is as follows:\label{apndx:perf-clock}
+\begin{functionality}
+    \caption{Functionality $\mathcal{G}_{\text{PerfLClock}}$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:perf-clock}
+\end{functionality}
+
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Peer-to-Peer Communication}.\label{apndx:net}
+We assume a diffusion network in which all messages sent by honest parties are guaranteed to be fetched by\
+other protocol participants after a specific delay $\Delta^{\text{net}}$.
+Additionally, the network guarantees that once a message has been fetched by an honest party, this message is\
+fetched by any other honest party within a delay of at most $\Delta^{\text{net}}$.
+We will use a broadcasting network for message diffusion, the corresponding functionality is described below:
+\begin{functionality}
+    \caption{Functionality $\mathcal{F}^{\Delta}_{\text{N-MC}}$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:net}
+\end{functionality}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{The Genesis Block Distribution}.\label{apndx:init}
+
+todo
+\begin{functionality}
+    \caption{Functionality $\mathcal{F}_{\text{Init}}$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:init}
+\end{functionality}
+
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Veriﬁable Random Function}.\label{apndx:vrf}
+The idealized VRF functionality with extensions from~\cite{cryptoeprint:2022/1045} is defined below:
+\begin{functionality}
+    \caption{Functionality $\mathcal{F}_{\text{VRF}}$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:vrf}
+\end{functionality}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Key Evolving Signature}.\label{apndx:kes}
+The idealized KES module is defined below:
+\begin{functionality}
+    \caption{Functionality $\mathcal{F}_{\text{KES}}$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:kes}
+\end{functionality}
+
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Connection to external distributed systems}.\label{apndx:conn}
+functionality to interact with $k$-th connected distributed system $S_k$ is defined as follows:
+\begin{functionality}
+    \caption{Functionality $\mathcal{F}^k_{\text{ConnSys}}$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:conn}
+\end{functionality}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Collective Signature}.\label{apndx:agg-sig}
+Collective signature aggregation functionality is defined as follows:
+\begin{functionality}
+    \caption{Functionality $\mathcal{F}^k_{\text{AggSig}}$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:agg-sig}
+\end{functionality}
+
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Ledger}.\label{apndx:ledger}
+The ledger functionality with an export-clock extension~\cite{cryptoeprint:2019/838}:
+\begin{functionality}
+    \caption{Functionality $\mathcal{G}_{\text{Ledger}}$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:ledger}
+\end{functionality}

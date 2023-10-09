@@ -1,0 +1,91 @@
+\phantomsection
+\textbf{Time Update}.\label{apndx:update-time-protocol}
+\begin{protocol}
+    \caption{$\textsf{UpdateTime}(P, R)$}
+    \begin{algorithmic}[1]
+        \noindent
+        \lstinline|//NB: Only executed if time-aware.|
+        \State Send $(\textsf{\scriptsize{CLOCK-GET}}, \text{sid}_\text{C})$ to $\mathcal{G}_{\text{ImpLClock}}$\
+        and parse $\textsf{tick}$ from the response.
+        \If {$\textsf{lastTick} \neq \textsf{tick}$}
+            \State Set $\textsf{lastTick} \leftarrow \textsf{tick}$.
+            \State Set $\textsf{localTime} \leftarrow \textsf{localTime} + 1$.
+            \State Set $\textsf{fetchCompleted} \leftarrow \textsf{false}$.
+        \EndIf
+        \State Set $e \leftarrow \lceil \textsf{localTime}/\\R \rceil$.
+        \State Set $sl \leftarrow \textsf{localTime}$.
+
+    \end{algorithmic}\label{alg:update-time-protocol}
+\end{protocol}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Synchronization Procedure}.\label{apndx:sync-proc}
+The synchronization procedure is run at an epoch boundary to sync time between all committees members.
+\begin{protocol}
+    \caption{$\textsf{SyncProc}(P, \text{sid}, R)$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:sync-proc}
+\end{protocol}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Fetching information}.\label{apndx:fetch-info-protocol}
+\begin{protocol}
+    \caption{$\textsf{FetchInformation}(P, \text{sid})$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:fetch-info-protocol}
+\end{protocol}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Reading blockchain state}.\label{apndx:read-state-protocol}
+Reading blockchain $\textsf{state}_{sl}$ from  $\mathcal{C}$.
+\begin{protocol}
+    \caption{$\textsf{ReadState}(P, \text{sid}, sl, R, K_{\text{f}}, \mathcal{C})$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:read-state-protocol}
+\end{protocol}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Updating stake distribution}.\label{apndx:upd-stake}
+The stake distributions for epochs are defined in the local chain (and all associated state-variables) are\
+computed as follows:
+\begin{protocol}
+    \caption{$\textsf{UpdateStakeDistribution}(P, \text{sid}, R, \mathcal{C}_{\text{loc}}, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:upd-stake}
+\end{protocol}
+
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Processing beacons}.\label{apndx:proc-beacons}
+The following procedure records and processes beacons, their arrival times, and filters out invalid beacons:
+\begin{protocol}
+    \caption{$\textsf{ProcessBeacons}(P, \text{sid}, R, \{b^{\text{sync}}_n\}_{n=1}^N, \mathcal{C})$}
+    \begin{algorithmic}[1]
+
+        todo
+    \end{algorithmic}\label{alg:proc-beacons}
+\end{protocol}
+

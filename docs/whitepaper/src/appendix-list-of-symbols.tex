@@ -1,0 +1,87 @@
+\textbf{Functionalities:}
+\begin{itemize}
+    \item[\fontencoding[\ding{113}] $\mathcal{H}$ -- ideal hash function (random oracle).
+    \item[\ding{113}] $\mathcal{F}_{\text{VRF}}$ -- verifiable random function.
+    \item[\ding{113}] $\mathcal{F}_{\text{KES}}$ -- key evolving digital signature scheme.
+    \item[\ding{113}] $\mathcal{F}_{\text{LB}}$ -- leaky beacon.
+    \item[\ding{113}] $\mathcal{F}_{\text{AggSig}}$ -- collective signature aggregation functionality.
+    \item[\ding{113}] $\mathcal{F}_{\text{Init}}$ -- functionality providing the genesis block.
+    \item[\ding{113}] $\mathcal{F}^{\Delta}_{\text{N-MC}}$ -- functionality providing the genesis block.
+    \item[\ding{113}] $\mathcal{F}^k_{\text{ConnSys}}$ -- functionality to interact with $k$-th\
+    connected distributed system $S_k$.
+    \item[\ding{113}] $\mathcal{G}_{\text{ImpLClock}}$ -- imperfect local clock functionality.
+    \item[\ding{113}] $\mathcal{G}_{\text{PerfLClock}}$ -- perfect local clock functionality.
+    \item[\ding{113}] $\mathcal{G}_{\text{Ledger}}$ -- the ledger functionality.
+
+\end{itemize}
+\bigbreak
+
+\noindent
+\textbf{Main State Variables of The Spectrum protocol:}
+\begin{legal}
+    \item[\ding{113}] $sl_j \in \mathbb{N}$ -- the smallest discrete time unit used in the protocol.
+    \item[\ding{113}] $e_n \in \mathbb{N}$ -- the largest discrete time unit used in the protocol.
+    \item[\ding{113}] $R \in \mathbb{N}$ -- epoch boundaries, each epoch consists of $R$ slots.
+    \item[\ding{113}] $l_{\text{VRF}}$ -- the output length of the VRF in bits.
+    \item[\ding{113}] $U_{\text{c}}$ -- transaction confirmation time in slots.
+    \item[\ding{113}] $K_{\text{f}} \in \mathbb{N}$ -- number of blocks to achieve finality in the $L^+$.
+    \item[\ding{113}] $K_{\text{g}} \in \mathbb{N}$ -- number of blocks to consider chain growth (is used in chain selection).
+    \item[\ding{113}] $\mathbf{S}^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K$ -- set of connected distributed systems' ids (i.e. $K$ committees of validators for each system).
+    \item[\ding{113}] $\mathbf{f}_{\text{lead}} = \{f^{\text{lead}}_k\}_{k=1}^K$ -- set of target number of leaders per slot in each $k$-th committee.
+    \item[\ding{113}] $\mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K$ -- set of target fraction of each $k$ committee members.
+\end{legal}
+\bigbreak
+
+\noindent
+\textbf{Main Spectrum's Consensus Entities, Actors and Variables:}
+\begin{legal}
+    \item[\ding{113}] $L^+$ -- the main Spectrum's super-ledger (stores blocks).
+    \item[\ding{113}] $L^{\text{loc}, k}$ -- ledger of the $k$-th connected distributed system (stores notarized reports).
+    \item[\ding{113}] $V^k_n$ -- validators set (committee) of $k$-th connected distributed system active in the epoch $e_n$.
+\end{legal}
+\bigbreak
+
+\noindent
+\textbf{Main State Variables of The Spectrum protocol participant:}
+\begin{legal}
+    \item[\ding{113}] $P$ -- protocol participant (party).
+    \item[\ding{113}] $PK_{\text{P}}$ -- public key of the party $P$.
+    \item[\ding{113}] $PK^k_{\text{P}}$ -- public key of the $k$-th connected external system of the party $P$.
+    \item[\ding{113}] $s_{\text{P}}$ -- stake value of the party $P$.
+    \item[\ding{113}] $S^{\text{sync}, n}$ -- stakeholders distribution of all $K$ committees members for\
+    the epoch $n$ (used for the synchronization lottery).
+    \item[\ding{113}] $S_k^{\text{cons}, n}$ -- stakeholders distribution of the $V^k_{n + 2}$ members calculated for\
+    the epoch $n$ (used for the leader lottery).
+    \item[\ding{113}] $S_k^{\text{ver}, n}$ -- stakeholders distribution of verified and equipped with functionalities\
+    $\mathcal{F}^k_{\text{ConnSys}}$ participants fot the epoch $e_n$ (used for the consensus lottery to select $V^k_{n + 4}$).
+    \item[\ding{113}] $\eta_n$ -- random seed of the epoch $e_n$ (epoch randomness).
+    \item[\ding{113}] $v^{\text{vrf}}_{\text{P}}$ -- VRF public key of the party $P$.
+    \item[\ding{113}] $v^{\text{kes}}_{\text{P}}$ -- KES scheme public of the party $P$.
+    \item[\ding{113}] $\pi^{\text{sl}}_{\text{P}, j}$ -- VRF slot proof produced by the party $P$\
+    for slot $sl_j$ (used in the leader lottery and in the synchronization lottery).
+    \item[\ding{113}] $\pi^{\text{e}}_{\text{P}, n}$ -- VRF epoch proof produced by the party $P$ for epoch $e_n$\
+    (used in the consensus group lottery).
+    \item[\ding{113}] $b^{\text{sync}}_{P, j}$ -- synchronization beacon produced by party $P$ for slot $sl_j$.
+    \item[\ding{113}] $T^{\text{cons}, k}_{\text{P}, n}$ -- consensus group lottery threshold (for related  $V^k_n$ committee) calculated for\
+    the party $P$ for epoch $e_n$.
+    \item[\ding{113}] $T^{\text{lead}, k}_{\text{P}, n}$ -- leader lottery threshold (for related $V^k_n$ committee) calculated for\
+    the party $P$ for epoch $e_n$.
+    \item[\ding{113}] $T^{\text{sync}}_{\text{P}, n}$ -- synchronization beacon lottery threshold calculated for\
+    the party $P$ for epoch $e_n$.
+    \item[\ding{113}] $\mathbf{S}_P^{\text{set}}$ -- set of actual connected to participant $P$ distributed systems' ids.
+    \item[\ding{113}] $\mathbf{T}^{\text{cons}}$ -- set of actual consensus group lottery thresholds for different committees.
+    \item[\ding{113}] $\mathbf{T}^{\text{lead}}$ -- set of actual leader lottery thresholds for different committees.
+    \item[\ding{113}] $\mathbf{T}^{\text{sync}}$ -- set of actual synchronization lottery thresholds for different committees.
+    \item[\ding{113}] $\mathcal{C}_{\text{loc}}$ -- the local chain the party adopts based on which it does evaluation and
+    exports the ledger state.
+    \item[\ding{113}] $\textsf{isInit}$ -- a variable to keep track of whether initialization is complete.
+    \item[\ding{113}] $\textsf{isSync}$ -- the party's stores synchronization status.
+    \item[\ding{113}] $\textsf{buffer}$ -- the buffer of transactions.
+    \item[\ding{113}] $\textsf{syncBuffer}$ -- the buffer of the synchronization beacons.
+    \item[\ding{113}] $\textsf{futureChains}$ -- a buﬀer to store chains that are not yet processed.
+    \item[\ding{113}] $\textsf{fetchCompleted}$ -- a variable to store whether the round messages have been fetched.
+    \item[\ding{113}] $\textsf{localTime}$ -- the party's current local slot.
+    \item[\ding{113}] $\textsf{lastTick}$ -- the last tick received from $\mathcal{G}_{\text{PerfLClock}}$.
+    \item[\ding{113}] $\textsf{EpochUpdate(·)}$ -- a function table to remember which clock adjustments have been done already.
+
+\end{legal}

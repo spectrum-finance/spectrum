@@ -1,119 +1,147 @@
 Let's summarize all of the above and describe the full flow of the Spectrum protocol.
 Protocol is running by a set of manually selected opening consensus groups $\{V^k_1\}_{k=1}^K$\
 for $K$ connected distributed systems $\{S_k\}_{k=1}^K$.
-Each group consists of at least $M^{\text{cons}, k}$ stakeholders interacting with each other and with the ideal\
+Each group consists of at least $M_k$ stakeholders interacting with each other and with the ideal\
 functionalities $\mathcal{F}_{\text{Init}}$, ${\mathcal{F}}_{\text{VRF}}$, $\mathcal{H}$, ${\mathcal{F}}_{\text{LB}}$,\
 $\mathcal{F}_{\text{AggSig}}$, ${\mathcal{F}}_{\text{KES}}$,\
 $\mathcal{G}_{\text{ImpLClock}}$ and $\mathcal{G}_{\text{Ledger}}$ over a sequence of $L = E \cdot R$\
 slots ${S=\{sl_1,\dots,sl_L\}}$ consisting of $E$ epochs with $R$ slots each.
+
 Functionality ${\mathcal{F}}_{\text{Init}}$~\cite{Badertscher2018} formalizes the procedure of genesis\
 block creation and distribution.
-Functionality ${\mathcal{F}}_{\text{AggSig}}$ implements the presented aggregated signature scheme logic.
+Functionality ${\mathcal{F}}_{\text{AggSig}}$ implements the presented in~\ref{subsec:scalable-collective-signature-aggregation} aggregated signature scheme logic.
 Functionality $\mathcal{G}_{\text{ImpLClock}}$~\cite{cryptoeprint:2019/838} implements the local\
 clock setting and adjusting logic.
 Functionality $\mathcal{G}_{\text{Ledger}}$ implements the logic of interaction with the ledger.
-
 Also, each protocol participant maintains at least one functionality unit $\mathcal{F}^k_{\text{ConnSys}}$\
 that allows him to interact with the connected $S_k$.
+
+Protocol configuration is represented by publicly known set of constants:\
+$R, l_{\text{VRF}}, K_{\text{f}}, K_{\text{g}}, \mathbf{S}^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K, \mathbf{f}_{\text{lead}} = \{f^{\text{lead}}_k\}_{k=1}^K, \mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K$
 
 \subsubsection{Bootstrapping}\label{subsubsec:bootstrapping}
 
 The system is bootstrapped in a trusted way.
-All members of $\{V^k_1\}_{k=1}^K$ committees perform the following procedure:
+All $M$ members of $\{V^k_1\}_{k=1}^K$ committees perform the following procedure:
 \begin{enumerate}
     \item On-chain vaults are initialized with an aggregated public key $aPK^k_1$ of the initial committee.
 
     \item All committee $V^k_1$ members i.e. ${\forall PK_i \in V^k_1}$ must generate the tuple of verification keys\
-    ${(v_i^{\text{vrf}}, v_i^{\text{kes}})}$, using the ideal functionalities ${\mathcal_{F}}_{\text{VRF}}$ and\
-    ${\mathcal{F}}_{\text{KES}}$.
+    ${v_i^{\text{ver}} = (v_i^{\text{vrf}}, v_i^{\text{kes}}, \mathbf{S}^{\text{set}})}$, using the ideal\
+    functionalities ${\mathcal_{F}}_{\text{VRF}}$ and ${\mathcal{F}}_{\text{KES}}$.
+    The tuple also includes a set of ids of the connected distributed systems $\mathbf{S}_i^{\text{set}} \subset \mathbf{S}^{\text{set}}$,\
+    the functionalities ${\{\mathcal{F}^k_{\text{ConnSys}}\}_{k=1}^{K'}, K' \leq K}$ to interact with which the participant $PK_i$ is equipped with.
+    Verification tuple is committed on-chain in the $\textsf{VerificationRegTx}(v_i^{\text{ver}})$.
 
     \item Full set of the verification keys tuples\
-    ${V_{\text{init}, k} = \{(v_i^{\text{vrf}}, v_i^{\text{kes}}, k)\}_{i=1}^{M^{\text{cons}, k}}}$\
-    with the initial stakes $S_k = \{s_i\}_{i=1}^{M^{\text{cons}, k}}$ must be stored in the genesis block and\
-    acknowledged by all members of the initial consensus group (meaning members of all $K$ committees and\
-    a full set is $\{V_{\text{init}, k}\}_{k=1}^{K}$).
+    ${V_{\text{ver}} = \{(v_i^{\text{vrf}}, v_i^{\text{kes}}, \mathbf{S}_i^{\text{set}})\}_{i=1}^{M}}$\
+    with the initial stakes $S = \{s_i\}_{i=1}^{M}$ must be stored in the genesis block $B_0$ and\
+    acknowledged by all members of the initial consensus group (meaning members of all $\{V^k_1\}_{k=1}^K$ committees).
 
-    \item Functionality ${\mathcal{F}}_{\text{LB}}$, parameterized with the confirmed $\{V_{\text{init}, k}\}_{k=1}^{K}$\
+    \item Functionality ${\mathcal{F}}_{\text{LB}}$, parameterized with the confirmed $V_\text{ver}$\
     is evaluated independently by every\
     participant to sample an initial random seed value $\eta \leftarrow \{0, 1\}^l$.
 
     \item Finally, all approved stakeholders should agree on the genesis block\
-    ${B_0=\left(\{V_{\text{init}, k}, S_k\}_{k=1}^{K}, \eta\right)}$.
+    ${B_0=\left(V_{\text{ver}}, S, \eta\right)}$.
 \end{enumerate}
 
 \subsubsection{Chain Extension}\label{subsubsec:chain-extension}
 Once the system is bootstrapped, the Spectrum protocol operates in a normal flow.
-
+Committee $\{V^k_1\}_{k=1}^K$ members adds notarized reports of events observed on external connected systems $\{S_k\}_{k=1}^K$\
+into the local ledgers $\{L^{\text{loc}, k}\}_{k=1}^K$.
+Blocks with all protocol updates are stored in the common for all participants super ledger $L^+$.
 \begin{legal}
-    \item Before the epoch $e_n$ begins all consensus participants receives new\
-    epoch seed $\eta_n$ from the ${\mathcal{F}}_{\text{LB}}$ and calculates leader lottery threshold\
-    $T_{i, n}^{\text{lead}}$ and synchronization lottery threshold $T_{i, n}^{\text{sync}}$.
+    \item Before the epoch $e_n > 2$ begins each protocol participant $PK_i$ must update his state variables:
+    \begin{itemize}
+        \item[--] Receive new epoch seed $\eta_n$ from the ${\mathcal{F}}_{\text{LB}}$.
+        \item [--] Set the leader lottery thresholds for each $k$-th committee $\mathbf{T}^{\text{lead}} = \{T_{i, n}^{\text{lead}, k} = \phi_{f^{\text{lead}}_k}(\alpha^{n-2}_{i, \text{k}}\}_{k=1}^{K'}, K' \leq K)$,
+        where $\alpha^{n-2}_{i, \text{k}}$ is a participant's relative stake relative to $V^k_n$ members\
+        according to the state of the blockchain at the end of the epoch $e_{n-2}$.
+        \item [--] Set the synchronization lottery threshold $\mathbf{T}^{\text{sync}} = 2^{l_{\text{VRF}}}\cdot\phi(\alpha^{n-2}_{i})$,
+        where $\alpha^{n-2}_{i}$ is a participant's relative stake relative to all $K$ committees members\
+        according to the state of the blockchain at the end of the epoch $e_{n-2}$.
+    \end{itemize}
 
-    \item In the epochs first (synchronization) slot all $PK_i$ adjusts their local clocks according to previously\
-    collected synchronization beacons set $B_i^{\text{sync}, n - 1}$.
+    \item In the epochs first (synchronization) slot each $PK_i$ adjusts his local clocks according to previously\
+    collected synchronization beacons set $\mathbf{b}^{\text{set}}$.
     The corresponding $\text{shift}_{i, n}$ value is calculated with the functionality $\mathcal{G}_{\text{ImpLClock}}$.
 
     \item During the epoch all online $V^k_n$ member collects existing chains from $L^+$ and verifying\
     that for every chain, every block, produced up to $K_{\text{f}}$ blocks before contains correct data about the\
     corresponding slot $sl'$ leader $PK'$.
-    The validator must verify that $PK'$ is indeed the winner of the leader lottery for slot $sl'$ as well a valid\
-    member of the legitimate committee.
+    Each validator must verify that $PK'$ is indeed the winner of the leader lottery for slot $sl'$ as well a valid\
+    member of the legitimate committee $V^k_{n'}$.
     All forks must be resolved by the densest chain and largest stake rules in the corresponding priority.
 
-    \item During the epoch, for every slot $sl_j$ every committee $V^k_n$ member $PK_i$ separately evaluates\
-    ${\mathcal{F}}_{\test{VRF}}$ with his own input ${x_{i, j}^{\text{lead}, n} = \eta_n || sl_j}$ \ and compares the\
-    value ${y_{i, j}^{\text{lead}, n} = \mathcal{H}(r_{i, j}^{\text{sl}, n}||\textsf{LEAD})}$ with the associated\
-    threshold $T_{i, n}^{\text{lead}}$.
-    If successful $PK_i$ is the slot $sl_j$ leader and he can initiate the notarization round in his local committee.
+    \item During the epoch, for every slot $sl_j \in [R\cdot n, R\cdot(n+1)]$ every committee $V^k_n$ member $PK_i$ separately evaluates\
+    ${\mathcal{F}}_{\test{VRF}}$ with an input ${x_{i, j}^{\text{lead}} = \eta_n || sl_j}$ to receive\
+    a slot proof $\pi_{i, j}^{\text{sl}}$ and an associated random value $r_{j}^{\text{sl}}$.
 
-    In addition, during the first $R\//6$ slots of the epoch all $PK_i$ evaluates $\mathcal{F}_{\text{VRF}}$\
-    functionality with input ${x_{i, j}^{\textsf{sync}, n} = (\eta_n || sl_{i, j}^{\text{loc}, n})}$ to get a\
-    proof $\pi_{i, j}^{\text{sl}, n}$ and check if\
-    he has the right to release a synchronization beacon comparing the pseudo-random value\
-    ${y_{i, j}^{\textsf{sync}, n} = \mathcal{H}(r_{i, j}^{\text{sl}, n} || \textsf{SYNC})}$\
+    Then $PK_i$ calculates ${y_{i, j}^{\text{lead}} = \mathcal{H}(r_{j}^{\text{sl}}||\textsf{LEAD}||S_k^{\text{id}})}$ and compares it with the associated\
+    threshold $T_{i, n}^{\text{lead}, k}$.
+    If $y_{i, j}^{\text{lead}} < T_{i, n}^{\text{lead}, k}$ then the participant is the slot $sl_j$ leader.
+
+    \bigskip
+    Leader is allowed to:
+    \begin{itemize}
+        \item [--] Initiate the notarization round in his local committee $V^k_n$ to add new notarized report into $L^{\text{loc}, k}$.
+        \item[--] Propose a new block to be added to the $L^+$.
+    \end{itemize}
+
+    \bigskip
+    In addition, during the first $R\//6$ slots of the epoch all $PK_i$ checks his right to release a synchronization\
+    beacon comparing the pseudo-random value\
+    ${y_{i, j}^{\textsf{sync}, n} = \mathcal{H}(r_{j}^{\text{sl}} || \textsf{SYNC})}$\
     with a corresponding threshold $T_{i, n}^{\text{sync}}$.
     If successful then the participant broadcasts a beacon message\
-    $b_{i, j}^{\text{sync}, n} = (v^{\text{vrf}}_i, sl_{i, j}^{\text{loc}, n}, \pi_{i, j}^{\text{sl}, n})$.
+    $b_{i, j}^{\text{sync}} = (v^{\text{vrf}}_i, sl_{i, j}^{\text{loc}}, \pi_{i, j}^{\text{sl}})$.
 
     \item All committee $V^k_n$ members observe events in their systems $S_k$ and in the $L+$ mempool.
-    If $PK_i$ is a slot $sl_j$ leader, then he is able to propose a batch $b^n_j$ of events observed in $S_k$,\
+    If $PK_i$ is a slot $sl_j$ leader, then he is able to propose a report $b_j$ of events observed in $S_k$,\
     which should be notarized by other members of the $V^k_n$ using the aggregated signature functionality\
-    ${\mathcal{F}}_{\text{AggSig}}$ and then added to the local ledger $L_k$.
+    ${\mathcal{F}}_{\text{AggSig}}$ and then added to the local ledger $L^{\text{loc}, k}$.
 
-    \item Notarized reports $(b^n_j)^*$ can first be formed by any member of the $V^k_n$.
-    The batch must be immediately sent to the leader who initiated its notarization and to the\
+    \item Notarized report $b_j^*$ can first be formed by any member of the $V^k_n$.
+    The report must be immediately sent to the leader who initiated its notarization and to the\
     members of other committees.
-    After the leader receives enough reports he forms a block  $B^n_j$ consisting\
-    of all external collected batches and batches from the local $L_k$ that have not yet been added to $L^+$.
-    He must include into the block the proof of his leadership $ \pi_{i, j}^{\text{sl}, n}$,\
+    After the leader receives enough reports he forms a block  $B'$ consisting\
+    of all external collected reports and reports from the local $L^{\text{loc}, k}$ that have not yet been added to $L^+$.
+    He must include into the block the proof of his leadership $ \pi_{i, j}^{\text{sl}}$,\
     sign the block with ${\mathcal{F}}_{\text{KES}}$,\
     and broadcasts it with included signature $\sigma_{\text{KES}}$ to all committees.
 
-    \item After the finality $K_{\text{f}}$ blocks are passed since $B^n_j$ settlement in the $L^+$,\
-    all members of all committees that participated in the formation of the block $B^n_j$ can claim their rewards.
+    \item After the finality $K_{\text{f}}$ blocks are passed since $B'$ settlement in the $L^+$,\
+    all members of all committees that participated in the formation of the block $B'$ can claim their rewards.
 
 \end{legal}
 
 \subsubsection{Epoch Transition}\label{subsubsec:epoch-transition}
 \begin{legal}
     \item \textbf{Consensus Group Lottery}.
-    At the end of the epoch ${e_{n-2} \gt 3}$ every verified $PK_i$ receives new epoch seed $\eta_n$\
-    from the ${\mathcal{F}}_{\text{LB}}$.
-    New consensus lottery threshold $T_{i, n}^{\text{cons}} = \phi(\alpha_{i, n}, f^{\text{cons}, n})$\
-    is calculated by every $PK_i$\ using stake distribution (to get the relative stake $\alpha_{i, n}$)\
-    from the last block used by ${\mathcal{F}}_{\text{LB}}$ to sample $\eta_n$.
-    Parameter $f_n$ of the associated function $\phi$ is ${f^{\text{cons}, n} = M_n /\/ N_n}$,\
-    where $M_n$ is a pre-defined number of new consensus group members to select at epoch $e_n$\
-    and $N_n$ is the total number of verified stakeholders.
-    When every $PK_i$ evaluates ${\mathcal{F}}_{\text{VRF}}$ with input\
-    $x_{i, n}^{\textsf{cons}} = \eta_n || e_n $ and calculates\
-    the associated random number $y_{i, n}^{\textsf{cons}}$ from the received proof $\pi_{i, n}^{\text{e}}$, i.e.\
-    ${y_{i, j}^{\textsf{cons}} = \mathcal{H}(r_{i, n}^{\text{e}}||\textsf{CONS})}$
-    In addition, all participants must multiply all stakes by the corresponding multipliers $A^{i, n}_{\text{m}}$,\
-    calculated from the activity of participants in the previous epoch.
-    $PK_i$ compares value $y_{i, n}^{\textsf{cons}}$\
-    with the threshold $T_{i, n}^{\text{cons}}$.
-    If successful then $PK_i$ is a member of $V^k_n$.
+    \begin{itemize}
+        \item [--] At the beginning of the epoch ${e_n > 2}$ each verified $PK_i$ willing to participate in the
+        consensus group lottery for the $V^k_{n + 3}$ commit his willing in the message $\textsf{VerificationUpdTx(}v_i^{\text{vrf}}, \mathbf{S}_i^{\text{set}}\textsf{)}$
+        if he is already verified, or generate verification keys tuple and broadcasts $\textsf{VerificationRegTx}(v_i^{\text{ver}})$.
+        \item[--] At beginning of the epoch $e_{n + 2}$ each verified and willing to participate in the consensus lottery $PK_i$
+        calculates new consensus lottery thresholds for all committees he wants to be selected in \
+        $\{T_{i, n + 3}^{\text{cons}, k} = \phi_{f^{\text{cons}}_k}(\alpha^{n-2}_{i, \text{ver}} \cdot A^{i, n}_{\text{m}}\}_{k=1}^{K'}, K' \leq K)$,
+        where $\alpha^{n-2}_{i, \text{ver}}$ is a participant's relative stake relative to all verified participants equipped with $\mathcal{F}^k_{\text{ConnSys}}$\
+        according to the state of the blockchain at the end of the epoch $e_{n-2}$ and $A^{i, n}_{\text{m}}$ is an activity multiplier.
+        \item [--] When every $PK_i$ evaluates ${\mathcal{F}}_{\text{VRF}}$ with input\
+        $x_{i, n}^{\textsf{cons}} = \eta_n || e_n $ to receive an epoch proof $\pi_{i, n}^{\text{e}}$.
+
+        \bigskip
+        Then for each $S_k^{\text{id}}\in \mathbf{S}_i^{\text{set}}$ calculates\
+        the associated random number $y^k_{i, n}^{\textsf{cons}}$ from the proof $\pi_{i, n}^{\text{e}}$, i.e.\
+        ${y^k_{i, j}^{\textsf{cons}} = \mathcal{H}(r_{n}^{\text{e}}||\textsf{CONS}||S_k^{\text{id}})}$.
+        If $y^k_{i, j}^{\text{cons}} < T_{i, n}^{\text{cons}, k}$ then $PK_i$ is a member of $V^k_{n+3}$ committee.
+
+        \bigskip
+        In order to approve the results of the lottery, the participant broadcasts a message with evidence\
+        $\textsf{ConsLotteryResTx}(e_n, v_i^{\text{vrf}}, S_k^{\text{id}}, \pi_{i, n}^{\text{e}})$.
+
+    \end{itemize}
 
     \item \textbf{Committee key aggregation}.
     Once the new committee is selected, nodes in the $V^k_n$ aggregate their individual public keys $PK_i$ into
@@ -129,14 +157,14 @@ Once the system is bootstrapped, the Spectrum protocol operates in a normal flow
 \subsubsection{Registration}\label{subsubsec:registration}
 Any Spectrum stakeholder can register to become a committee member of his local system $S_k$.
 To get a chance to be included in the set of validators $V^k_n$ of the epoch $e_n$\
-participant $PK_i$ should register in the lottery during the epoch $e_{n-2}$ by publishing his verification tuple\
-${(v_i^{\text{vrf}}, v_i^{\text{kes}})}$ into the $L^+$.
+participant $PK_i$ should register in the lottery during the epoch $e_{n-3}$ by publishing his verification tuple\
+$(v_i^{\text{vrf}}, v_i^{\text{kes}}, \mathbf{S}_i^{\text{set}})$ into the $L^+$.
 Once $K_{\text{f}}$ blocks are added on top of this publication the participant is considered as verified.
 Before verification, $PK_i$ must synchronizes with the network by restoring the current chain $C$ from the\
 genesis block $B_0$ received from the functionality $\mathcal{F}_{\text{Init}}$.
 He also must adjust his local clock based on the synchronization beacons of the current global epoch using\
 the functionality $\mathcal{G}_{\text{ImpLClock}}$.
-When all synchronization processes are completed and the first slot of the epoch $e_{n + 2}$ begins, $PK_i$\
+When all synchronization processes are completed, $PK_i$\
 is considered a valid participant of the Spectrum protocol.
 
 In the manner described, the Spectrum protocol reaches consensus and implements the cross-chain interoperability.

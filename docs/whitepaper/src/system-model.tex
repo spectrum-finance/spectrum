@@ -50,7 +50,7 @@ queries are answered consistently.
 We consider an untrustworthy network environment that allows for adversarial-controlled message delays\
 and immediate adaptive corruption.
 Namely, we allow the adversary $A$ to selectively delay any messages sent
-by an honest party for up to $\Delta$ slots and corrupt parties without delay.
+by an honest party for up to $\Delta^{\text{net}}$ slots and corrupt parties without delay.
 
 The Spectrum protocol is executed by a set of nodes $N$, where each node $n \in N$:
 \begin{itemize}
@@ -76,7 +76,7 @@ simple predicates upon validation of transactions: ${verify: C \rightarrow 0 | 1
 a \emph{context} that contains description of state the transaction interacts with.
 There is also a function ${desc: TX_k \rightarrow DESC^{TX_k}}$ that maps transaction $TX_k$ to\
 some \emph{description}, e.g.\ specifying the transaction value, recipient address, etc.
-For each $S_k$ there is a corresponding functionality unit $F^k_{\text{ConnSys}}$ that\
+For each $S_k$ there is a corresponding functionality unit $\mathcal{F}^k_{\text{ConnSys}}$ that\
 allows any node equipped with the unit to interact with $S_k$.
 Each node $n \in N$ is equipped with at least one such functionality unit and at most $K$ functionality units.
 
@@ -86,12 +86,12 @@ A protocol $\Pi$ implements a robust transaction ledger, provided that $\Pi$ is 
 the order in which transactions are incorporated into the ledger.
 Each block in this model is assigned to a specific time slot and the ledger must satisfy the following properties:
 \begin{enumerate}
-    \item \emph{Persistence.} Once a node of the system proclaims a certain transaction tx as stable, the remaining\
-    nodes, if queried, will either report tx in the same position in the ledger or will not report as stable any\
-    transaction in conflict to tx.
-    Here the notion of stability is a predicate that is parameterized by a security parameter $K_f$, specifically, a\
-    transaction is declared stable if and only if it is in a block that is more than $K_f$ blocks deep in the ledger.
+    \item \emph{Persistence.} Once a node of the system proclaims a certain transaction $TX$ as stable, the remaining\
+    nodes, if queried, will either report $TX$ in the same position in the ledger or will not report as stable any\
+    transaction in conflict to $TX$.
+    Here the notion of stability is a predicate that is parameterized by a security parameter $K_{\text{f}}$, specifically, a\
+    transaction is declared stable if and only if it is in a block that is more than $K_{\text{f}}$ blocks deep in the ledger.
     \item \emph{Liveness.} If all honest nodes in the system attempt to include a certain transaction then,\
-    after time expires corresponding to $U_c$ slots (called the transaction confirmation time), all nodes, if queried\
+    after time expires corresponding to $U_{\text{c}}$ slots (called the transaction confirmation time), all nodes, if queried\
     and responding honestly, will report the transaction as stable.
 \end{enumerate}
