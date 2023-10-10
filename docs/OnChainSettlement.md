@@ -79,29 +79,24 @@ guarded with a smart contract that performs the following validations:
 trait VaultManager {
     type ChainId;
     type PointUpdate;
-    type Committee;
-
+    
     /// Initiate transactions to settle exported value that's specified in the notarized
     /// report.
     async fn export_value(&mut self, report: NotarizedReport) -> Result<(), VaultError>;
 
-    /// Sync updates from given on-chain progress point.  
+    /// Sync updates from given on-chain progress point. Returns Vec of ActiveCells
+    /// that are created by inbound deposits to Spectrum-network.
     async fn sync_progress_point(
         &mut self,
         updates: ProgressPointUpdates<Self::PointUpdate>,
-    ) -> Result<(), VaultError>;
+    ) -> Result<Vec<ActiveCell>, VaultError>;
 
     /// Rollback to a previous progress point.
 	  async fn rollback_to(point: ProgressPoint);
     
-    async fn change_epoch(&mut self) -> Result<(), VaultError>;
+    async fn rotate_committee(&mut self) -> Result<(), VaultError>;
 }
 
 
 struct ProgressPointUpdates<T>(ProgressPoint, Vec<T>);
-struct CommitteeData<T>(T);
 ```
-
-### Appendix A: Partial order of effects
-
-todo 
