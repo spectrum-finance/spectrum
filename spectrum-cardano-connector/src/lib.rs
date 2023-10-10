@@ -10,7 +10,6 @@ use pallas_traverse::{MultiEraBlock, MultiEraHeader};
 use spectrum_chain_connector::{DataBridge, DataBridgeComponents, TxEvent};
 
 mod rocksdb;
-pub mod script;
 
 pub struct CardanoDataBridge {
     pub receiver: tokio::sync::mpsc::Receiver<TxEvent<Vec<u8>>>,
