@@ -17,30 +17,30 @@ Also, each protocol participant maintains at least one functionality unit $\math
 that allows him to interact with the connected $S_k$.
 
 Protocol configuration is represented by publicly known set of constants:\
-$R, l_{\text{VRF}}, K_{\text{f}}, K_{\text{g}}, \mathbf{S}^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K, \mathbf{f}_{\text{lead}} = \{f^{\text{lead}}_k\}_{k=1}^K, \mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K$
+$R, l_{\text{VRF}}, K_{\text{f}}, K_{\text{g}}, \mathbf{S}_{\text{id}} = \{S_k^{\text{id}}\}_{k=1}^K, \mathbf{f}_{\text{lead}} = \{f^{\text{lead}}_k\}_{k=1}^K, \mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K$
 
 \subsubsection{Bootstrapping}\label{subsubsec:bootstrapping}
 
 The system is bootstrapped in a trusted way.
-All $M$ members of $\{V^k_1\}_{k=1}^K$ committees perform the following procedure:
+All $M_k$ members of $\{V^k_1\}_{k=1}^K$ committees perform the following procedure:
 \begin{enumerate}
     \item On-chain vaults are initialized with an aggregated public key $aPK^k_1$ of the initial committee.
 
     \item All committee $V^k_1$ members i.e. ${\forall PK_i \in V^k_1}$ must generate the tuple of verification keys\
-    ${v_i^{\text{ver}} = (v_i^{\text{vrf}}, v_i^{\text{kes}}, \mathbf{S}^{\text{set}})}$, using the ideal\
+    ${v_i^{\text{ver}} = (v_i^{\text{vrf}}, v_i^{\text{kes}}, \mathbf{S}_{\text{id}, i})}$, using the ideal\
     functionalities ${\mathcal_{F}}_{\text{VRF}}$ and ${\mathcal{F}}_{\text{KES}}$.
-    The tuple also includes a set of ids of the connected distributed systems $\mathbf{S}_i^{\text{set}} \subset \mathbf{S}^{\text{set}}$,\
+    The tuple also includes a set of ids of the connected distributed systems $\mathbf{S}_{\text{id}, i} \subset \mathbf{S}_{\text{id}}$,\
     the functionalities ${\{\mathcal{F}^k_{\text{ConnSys}}\}_{k=1}^{K'}, K' \leq K}$ to interact with which the participant $PK_i$ is equipped with.
     Verification tuple is committed on-chain in the $\textsf{VerificationRegTx}(v_i^{\text{ver}})$.
 
     \item Full set of the verification keys tuples\
-    ${V_{\text{ver}} = \{(v_i^{\text{vrf}}, v_i^{\text{kes}}, \mathbf{S}_i^{\text{set}})\}_{i=1}^{M}}$\
-    with the initial stakes $S = \{s_i\}_{i=1}^{M}$ must be stored in the genesis block $B_0$ and\
+    ${V_{\text{ver}} = \{(v_i^{\text{vrf}}, v_i^{\text{kes}}, \mathbf{S}_{\text{id}, i})\}_{i=1}^{M}}$\
+    with the initial stakes $S = \{s_i\}_{i=1}^{M_k}$ must be stored in the genesis block $B_0$ and\
     acknowledged by all members of the initial consensus group (meaning members of all $\{V^k_1\}_{k=1}^K$ committees).
 
     \item Functionality ${\mathcal{F}}_{\text{LB}}$, parameterized with the confirmed $V_\text{ver}$\
     is evaluated independently by every\
-    participant to sample an initial random seed value $\eta \leftarrow \{0, 1\}^l$.
+    participant to sample an initial random seed value $\eta \leftarrow \{0, 1\}^l_{\text{VRF}}$.
 
     \item Finally, all approved stakeholders should agree on the genesis block\
     ${B_0=\left(V_{\text{ver}}, S, \eta\right)}$.
@@ -55,17 +55,16 @@ Blocks with all protocol updates are stored in the common for all participants s
     \item Before the epoch $e_n > 2$ begins each protocol participant $PK_i$ must update his state variables:
     \begin{itemize}
         \item[--] Receive new epoch seed $\eta_n$ from the ${\mathcal{F}}_{\text{LB}}$.
-        \item [--] Set the leader lottery thresholds for each $k$-th committee $\mathbf{T}^{\text{lead}} = \{T_{i, n}^{\text{lead}, k} = \phi_{f^{\text{lead}}_k}(\alpha^{n-2}_{i, \text{k}}\}_{k=1}^{K'}, K' \leq K)$,
+        \item [--] Set the leader lottery thresholds for each $k$-th committee he is involved in $\mathbf{T}^{\text{lead}} = \{T_{i, n}^{\text{lead}, k} = \phi_{f^{\text{lead}}_k}(\alpha^{n-2}_{i, \text{k}}\}_{k=1}^{K'}, K' \leq K$,
         where $\alpha^{n-2}_{i, \text{k}}$ is a participant's relative stake relative to $V^k_n$ members\
         according to the state of the blockchain at the end of the epoch $e_{n-2}$.
-        \item [--] Set the synchronization lottery threshold $\mathbf{T}^{\text{sync}} = 2^{l_{\text{VRF}}}\cdot\phi(\alpha^{n-2}_{i})$,
+        \item [--] Set the synchronization lottery threshold $T^{\text{sync}}_{i, n} = 2^{l_{\text{VRF}}}\cdot\phi(\alpha^{n-2}_{i})$,
         where $\alpha^{n-2}_{i}$ is a participant's relative stake relative to all $K$ committees members\
         according to the state of the blockchain at the end of the epoch $e_{n-2}$.
     \end{itemize}
 
-    \item In the epochs first (synchronization) slot each $PK_i$ adjusts his local clocks according to previously\
+    \item In the epochs first (synchronization) slot each $PK_i$ adjusts his local clocks by $\textsf{shift}_{i, n}$ value calculated according to previously\
     collected synchronization beacons set $\mathbf{b}^{\text{set}}$.
-    The corresponding $\text{shift}_{i, n}$ value is calculated with the functionality $\mathcal{G}_{\text{ImpLClock}}$.
 
     \item During the epoch all online $V^k_n$ member collects existing chains from $L^+$ and verifying\
     that for every chain, every block, produced up to $K_{\text{f}}$ blocks before contains correct data about the\
@@ -108,8 +107,8 @@ Blocks with all protocol updates are stored in the common for all participants s
     After the leader receives enough reports he forms a block  $B'$ consisting\
     of all external collected reports and reports from the local $L^{\text{loc}, k}$ that have not yet been added to $L^+$.
     He must include into the block the proof of his leadership $ \pi_{i, j}^{\text{sl}}$,\
-    sign the block with ${\mathcal{F}}_{\text{KES}}$,\
-    and broadcasts it with included signature $\sigma_{\text{KES}}$ to all committees.
+    sign the block with ${\mathcal{F}}_{\text{KES}}$\
+    and broadcast it to his peers from all committees with the correct signature $\sigma_{\text{KES}}$ included.
 
     \item After the finality $K_{\text{f}}$ blocks are passed since $B'$ settlement in the $L^+$,\
     all members of all committees that participated in the formation of the block $B'$ can claim their rewards.
@@ -120,12 +119,12 @@ Blocks with all protocol updates are stored in the common for all participants s
 \begin{legal}
     \item \textbf{Consensus Group Lottery}.
     \begin{itemize}
-        \item [--] At the beginning of the epoch ${e_n > 2}$ each verified $PK_i$ willing to participate in the
-        consensus group lottery for the $V^k_{n + 3}$ commit his willing in the message $\textsf{VerificationUpdTx(}v_i^{\text{vrf}}, \mathbf{S}_i^{\text{set}}\textsf{)}$
+        \item [--] At the beginning of the epoch ${e_{n-1} > 2}$ each verified $PK_i$ willing to participate in the
+        consensus group lottery for the $V^k_n$ commit his willing in the message $\textsf{VerificationUpdTx(}v_i^{\text{vrf}}, \mathbf{S}_i^{\text{set}}\textsf{)}$
         if he is already verified, or generate verification keys tuple and broadcasts $\textsf{VerificationRegTx}(v_i^{\text{ver}})$.
-        \item[--] At beginning of the epoch $e_{n + 2}$ each verified and willing to participate in the consensus lottery $PK_i$
+        \item[--] At end of the epoch $e_{n-1}$ each verified and willing to participate in the consensus lottery $PK_i$
         calculates new consensus lottery thresholds for all committees he wants to be selected in \
-        $\{T_{i, n + 3}^{\text{cons}, k} = \phi_{f^{\text{cons}}_k}(\alpha^{n-2}_{i, \text{ver}} \cdot A^{i, n}_{\text{m}}\}_{k=1}^{K'}, K' \leq K)$,
+        $\{T_{i, n}^{\text{cons}, k} = \phi_{f^{\text{cons}}_k}(\alpha^{n-2}_{i, \text{ver}} \cdot A^{i, n}_{\text{m}}\}_{k=1}^{K'}, K' \leq K$,
         where $\alpha^{n-2}_{i, \text{ver}}$ is a participant's relative stake relative to all verified participants equipped with $\mathcal{F}^k_{\text{ConnSys}}$\
         according to the state of the blockchain at the end of the epoch $e_{n-2}$ and $A^{i, n}_{\text{m}}$ is an activity multiplier.
         \item [--] When every $PK_i$ evaluates ${\mathcal{F}}_{\text{VRF}}$ with input\
@@ -133,9 +132,9 @@ Blocks with all protocol updates are stored in the common for all participants s
 
         \bigskip
         Then for each $S_k^{\text{id}}\in \mathbf{S}_i^{\text{set}}$ calculates\
-        the associated random number $y^k_{i, n}^{\textsf{cons}}$ from the proof $\pi_{i, n}^{\text{e}}$, i.e.\
-        ${y^k_{i, j}^{\textsf{cons}} = \mathcal{H}(r_{n}^{\text{e}}||\textsf{CONS}||S_k^{\text{id}})}$.
-        If $y^k_{i, j}^{\text{cons}} < T_{i, n}^{\text{cons}, k}$ then $PK_i$ is a member of $V^k_{n+3}$ committee.
+        the associated random number $y_{i, n}^{\textsf{cons}, k}$ from the proof $\pi_{i, n}^{\text{e}}$, i.e.\
+        ${y_{i, j}^{\textsf{cons}, k} = \mathcal{H}(r_{n}^{\text{e}}||\textsf{CONS}||S_k^{\text{id}})}$.
+        If $y_{i, j}^{\textsf{cons}, k} < T_{i, n}^{\text{cons}, k}$ then $PK_i$ is a member of $V^k_{n}$ committee.
 
         \bigskip
         In order to approve the results of the lottery, the participant broadcasts a message with evidence\

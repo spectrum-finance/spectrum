@@ -86,7 +86,7 @@ Ideal Leaky Beacon functionality $\mathcal{F}_{\text{LB}}$ is used to sample an 
 blockchain and is defined as follows:
 \begin{functionality}
     \caption{${\mathcal{F}_{\text{LB}}(e_n, C_{\text{loc}})}$}
-    \begin{algorithmic}
+    \begin{algorithmic}[1]
         \State \lstinline|// New epoch random seed is sampled once per epoch.|
         \State \lstinline|// C_loc is the local chain of the validator.|
         \If{${e_n < 2}$}
@@ -95,10 +95,10 @@ blockchain and is defined as follows:
         \For {each ${B_k \in C_{\text{loc}} \ |\ (B_k\textsf{.get(}e\textsf{)} \leq e_{n - 1})\ \wedge (\forall B_k\textsf{.get(}sl\textsf{)} \in R \cdot (n - 1) \cdot 2 /\\ 3)}$}
             \State \lstinline|// Every block B_k in the C_loc was produced by i'-th leader|
             \State \lstinline|// during j'-th slot, i.e. k = (i', j').|
-            \State ${\pi^{\text{sl}} \leftarrow B\textsf{.get(}\pi^{\text{sl}}\textsf{)}}$
-            \State ${r^{\text{sl}} \leftarrow \textsf{extract\_random(}\pi^{\text{sl}}\textsf{)}}$
-            \State $y^{\text{rand}} \leftarrow \mathcal{H}(r^{\text{sl}} || \textsf{RAND})$
-            \State ${\eta_n \leftarrow \mathcal{H}(\eta_{n - 1} || e_n || y^{\text{rand}})}$
+            \State ${\pi^{\text{sl}} \leftarrow B\textsf{.get(}\pi^{\text{sl}}\textsf{)}}$.
+            \State Extract the random value ${r^{\text{sl}} \leftarrow \pi^{\text{sl}}}$.
+            \State $y^{\text{rand}} \leftarrow \mathcal{H}(r^{\text{sl}} || \textsf{RAND})$.
+            \State ${\eta_n \leftarrow \mathcal{H}(\eta_{n - 1} || e_n || y^{\text{rand}})}$.
         \EndFor
         \State \Return $\eta_n$
     \end{algorithmic}
@@ -134,7 +134,7 @@ The consensus group lottery flow is as follows:
 \end{enumerate}
 Note, that the members of the consensus group should be known ahead of time for the synchronization.
 Therefore, in order to participate in the $e_n$ consensus lottery already verified participant must\
-publish $\textsf{VerificationUpdTx}$ message at the epoch $e_{n-2}$.
+publish $\textsf{VerificationUpdTx}$ message with his verification tuple at the epoch $e_{n-2}$.
 Public disclosure of the future consensus group doesn't give much advantage to an adversary\
 since there are hundreds of consensus members in every epoch and denial of service attacks are difficult to succeed.
 At the same time any grinding attacks are limited because an adversary can't arbitrarily control $\eta_n$ values.

@@ -1,23 +1,23 @@
 \phantomsection
 \textbf{Block validation}.\label{apndx:prepare-block-validation}
-A core procedure to validate an incoming blocks.
+The core procedure to validate an incoming blocks.
 Block validation implies a procedure for preparing the necessary constants to check the validity of the party $P'$ to issue the block.
 The preparation algorithm is described below:
 \begin{protocol}
     \caption{$\textsf{PrepareForBlockValidation}(P, \text{sid}, sl, R, l_{\text{VRF}}, K_{\text{f}}, C_{\text{loc}},
-    v_{P'}^{\text{vrf}}, S_k^{\text{id}}, f^{\text{lead}}_k, f^{\text{cons}}_k)$}
+    v_{P'}^{\text{vrf}},  \mathbf{S}_{\text{id}} = \{S_k^{\text{id}}\}_{k=1}^K,
+    \mathbf{f}_{\text{lead}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
+    \mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
         \noindent
         \lstinline|// Parse and calculate all necessary values for block validation.|
-        \State Set $e \leftarrow \lceil sl/\\R \rceil$.
+        \State Set $e_n \leftarrow \lceil sl/\\R \rceil$.
         \noindent
         \lstinline|// Main ledger state_m is calculated according to|
         \noindent
         \lstinline|// the last block produced up to m-th slot.|
-        \State Set $ sl' = (n - 2)\cdot R$.
-        \State Set $\textsf{state}_{(n - 2)\cdot R} \leftarrow \textsf{ReadState}(P, \text{sid}, sl', R, K_{\text{f}}, C_{\text{loc}})$.
-        \State Set $ \hat{sl} = (n - 4)\cdot R$.
-        \State Set $\textsf{state}_{(n - 4)\cdot R} \leftarrow \textsf{ReadState}(P, \text{sid}, \hat{sl}, R, K_{\text{f}}, C_{\text{loc}})$.
+        \State Parse $\textsf{state}_{(n - 2)\cdot R} \leftarrow C_{\text{loc}}$.
+        \State Parse $\textsf{state}_{(n - 4)\cdot R} \leftarrow C_{\text{loc}}$.
 
         \noindent
         \lstinline|// Set epoch randomness:|
@@ -60,8 +60,9 @@ The preparation algorithm is described below:
 \textbf{Main Block Validation Protocol}\label{apndx:block-validation-protocol} is as follows:
 \begin{protocol}
     \caption{$\textsf{IsValidBlock}(P, \text{sid}, R, l_{\text{VRF}}, K_{\text{f}}, \mathcal{C}_{\text{loc}}, B,
-    \mathbf{S}^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K, \mathbf{f}_{\text{lead}}^{\text{set}} =  \{f_k^{\text{lead}}\}_{k=1}^K,$
-        $\mathbf{f}_{\text{cons}}^{\text{set}} = \{f_k^{\text{cons}}\}_{k=1}^K)$}
+    \mathbf{S}_{\text{id}} = \{S_k^{\text{id}}\}_{k=1}^K,
+    \mathbf{f}_{\text{lead}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
+    \mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
         \noindent
         \lstinline|// All indexes except the epoch index are omitted.|
@@ -69,7 +70,8 @@ The preparation algorithm is described below:
 
         \noindent
         \lstinline|// Value h above is a block body hash.|
-        \State Set $\textsf{state} \leftarrow  \textsf{ReadState}(P, \text{sid}, sl, R, K_{\text{f}}, C_{\text{loc}})$.
+        \State Parse $\textsf{state} \leftarrow C_{\text{loc}}$.
+
         \noindent
         \lstinline|// Prepare constants:|
         \State Select $(f^{\text{lead}}_k, f^{\text{cons}}_k)$ related to the given $S_k^{\text{id}}$.
@@ -80,16 +82,16 @@ The preparation algorithm is described below:
 
         \noindent
         \lstinline|// Check consensus membership:|
-        \State Parse $\mathbf{S}_{P'}^{\text{set}}$ related to the given $v^{\text{vrf}}$ from $V_{\text{ver}}$.
+        \State Parse $\mathbf{S}_{\text{id}, P'}$ related to the given $v^{\text{vrf}}$ from $V_{\text{ver}}$.
         \noindent
         \lstinline|// P' above is the same authority as v^vrf. We used this notation|
         \noindent
-        \lstinline|// to separete leader's {S_k^id} set from the global one.|
-        \State Set $\textsf{valid\_committee} \leftarrow (S_k^{\text{id}} \in \mathbf{S}_{P'}^{\text{set}}) \wedge (\mathbf{S}_{P'}^{\text{set}} \subset \mathbf{S}^{\text{set}})$.
-        \State Parse ${\pi^{\text{e}}}$ related to $v^{\text{vrf}}$ from $\textsf{state}$.
+        \lstinline|// to separete leader's S_{id} set from the global one.|
+        \State Set $\textsf{valid\_committee} \leftarrow (S_k^{\text{id}} \in \mathbf{S}_{\text{id}, P'}) \wedge (\mathbf{S}_{\text{id}, P'} \subset \mathbf{S}_{\text{id}})$.
+        \State Parse ${\pi^{\text{e}}}$ related to $v^{\text{vrf}}$ from the $\textsf{state}$.
         \State Set $\textsf{valid\_epoch\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}
         v^{\text{vrf}}, \mathcal{H}(\eta_{n - 2} || e_n),\pi^{\text{e}} \textsf{)}$.
-        \State Set ${r^{\text{e}} \leftarrow \textsf{extract\_random(}\pi^{\text{e}}\textsf{)}}$.
+        \State Extract the random value ${r^{\text{e}} \leftarrow \pi^{\text{e}}}$.
         \State Set ${y^{\text{cons}} \leftarrow {\mathcal{H}(r^{\text{e}} || \textsf{CONS} || S_k^{\text{id}})}}$.
         \State {Set ${\textsf{valid\_member} \leftarrow \textsf{valid\_committee} \wedge \textsf{valid\_epoch\_proof} \wedge
         \par\hskip
@@ -99,7 +101,7 @@ The preparation algorithm is described below:
         \lstinline|// Check the leadership:|
         \State Set $\textsf{valid\_slot\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}\
         v^{\text{vrf}}, \mathcal{H}(\eta_n || sl),\pi^{\text{sl}} \textsf{)}$.
-        \State Set ${r^{\text{sl}} \leftarrow \textsf{extract\_random(}\pi^{\text{sl}}\textsf{)}}$.
+        \State Extract the random value ${r^{\text{sl}} \leftarrow \pi^{\text{sl}}}$.
         \State Set ${y^{\text{lead}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{LEAD} || S_k^{\text{id}})}}$.
         \State Set ${\textsf{valid\_leader} \leftarrow (y^{\text{lead}} < T^{\text{lead}}) \wedge \textsf{valid\_slot\_proof}}$.
 
@@ -129,8 +131,8 @@ The preparation algorithm is described below:
             \EndIf
             \State Set $\textsf{valid\_slot\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}\
             v^{\text{vrf}}, \mathcal{H}(\eta_n || sl'), \pi^{\text{sl}'} \textsf{)}$.
-            \State Set ${r^{\text{sl}'} \leftarrow \textsf{extract\_random(}\pi^{\text{sl}'}\textsf{)}}$.
-            \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}' || \textsf{SYNC}})}}$.
+            \State Extract the random value ${r^{\text{sl}'} \leftarrow \pi^{\text{sl}'}}$.
+            \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}}' || \textsf{SYNC})}}$.
             \State Set ${\textsf{valid\_sync} \leftarrow \textsf{valid\_slot\_proof} \wedge (y^{\text{sync}} < T^{\text{sync}})}$.
         \EndFor
         \If {($\textsf{valid\_parent} \vee \textsf{valid\_member} \vee \textsf{valid\_proof} \vee
@@ -148,8 +150,9 @@ The preparation algorithm is described below:
 A core procedure is to distinguish valid chains from the invalid:
 \begin{protocol}
     \caption{$\textsf{IsValidChain}(P, \text{sid}, \mathcal{C}, R,  l_{\text{VRF}}, K_{\text{f}},
-    \mathbf{S}^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K, \mathbf{f}_{\text{lead}}^{\text{set}} =  \{f_k^{\text{lead}}\}_{k=1}^K,$
-        $\mathbf{f}_{\text{cons}}^{\text{set}} = \{f_k^{\text{cons}}\}_{k=1}^K))$}
+    \mathbf{S}_{\text{id}} = \{S_k^{\text{id}}\}_{k=1}^K,
+    \mathbf{f}_{\text{lead}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
+    \mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
         \If {$\exists B \in \mathcal{C}: B\textsf{.get(}sl\textsf{)} > \textsf{localTime}$}
             \State \Return ${\textsf{false}}$
@@ -166,9 +169,9 @@ A core procedure is to distinguish valid chains from the invalid:
                 \State Set $\textsf{valid\_parent} \leftarrow (\mathcal{H}(B^{-1}) = h) \wedge (B^{-1}\textsf{.get(}sl\textsf{)} < sl)$,\
                 \par\hskip\algorithmicindent
                 where $B^{-1}$ is the last block before $B$.
-                \State Set $\textsf{valid\_block} \leftarrow \textsf{IsValidBlock}(P, \text{sid}, R, l_{\text{VRF}}, K_{\text{f}}, \mathcal{C}_{\text{loc}}, B, \{S_k^{\text{id}}\}_{k=1}^K,$
+                \State Set $\textsf{valid\_block} \leftarrow \textsf{IsValidBlock}(P, \text{sid}, R, l_{\text{VRF}}, K_{\text{f}}, \mathcal{C}_{\text{loc}}, B, \mathbf{S}_{\text{id}},$
                 \par\hskip\algorithmicindent
-                $\{f^{\text{lead}}_k\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$.
+                $\mathbf{f}_{\text{lead}}, \mathbf{f}_{\text{cons}})$.
                 \If {$(\textsf{valid\_block} \wedge \textsf{valid\_parent})$}
                     \State \Return ${\textsf{false}}$
                 \EndIf
@@ -196,14 +199,13 @@ Beacons validity is related to chain validity as one has to verify validity of l
         \noindent
         \lstinline|// Check synchronization lottery results for patry P':|
         \State Set ${\eta_{n} \leftarrow \mathcal{F}_{\text{LB}}(e_{n}, C_{\text{loc}})}$.
-        \State Set $sl' = (n - 2)\cdot R$.
-        \State Set $\textsf{state}_{(n - 2)\cdot R} \leftarrow \textsf{ReadState}(P, \text{sid}, sl', R, K_{\text{f}}, C_{\text{loc}})$.
+        \State Parse $\textsf{state}_{(n - 2)\cdot R} \leftarrow C_{\text{loc}}$.
         \State Parse all committees stakeholders distribution $S^{\text{cons}, n - 2}$ from the $\textsf{state}_{(n - 2)\cdot R}$.
         \State Calculate participant's relative stake $\alpha^{n-2}_{P'}$ using $S^{\text{cons}, {n - 2}}$.
         \State Set participant's synchronization lottery threshold as $T_{P', n}^{\text{sync}} = 2^{l_{\text{VRF}}} \cdot \alpha^{n-2}_{P'}$.
         \State Set $\textsf{valid\_slot\_proof} \leftarrow \mathcal{F}_{\text{VRF}}\textsf{.verify(}\
         v_{P'}^{\text{vrf}}, \mathcal{H}(\eta_n || sl),\pi^{\text{sl}} \textsf{)}$.
-        \State Set ${r^{\text{sl}} \leftarrow \textsf{extract\_random(}\pi^{\text{sl}}\textsf{)}}$.
+        \State Extract the random value ${r^{\text{sl}} \leftarrow \pi^{\text{sl}}}$.
         \State Set ${y^{\text{sync}} \leftarrow {\mathcal{H}(r^{\text{sl}} || \textsf{SYNC})}}$.
         \State Set ${\textsf{valid\_sync} \leftarrow (y^{\text{sync}} < T^{\text{sync}}) \wedge \textsf{valid\_slot\_proof}}$.
         \State \Return \textsf{valid\_sync}

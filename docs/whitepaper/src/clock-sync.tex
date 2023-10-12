@@ -20,20 +20,20 @@ and it is based on the following logical blocks:
     $b_{i, j}^{\text{sync}} = (v^{\text{vrf}}_i, sl_{i, j}^{\text{loc}}, \pi_{i, j}^{\text{sl}})$.
     \item[]\textbf{Arrival times bookkeeping.} Every consensus participant $PK_i$ maintains\
     an array $\mathbf{b}_i^{\text{set}}$ of received beacons with beacon's\
-    arrival local time ${sl^{\text{rec}}_{i, j}: (sl_{i', j}^{\text{loc}}, \text{flag})\
-    \in \mathbb{N} \times (\text{final}, \text{temp})}$.
+    arrival local time ${sl^{\text{rec}}_{i, j}: (sl_{i', j}^{\text{loc}}, \textsf{flag})\
+    \in \mathbb{N} \times (\textsf{final}, \textsf{temp})}$.
     Assume a beacon $b_{i', j'}^{\text{sync}}$ emitted by $PK_{i'}$ is fetched by a party $PK_i$ for the first time:
     \begin{itemize}
         \item If $PK_i$ has not yet passed synchronization slot $sl_{i, n \cdot R}^{\text{loc}}$ and the\
         received beacon belongs logically to this party’s next epoch, then decision is marked\
         as temporary and $PK_i$ stores a record\
-        ${{sl^{\text{rec}}_{i, j}}: (sl_{i', j'}^{\text{loc}}, \text{temp})}$.
+        ${{sl^{\text{rec}}_{i, j}}: (sl_{i', j'}^{\text{loc}}, \textsf{temp})}$.
         Value ${{sl^{\text{rec}}_{i, j}}}$ will be adjusted once this party adjusts\
         its local time-stamp for the next epoch.
         \item If $PK_i$ has already passed synchronization slot $sl_{i, n \cdot R}^{\text{loc}}$ but not yet passed\
         slot $sl_{i, (n + 1) \cdot R}^{\text{loc}}$, then the received time is defined as the current local slot\
         number and is considered final, i.e.\
-        ${{sl^{\text{rec}}_{i, j}}: (sl_{i', j'}^{\text{loc}}, \text{final})}$.
+        ${{sl^{\text{rec}}_{i, j}}: (sl_{i', j'}^{\text{loc}}, \textsf{final})}$.
     \end{itemize}
     If a party has already received a beacon for the same slot $j'$ and creator $PK_{i'}$, it will set\
     the arrival time equal to the first one received among those.
@@ -55,15 +55,15 @@ and it is based on the following logical blocks:
     adjust its clock in the synchronization slot $sl_{n \cdot R}$.
     Value of the shift is calculated as\
     ${\hat{\textsf{shift}_{i, n}} = \textsf{median} \{sl_{i', j'}^{\text{loc}} - sl^{\text{rec}}_{i, j}\
-    | \forall b_{i', j'}^{\text{sync}, n} \in B_i^{\text{sync}, n}\}}$.
+    | \forall b_{i', j'}^{\text{sync}, n} \in \mathbf{b}_i^{\text{set}}\}}$.
     Using the calculated ${\longh{\textsf{shift}_{i, n}}}$ value all $\mathbf{b}_i^{\text{set}}$ records with\
-    $\text{temp}$ status is updated as ${sl^{\text{rec}, n}_{i, j} + \hat{\textsf{shift}_{i, n}}}$ and\
-    the adjustment procedure is performed again to receive a final $\text{shift}_{i, n}$ value.
+    $\textsf{temp}$ status is updated as ${sl^{\text{rec}, n}_{i, j} + \hat{\textsf{shift}_{i, n}}}$ and\
+    the adjustment procedure is performed again to receive a final $\textsf{shift}_{i, n}$ value.
 \end{legal}
 
 
 As a result of the above synchronization procedure, at the beginning of the next round the\
-party $PK_i$ will report a local time equal to $n \cdot R + \text{shift}_{i, n} + 1$.
-If ${\text{shift}_{i, n} > 0}$, the party proceeds by emulating its actions for shift rounds.
-If ${\text{shift}_{i, n} < 0}$, the party remains a silent observer\
+party $PK_i$ will report a local time equal to $n \cdot R + \textsf{shift}_{i, n} + 1$.
+If ${\textsf{shift}_{i, n} > 0}$, the party proceeds by emulating its actions for shift rounds.
+If ${\textsf{shift}_{i, n} < 0}$, the party remains a silent observer\
 until its local time has advanced to slot $n \cdot R + 1$ and resumes normally at that round.

@@ -8,13 +8,13 @@
         \State Send $(\textsf{\scriptsize{CLOCK-GET}}, \text{sid}_\text{C})$ to $\mathcal{G}_{\text{ImpLClock}}$\
         and parse $\textsf{tick}$ from the response.
         \If {$\textsf{lastTick} \neq \textsf{tick}$}
+
             \State Set $\textsf{lastTick} \leftarrow \textsf{tick}$.
             \State Set $\textsf{localTime} \leftarrow \textsf{localTime} + 1$.
             \State Set $\textsf{fetchCompleted} \leftarrow \textsf{false}$.
         \EndIf
         \State Set $e \leftarrow \lceil \textsf{localTime}/\\R \rceil$.
         \State Set $sl \leftarrow \textsf{localTime}$.
-
     \end{algorithmic}\label{alg:update-time-protocol}
 \end{protocol}
 
@@ -23,40 +23,59 @@
 \noindent
 \phantomsection
 \textbf{Synchronization Procedure}.\label{apndx:sync-proc}
-The synchronization procedure is run at an epoch boundary to sync time between all committees members.
+The synchronization procedure runs on epoch boundary to synchronize time between all committee members.
 \begin{protocol}
-    \caption{$\textsf{SyncProc}(P, \text{sid}, R)$}
+    \caption{$\textsf{SyncProc}(P, \text{sid}, R, K_{\text{f}}, K_{\text{g}}, \mathbf{S}_{\text{id}} = \{S_k^{\text{id}}\}_{k=1}^K,
+    \mathbf{f}_{\text{lead}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
+    \mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
+        \State Set $i \leftarrow \lceil \textsf{localTime}/\\R \rceil$.
+        \If {(${\textbf{not } \textsf{EpochUpdate}(i)=\textsf{Done}}$)}
+            \State $\textsf{EpochUpdate}(i) \leftarrow \textsf{Done}$.
+            \State Parse $\mathbf{b}^{\text{set}}'_i \leftarrow \mathcal{C}_{\text{loc}}[(i - 1) \cdot R + 2/\\3 \cdot R]$.
+            \State ${\mathbf{b}^{\text{set}}_i \leftarrow \{b^{\text{sync}} | b^{\text{sync}} \in \mathbf{b}^{\text{set}}'_i \wedge b^{\text{sync}}\textsf{.get}(sl) \in [R \cdot (i - 1), R \cdot (i - 1) + 1 /\\ 6 \cdot R]\}}$.
+            \ForAll {$b^{\text{sync}} \in \mathbf{b}^{\text{set}}_i$}
+                \If {$b^{\text{sync}} \in \textsf{syncBuffer}$}
+                    \State Parse $b^{\text{sync}}$ as $(v^{\text{vrf}}, sl, \pi^{\text{sl}}, sl^{\text{rec}})$.
+                    \State Set $\text{diff}_b = sl - sl^{\text{rec}}$.
+                \Else
+                    \State $\mathbf{b}^{\text{set}}_i \leftarrow \mathbf{b}^{\text{set}}_i \\/ \{b^{\text{sync}}\}$.
+                \EndIf
+            \EndFor
+            \State Set $\textsf{shift}_i \leftarrow \textsf{med}\{\text{diff}_b | b^{\text{sync}} \in \mathbf{b}^{\text{set}}_i\})$.
+            \ForAll{$b^{\text{sync}}| b^{\text{sync}} \in \mathbf{b}^{\text{set}}_i\} \wedge b^{\text{sync}}\textsf{.get}(sl^\text{rec}) = (sl', \textsf{temp})$}
+                \State Set $sl^{\text{rec}} \leftarrow (sl' + \textsf{shift}_i, \textsf{final})$.
+            \EndFor
+            \If{$\textsf{shift}_i > 0$}
+                \lstinline|// Move fast forward.|
+                \State Set $\textsf{newTime} \leftarrow \textsf{localTime} + \textsf{shift}_i$.
+                \State Set $M_\text{chains} \leftarrow M_\text{sync} \leftarrow \emptyset$.
+                \While{$\textsf{localTime} < \textsf{newTime}$}
+                    \State $\textsf{localTime} \leftarrow \textsf{localTime} + 1$.
+                    \State Let $\mathbf{N}_0$ be the subsequence of $\textsf{futureChains}\ |\ \forall B \in \mathcal{C}:\ B{\textsf{.get(} sl \textsf{)}} \leq \textsf{localTime}$.
+                    \For {$\mathcal{C} \in \mathbf{N}_0$}
+                        \State Remove $\mathcal{C}$ from $\textsf{futureChains}$.
+                    \EndFor
+                    \State Set $\mathcal{C}_{\text{loc}} \leftarrow \textsf{SelectChain}(P, \text{sid}, \mathcal{C}_{\text{loc}},
+                    R, K_{\text{f}}, K_{\text{g}}, \mathcal{N}_0, \mathbf{S}_{\text{id}},  \mathbf{f}_{\text{lead}})$.
+                    \State Call $\textsf{UpdateStakeDistribution}(P, R, K_{\text{f}}, C_{\text{loc}}, \mathbf{S}_{\text{id}},
+                    \mathbf{f}_{\text{lead}}, \mathbf{f}_{\text{cons}})$.
+                    \State Call $\textsf{LedgerMaintenance}(P, \text{sid}, \mathcal{C}_{\text{loc}}, R, K_{\text{f}}, K_{\text{g}},
+                    \mathbf{S}_{\text{id}}, \mathbf{f}_{\text{lead}}, \mathbf{f}_{\text{cons}})$
+                    \par\hskip\algorithmicindent
+                    but instead of broadcasting new chains and beacons, add them to
+                    \par\hskip\algorithmicindent
+                    the local sets $M_\text{chains}$ and $M_\text{sync}$ respectively.
+                \EndWhile
+                \State Broadcast $M_\text{chains}$ and $M_\text{sync}$.
+            \ElsIf
+                    {$\textsf{shift}_i < 0$} \lstinline|// Need to wait.|
+                \State Set $t_{\text{work}} \leftarrow \textsf{localTime}$.
+                \State Set $\textsf{localTime} \leftarrow \textsf{localTime} + \textsf{shift}_i$.
+            \EndIf
+        \EndIf
 
-        todo
     \end{algorithmic}\label{alg:sync-proc}
-\end{protocol}
-
-\bigbreak
-\bigbreak
-\noindent
-\phantomsection
-\textbf{Fetching information}.\label{apndx:fetch-info-protocol}
-\begin{protocol}
-    \caption{$\textsf{FetchInformation}(P, \text{sid})$}
-    \begin{algorithmic}[1]
-
-        todo
-    \end{algorithmic}\label{alg:fetch-info-protocol}
-\end{protocol}
-
-\bigbreak
-\bigbreak
-\noindent
-\phantomsection
-\textbf{Reading blockchain state}.\label{apndx:read-state-protocol}
-Reading blockchain $\textsf{state}_{sl}$ from  $\mathcal{C}$.
-\begin{protocol}
-    \caption{$\textsf{ReadState}(P, \text{sid}, sl, R, K_{\text{f}}, \mathcal{C})$}
-    \begin{algorithmic}[1]
-
-        todo
-    \end{algorithmic}\label{alg:read-state-protocol}
 \end{protocol}
 
 \bigbreak
@@ -67,10 +86,62 @@ Reading blockchain $\textsf{state}_{sl}$ from  $\mathcal{C}$.
 The stake distributions for epochs are defined in the local chain (and all associated state-variables) are\
 computed as follows:
 \begin{protocol}
-    \caption{$\textsf{UpdateStakeDistribution}(P, \text{sid}, R, \mathcal{C}_{\text{loc}}, \{S_k^{\text{id}}\}_{k=1}^K, \{f^{\text{cons}}_k\}_{k=1}^K)$}
+    \caption{$\textsf{UpdateStakeDistribution}(P, R, K_{\text{f}}, C_{\text{loc}}, \mathbf{S}_{\text{id}} = \{S_k^{\text{id}}\}_{k=1}^K,
+    \mathbf{f}_{\text{lead}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
+    \mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
+        \State Set $e_n \leftarrow \lceil sl/\\R \rceil$.
 
-        todo
+        \noindent
+        \lstinline|// Main ledger state_m is calculated according to|
+        \noindent
+        \lstinline|// the last block produced up to m-th slot.|
+        \State Parse $\textsf{state}_{(n - 2)\cdot R} \leftarrow C_{\text{loc}}$.
+        \State Parse $\textsf{state}_{(n - 4)\cdot R} \leftarrow C_{\text{loc}}$.
+
+        \noindent
+        \lstinline|// Set epoch randomness:|
+        \State Set ${\eta_{n-2} \leftarrow \mathcal{F}_{\text{LB}}(e_{n-2}, C_{\text{loc}})}$. \lstinline|// For the consensus lottery.|
+        \State Set ${\eta_{n} \leftarrow \mathcal{F}_{\text{LB}}(e_{n}, C_{\text{loc}})}$. \lstinline|// For the leader and sync lotteries.|
+
+        \noindent
+        \lstinline|// Update stakeholders distribution for the consensus group lottery:|
+        \For{ $\forall S_k^{\text{id}} \in \mathbf{S}_{\text{id}}$ }
+            \State Parse verified and equipped with $\mathcal{F}^k_{\text{ConnSys}}$ functionality stakeholders distribution $S_k^{\text{ver}, {n - 4}}$\
+            from $\textsf{state}_{(n - 4)\cdot R}$ .
+
+        \EndFor
+
+        \noindent
+        \lstinline|// Update stakeholders distributions for the leader lottery:|
+
+        \For{ $\forall S_k^{\text{id}} \in \mathbf{S}_{\text{id}}$ }
+            \State Parse $k$-th committee stakeholders distribution $S_k^{\text{cons}, n - 2}$
+            \par\hskip\algorithmicindent
+            from the $\textsf{state}_{(n - 2)\cdot R}$.
+        \EndFor
+
+        \noindent
+        \lstinline|// Update stakeholders distribution for the synchronization lottery:|
+
+        \State Parse all committees stakeholders distribution $S^{\text{cons}, n - 2}$ from the $\textsf{state}_{(n - 2)\cdot R}$.
+
+        \noindent
+        \lstinline|// Here and below S_k^{\text{id}} is denoted simply by index k.|
+
+        \noindent
+        \lstinline|// Set lotteries thresholds:|
+        \For{ $\forall S_k^{\text{id}} \in \mathbf{S}_{\text{id}}$ }
+
+            \State Calculate relative stake $\alpha^{n-3}_{P, \text{ver}}$ using $S_k^{\text{ver}, {n - 3}}$.
+            \State Calculate relative stake $\alpha^{n-2}_{P, \text{k}}$ using $S_k^{\text{cons}, {n - 2}}$.
+            \State Set consensus group lottery threshold for $k$-th committee as $T_{P, n-2}^{\text{cons}, k} = \phi_{f^{\text{cons}}_k}(\alpha^{n-3}_{P, \text{ver}})$.
+            \State Set leader lottery threshold as $T_{P, n}^{\text{lead}, k} = \phi_{f^{\text{lead}}_k}(\alpha^{n-2}_{P, \text{k}})$.
+        \EndFor
+
+        \State Calculate relative stake $\alpha^{n-2}_{P}$ using $S^{\text{cons}, {n - 2}}$.
+        \State Set synchronization lottery threshold as $T_{P', n}^{\text{sync}} = 2^{l_{\text{VRF}}} \cdot \alpha^{n-2}_{P}$.
+        \State \Return ${(e_n, \textsf{state}_{(n - 3)\cdot R}, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, \{T_{P, n-2}^{\text{cons}, k}\}_{k=1}^K, \{T_{P, n}^{\text{lead}, k}\}_{k=1}^K, T_{P, n}^{\text{sync}})}$
     \end{algorithmic}\label{alg:upd-stake}
 \end{protocol}
 
@@ -82,10 +153,33 @@ computed as follows:
 \textbf{Processing beacons}.\label{apndx:proc-beacons}
 The following procedure records and processes beacons, their arrival times, and filters out invalid beacons:
 \begin{protocol}
-    \caption{$\textsf{ProcessBeacons}(P, \text{sid}, R, \{b^{\text{sync}}_n\}_{n=1}^N, \mathcal{C})$}
+    \caption{$\textsf{ProcessBeacons}(P, \text{sid}, R, l_{\text{VRF}}, K_{\text{f}}, \mathcal{C}_{\text{loc}}, \mathbf{b}^{\text{set}} = \{b^{\text{sync}}_n\}_{n=1}^N)$}
     \begin{algorithmic}[1]
 
-        todo
+        \ForAll{$b^{\text{sync}}_n \in \mathbf{b}^{\text{set}} | b^{\text{sync}}_n\textsf{.get}(sl_n^{\text{rec}}) = \bot$}
+            \State $\textsf{syncBuffer} \leftarrow \textsf{syncBuffer} \cup \{b^{\text{sync}}_n\}$.
+            \State Set $e \leftarrow \lfloor b^{\text{sync}}_n\textsf{.get}(sl)/\\R \rfloor$.
+            \If{$\textsf{isSync} \wedge (\textsf{epochUpdate(e - 1)} = \textsf{Done})$}
+
+                \State Set $sl_n^{\text{rec}} \leftarrow (\textsf{localTime, final})$.
+            \Else
+
+                Set $sl_n^{\text{rec}} \leftarrow (\textsf{localTime, temp})$.
+            \EndIf
+        \EndFor
+
+        \noindent
+        \lstinline|//  Buffer  cleaning.  Keep  one  representative  arrival  time.|
+        \If{$\textsf{isSync}$}
+            \State Set $\textsf{syncBuffer}_{\text{valid}} \leftarrow \{b^{\text{sync}}' \in \textsf{syncBuffer} | \textsf{ValidBeacon}(P, \text{sid}, R, l_{\text{VRF}},
+            \newline\hspace*{3em} K_{\text{f}}, b^{\text{sync}}', \mathcal{C}_{\text{loc}}) = \textsf{true}\}$.
+            \ForAll{$b^{\text{sync}} \in \textsf{syncBuffer}_{\text{valid}}$}
+                \State Parse $b^{\text{sync}}$ as $(v^{\text{vrf}}, sl, \pi^{\text{sl}})$.
+                \State Set $Q \leftarrow \{b^{\text{sync}}' \in \textsf{syncBuffer}_{\text{valid}} | v^{\text{vrf}} = v^{\text{vrf}}' \wedge  sl = sl')\}$.
+                \State Set $b^{\text{sync, min}} \leftarrow \min_{sl}(Q)$.
+                \State Remove from the $\textsf{syncBuffer}$ all beacons except the $b^{\text{sync, min}}$.
+            \EndFor
+        \EndIf
     \end{algorithmic}\label{alg:proc-beacons}
 \end{protocol}
 
