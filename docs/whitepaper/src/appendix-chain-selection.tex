@@ -2,31 +2,6 @@ Chain selection consists of two steps: filtering out valid chains, and second co
 using the Genesis rule~\cite{Badertscher2018}.
 
 \bigbreak
-\noindent
-\phantomsection
-\textbf{Maximum Stake Rule}.\label{apndx:max-stake-rule}
-Rule to resolve conflicts that arise after applying the Genesis rule.
-\begin{algo}
-    \caption{${\textsf{maxStakeChain}(\mathcal{C}_i}, \mathcal{C}_{i'})$}
-    \begin{algorithmic}[1]
-        \If {$\sum \{B_k\textsf{.get(}s\textsf{)}, \forall B_k \in  \mathcal{C}_i\} > \sum \{B_k\textsf{.get(}s\textsf{)}, \forall B_k \in  \mathcal{C}_{i'}\}$}
-
-            \noindent
-            \lstinline|// Used above value s is the stake of the leader|
-
-            \noindent
-            \lstinline|// who produced the block B_k.|
-            \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$.
-        \Else
-            \noindent
-            \lstinline|  // It is assumed that the input chains are the same size.|
-            \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i'}}$.
-        \EndIf
-        \State \Return ${\mathcal{C}_{\max}}$
-    \end{algorithmic}\label{alg:max-stake-rule}
-\end{algo}
-
-\bigbreak
 \bigbreak
 \noindent
 \phantomsection
@@ -62,6 +37,31 @@ The Genesis chain selection rule:
         \EndFor
         \State \Return ${\mathcal{C}_{\max}}$
     \end{algorithmic}\label{alg:max-valid-rule}
+\end{algo}
+
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Maximum Stake Rule}.\label{apndx:max-stake-rule}
+Rule to resolve conflicts that arise after applying the Genesis rule:
+\begin{algo}
+    \caption{${\textsf{maxStakeChain}(\mathcal{C}_i}, \mathcal{C}_{i'})$}
+    \begin{algorithmic}[1]
+        \If {$\sum \{B_k\textsf{.get(}s\textsf{)}, \forall B_k \in  \mathcal{C}_i\} > \sum \{B_k\textsf{.get(}s\textsf{)}, \forall B_k \in  \mathcal{C}_{i'}\}$}
+
+            \noindent
+            \lstinline|// Used above value s is the stake of the leader|
+
+            \noindent
+            \lstinline|// who produced the block B_k.|
+            \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$.
+        \Else
+            \noindent
+            \lstinline|  // It is assumed that the input chains are the same size.|
+            \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i'}}$.
+        \EndIf
+        \State \Return ${\mathcal{C}_{\max}}$
+    \end{algorithmic}\label{alg:max-stake-rule}
 \end{algo}
 
 \bigbreak

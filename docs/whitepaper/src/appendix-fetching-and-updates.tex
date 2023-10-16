@@ -13,7 +13,7 @@
             \State Set $\textsf{localTime} \leftarrow \textsf{localTime} + 1$.
             \State Set $\textsf{fetchCompleted} \leftarrow \textsf{false}$.
         \EndIf
-        \State Set $e \leftarrow \lceil \textsf{localTime}/\\R \rceil$.
+        \State Set $e \leftarrow \lceil \textsf{localTime} \mathbin{/} R \rceil$.
         \State Set $sl \leftarrow \textsf{localTime}$.
     \end{algorithmic}\label{alg:update-time-protocol}
 \end{protocol}
@@ -25,25 +25,30 @@
 \textbf{Synchronization Procedure}.\label{apndx:sync-proc}
 The synchronization procedure runs on epoch boundary to synchronize time between all committee members.
 \begin{protocol}
-    \caption{$\textsf{SyncProc}(P, \text{sid}, R, K_{\text{f}}, K_{\text{g}}, \mathbf{S}_{\text{id}} = \{S_k^{\text{id}}\}_{k=1}^K,
+    \caption{$\textsf{SyncProc}(P, \text{sid}, R, K_{\text{f}}, K_{\text{g}},
+    \mathbf{S}_{\text{id}} = \{S_k^{\text{id}}\}_{k=1}^K,
     \mathbf{f}_{\text{lead}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
     \mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
-        \State Set $i \leftarrow \lceil \textsf{localTime}/\\R \rceil$.
+        \State Set $i \leftarrow \lceil \textsf{localTime} \mathbin{/} R \rceil$.
         \If {(${\textbf{not } \textsf{EpochUpdate}(i)=\textsf{Done}}$)}
             \State $\textsf{EpochUpdate}(i) \leftarrow \textsf{Done}$.
-            \State Parse $\mathbf{b}^{\text{set}}'_i \leftarrow \mathcal{C}_{\text{loc}}[(i - 1) \cdot R + 2/\\3 \cdot R]$.
-            \State ${\mathbf{b}^{\text{set}}_i \leftarrow \{b^{\text{sync}} | b^{\text{sync}} \in \mathbf{b}^{\text{set}}'_i \wedge b^{\text{sync}}\textsf{.get}(sl) \in [R \cdot (i - 1), R \cdot (i - 1) + 1 /\\ 6 \cdot R]\}}$.
+            \State Parse $\mathbf{b}^{\text{set}}'_i \leftarrow \mathcal{C}_{\text{loc}}[(i - 1) \cdot R + 2 \mathbin{/} 3 \cdot R]$.
+            \State Let $j \leftarrow i - 1$.
+            \State ${\mathbf{b}^{\text{set}}_i \leftarrow \{b^{\text{sync}} | b^{\text{sync}} \in
+            \mathbf{b}^{\text{set}}'_i \wedge b^{\text{sync}}\textsf{.get}(sl) \in [R \cdot j,
+            R \cdot j + 1 \mathbin{/} 6 \cdot R]\}}$.
             \ForAll {$b^{\text{sync}} \in \mathbf{b}^{\text{set}}_i$}
                 \If {$b^{\text{sync}} \in \textsf{syncBuffer}$}
                     \State Parse $b^{\text{sync}}$ as $(v^{\text{vrf}}, sl, \pi^{\text{sl}}, sl^{\text{rec}})$.
                     \State Set $\text{diff}_b = sl - sl^{\text{rec}}$.
                 \Else
-                    \State $\mathbf{b}^{\text{set}}_i \leftarrow \mathbf{b}^{\text{set}}_i \\/ \{b^{\text{sync}}\}$.
+                    \State $\mathbf{b}^{\text{set}}_i \leftarrow \mathbf{b}^{\text{set}}_i \mathbin{/} \{b^{\text{sync}}\}$.
                 \EndIf
             \EndFor
             \State Set $\textsf{shift}_i \leftarrow \textsf{med}\{\text{diff}_b | b^{\text{sync}} \in \mathbf{b}^{\text{set}}_i\})$.
-            \ForAll{$b^{\text{sync}}| b^{\text{sync}} \in \mathbf{b}^{\text{set}}_i\} \wedge b^{\text{sync}}\textsf{.get}(sl^\text{rec}) = (sl', \textsf{temp})$}
+            \ForAll{$b^{\text{sync}}| b^{\text{sync}} \in \mathbf{b}^{\text{set}}_i\} \wedge b^{\text{sync}}\textsf{.get}
+            (sl^\text{rec}) = (sl', \textsf{temp})$}
                 \State Set $sl^{\text{rec}} \leftarrow (sl' + \textsf{shift}_i, \textsf{final})$.
             \EndFor
             \If{$\textsf{shift}_i > 0$}
@@ -83,14 +88,14 @@ The synchronization procedure runs on epoch boundary to synchronize time between
 \noindent
 \phantomsection
 \textbf{Updating stake distribution}.\label{apndx:upd-stake}
-The stake distributions for epochs are defined in the local chain (and all associated state-variables) are\
+The stake distributions for epochs are defined in the local chain (and all associated state-variables), and are\
 computed as follows:
 \begin{protocol}
     \caption{$\textsf{UpdateStakeDistribution}(P, R, K_{\text{f}}, C_{\text{loc}}, \mathbf{S}_{\text{id}} = \{S_k^{\text{id}}\}_{k=1}^K,
     \mathbf{f}_{\text{lead}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
     \mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
     \begin{algorithmic}[1]
-        \State Set $e_n \leftarrow \lceil sl/\\R \rceil$.
+        \State Set $e_n \leftarrow \lceil sl \mathbin{/} R \rceil$.
 
         \noindent
         \lstinline|// Main ledger state_m is calculated according to|
@@ -158,7 +163,7 @@ The following procedure records and processes beacons, their arrival times, and 
 
         \ForAll{$b^{\text{sync}}_n \in \mathbf{b}^{\text{set}} | b^{\text{sync}}_n\textsf{.get}(sl_n^{\text{rec}}) = \bot$}
             \State $\textsf{syncBuffer} \leftarrow \textsf{syncBuffer} \cup \{b^{\text{sync}}_n\}$.
-            \State Set $e \leftarrow \lfloor b^{\text{sync}}_n\textsf{.get}(sl)/\\R \rfloor$.
+            \State Set $e \leftarrow \lfloor b^{\text{sync}}_n\textsf{.get}(sl) \mathbin{/} R \rfloor$.
             \If{$\textsf{isSync} \wedge (\textsf{epochUpdate(e - 1)} = \textsf{Done})$}
 
                 \State Set $sl_n^{\text{rec}} \leftarrow (\textsf{localTime, final})$.

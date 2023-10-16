@@ -11,7 +11,7 @@ The preparation algorithm is described below:
     \begin{algorithmic}[1]
         \noindent
         \lstinline|// Parse and calculate all necessary values for block validation.|
-        \State Set $e_n \leftarrow \lceil sl/\\R \rceil$.
+        \State Set $e_n \leftarrow \lceil sl \mathbin{/} R \rceil$.
         \noindent
         \lstinline|// Main ledger state_m is calculated according to|
         \noindent
@@ -76,10 +76,8 @@ The preparation algorithm is described below:
         \lstinline|// Prepare constants:|
         \State Select $(f^{\text{lead}}_k, f^{\text{cons}}_k)$ related to the given $S_k^{\text{id}}$.
         \State Set $\textsf{preparation\_out} \leftarrow \textsf{PrepareForBlockValidation}(P, \text{sid}, sl, R, l_{\text{VRF}}, K_{\text{f}}, C_{\text{loc}},$
-        $v^{\text{vrf}}, S_k^{\text{id}}, f^{\text{lead}}_k, f^{\text{cons}}_k)$
-        \par\hskip
+        $v^{\text{vrf}}, S_k^{\text{id}}, f^{\text{lead}}_k, f^{\text{cons}}_k)$.
         \State Set $(e_n, \textsf{state}_{(n - 4)\cdot R}, V_{\text{ver}}, \eta_{n}, \eta_{n - 2}, T^{\text{cons}}, T^{\text{lead}}, T^{\text{sync}}) = \textsf{preparation\_out}$.
-
         \noindent
         \lstinline|// Check consensus membership:|
         \State Parse $\mathbf{S}_{\text{id}, P'}$ related to the given $v^{\text{vrf}}$ from $V_{\text{ver}}$.
@@ -147,7 +145,7 @@ The preparation algorithm is described below:
 \noindent
 \phantomsection
 \textbf{Chain validation}.\label{apndx:chain-validation-protocol}
-A core procedure is to distinguish valid chains from the invalid:
+The core procedure to distinguish valid chains from the invalid is as follows:
 \begin{protocol}
     \caption{$\textsf{IsValidChain}(P, \text{sid}, \mathcal{C}, R,  l_{\text{VRF}}, K_{\text{f}},
     \mathbf{S}_{\text{id}} = \{S_k^{\text{id}}\}_{k=1}^K,
@@ -186,12 +184,12 @@ A core procedure is to distinguish valid chains from the invalid:
 \noindent
 \phantomsection
 \textbf{The synchronisation beacon validity}.\label{apndx:sync-beacon-validity-protocol}
-Beacons validity is related to chain validity as one has to verify validity of leadership:
+Beacons validity is related to chain validity as one has to verify validity of the leadership:
 \begin{protocol}
     \caption{$\textsf{ValidBeacon}(P, \text{sid}, R, l_{\text{VRF}}, K_{\text{f}}, b^{\text{sync}}, \mathcal{C}_{\text{loc}})$}
     \begin{algorithmic}[1]
         \State Parse synchronization beacon $b^{\text{sync}}$ as $(v_{P'}^{\text{vrf}}, sl, \pi^{\text{sl}})$.
-        \State Set $e_n \leftarrow \lceil sl/\\R \rceil$.
+        \State Set $e_n \leftarrow \lceil sl \mathbin{/} R \rceil$.
         \If {$\nexists B \in \mathcal{C}_{\text{loc}} | B\textsf{.get(sl)} \in e_n$}
             \State \Return \textsf{false}
         \EndIf

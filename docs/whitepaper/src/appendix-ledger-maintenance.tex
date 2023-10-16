@@ -16,7 +16,7 @@ In normal protocol execution, each participant performs the following procedure:
         \State Set ${\textsf{valid\_sync} \leftarrow y^{\text{sync}} < T^{\text{sync}}}$.
 
         \If {$\textsf{valid\_sync}$}
-            \If {$sl \in [R \cdot n, R \cdot n + 1 /\\ 6 \cdot R]$}
+            \If {$sl \in [R \cdot n, R \cdot n + 1 \mathbin{/} 6 \cdot R]$}
                 \State Set $b^{\text{sync}} \leftarrow (v^{\text{vrf}}, sl, \pi^{\text{sl}})$.
                 \State Broadcast $b^{\text{sync}}$ to known peers.
             \EndIf
@@ -38,7 +38,7 @@ In normal protocol execution, each participant performs the following procedure:
             \If {$\textsf{valid\_leader}$}
                 \State Set actual $\textsf{state}$ extracted from the $\textsf{buffer}$.
                 \State Set $h \leftarrow \mathcal{H}(\textsf{head(}\mathcal{C}_{\text{loc}}\textsf{)})$. \lstinline|// head(C) gets the latest block from C.|
-                \If {$sl \in [R \cdot n, R \cdot n + 2 /\\ 3 \cdot R]$}
+                \If {$sl \in [R \cdot n, R \cdot n + 2 \mathbin{/} 3 \cdot R]$}
                     \par\hskip\algorithmicindent
                     \lstinline|// Set valid synchronization beacon set as:|
                     \State {$\mathbf{b}^{\text{set}} \leftarrow \{b' \in \textsf{syncBuffer} | \textsf{validBeacon}(P, \text{sid}, R, l_{\text{VRF}}, K_{\text{f}}, b', \mathcal{C}_{\text{loc}})$
