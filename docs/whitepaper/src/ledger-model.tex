@@ -120,7 +120,7 @@ This design allows dApp developers to choose the amount of on-chain computations
 
 \subsubsection{Dealing with finality of imported value}\label{subsubsec:dealing-with-finality-of-imported-value}
 
-Beacause Spectrum is a cross-chain system, monetary value there is usually imported from an external system\
+Because Spectrum is a cross-chain system, monetary value there is usually imported from an external system\
 (e.g.\ Cardano or Ergo).
 Since most of the cryptocurrencies don't provide instant finality of transactions, on-chain transaction\
 that once imported value into Spectrum's on-chain vault may be rolled-back.
@@ -143,8 +143,8 @@ on the dangling value are reverted.
 
 As long as outbound transactions can not be reverted it is of paramount importance to wait\
 for complete settlement of the imported value before allowing to export it.
-Each cell is associated with a set of dependencies called \emph{ancors} represented\
+Each cell is associated with a set of dependencies called \emph{anchors} represented\
 as unique identifier of a chain and a height which the chain is required to reach in order\
-for the anchor to be deemed as \emph{unancored}.
-Active ancors leak from cells in inputs into created cells in outputs.
-It is impossible for a terminal cell to be exported until all ancors it depends on are reached.
+for the anchor to be deemed as \emph{non-anchored}.
+Active anchors leak from cells in inputs into created cells in outputs.
+It is impossible for a terminal cell to be exported until all anchors it depends on are reached.

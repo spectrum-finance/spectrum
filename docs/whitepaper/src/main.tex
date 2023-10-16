@@ -7,6 +7,14 @@
     sorting=none,
     natbib
 ]{biblatex}
+\usepackage{blindtext}
+\usepackage{geometry}
+\geometry{
+    a4paper,
+    right=1.5in,
+    left=1.5in,
+    top=1.5in,
+}
 \addbibresource{references.bib}
 
 \usepackage[dvipsnames]{xcolor}
@@ -18,16 +26,88 @@
 \usepackage{hyperref}
 \usepackage[T1]{fontenc}
 \usepackage{inconsolata}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{algorithmicx}
+
+\usepackage{xcolor}
+\usepackage{pifont}
+\usepackage{listings}
+\usepackage{lipsum}
+\usepackage{siunitx}
+\lstset{
+    basicstyle=\color{gray}\ttfamily
+}
+
 \hypersetup{
     colorlinks,
-    linkcolor={red!50!black},
+    linkcolor={red!30!black},
     citecolor={blue!50!black},
     urlcolor={blue!80!black}
 }
 
-\newenvironment{tttabular}[1]%
-{\ttfamily \begin{tabular}{#1}}%
+\newenvironment{tttabular}[1]
+{\ttfamily \begin{tabular}{#1}}
 {\end{tabular}}
+
+\newenvironment{protocol}
+{
+    \begin{center}
+        \hrule height.8pt depth0pt \kern2pt
+        \renewcommand{\thealgorithm}{}
+        \renewcommand{\caption}[2][\relax]{
+                {\raggedright\textbf{Protocol} ##2\par}
+            \ifx\relax##1\relax
+            \addcontentsline{loa}{algorithm}{\protect\numberline{\thealgorithm}##2}
+            \else
+            \addcontentsline{loa}{algorithm}{\protect\numberline{\thealgorithm}##1}
+            \fi
+            \kern2pt\hrule\kern2pt
+        }
+        }{
+        \kern2pt\hrule\relax
+    \end{center}
+}
+
+\newenvironment{functionality}
+{
+    \begin{center}
+        \hrule height.8pt depth0pt \kern2pt
+        \renewcommand{\thealgorithm}{}
+        \renewcommand{\caption}[2][\relax]{
+                {\raggedright\textbf{Functionality} ##2\par}
+            \ifx\relax##1\relax
+            \addcontentsline{loa}{algorithm}{\protect\numberline{\thealgorithm}##2}
+            \else
+            \addcontentsline{loa}{algorithm}{\protect\numberline{\thealgorithm}##1}
+            \fi
+            \kern2pt\hrule\kern2pt
+        }
+        }{
+        \kern2pt\hrule\relax
+    \end{center}
+}
+
+\newenvironment{algo}
+{
+    \begin{center}
+        \hrule height.8pt depth0pt \kern2pt
+        \renewcommand{\thealgorithm}{}
+        \renewcommand{\caption}[2][\relax]{
+                {\raggedright\textbf{Algorithm} ##2\par}
+            \ifx\relax##1\relax
+            \addcontentsline{loa}{algorithm}{\protect\numberline{\thealgorithm}##2}
+            \else
+            \addcontentsline{loa}{algorithm}{\protect\numberline{\thealgorithm}##1}
+            \fi
+            \kern2pt\hrule\kern2pt
+        }
+        }{
+        \kern2pt\hrule\relax
+    \end{center}
+}
 
 \newcommand{\lt}{<}
 \newcommand{\gt}{>}
@@ -70,6 +150,13 @@
 
         \newpage
         \printbibliography
+
+        \newpage
+        \appendix
+        \section*{Appendices}\label{sec:appendix}
+        \addcontentsline{toc}{section}{Appendices}
+        \renewcommand{\thesubsection}{\Alph{subsection}}
+        \input{Appendix}
 
     \end{sloppypar}
 \end{document}

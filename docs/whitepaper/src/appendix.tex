@@ -1,0 +1,107 @@
+\subsection{A Complete Description of the Spectrum Protocol}\label{subsec:a-complete-description-of-the-spectrum-protocol}
+The purpose of this section is to formally specify the code of the Spectrum protocol that each participant executes.
+Each party $P$ is assigned a session ID, $\text{sid}$.
+Party is connected to all global setups and functionalities\
+with which it shares the same session ID\@.
+
+\subsubsection{The Main Protocol}
+\phantomsection
+\textbf{Spectrum protocol} uses a number of functionalities, namely, $\mathcal{G}_{\text{Ledger}},
+\mathcal{G}_{\text{ImpLClock}}$ and $\mathcal{F}^{\Delta}_{\text{N-MC}}$ which are described in detail in~\cite{cryptoeprint:2019/838}.
+
+All protocol participants use the imperfect local clocks functionality $\mathcal{G}_{\text{ImpLClock}}$ to proceed at\
+approximately the same speed with the upper bound $\Delta^{\text{clock}}$ on the drift between any\
+two honest parties.
+We also assume a diffusion network in which all messages sent by honest parties are guaranteed to be fetched by\
+other protocol participants after a specific delay $\Delta^{\text{net}}$.
+Additionally, the network guarantees that once a message has been fetched by an honest party, this message is\
+fetched by any other honest party within a delay of at most $\Delta^{\text{net}}$.
+We will use a broadcasting network for message diffusion described by the functionality $\mathcal{F}^{\Delta}_{\text{N-MC}}$.
+
+The main protocol is as follows:\label{apndx:spectrum-protocol}
+\begin{protocol}
+    \caption{$\textsf{Spectrum}(P, \text{sid}; \mathcal{G}_{\text{Ledger}}, \mathcal{G}_{\text{ImpLClock}}, \mathcal{F}^{\Delta}_{\text{N-MC}})$}
+    \begin{algorithmic}
+        \State $\textbf{Global variables:}$
+        \begin{itemize}
+            \item[\textbf{--}] Read-only: $R, l_{\text{VRF}}, K_{\text{f}}, K_{\text{g}}, \mathbf{S}^{\text{set}} = \{S_k^{\text{id}}\}_{k=1}^K, \mathbf{f}_{\text{lead}} = \{f^{\text{lead}}_k\}_{k=1}^K, \mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K$.
+            \item[] \lstinline|// Hereinafter, the indices and values of epochs and slots are|
+            \item[] \lstinline|// interchangeable, i.e. e_n = n, s_j = j.  Also, the id of the|
+            \item[]  \lstinline|// k-th connected system S_k usualy is simply denoted by k.|
+            \item[\textbf{--}] Read-write: $v^{\text{vrf}}_P, v^{\text{kes}}_P, sl_j, e_n, \mathbf{S}_P^{\text{set}}, \mathbf{T}^{\text{cons}},  \mathbf{T}^{\text{lead}}, \mathbf{T}^{\text{sync}},$
+            \item[] $\textsf{localTime}, \textsf{lastTick}, \textsf{EpochUpdate(.)}, \textsf{state}_{j}, \textsf{buffer}, \textsf{syncBuffer}, \textsf{isSync},$
+            \item[] $\textsf{fetchCompleted}, \textsf{futureChains}$.
+            \item[]  \lstinline|// Bold font upper denotes the sets corresponding to the set|
+            \item[]  \lstinline|// of external systems (with id-s in the S^set) to which the|
+            \item[]  \lstinline|// participant P is connected.|
+        \end{itemize}
+
+        \State $\textbf{Interacting with the main Ledger:}$
+        Upon receiving a ledger-specific input $I$ verify first that all resources are available.
+        If not all resources are available, then ignore the input, otherwise execute one of the following\
+        steps depending on the input $I$:
+        \begin{itemize}
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{SUBMIT}}, \text{sid}, \textsf{tx}):$
+            \item[] set $\textsf{buffer} \leftarrow \textsf{buffer} || \textsf{tx}$;
+            \item [] send $(\textsf{\scriptsize{MULTICAST}}, \text{sid}, \textsf{tx})$ to $\mathcal{F}^{\Delta}_{\text{N-MC}}$.
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{MAINTAIN-LEDGER}}, P, \text{sid}):$
+            \item[] invoke the protocol \hyperref[apndx:main-ledger-protocol]{$\textsf{LedgerMaintenance}$}$(P, R, \text{sid}, \mathcal{C}_{\text{loc}})$;
+            \item[] if $\textsf{LedgerMaintenance}$ halts then halt the $\textsf{Spectrum}$ protocol execution and ignore all future inputs.
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{READ}}, \text{sid}):$
+            \item[] return actual local chain $\textsf{state}$;
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{EXPORT-TIME}}, \text{sid}):$
+            \item[] if $\textsf{isSync} = \textsf{false}$ then return $\textsf{false}$ to party $P$;
+            \item[] Otherwise call \hyperref[apndx:update-time-protocol]{$\textsf{UpdateTime}$}$(P, R)$ and do:
+            \begin{enumerate}
+                \item Set the highest epoch value $e_n \leftarrow \textsf{EpochUpdate(.)}$.
+                \item Return $(\textsf{localTime}, e_n)$ to the caller.
+            \end{enumerate}
+        \end{itemize}
+
+        \State $\textbf{Handling calls to the shared setup:}$
+        \begin{itemize}
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{CLOCK-GET}}, \text{sid}_\text{C}):$ forward it\
+            to $\mathcal{G}_{\text{ImpLClock}}$ and return its response.
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{CLOCK-UPDATE}}, \text{sid}_\text{C}):$ record that a clock-update was received in the current round.
+            If the party is registered to all its setups,  then do nothing further.
+            Otherwise,  do the following operations before concluding this round:
+            \begin{enumerate}
+                \item If this instance is currently time-aware but otherwise stalled or offline, then set $\textsf{localTime} \leftarrow \textsf{UpdateTime}(P, R)$\
+                and update the KES signing key using $\mathcal{F}_{\text{KES}}$.
+                If the party has passed a synchronization slot, then set $\textsf{isSync}  \leftarrow  \textsf{false}$.
+                \item If this instance is only stalled but $\textsf{isSync}  =  \textsf{true}$, then additionally\
+                fetch actual chains, extract all new synchronization beacons from the fetched chains,\
+                record their arrival times and set $\textsf{fetchCompleted}  \leftarrow  \textsf{true}$.
+                Any unfinished interruptible execution of this round is marked as completed.
+                \item Forward $(\textsf{\scriptsize{CLOCK-UPDATE}}, \text{sid}_\text{C})$ to $\mathcal{G}_{\text{ImpLClock}}$ to finally conclude the round.
+            \end{enumerate}
+            \item[\textbf{--}] \textbf{If} $I = (\textsf{\scriptsize{EVAL}}, x):$ forward $x$\
+            to the $\mathcal{H}$ and output the response.
+        \end{itemize}
+
+
+    \end{algorithmic}\label{alg:spectrum-protocol}
+\end{protocol}
+
+\subsubsection{Fetching information, stake distribution and time update}
+\input{appendix-fetching-and-updates.tex}
+
+\subsubsection{Validity Checks}
+\input{appendix-validation.tex}
+
+\subsubsection{Chain Selection Rules}
+\input{appendix-chain-selection.tex}
+
+\subsubsection{Ledger Maintenance}
+\input{appendix-ledger-maintenance.tex}
+
+\newpage
+
+\subsection{List of Symbols}\label{subsec:list-of-symbols}
+\input{appendix-list-of-symbols.tex}
+
+
+
+
+
+

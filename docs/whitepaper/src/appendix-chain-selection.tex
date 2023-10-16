@@ -1,0 +1,97 @@
+Chain selection consists of two steps: filtering out valid chains, and second compare them\
+using the Genesis rule~\cite{Badertscher2018}.
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Maximum Valid Rule}.\label{apndx:max-valid-rule}
+The Genesis chain selection rule:
+\begin{algo}
+    \caption{${\textsf{maxValidChain}(\mathcal{C}_{\text{loc}}, \mathbf{N} = \{\mathcal{C}_i\}_{i=1}^N, K_{\text{f}}, K_{\text{g}})}$}
+    \begin{algorithmic}[1]
+        \noindent
+        \lstinline|// Set local chain C_loc as initially maximum valid chain:|
+        \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{\text{loc}}}$.
+        \For {each ${\mathcal{C}_i \in \mathbf{N}}$}
+            \If {$\mathcal{C}_i$ forks from $\mathcal{C}_{\max}$ at most $K_{\text{f}}$ blocks}
+                \If {$|\mathcal{C}_i| > |\mathcal{C}_{\max}|$}
+                    \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$.
+                \ElsIf
+                        {$|\mathcal{C}_i| == |\mathcal{C}_{\max}|$}
+                    \State Set ${\mathcal{C}_{\max} \leftarrow \textsf{maxStakeChain}(\mathcal{C}_{i}, \mathcal{C}_{\max})}$.
+
+                \EndIf
+            \Else
+
+                \State Let ${j  \leftarrow \max \{j' \geq 0 \ |\  \mathcal{C}_{\max} \text{ and } \mathcal{C}_{i} \
+                \text{have the same block in } sl_{j'}\}}$.
+                \If {$|\mathcal{C}_i[j: j + K_{\text{g}}]| > |\mathcal{C}_{\max}[j: j + K_{\text{g}}]|$}
+                    \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$.
+                \ElsIf
+                        {$|\mathcal{C}_i| = |\mathcal{C}_{\max}|$}
+                    \State Set ${\mathcal{C}_{\max} \leftarrow \textsf{maxStakeChain}(\mathcal{C}_{i}, \mathcal{C}_{\max})}$.
+                \EndIf
+            \EndIf
+
+        \EndFor
+        \State \Return ${\mathcal{C}_{\max}}$
+    \end{algorithmic}\label{alg:max-valid-rule}
+\end{algo}
+
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Maximum Stake Rule}.\label{apndx:max-stake-rule}
+Rule to resolve conflicts that arise after applying the Genesis rule:
+\begin{algo}
+    \caption{${\textsf{maxStakeChain}(\mathcal{C}_i}, \mathcal{C}_{i'})$}
+    \begin{algorithmic}[1]
+        \If {$\sum \{B_k\textsf{.get(}s\textsf{)}, \forall B_k \in  \mathcal{C}_i\} > \sum \{B_k\textsf{.get(}s\textsf{)}, \forall B_k \in  \mathcal{C}_{i'}\}$}
+
+            \noindent
+            \lstinline|// Used above value s is the stake of the leader|
+
+            \noindent
+            \lstinline|// who produced the block B_k.|
+            \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i}}$.
+        \Else
+            \noindent
+            \lstinline|  // It is assumed that the input chains are the same size.|
+            \State Set ${\mathcal{C}_{\max} \leftarrow \mathcal{C}_{i'}}$.
+        \EndIf
+        \State \Return ${\mathcal{C}_{\max}}$
+    \end{algorithmic}\label{alg:max-stake-rule}
+\end{algo}
+
+\bigbreak
+\bigbreak
+\noindent
+\phantomsection
+\textbf{Chain Selection Protocol}.\label{apndx:max-selection-protocol}
+The main chain selection protocol is as follows:
+\begin{protocol}
+    \caption{$\textsf{SelectChain}(P, \text{sid}, \mathcal{C}_{\text{loc}}, R, K_{\text{f}}, K_{\text{g}}, \mathbf{N}_0,$
+        $\mathbf{S}_{\text{id}} = \{S_k^{\text{id}}\}_{k=1}^K,
+        \mathbf{f}_{\text{lead}} =  \{f^{\text{lead}}_k\}_{k=1}^K,
+        \mathbf{f}_{\text{cons}} = \{f^{\text{cons}}_k\}_{k=1}^K)$}
+    \begin{algorithmic}[1]
+        \State Initialize $\mathbf{N}_{\text{valid}} \leftarrow \emptyset$.
+
+        \noindent
+        \lstinline|// Filter all valid chains:|
+        \For {each $\mathcal{C} \in \mathbf{N}_0$}
+            \State Set $\textsf{is\_valid\_chain} \leftarrow \textsf{IsValidChain}(P, \text{sid}, \mathcal{C}, R, l_{\text{VRF}}, K_{\text{f}}, \mathbf{S}_{\text{id}},$
+            \par\hskip\algorithmicindent
+            $\mathbf{f}_{\text{lead}}, \mathbf{f}_{\text{cons}})$.
+            \If {$\textsf{is\_valid\_chain} = \textsf{true}$}
+                \State Update $\mathbf{N}_{\text{valid}} \leftarrow \mathbf{N}_{\text{valid}} \cup \mathcal{C}$.
+            \EndIf
+        \EndFor
+
+        \noindent
+        \lstinline|// Set local chain as maximum valid chain:|
+        \State Set $\mathcal{C}_{\text{loc}} \leftarrow \textsf{maxValidChain}(\mathcal{C}_{\text{loc}}, \mathbf{N}_0, K_{\text{f}}, K_{\text{g}})$.
+
+    \end{algorithmic}\label{alg:max-selection-protocol}
+\end{protocol}
