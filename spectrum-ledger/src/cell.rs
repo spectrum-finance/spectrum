@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
+use derive_more::{From, Into};
 use k256::PublicKey;
-
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_move::{SerializedModule, SerializedValue};
 
@@ -45,8 +45,8 @@ pub enum CellPtr {
     Ref(CellRef),
 }
 
-#[derive(Eq, PartialEq, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct NativeCoin(pub u64);
+#[derive(Eq, PartialEq, Copy, From, Into, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
+pub struct NativeCoin(u64);
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CustomAsset(pub u64);

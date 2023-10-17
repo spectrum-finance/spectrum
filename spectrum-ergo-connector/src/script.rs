@@ -104,7 +104,7 @@ impl TryFrom<TermCell> for ErgoTermCell {
 
     fn try_from(value: TermCell) -> Result<Self, Self::Error> {
         if value.dst.target == ERGO_CHAIN_ID {
-            let ergs = BoxValue::try_from(value.value.native.0)?;
+            let ergs = BoxValue::try_from(u64::from(value.value.native))?;
             let address_bytes: Vec<u8> = value.dst.address.into();
             let address = Address::p2pk_from_pk_bytes(&address_bytes)?;
             let mut token_details = vec![];
@@ -150,7 +150,9 @@ impl From<ErgoTermCell> for Constant {
             .sigma_serialize_bytes()
             .unwrap()
             .into();
-        let elem_tpe = ErgoTermCell::get_stype();
+        let elem_tpe = SType::STuple(STuple {
+            items: TupleItems::from_vec(vec![SType::SColl(Box::new(SType::SByte)), SType::SLong]).unwrap(),
+        });
         let tokens: Vec<Literal> = cell
             .tokens
             .into_iter()
@@ -163,8 +165,11 @@ impl From<ErgoTermCell> for Constant {
                 tup.v
             })
             .collect();
+        let tokens_tpe = SType::SColl(Box::new(SType::STuple(STuple {
+            items: TupleItems::from_vec(vec![SType::SColl(Box::new(SType::SByte)), SType::SLong]).unwrap(),
+        })));
         let tokens = Constant {
-            tpe: SType::SColl(Box::new(elem_tpe.clone())),
+            tpe: tokens_tpe,
             v: Literal::Coll(CollKind::WrappedColl {
                 elem_tpe,
                 items: tokens,
@@ -1189,7 +1194,7 @@ mod tests {
                 None,
                 vault_parameters.clone(),
                 current_height as u32,
-                ix as i32,
+                (ix + 1) as i32,
             )
         });
 

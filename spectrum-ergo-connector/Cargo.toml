@@ -24,7 +24,7 @@ indexmap = "1.9.2"
 isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.28"
 tokio = { version = "1.27.0", features = ["full"] }
-ergo-lib = { version = "0.24.1", features = ["arbitrary", "json"] }
+ergo-lib = { version = "0.26", features = ["arbitrary", "json"] }
 sigma-ser = "0.13.1" 
 elliptic-curve = "0.13.5"
 sha2 = "0.10.7"
@@ -41,3 +41,6 @@ itertools = "0.11"
 rand = "0.8.5"
 reqwest = "0.11"
 sigma-test-util = "0.3"
+
+[profile.test]
+opt-level = 3

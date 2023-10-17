@@ -121,7 +121,7 @@ The detailed explanation is presented below:
 \subsubsection{Signature Generation}
 The signature generation algorithm is as follows:
 \begin{enumerate}
-    \item Each signer computes ${a_i\leftarrow(H(X_1,X_2,\dots,X_n);X_i)}$ and the aggregate\
+    \item Each signer computes ${a_i \leftarrow H(H(X_1,X_2,\dots,X_n);X_i)}$ and the aggregate\
     public key ${\tilde{X}\leftarrow\prod_i X_i^{a_i}}$.
     \item Each signer generates a pair $Y_i=g^{y_i}$ to commit to, commitment ${t_i\leftarrow H(Y_i)}$\
     and the signature $\sigma_i$ of some predefined message with secret key $y_i$.
