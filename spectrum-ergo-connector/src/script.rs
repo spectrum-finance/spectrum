@@ -27,6 +27,7 @@ use num_bigint::{BigUint, Sign, ToBigUint};
 use scorex_crypto_avltree::batch_node::{Node, NodeHeader};
 use sha2::Digest as OtherDigest;
 use sha2::Sha256;
+use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_ledger::{cell::TermCell, ERGO_CHAIN_ID};
 use spectrum_sigma::Commitment;
 
@@ -110,8 +111,8 @@ impl TryFrom<TermCell> for ErgoTermCell {
             let mut token_details = vec![];
             for (_, assets) in value.value.assets {
                 for (id, a) in assets {
-                    let digest = ELDigest32::try_from(id.0.as_ref())?;
-                    let amount = TokenAmount::try_from(a.0)?;
+                    let digest = ELDigest32::try_from(Blake2bDigest256::from(id).as_ref())?;
+                    let amount = TokenAmount::try_from(u64::from(a))?;
                     token_details.push((digest, amount));
                 }
             }

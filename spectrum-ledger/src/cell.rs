@@ -32,8 +32,10 @@ impl Serial {
     pub const INITIAL: Serial = Serial(0);
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct CellRef(pub CellId, pub Serial);
+#[derive(
+    Eq, PartialEq, Ord, PartialOrd, Copy, Clone, From, Into, Hash, Debug, serde::Serialize, serde::Deserialize,
+)]
+pub struct CellRef(CellId, Serial);
 
 /// Pointer to a cell.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
@@ -48,14 +50,16 @@ pub enum CellPtr {
 #[derive(Eq, PartialEq, Copy, From, Into, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NativeCoin(u64);
 
-#[derive(Eq, PartialEq, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct CustomAsset(pub u64);
+#[derive(Eq, PartialEq, Copy, Clone, From, Into, Hash, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CustomAsset(u64);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PolicyId(Blake2bDigest256);
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct AssetId(pub Blake2bDigest256);
+#[derive(
+    Eq, PartialEq, Ord, PartialOrd, Copy, Clone, From, Into, Hash, Debug, serde::Serialize, serde::Deserialize,
+)]
+pub struct AssetId(Blake2bDigest256);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AssetRef(PolicyId, AssetId);
