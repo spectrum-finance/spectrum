@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use spectrum_ledger::{
     cell::{BoxDestination, Owner, ProgressPoint, SValue, TermCell},
     interop::ReportCertificate,
@@ -59,20 +58,22 @@ pub enum VaultMsgIn {
     /// Initiate transaction to settle exported value that's specified in the notarized report.
     ExportValue(Box<NotarizedReport>),
     /// Request the vault manager to find a set of TXs to notarize, subject to various constraints.
-    RequestTxsToNotarize {
-        /// A collection of all pending outbound TXs.
-        txs: Vec<ProtoTermCell>,
-        /// The most recent progress point of a TX within `tx_set`.
-        last_progress_point: ProgressPoint,
-        /// Maximum TX size in kilobytes.
-        max_tx_size: Kilobytes,
-        /// An estimate of number of byzantine nodes in the current committee.
-        estimated_number_of_byzantine_nodes: u32,
-    },
+    RequestTxsToNotarize(NotarizedReportConstraints),
     /// Indicate to the vault manager to start sync'ing from the given progress point. If no
     /// progress point was given, then begin sync'ing from the oldest point known to the vault
     /// manager.
     SyncFrom(Option<ProgressPoint>),
+}
+
+pub struct NotarizedReportConstraints {
+    /// A collection of all pending outbound TXs.
+    pub txs: Vec<ProtoTermCell>,
+    /// The most recent progress point of a TX within `tx_set`.
+    pub last_progress_point: ProgressPoint,
+    /// Maximum TX size in kilobytes.
+    pub max_tx_size: Kilobytes,
+    /// An estimate of number of byzantine nodes in the current committee.
+    pub estimated_number_of_byzantine_nodes: u32,
 }
 
 pub enum VaultStatus {
@@ -83,7 +84,7 @@ pub enum VaultStatus {
     },
 }
 
-pub struct Kilobytes(u64);
+pub struct Kilobytes(pub u64);
 
 /// Represents a value that is inbound to Spectrum-network on-chain.
 pub struct InboundValue {

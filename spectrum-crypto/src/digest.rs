@@ -23,7 +23,7 @@ pub type Sha2Digest256 = Digest<Sha256>;
 
 #[repr(transparent)]
 #[derive(Serialize, Deserialize, derive_more::From)]
-pub struct Digest<HF: FixedOutput>(GenericArray<u8, HF::OutputSize>);
+pub struct Digest<HF: FixedOutput>(pub GenericArray<u8, HF::OutputSize>);
 
 impl<HF: FixedOutput> Hash for Digest<HF> {
     fn hash<H: Hasher>(&self, state: &mut H) {
