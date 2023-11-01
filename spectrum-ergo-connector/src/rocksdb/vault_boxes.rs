@@ -227,7 +227,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                         // Update token surpluses and shortfalls
                         for map in term_cell.value.assets.values() {
                             for (asset_id, asset) in map {
-                                let digest_raw: [u8; 32] = *Blake2bDigest256::from(*asset_id).0.as_ref();
+                                let digest_raw: [u8; 32] = *Blake2bDigest256::from(*asset_id).raw();
                                 let term_cell_token_id = TokenId::from(Digest32::from(digest_raw));
                                 let term_cell_token_amount = u64::from(*asset);
 
@@ -338,7 +338,7 @@ fn compute_token_amounts(term_cells: &[ProtoTermCell]) -> HashMap<TokenId, BigUi
     for proto_term_cell in term_cells {
         for map in proto_term_cell.value.assets.values() {
             for (asset_id, asset) in map {
-                let digest_raw: [u8; 32] = *Blake2bDigest256::from(*asset_id).0.as_ref();
+                let digest_raw: [u8; 32] = *Blake2bDigest256::from(*asset_id).raw();
                 let token_id = TokenId::from(Digest32::from(digest_raw));
                 *res.entry(token_id).or_insert(BigUint::from(0_u64)) += BigUint::from(u64::from(*asset));
                 let token_amount = TokenAmount::try_from(u64::from(*asset)).unwrap();
@@ -351,7 +351,7 @@ fn compute_token_amounts(term_cells: &[ProtoTermCell]) -> HashMap<TokenId, BigUi
 
 /// Note: due to orphan rule, we cannot impl From<(AssertId, CustomAsset)>
 fn create_token(asset_id: AssetId, asset: CustomAsset) -> Result<Token, TokenAmountError> {
-    let digest_raw: [u8; 32] = *Blake2bDigest256::from(asset_id).0.as_ref();
+    let digest_raw: [u8; 32] = *Blake2bDigest256::from(asset_id).raw();
     let token_id = TokenId::from(Digest32::from(digest_raw));
     let amount = TokenAmount::try_from(u64::from(asset))?;
     Ok(Token { token_id, amount })
@@ -361,7 +361,7 @@ fn number_new_token_ids(term_cell: &ProtoTermCell, included_token_ids: &HashSet<
     let mut count = 0;
     for map in term_cell.value.assets.values() {
         for asset_id in map.keys() {
-            let digest_raw: [u8; 32] = *Blake2bDigest256::from(*asset_id).0.as_ref();
+            let digest_raw: [u8; 32] = *Blake2bDigest256::from(*asset_id).raw();
             let token_id = TokenId::from(Digest32::from(digest_raw));
             if !included_token_ids.contains(&token_id) {
                 count += 1;

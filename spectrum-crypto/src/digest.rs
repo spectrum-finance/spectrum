@@ -22,8 +22,8 @@ pub type Blake2bDigest256 = Digest<Blake2b<U32>>;
 pub type Sha2Digest256 = Digest<Sha256>;
 
 #[repr(transparent)]
-#[derive(Serialize, Deserialize, derive_more::From)]
-pub struct Digest<HF: FixedOutput>(pub GenericArray<u8, HF::OutputSize>);
+#[derive(Serialize, Deserialize, derive_more::From, derive_more::Into)]
+pub struct Digest<HF: FixedOutput>(GenericArray<u8, HF::OutputSize>);
 
 impl<HF: FixedOutput> Hash for Digest<HF> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -68,6 +68,10 @@ impl<HF: FixedOutput<OutputSize = U32>> Digest<HF> {
     pub const fn zero() -> Self {
         let bytes = [0u8; 32];
         Digest(unsafe { *(bytes.as_ptr() as *const GenericArray<u8, U32>) })
+    }
+
+    pub fn raw(&self) -> &[u8; 32] {
+        self.0.as_ref()
     }
 }
 
