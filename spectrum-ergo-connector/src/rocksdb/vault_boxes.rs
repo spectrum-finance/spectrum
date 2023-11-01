@@ -15,11 +15,10 @@ use ergo_lib::{
 };
 use nonempty::NonEmpty;
 use num_bigint::BigUint;
-use num_traits::FromPrimitive;
 use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::Serialize;
 use spectrum_chain_connector::{Kilobytes, NotarizedReportConstraints, ProtoTermCell};
-use spectrum_crypto::digest::{self, Blake2bDigest256};
+use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_ledger::cell::{AssetId, CustomAsset};
 use spectrum_offchain::{
     binary::prefixed_key,
@@ -146,16 +145,20 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                             .position(|(token_id, _)| *token_id == token.token_id)
                         {
                             let existing_shortfall = asset_diff.token_shortfall[ix].1;
-                            if existing_shortfall < utxo_amount {
-                                // Now have surplus
-                                asset_diff.token_shortfall.remove(ix);
-                                asset_diff
-                                    .token_surplus
-                                    .push((token.token_id, utxo_amount - existing_shortfall));
-                            } else if existing_shortfall > utxo_amount {
-                                asset_diff.token_shortfall[ix].1 -= utxo_amount;
-                            } else {
-                                asset_diff.token_shortfall.remove(ix);
+                            match existing_shortfall.cmp(&utxo_amount) {
+                                Ordering::Less => {
+                                    // Now have surplus
+                                    asset_diff.token_shortfall.remove(ix);
+                                    asset_diff
+                                        .token_surplus
+                                        .push((token.token_id, utxo_amount - existing_shortfall));
+                                }
+                                Ordering::Greater => {
+                                    asset_diff.token_shortfall[ix].1 -= utxo_amount;
+                                }
+                                Ordering::Equal => {
+                                    asset_diff.token_shortfall.remove(ix);
+                                }
                             }
                         } else if let Some(ix) = asset_diff
                             .token_surplus
@@ -199,12 +202,12 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                             NanoErgDifference::Shortfall(shortfall) => {
                                 if current_utxo_value > shortfall {
                                     let diff = current_utxo_value - shortfall;
-                                    if diff > cell_erg_value {
-                                        NanoErgDifference::Surplus(diff - cell_erg_value)
-                                    } else if diff < cell_erg_value {
-                                        NanoErgDifference::Shortfall(cell_erg_value - diff)
-                                    } else {
-                                        NanoErgDifference::Balanced
+                                    match diff.cmp(&cell_erg_value) {
+                                        Ordering::Greater => {
+                                            NanoErgDifference::Surplus(diff - cell_erg_value)
+                                        }
+                                        Ordering::Less => NanoErgDifference::Shortfall(cell_erg_value - diff),
+                                        Ordering::Equal => NanoErgDifference::Balanced,
                                     }
                                 } else {
                                     NanoErgDifference::Shortfall(shortfall - current_utxo_value)
@@ -212,12 +215,14 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                             }
                             NanoErgDifference::Surplus(surplus) => {
                                 let new_surplus = surplus + current_utxo_value;
-                                if new_surplus < cell_erg_value {
-                                    NanoErgDifference::Shortfall(cell_erg_value - new_surplus)
-                                } else if new_surplus > cell_erg_value {
-                                    NanoErgDifference::Surplus(new_surplus - cell_erg_value)
-                                } else {
-                                    NanoErgDifference::Balanced
+                                match new_surplus.cmp(&cell_erg_value) {
+                                    Ordering::Less => {
+                                        NanoErgDifference::Shortfall(cell_erg_value - new_surplus)
+                                    }
+                                    Ordering::Greater => {
+                                        NanoErgDifference::Surplus(new_surplus - cell_erg_value)
+                                    }
+                                    Ordering::Equal => NanoErgDifference::Balanced,
                                 }
                             }
                         };
@@ -243,17 +248,21 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                                     .position(|(token_id, _)| *token_id == term_cell_token_id)
                                 {
                                     let existing_surplus = asset_diff.token_surplus[ix].1;
-                                    if existing_surplus < term_cell_token_amount {
-                                        // Now have shortfall
-                                        asset_diff.token_surplus.remove(ix);
-                                        asset_diff.token_shortfall.push((
-                                            term_cell_token_id,
-                                            term_cell_token_amount - existing_surplus,
-                                        ));
-                                    } else if existing_surplus > term_cell_token_amount {
-                                        asset_diff.token_surplus[ix].1 -= term_cell_token_amount;
-                                    } else {
-                                        asset_diff.token_surplus.remove(ix);
+                                    match existing_surplus.cmp(&term_cell_token_amount) {
+                                        Ordering::Less => {
+                                            // Now have shortfall
+                                            asset_diff.token_surplus.remove(ix);
+                                            asset_diff.token_shortfall.push((
+                                                term_cell_token_id,
+                                                term_cell_token_amount - existing_surplus,
+                                            ));
+                                        }
+                                        Ordering::Greater => {
+                                            asset_diff.token_surplus[ix].1 -= term_cell_token_amount;
+                                        }
+                                        Ordering::Equal => {
+                                            asset_diff.token_surplus.remove(ix);
+                                        }
                                     }
                                 } else {
                                     // Newly created token shortfall
