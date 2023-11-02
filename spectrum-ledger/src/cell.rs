@@ -53,7 +53,9 @@ pub struct NativeCoin(u64);
 #[derive(Eq, PartialEq, Copy, Clone, From, Into, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CustomAsset(u64);
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, From, Into, serde::Serialize, serde::Deserialize,
+)]
 pub struct PolicyId(Blake2bDigest256);
 
 #[derive(

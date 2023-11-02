@@ -8,9 +8,12 @@ use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use ergo_lib::{
     ergo_chain_types::Digest32,
-    ergotree_ir::chain::{
-        ergo_box::{box_value::BoxValue, BoxId, ErgoBox},
-        token::{Token, TokenAmount, TokenAmountError, TokenId},
+    ergotree_ir::{
+        chain::{
+            ergo_box::{box_value::BoxValue, BoxId, ErgoBox},
+            token::{Token, TokenAmount, TokenAmountError, TokenId},
+        },
+        serialization::SigmaSerializable,
     },
 };
 use nonempty::NonEmpty;
@@ -96,6 +99,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
             let mut term_cell_index = 0;
 
             'vault_iter: while let Some(Ok((_, value_bytes))) = vault_iter.next() {
+                println!("Back at the top");
                 if !add_term_cells {
                     match asset_diff.nano_erg_diff {
                         NanoErgDifference::Balanced | NanoErgDifference::Surplus(_) => break,
@@ -103,7 +107,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                     }
                 }
 
-                let vault_utxo: ErgoBox = bincode::deserialize(&value_bytes).unwrap();
+                let vault_utxo = ErgoBox::sigma_parse_bytes(&value_bytes).unwrap();
                 let current_utxo_value = *vault_utxo.value.as_u64();
                 let new_token_ids = if let Some(tokens) = &vault_utxo.tokens {
                     tokens
@@ -128,12 +132,28 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                 );
 
                 if estimated_tx_size > max_tx_size as f32 {
+                    println!("AAAAAAAAAAAAAAAAA");
                     return Ok((NonEmpty::try_from(included_vault_utxos).unwrap(), term_cell_index));
                 } else {
+                    println!("XXXXXXXXXXXXXXXXXXXXX");
                     num_withdrawals += 1;
                     num_token_occurrences += num_new_token_occurrences;
                     included_vault_utxos.push(vault_utxo.clone());
                 }
+
+                let nano_erg_diff = match asset_diff.nano_erg_diff {
+                    NanoErgDifference::Balanced => NanoErgDifference::Surplus(current_utxo_value),
+                    NanoErgDifference::Shortfall(shortfall) => match current_utxo_value.cmp(&shortfall) {
+                        Ordering::Greater => NanoErgDifference::Surplus(current_utxo_value - shortfall),
+
+                        Ordering::Less => NanoErgDifference::Shortfall(shortfall - current_utxo_value),
+                        Ordering::Equal => NanoErgDifference::Balanced,
+                    },
+                    NanoErgDifference::Surplus(surplus) => {
+                        NanoErgDifference::Surplus(surplus + current_utxo_value)
+                    }
+                };
+                asset_diff.nano_erg_diff = nano_erg_diff;
 
                 if let Some(tokens) = &vault_utxo.tokens {
                     for token in tokens {
@@ -173,6 +193,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                     }
                 }
 
+                println!("AAAAAAAAA");
                 if add_term_cells {
                     while let Some(term_cell) = term_cell_iter.next() {
                         let estimated_tx_size = estimate_tx_size_in_kb(
@@ -181,7 +202,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                             num_token_occurrences + number_new_token_ids(term_cell, &included_tokens),
                         );
                         if estimated_tx_size > max_tx_size as f32 {
-                            // Don't add anymore terminal cells
+                            // Don't add anymore terminal cells.
                             add_term_cells = false;
                             continue 'vault_iter;
                         } else {
@@ -213,20 +234,14 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                                     NanoErgDifference::Shortfall(shortfall - current_utxo_value)
                                 }
                             }
-                            NanoErgDifference::Surplus(surplus) => {
-                                let new_surplus = surplus + current_utxo_value;
-                                match new_surplus.cmp(&cell_erg_value) {
-                                    Ordering::Less => {
-                                        NanoErgDifference::Shortfall(cell_erg_value - new_surplus)
-                                    }
-                                    Ordering::Greater => {
-                                        NanoErgDifference::Surplus(new_surplus - cell_erg_value)
-                                    }
-                                    Ordering::Equal => NanoErgDifference::Balanced,
-                                }
-                            }
+                            NanoErgDifference::Surplus(surplus) => match surplus.cmp(&cell_erg_value) {
+                                Ordering::Less => NanoErgDifference::Shortfall(cell_erg_value - surplus),
+                                Ordering::Greater => NanoErgDifference::Surplus(surplus - cell_erg_value),
+                                Ordering::Equal => NanoErgDifference::Balanced,
+                            },
                         };
 
+                        println!("Cell value: {}, status: {:?}", cell_erg_value, nano_erg_diff);
                         asset_diff.nano_erg_diff = nano_erg_diff;
 
                         // Update token surpluses and shortfalls
@@ -273,9 +288,21 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                             }
                         }
                     }
+
+                    // Here we've included all terminal cells
+                    match asset_diff.nano_erg_diff {
+                        NanoErgDifference::Balanced | NanoErgDifference::Surplus(_)
+                            if asset_diff.token_shortfall.is_empty() =>
+                        {
+                            break 'vault_iter;
+                        }
+                        _ => {
+                            println!("Passing through...");
+                        }
+                    }
                 }
             }
-            Err(())
+            Ok((NonEmpty::try_from(included_vault_utxos).unwrap(), term_cell_index))
         })
         .await
     }
@@ -285,7 +312,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
         spawn_blocking(move || {
             let key = box_key(KEY_PREFIX, CONFIRMED_PRIORITY, &bx.box_id());
             let index_key = prefixed_key(KEY_INDEX_PREFIX, &bx.box_id());
-            let value = bincode::serialize(&bx).unwrap();
+            let value = bx.sigma_serialize_bytes().unwrap();
             let tx = db.transaction();
             tx.put(key.clone(), value).unwrap();
             tx.put(index_key, key).unwrap();
@@ -299,7 +326,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
         spawn_blocking(move || {
             let key = box_key(KEY_PREFIX, PREDICTED_PRIORITY, &bx.box_id());
             let index_key = prefixed_key(KEY_INDEX_PREFIX, &bx.box_id());
-            let value = bincode::serialize(&bx).unwrap();
+            let value = bx.sigma_serialize_bytes().unwrap();
             let tx = db.transaction();
             tx.put(key.clone(), value).unwrap();
             tx.put(index_key, key).unwrap();
@@ -381,6 +408,7 @@ fn number_new_token_ids(term_cell: &ProtoTermCell, included_token_ids: &HashSet<
     count
 }
 
+#[derive(Debug)]
 enum NanoErgDifference {
     /// The selected UTXOs currently are not sufficient to cover a selection of terminal cells.
     Shortfall(u64),
@@ -417,4 +445,130 @@ fn box_key_prefix(prefix: &str, seq_num: usize) -> Vec<u8> {
     let seq_num_bytes = bincode::serialize(&seq_num).unwrap();
     key_bytes.extend_from_slice(&seq_num_bytes);
     key_bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
+    use ergo_lib::{
+        chain::transaction::TxId,
+        ergotree_ir::{
+            chain::{
+                ergo_box::{box_value::BoxValue, ErgoBox, NonMandatoryRegisters},
+                token::Token,
+            },
+            ergo_tree::ErgoTree,
+            mir::{constant::Constant, expr::Expr},
+        },
+    };
+    use rand::RngCore;
+    use spectrum_chain_connector::{Kilobytes, NotarizedReportConstraints, ProtoTermCell};
+    use spectrum_crypto::digest::Blake2bDigest256;
+    use spectrum_ledger::{
+        cell::{AssetId, BoxDestination, CustomAsset, NativeCoin, PolicyId, ProgressPoint, SValue},
+        interop::Point,
+        ChainId,
+    };
+    use spectrum_move::SerializedValue;
+    use spectrum_offchain::data::unique_entity::Confirmed;
+
+    use crate::{
+        rocksdb::vault_boxes::VaultBoxRepo,
+        script::tests::{gen_tx_id, generate_address},
+    };
+
+    use super::VaultBoxRepoRocksDB;
+
+    #[tokio::test]
+    async fn collect_simple() {
+        let mut client = rocks_db_client();
+        for f in generate_tokenless_utxos(500_000, 3) {
+            client.put_confirmed(Confirmed(f)).await
+        }
+        let constraints = NotarizedReportConstraints {
+            txs: vec![proto_term_cell(
+                1_000_000,
+                vec![],
+                generate_address().content_bytes(),
+            )],
+            last_progress_point: ProgressPoint {
+                chain_id: ChainId::from(0),
+                point: Point::from(100),
+            },
+            max_tx_size: Kilobytes(20),
+            estimated_number_of_byzantine_nodes: 10,
+        };
+        let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
+        assert_eq!(term_cell_ix, 1);
+        assert_eq!(included_vault_utxos.len(), 2);
+    }
+
+    fn rocks_db_client() -> VaultBoxRepoRocksDB {
+        let rnd = rand::thread_rng().next_u32();
+        VaultBoxRepoRocksDB {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
+        }
+    }
+
+    fn proto_term_cell(nano_ergs: u64, tokens: Vec<Token>, address_bytes: Vec<u8>) -> ProtoTermCell {
+        let dst = BoxDestination {
+            target: ChainId::from(0),
+            address: SerializedValue::from(address_bytes),
+            inputs: None,
+        };
+        let mut assets = HashMap::new();
+        let asset_map: HashMap<AssetId, CustomAsset> = tokens
+            .into_iter()
+            .map(|t| {
+                let asset_id =
+                    AssetId::from(Blake2bDigest256::try_from(<Vec<u8>>::from(t.token_id)).unwrap());
+                let custom_asset = CustomAsset::from(*t.amount.as_u64());
+                (asset_id, custom_asset)
+            })
+            .collect();
+        assets.insert(PolicyId::from(Blake2bDigest256::zero()), asset_map);
+        ProtoTermCell {
+            value: SValue {
+                native: NativeCoin::from(nano_ergs),
+                assets,
+            },
+            dst,
+        }
+    }
+
+    fn trivial_prop() -> ErgoTree {
+        ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
+    }
+
+    fn generate_tokenless_utxos(erg_per_box: u64, num_boxes: u16) -> Vec<ErgoBox> {
+        let tx_id = gen_tx_id();
+        (0..num_boxes)
+            .map(|index| {
+                ErgoBox::new(
+                    BoxValue::try_from(erg_per_box).unwrap(),
+                    trivial_prop(),
+                    None,
+                    NonMandatoryRegisters::empty(),
+                    500,
+                    tx_id,
+                    index,
+                )
+                .unwrap()
+            })
+            .collect()
+    }
+
+    fn trivial_box(nano_ergs: u64) -> ErgoBox {
+        ErgoBox::new(
+            BoxValue::try_from(nano_ergs).unwrap(),
+            trivial_prop(),
+            None,
+            NonMandatoryRegisters::empty(),
+            0,
+            TxId::zero(),
+            0,
+        )
+        .unwrap()
+    }
 }
