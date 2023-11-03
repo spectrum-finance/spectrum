@@ -133,7 +133,11 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
 
                 // TODO: even if we're over the limit, if we have shortfall we need to add more
                 // UTXOs till we're covered.
-                if !asset_diff.in_shortfall() && estimated_tx_size > max_tx_size as f32 {
+                println!("asset diff: {:?}", asset_diff);
+                if !asset_diff.in_shortfall()
+                    && !included_vault_utxos.is_empty()
+                    && estimated_tx_size > max_tx_size
+                {
                     return Ok((NonEmpty::try_from(included_vault_utxos).unwrap(), term_cell_index));
                 } else {
                     println!("Added vault UTXO. TX size: {}", estimated_tx_size);
@@ -186,7 +190,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                             .iter()
                             .position(|(token_id, _)| *token_id == token.token_id)
                         {
-                            asset_diff.token_shortfall[ix].1 += utxo_amount;
+                            asset_diff.token_surplus[ix].1 += utxo_amount;
                         } else {
                             // Newly created surplus token
                             asset_diff.token_surplus.push((token.token_id, utxo_amount));
@@ -201,8 +205,9 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                             estimated_number_of_byzantine_nodes as usize,
                             num_token_occurrences + number_new_token_ids(term_cell, &included_tokens),
                         );
-                        if estimated_tx_size > max_tx_size as f32 && term_cell_index > 0 {
+                        if estimated_tx_size > max_tx_size && term_cell_index > 0 {
                             // Don't add anymore terminal cells.
+                            println!("Term cell -> {} kb > limit", estimated_tx_size);
                             add_term_cells = false;
                             continue 'vault_iter;
                         } else {
@@ -422,6 +427,7 @@ enum NanoErgDifference {
     Balanced,
 }
 
+#[derive(Debug)]
 struct AssetDifference {
     nano_erg_diff: NanoErgDifference,
     token_shortfall: Vec<(TokenId, u64)>,
@@ -464,14 +470,15 @@ mod tests {
         chain::transaction::TxId,
         ergotree_ir::{
             chain::{
-                ergo_box::{box_value::BoxValue, ErgoBox, NonMandatoryRegisters},
-                token::Token,
+                ergo_box::{box_value::BoxValue, BoxTokens, ErgoBox, NonMandatoryRegisters},
+                token::{Token, TokenAmount},
             },
             ergo_tree::ErgoTree,
             mir::{constant::Constant, expr::Expr},
         },
     };
-    use rand::RngCore;
+    use nonempty::NonEmpty;
+    use rand::{Rng, RngCore};
     use spectrum_chain_connector::{Kilobytes, NotarizedReportConstraints, ProtoTermCell};
     use spectrum_crypto::digest::Blake2bDigest256;
     use spectrum_ledger::{
@@ -484,7 +491,10 @@ mod tests {
 
     use crate::{
         rocksdb::vault_boxes::VaultBoxRepo,
-        script::tests::{gen_tx_id, generate_address},
+        script::{
+            estimate_tx_size_in_kb,
+            tests::{gen_random_token, gen_tx_id, generate_address},
+        },
     };
 
     use super::VaultBoxRepoRocksDB;
@@ -538,6 +548,50 @@ mod tests {
         assert_eq!(term_cell_ix, 1);
         assert_eq!(included_vault_utxos.len(), 2);
     }
+
+    #[tokio::test]
+    async fn collect_single_cell_single_token() {
+        // In this test, the vault contains 3 UTXOs containing identical value. The Kb threshold is
+        // set to the cost of one of these UTXOs. Now we have 2 terminal cells, each with identical
+        // value of a vault UTXO. Adding just 1 terminal cell exceeds the threshold, but its nErg
+        // value and token amount is exactly covered by one of the vault UTXOs.
+        let mut client = rocks_db_client();
+        let num_boxes = 3;
+        let token = gen_random_token(num_boxes as usize);
+        for f in generate_utxos_with_tokens(
+            500_000,
+            num_boxes,
+            vec![token.clone()],
+            TokenDistributionStrategy::AllTokens,
+        ) {
+            client.put_confirmed(Confirmed(f)).await
+        }
+        let mut term_token = token.clone();
+        term_token.amount = TokenAmount::try_from(*term_token.amount.as_u64() / 3).unwrap();
+
+        let estimated_number_of_byzantine_nodes = 20;
+        let max_tx_size = estimate_tx_size_in_kb(1, estimated_number_of_byzantine_nodes, 1);
+        let constraints = NotarizedReportConstraints {
+            txs: vec![
+                proto_term_cell(
+                    500_000,
+                    vec![term_token.clone()],
+                    generate_address().content_bytes(),
+                ),
+                proto_term_cell(500_000, vec![term_token], generate_address().content_bytes()),
+            ],
+            last_progress_point: ProgressPoint {
+                chain_id: ChainId::from(0),
+                point: Point::from(100),
+            },
+            max_tx_size: Kilobytes(max_tx_size), // So even the first vault UTXO will be over limit
+            estimated_number_of_byzantine_nodes: estimated_number_of_byzantine_nodes as u32,
+        };
+        let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
+        assert_eq!(term_cell_ix, 1);
+        assert_eq!(included_vault_utxos.len(), 1);
+    }
+
     fn rocks_db_client() -> VaultBoxRepoRocksDB {
         let rnd = rand::thread_rng().next_u32();
         VaultBoxRepoRocksDB {
@@ -591,6 +645,73 @@ mod tests {
                 .unwrap()
             })
             .collect()
+    }
+
+    fn generate_utxos_with_tokens(
+        erg_per_box: u64,
+        num_boxes: u16,
+        tokens: Vec<Token>,
+        strategy: TokenDistributionStrategy,
+    ) -> Vec<ErgoBox> {
+        let tx_id = gen_tx_id();
+
+        let mut rng = rand::thread_rng();
+        (0..num_boxes)
+            .map(|index| {
+                let tokens = match strategy {
+                    TokenDistributionStrategy::AllTokens => {
+                        let mut tokens = tokens.clone();
+                        for t in &mut tokens {
+                            t.amount =
+                                TokenAmount::try_from(*t.amount.as_u64() / (num_boxes as u64)).unwrap();
+                        }
+                        Some(BoxTokens::try_from(tokens).unwrap())
+                    }
+                    TokenDistributionStrategy::RandomSubset(n) => {
+                        let mut selected = vec![];
+                        loop {
+                            let choice = rng.gen_range(0..=n);
+                            if !selected.contains(&choice) {
+                                selected.push(choice);
+                                if selected.len() == n {
+                                    break;
+                                }
+                            }
+                        }
+                        let selected_tokens: Vec<_> = selected
+                            .into_iter()
+                            .map(|ix| {
+                                let mut token = tokens[ix].clone();
+                                token.amount =
+                                    TokenAmount::try_from(*token.amount.as_u64() / (num_boxes as u64))
+                                        .unwrap();
+                                token
+                            })
+                            .collect();
+                        Some(BoxTokens::try_from(selected_tokens).unwrap())
+                    }
+                };
+
+                ErgoBox::new(
+                    BoxValue::try_from(erg_per_box).unwrap(),
+                    trivial_prop(),
+                    tokens,
+                    NonMandatoryRegisters::empty(),
+                    500,
+                    tx_id,
+                    index,
+                )
+                .unwrap()
+            })
+            .collect()
+    }
+
+    enum TokenDistributionStrategy {
+        /// Each box will contain some quantity of all available tokens
+        AllTokens,
+        /// Each box will contain a random number of different tokens bounded by the given field
+        /// value.
+        RandomSubset(usize),
     }
 
     fn trivial_box(nano_ergs: u64) -> ErgoBox {
