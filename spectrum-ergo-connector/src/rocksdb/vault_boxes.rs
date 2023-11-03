@@ -468,16 +468,18 @@ mod tests {
 
     use ergo_lib::{
         chain::transaction::TxId,
+        ergo_chain_types::Digest32,
         ergotree_ir::{
             chain::{
                 ergo_box::{box_value::BoxValue, BoxTokens, ErgoBox, NonMandatoryRegisters},
-                token::{Token, TokenAmount},
+                token::{Token, TokenAmount, TokenId},
             },
             ergo_tree::ErgoTree,
             mir::{constant::Constant, expr::Expr},
         },
     };
-    use nonempty::NonEmpty;
+    use itertools::Itertools;
+    use num_bigint::BigUint;
     use rand::{Rng, RngCore};
     use spectrum_chain_connector::{Kilobytes, NotarizedReportConstraints, ProtoTermCell};
     use spectrum_crypto::digest::Blake2bDigest256;
@@ -518,9 +520,12 @@ mod tests {
             max_tx_size: Kilobytes(5.0),
             estimated_number_of_byzantine_nodes: 10,
         };
+        let term_cells = constraints.txs.clone();
         let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
+        let vault_utxos_vec: Vec<_> = included_vault_utxos.into_iter().collect_vec();
+        check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
         assert_eq!(term_cell_ix, 1);
-        assert_eq!(included_vault_utxos.len(), 2);
+        assert_eq!(vault_utxos_vec.len(), 2);
     }
 
     #[tokio::test]
@@ -544,9 +549,12 @@ mod tests {
             max_tx_size: Kilobytes(4.06),
             estimated_number_of_byzantine_nodes: 20,
         };
+        let term_cells = constraints.txs.clone();
         let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
+        let vault_utxos_vec: Vec<_> = included_vault_utxos.into_iter().collect_vec();
+        check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
         assert_eq!(term_cell_ix, 1);
-        assert_eq!(included_vault_utxos.len(), 2);
+        assert_eq!(vault_utxos_vec.len(), 2);
     }
 
     #[tokio::test]
@@ -587,9 +595,12 @@ mod tests {
             max_tx_size: Kilobytes(max_tx_size), // So even the first vault UTXO will be over limit
             estimated_number_of_byzantine_nodes: estimated_number_of_byzantine_nodes as u32,
         };
+        let term_cells = constraints.txs.clone();
         let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
+        let vault_utxos_vec: Vec<_> = included_vault_utxos.into_iter().collect_vec();
+        check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
         assert_eq!(term_cell_ix, 1);
-        assert_eq!(included_vault_utxos.len(), 1);
+        assert_eq!(vault_utxos_vec.len(), 1);
     }
 
     fn rocks_db_client() -> VaultBoxRepoRocksDB {
@@ -623,6 +634,51 @@ mod tests {
             },
             dst,
         }
+    }
+
+    fn check_sufficient_utxos(vault_utxos: &[ErgoBox], selected_term_cells: &[ProtoTermCell]) {
+        let mut term_cell_tokens = HashMap::new();
+        let mut vault_tokens = HashMap::new();
+
+        let mut total_vault_nano_ergs = BigUint::from(0_u64);
+        let mut total_term_cell_nano_ergs = BigUint::from(0_u64);
+
+        for ergo_box in vault_utxos {
+            total_vault_nano_ergs += *ergo_box.value.as_u64();
+            if let Some(tokens) = &ergo_box.tokens {
+                for token in tokens {
+                    *vault_tokens.entry(token.token_id).or_insert(0_u64) += *token.amount.as_u64();
+                }
+            }
+        }
+
+        for term_cell in selected_term_cells {
+            total_term_cell_nano_ergs += u64::from(term_cell.value.native);
+            for map in term_cell.value.assets.values() {
+                for (asset_id, asset) in map {
+                    let digest_raw: [u8; 32] = *Blake2bDigest256::from(*asset_id).raw();
+                    let term_cell_token_id = TokenId::from(Digest32::from(digest_raw));
+                    let term_cell_token_amount = u64::from(*asset);
+                    *term_cell_tokens.entry(term_cell_token_id).or_insert(0_u64) += term_cell_token_amount;
+                }
+            }
+        }
+
+        let sufficient_erg = total_term_cell_nano_ergs <= total_vault_nano_ergs;
+        assert!(sufficient_erg);
+        let enough_tokens = if term_cell_tokens.is_empty() {
+            true
+        } else {
+            term_cell_tokens.into_iter().any(|(key, value)| {
+                if let Some(vault_value) = vault_tokens.get(&key) {
+                    *vault_value >= value
+                } else {
+                    false
+                }
+            })
+        };
+
+        assert!(enough_tokens);
     }
 
     fn trivial_prop() -> ErgoTree {

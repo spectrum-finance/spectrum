@@ -94,6 +94,7 @@ pub struct InboundValue {
 }
 
 /// Represents an intention by Spectrum-network to create a `TermCell`.
+#[derive(Clone)]
 pub struct ProtoTermCell {
     pub value: SValue,
     pub dst: BoxDestination,
