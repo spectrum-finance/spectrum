@@ -84,7 +84,7 @@ pub enum VaultStatus {
     },
 }
 
-pub struct Kilobytes(pub u64);
+pub struct Kilobytes(pub f32);
 
 /// Represents a value that is inbound to Spectrum-network on-chain.
 pub struct InboundValue {

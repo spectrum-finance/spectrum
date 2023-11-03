@@ -131,11 +131,12 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                     num_token_occurrences + num_new_token_occurrences,
                 );
 
-                if estimated_tx_size > max_tx_size as f32 {
-                    println!("AAAAAAAAAAAAAAAAA");
+                // TODO: even if we're over the limit, if we have shortfall we need to add more
+                // UTXOs till we're covered.
+                if !asset_diff.in_shortfall() && estimated_tx_size > max_tx_size as f32 {
                     return Ok((NonEmpty::try_from(included_vault_utxos).unwrap(), term_cell_index));
                 } else {
-                    println!("XXXXXXXXXXXXXXXXXXXXX");
+                    println!("Added vault UTXO. TX size: {}", estimated_tx_size);
                     num_withdrawals += 1;
                     num_token_occurrences += num_new_token_occurrences;
                     included_vault_utxos.push(vault_utxo.clone());
@@ -193,7 +194,6 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                     }
                 }
 
-                println!("AAAAAAAAA");
                 if add_term_cells {
                     while let Some(term_cell) = term_cell_iter.next() {
                         let estimated_tx_size = estimate_tx_size_in_kb(
@@ -201,7 +201,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                             estimated_number_of_byzantine_nodes as usize,
                             num_token_occurrences + number_new_token_ids(term_cell, &included_tokens),
                         );
-                        if estimated_tx_size > max_tx_size as f32 {
+                        if estimated_tx_size > max_tx_size as f32 && term_cell_index > 0 {
                             // Don't add anymore terminal cells.
                             add_term_cells = false;
                             continue 'vault_iter;
@@ -241,7 +241,10 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                             },
                         };
 
-                        println!("Cell value: {}, status: {:?}", cell_erg_value, nano_erg_diff);
+                        println!(
+                            "Cell value: {}, status: {:?}, TX size(kb): {}",
+                            cell_erg_value, nano_erg_diff, estimated_tx_size
+                        );
                         asset_diff.nano_erg_diff = nano_erg_diff;
 
                         // Update token surpluses and shortfalls
@@ -425,6 +428,12 @@ struct AssetDifference {
     token_surplus: Vec<(TokenId, u64)>,
 }
 
+impl AssetDifference {
+    fn in_shortfall(&self) -> bool {
+        matches!(self.nano_erg_diff, NanoErgDifference::Shortfall(_)) || !self.token_shortfall.is_empty()
+    }
+}
+
 const SPENT_PREFIX: &str = "spent";
 const KEY_PREFIX: &str = "key";
 const KEY_INDEX_PREFIX: &str = "key_index";
@@ -496,7 +505,7 @@ mod tests {
                 chain_id: ChainId::from(0),
                 point: Point::from(100),
             },
-            max_tx_size: Kilobytes(20),
+            max_tx_size: Kilobytes(5.0),
             estimated_number_of_byzantine_nodes: 10,
         };
         let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
@@ -504,6 +513,31 @@ mod tests {
         assert_eq!(included_vault_utxos.len(), 2);
     }
 
+    #[tokio::test]
+    async fn collect_cell_shortfall() {
+        // In this test, adding the terminal cell results in exceeding the Kb threshold. But we
+        // should add in the extra vault UTXO to achieve surplus.
+        let mut client = rocks_db_client();
+        for f in generate_tokenless_utxos(500_000, 3) {
+            client.put_confirmed(Confirmed(f)).await
+        }
+        let constraints = NotarizedReportConstraints {
+            txs: vec![proto_term_cell(
+                1_000_000,
+                vec![],
+                generate_address().content_bytes(),
+            )],
+            last_progress_point: ProgressPoint {
+                chain_id: ChainId::from(0),
+                point: Point::from(100),
+            },
+            max_tx_size: Kilobytes(4.06),
+            estimated_number_of_byzantine_nodes: 20,
+        };
+        let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
+        assert_eq!(term_cell_ix, 1);
+        assert_eq!(included_vault_utxos.len(), 2);
+    }
     fn rocks_db_client() -> VaultBoxRepoRocksDB {
         let rnd = rand::thread_rng().next_u32();
         VaultBoxRepoRocksDB {
