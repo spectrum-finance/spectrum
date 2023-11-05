@@ -216,28 +216,9 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
 
                         let cell_erg_value = u64::from(term_cell.value.native);
                         let nano_erg_diff = match asset_diff.nano_erg_diff {
-                            NanoErgDifference::Balanced => match current_utxo_value.cmp(&cell_erg_value) {
-                                Ordering::Less => {
-                                    NanoErgDifference::Shortfall(cell_erg_value - current_utxo_value)
-                                }
-                                Ordering::Greater => {
-                                    NanoErgDifference::Surplus(current_utxo_value - cell_erg_value)
-                                }
-                                Ordering::Equal => NanoErgDifference::Balanced,
-                            },
+                            NanoErgDifference::Balanced => NanoErgDifference::Shortfall(cell_erg_value),
                             NanoErgDifference::Shortfall(shortfall) => {
-                                if current_utxo_value > shortfall {
-                                    let diff = current_utxo_value - shortfall;
-                                    match diff.cmp(&cell_erg_value) {
-                                        Ordering::Greater => {
-                                            NanoErgDifference::Surplus(diff - cell_erg_value)
-                                        }
-                                        Ordering::Less => NanoErgDifference::Shortfall(cell_erg_value - diff),
-                                        Ordering::Equal => NanoErgDifference::Balanced,
-                                    }
-                                } else {
-                                    NanoErgDifference::Shortfall(shortfall - current_utxo_value)
-                                }
+                                NanoErgDifference::Shortfall(cell_erg_value + shortfall)
                             }
                             NanoErgDifference::Surplus(surplus) => match surplus.cmp(&cell_erg_value) {
                                 Ordering::Less => NanoErgDifference::Shortfall(cell_erg_value - surplus),
@@ -603,6 +584,71 @@ mod tests {
         assert_eq!(vault_utxos_vec.len(), 1);
     }
 
+    #[tokio::test]
+    async fn collect_multiple_tokens() {
+        // In this test, the vault contains 3 UTXOs containing identical value. The Kb threshold is
+        // set to the cost of one of these UTXOs. Now we have 2 terminal cells, each with identical
+        // value of a vault UTXO. Adding just 1 terminal cell exceeds the threshold, but its nErg
+        // value and token amount is exactly covered by one of the vault UTXOs.
+        let mut client = rocks_db_client();
+        let num_boxes = 50;
+        let erg_per_box = 500_000;
+        let tokens_pool: Vec<_> = (0..num_boxes)
+            .map(|_| gen_random_token(num_boxes as usize))
+            .collect();
+
+        let mut selected_tokens: Vec<Token> = vec![];
+
+        for ergo_box in generate_utxos_with_tokens(
+            erg_per_box,
+            num_boxes,
+            tokens_pool.clone(),
+            TokenDistributionStrategy::RandomSubset(5),
+        ) {
+            if let Some(tokens) = &ergo_box.tokens {
+                for token in tokens {
+                    if let Some(existing_token) =
+                        selected_tokens.iter_mut().find(|t| t.token_id == token.token_id)
+                    {
+                        if let Ok(new_amount) = existing_token.amount.checked_add(&token.amount) {
+                            existing_token.amount = new_amount;
+                        }
+                    } else {
+                        selected_tokens.push(token.clone());
+                    }
+                }
+            }
+            client.put_confirmed(Confirmed(ergo_box)).await
+        }
+
+        let estimated_number_of_byzantine_nodes = 20;
+        let max_tx_size = 90.0; //estimate_tx_size_in_kb(1, estimated_number_of_byzantine_nodes, 1);
+        let constraints = NotarizedReportConstraints {
+            txs: vec![
+                proto_term_cell(
+                    500_000,
+                    vec![selected_tokens[0].clone()],
+                    generate_address().content_bytes(),
+                ),
+                proto_term_cell(
+                    500_000,
+                    vec![selected_tokens[1].clone()],
+                    generate_address().content_bytes(),
+                ),
+            ],
+            last_progress_point: ProgressPoint {
+                chain_id: ChainId::from(0),
+                point: Point::from(100),
+            },
+            max_tx_size: Kilobytes(max_tx_size), // So even the first vault UTXO will be over limit
+            estimated_number_of_byzantine_nodes: estimated_number_of_byzantine_nodes as u32,
+        };
+        let term_cells = constraints.txs.clone();
+        let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
+        let vault_utxos_vec: Vec<_> = included_vault_utxos.into_iter().collect_vec();
+        check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
+    }
+
     fn rocks_db_client() -> VaultBoxRepoRocksDB {
         let rnd = rand::thread_rng().next_u32();
         VaultBoxRepoRocksDB {
@@ -726,7 +772,7 @@ mod tests {
                     TokenDistributionStrategy::RandomSubset(n) => {
                         let mut selected = vec![];
                         loop {
-                            let choice = rng.gen_range(0..=n);
+                            let choice = rng.gen_range(0..tokens.len());
                             if !selected.contains(&choice) {
                                 selected.push(choice);
                                 if selected.len() == n {
