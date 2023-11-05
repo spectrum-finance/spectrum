@@ -10,7 +10,7 @@ use ergo_lib::{
     ergo_chain_types::Digest32,
     ergotree_ir::{
         chain::{
-            ergo_box::{box_value::BoxValue, BoxId, ErgoBox},
+            ergo_box::{BoxId, ErgoBox},
             token::{Token, TokenAmount, TokenAmountError, TokenId},
         },
         serialization::SigmaSerializable,
@@ -29,8 +29,6 @@ use spectrum_offchain::{
 };
 
 use crate::script::estimate_tx_size_in_kb;
-
-use super::withdrawals::RepoRocksDB;
 
 #[async_trait(?Send)]
 pub trait VaultBoxRepo {
@@ -69,10 +67,10 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
         let db = self.db.clone();
         spawn_blocking(move || {
             let NotarizedReportConstraints {
-                txs,
-                last_progress_point,
+                term_cells,
                 max_tx_size: Kilobytes(max_tx_size),
                 estimated_number_of_byzantine_nodes,
+                ..
             } = constraints;
             let mut num_withdrawals = 0_usize;
             let mut num_token_occurrences = 0_usize;
@@ -83,7 +81,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
             let mut readopts = ReadOptions::default();
             readopts.set_iterate_range(rocksdb::PrefixRange(prefix.clone()));
 
-            let mut term_cell_iter = txs.iter();
+            let mut term_cell_iter = term_cells.iter();
 
             let mut included_vault_utxos = Vec::new();
             let mut vault_iter = db.iterator_opt(IteratorMode::From(&prefix, Direction::Forward), readopts);
@@ -133,7 +131,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
 
                 // TODO: even if we're over the limit, if we have shortfall we need to add more
                 // UTXOs till we're covered.
-                println!("asset diff: {:?}", asset_diff);
+                //println!("asset diff: {:?}", asset_diff);
                 if !asset_diff.in_shortfall()
                     && !included_vault_utxos.is_empty()
                     && estimated_tx_size > max_tx_size
@@ -200,10 +198,11 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
 
                 if add_term_cells {
                     while let Some(term_cell) = term_cell_iter.next() {
+                        let num_new_tokens = number_new_token_ids(term_cell, &included_tokens);
                         let estimated_tx_size = estimate_tx_size_in_kb(
                             num_withdrawals + 1,
                             estimated_number_of_byzantine_nodes as usize,
-                            num_token_occurrences + number_new_token_ids(term_cell, &included_tokens),
+                            num_token_occurrences + num_new_tokens,
                         );
                         if estimated_tx_size > max_tx_size && term_cell_index > 0 {
                             // Don't add anymore terminal cells.
@@ -212,6 +211,8 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                             continue 'vault_iter;
                         } else {
                             term_cell_index += 1;
+                            num_withdrawals += 1;
+                            num_token_occurrences += num_new_tokens;
                         }
 
                         let cell_erg_value = u64::from(term_cell.value.native);
@@ -489,7 +490,7 @@ mod tests {
             client.put_confirmed(Confirmed(f)).await
         }
         let constraints = NotarizedReportConstraints {
-            txs: vec![proto_term_cell(
+            term_cells: vec![proto_term_cell(
                 1_000_000,
                 vec![],
                 generate_address().content_bytes(),
@@ -501,7 +502,7 @@ mod tests {
             max_tx_size: Kilobytes(5.0),
             estimated_number_of_byzantine_nodes: 10,
         };
-        let term_cells = constraints.txs.clone();
+        let term_cells = constraints.term_cells.clone();
         let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
         let vault_utxos_vec: Vec<_> = included_vault_utxos.into_iter().collect_vec();
         check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
@@ -518,7 +519,7 @@ mod tests {
             client.put_confirmed(Confirmed(f)).await
         }
         let constraints = NotarizedReportConstraints {
-            txs: vec![proto_term_cell(
+            term_cells: vec![proto_term_cell(
                 1_000_000,
                 vec![],
                 generate_address().content_bytes(),
@@ -530,7 +531,7 @@ mod tests {
             max_tx_size: Kilobytes(4.06),
             estimated_number_of_byzantine_nodes: 20,
         };
-        let term_cells = constraints.txs.clone();
+        let term_cells = constraints.term_cells.clone();
         let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
         let vault_utxos_vec: Vec<_> = included_vault_utxos.into_iter().collect_vec();
         check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
@@ -561,7 +562,7 @@ mod tests {
         let estimated_number_of_byzantine_nodes = 20;
         let max_tx_size = estimate_tx_size_in_kb(1, estimated_number_of_byzantine_nodes, 1);
         let constraints = NotarizedReportConstraints {
-            txs: vec![
+            term_cells: vec![
                 proto_term_cell(
                     500_000,
                     vec![term_token.clone()],
@@ -576,7 +577,7 @@ mod tests {
             max_tx_size: Kilobytes(max_tx_size), // So even the first vault UTXO will be over limit
             estimated_number_of_byzantine_nodes: estimated_number_of_byzantine_nodes as u32,
         };
-        let term_cells = constraints.txs.clone();
+        let term_cells = constraints.term_cells.clone();
         let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
         let vault_utxos_vec: Vec<_> = included_vault_utxos.into_iter().collect_vec();
         check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
@@ -592,7 +593,7 @@ mod tests {
         // value and token amount is exactly covered by one of the vault UTXOs.
         let mut client = rocks_db_client();
         let num_boxes = 50;
-        let erg_per_box = 500_000;
+        let erg_per_box = 5_000_000;
         let tokens_pool: Vec<_> = (0..num_boxes)
             .map(|_| gen_random_token(num_boxes as usize))
             .collect();
@@ -603,7 +604,7 @@ mod tests {
             erg_per_box,
             num_boxes,
             tokens_pool.clone(),
-            TokenDistributionStrategy::RandomSubset(5),
+            TokenDistributionStrategy::RandomSubset(2),
         ) {
             if let Some(tokens) = &ergo_box.tokens {
                 for token in tokens {
@@ -622,20 +623,16 @@ mod tests {
         }
 
         let estimated_number_of_byzantine_nodes = 20;
-        let max_tx_size = 90.0; //estimate_tx_size_in_kb(1, estimated_number_of_byzantine_nodes, 1);
+        let max_tx_size = 6.0; //estimate_tx_size_in_kb(1, estimated_number_of_byzantine_nodes, 1);
+
+        let term_cells = generate_term_cells(
+            (num_boxes as u64) * erg_per_box,
+            selected_tokens,
+            80,
+            TokenDistributionStrategy::RandomSubset(1),
+        );
         let constraints = NotarizedReportConstraints {
-            txs: vec![
-                proto_term_cell(
-                    500_000,
-                    vec![selected_tokens[0].clone()],
-                    generate_address().content_bytes(),
-                ),
-                proto_term_cell(
-                    500_000,
-                    vec![selected_tokens[1].clone()],
-                    generate_address().content_bytes(),
-                ),
-            ],
+            term_cells,
             last_progress_point: ProgressPoint {
                 chain_id: ChainId::from(0),
                 point: Point::from(100),
@@ -643,9 +640,14 @@ mod tests {
             max_tx_size: Kilobytes(max_tx_size), // So even the first vault UTXO will be over limit
             estimated_number_of_byzantine_nodes: estimated_number_of_byzantine_nodes as u32,
         };
-        let term_cells = constraints.txs.clone();
+        let term_cells = constraints.term_cells.clone();
         let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
         let vault_utxos_vec: Vec<_> = included_vault_utxos.into_iter().collect_vec();
+        println!(
+            "# vault UTXOs: {}, # term cells: {}",
+            vault_utxos_vec.len(),
+            term_cell_ix
+        );
         check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
     }
 
@@ -806,6 +808,74 @@ mod tests {
                 .unwrap()
             })
             .collect()
+    }
+
+    fn generate_term_cells(
+        total_nano_ergs: u64,
+        mut tokens: Vec<Token>,
+        max_number_term_cells: u16,
+        strategy: TokenDistributionStrategy,
+    ) -> Vec<ProtoTermCell> {
+        let mut res = vec![];
+        let mut rng = rand::thread_rng();
+        let mut remaining_nergs = total_nano_ergs;
+        let mut num_cells = 0;
+        const MIN_NERG_PER_BOX: u64 = 1_000_000_u64;
+
+        while remaining_nergs > MIN_NERG_PER_BOX && num_cells < max_number_term_cells {
+            let tokens = match strategy {
+                TokenDistributionStrategy::AllTokens => {
+                    let mut tokens_to_take = vec![];
+                    for token in &mut tokens {
+                        if *token.amount.as_u64() / 10 > 0 {
+                            let amount =
+                                TokenAmount::try_from(rng.gen_range(1..=*token.amount.as_u64() / 10))
+                                    .unwrap();
+                            tokens_to_take.push(Token {
+                                token_id: token.token_id,
+                                amount,
+                            });
+                            let new_amount_left = token.amount.checked_sub(&amount).unwrap();
+                            token.amount = new_amount_left;
+                        }
+                    }
+                    tokens_to_take
+                }
+                TokenDistributionStrategy::RandomSubset(n) => {
+                    let mut selected = vec![];
+                    loop {
+                        let choice = rng.gen_range(0..tokens.len());
+                        if !selected.contains(&choice) {
+                            selected.push(choice);
+                            if selected.len() == n {
+                                break;
+                            }
+                        }
+                    }
+                    selected
+                        .into_iter()
+                        .map(|ix| {
+                            let mut token = tokens[ix].clone();
+                            let amount = TokenAmount::try_from(*token.amount.as_u64() / 10).unwrap();
+                            let num_tokens_left = tokens[ix].amount.checked_sub(&amount).unwrap();
+                            tokens[ix].amount = num_tokens_left;
+                            token.amount = amount;
+                            token
+                        })
+                        .collect()
+                }
+            };
+            let nano_ergs = rng.gen_range(MIN_NERG_PER_BOX..=remaining_nergs.min(10 * MIN_NERG_PER_BOX));
+            res.push(proto_term_cell(
+                nano_ergs,
+                tokens,
+                generate_address().content_bytes(),
+            ));
+            num_cells += 1;
+            remaining_nergs -= nano_ergs;
+        }
+
+        res
     }
 
     enum TokenDistributionStrategy {

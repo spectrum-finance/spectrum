@@ -67,7 +67,7 @@ pub enum VaultMsgIn {
 
 pub struct NotarizedReportConstraints {
     /// A collection of all pending outbound TXs.
-    pub txs: Vec<ProtoTermCell>,
+    pub term_cells: Vec<ProtoTermCell>,
     /// The most recent progress point of a TX within `tx_set`.
     pub last_progress_point: ProgressPoint,
     /// Maximum TX size in kilobytes.
