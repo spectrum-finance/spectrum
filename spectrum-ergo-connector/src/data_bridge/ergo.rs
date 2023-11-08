@@ -18,7 +18,7 @@ pub struct ErgoDataBridge {
 }
 
 pub struct ErgoDataBridgeConfig {
-    pub http_client_timeout_duration_secs: u64,
+    pub http_client_timeout_duration_secs: u32,
     pub chain_sync_starting_height: u32,
     pub chain_cache_db_path: String,
     pub node_addr: Url,
@@ -61,7 +61,9 @@ async fn run_bridge(
         node_addr,
     } = config;
     let client = HttpClient::builder()
-        .timeout(std::time::Duration::from_secs(http_client_timeout_duration_secs))
+        .timeout(std::time::Duration::from_secs(
+            http_client_timeout_duration_secs as u64,
+        ))
         .build()
         .unwrap();
     let node = ErgoNodeHttpClient::new(client, node_addr);

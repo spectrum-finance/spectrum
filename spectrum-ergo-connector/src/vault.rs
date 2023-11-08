@@ -22,7 +22,19 @@ pub struct VaultHandler {
 }
 
 impl VaultHandler {
-    async fn handle(&mut self, event: TxEvent<Transaction>) {
+    pub fn new(
+        vault_box_repo: VaultBoxRepoRocksDB,
+        withdrawal_repo: WithdrawalRepoRocksDB,
+        vault_contract: ErgoTree,
+    ) -> Self {
+        Self {
+            vault_box_repo,
+            withdrawal_repo,
+            vault_contract,
+        }
+    }
+
+    pub async fn handle(&mut self, event: TxEvent<Transaction>) {
         match event {
             TxEvent::AppliedTx(tx) => {
                 // If the first output is for the miner's fee and the second output is guarded by

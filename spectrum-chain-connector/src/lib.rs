@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use spectrum_ledger::{
     cell::{BoxDestination, Owner, ProgressPoint, SValue, TermCell},
     interop::ReportCertificate,
@@ -23,6 +24,7 @@ pub struct DataBridgeComponents<T> {
     pub start_signal: tokio::sync::oneshot::Sender<()>,
 }
 
+#[derive(Deserialize, Serialize)]
 /// Outbound message from a Vault manager to consensus driver
 pub enum VaultMsgOut {
     Status(VaultStatus),
@@ -52,6 +54,7 @@ pub enum VaultMsgOut {
 }
 
 /// Inbound message to a Vault manager from consensus driver
+#[derive(Deserialize, Serialize)]
 pub enum VaultMsgIn {
     /// Indicate to the vault manager to start rotating committee (WIP)
     RotateCommittee,
@@ -65,6 +68,7 @@ pub enum VaultMsgIn {
     SyncFrom(Option<ProgressPoint>),
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct NotarizedReportConstraints {
     /// A collection of all pending outbound TXs.
     pub term_cells: Vec<ProtoTermCell>,
@@ -76,6 +80,7 @@ pub struct NotarizedReportConstraints {
     pub estimated_number_of_byzantine_nodes: u32,
 }
 
+#[derive(Deserialize, Serialize)]
 pub enum VaultStatus {
     Synced(ProgressPoint),
     Syncing {
@@ -84,8 +89,10 @@ pub enum VaultStatus {
     },
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct Kilobytes(pub f32);
 
+#[derive(Deserialize, Serialize)]
 /// Represents a value that is inbound to Spectrum-network on-chain.
 pub struct InboundValue {
     pub value: SValue,
@@ -94,12 +101,13 @@ pub struct InboundValue {
 }
 
 /// Represents an intention by Spectrum-network to create a `TermCell`.
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct ProtoTermCell {
     pub value: SValue,
     pub dst: BoxDestination,
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct NotarizedReport {
     pub certificate: ReportCertificate,
     pub value_to_export: Vec<TermCell>,
