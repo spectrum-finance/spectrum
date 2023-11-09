@@ -37,32 +37,28 @@ impl VaultHandler {
     pub async fn handle(&mut self, event: TxEvent<Transaction>) {
         match event {
             TxEvent::AppliedTx(tx) => {
-                // If the first output is for the miner's fee and the second output is guarded by
-                // the vault contract, we can be sure that this TX is for report notarization.
-                if tx.outputs.first().ergo_tree != MINERS_FEE_ADDRESS.script().unwrap() {
-                    return;
-                }
-                if let Some(first_vault_output) = tx.outputs.get(1) {
-                    if let Some(num_vault_outputs) = self.get_num_new_vault_utxos(first_vault_output) {
-                        for input in tx.inputs {
-                            let box_id = input.box_id;
+                if self.is_vault_tx(&tx) {
+                    for input in tx.inputs {
+                        let box_id = input.box_id;
 
-                            // Spend input vault boxes
-                            self.vault_box_repo.spend_box(box_id).await;
-                        }
-
-                        // Add new vault outputs
-                        for output in tx.outputs.iter().skip(1).take(num_vault_outputs) {
-                            self.vault_box_repo.put_confirmed(Confirmed(output.clone())).await;
-                        }
-
-                        // Add withdrawals
-                        for output in tx.outputs.iter().skip(1 + num_vault_outputs) {
-                            self.withdrawal_repo
-                                .put_confirmed(Confirmed(output.clone()))
-                                .await;
-                        }
+                        // Spend input vault boxes
+                        self.vault_box_repo.spend_box(box_id).await;
                     }
+                    //
+                    let first_vault_output = tx.outputs.get(1).unwrap();
+                    self.vault_box_repo
+                        .put_confirmed(Confirmed(first_vault_output.clone()))
+                        .await;
+
+                    // Add withdrawals
+                    for output in tx.outputs.iter().skip(2) {
+                        self.withdrawal_repo
+                            .put_confirmed(Confirmed(output.clone()))
+                            .await;
+                    }
+                } else {
+                    // Scan for inbound deposits
+                    for output in &tx.outputs {}
                 }
             }
             TxEvent::UnappliedTx(tx) => {
@@ -76,7 +72,7 @@ impl VaultHandler {
                         for input in tx.inputs {
                             let box_id = input.box_id;
 
-                            // Add back previous vault boxes (TODO)
+                            // Add back previous vault boxes
                             self.vault_box_repo.unspend_box(box_id).await;
                         }
 
@@ -104,14 +100,36 @@ impl VaultHandler {
                 .unwrap();
 
             let RegisterValue::Parsed(c) = r4 else {
-                panic!("");
+                return None;
             };
             let Literal::Int(num_vault_outputs) = c.v else {
-                panic!("");
+                return None;
             };
             Some(num_vault_outputs as usize)
         } else {
             None
         }
+    }
+
+    fn is_vault_tx(&self, tx: &Transaction) -> bool {
+        // If the first output is for the miner's fee and the second output is guarded by
+        // the vault contract, we can be sure that this TX is for report notarization.
+        // This is necessary but insufficient:
+        // For real TX:
+        //  - OUTPUT(0): miner fee
+        //  - OUTPUT(1): SN funding UTXO
+        //  - OUTPUTs 2...n: withdrawals
+        //  - INPUTS: every input UTXO should be Guarded by contract and have address in R4.
+        //            Don't need to check this since it should be in vault_box_repo
+        //  - Check data-inputs for current committee.
+        //
+
+        //        if tx.outputs.first().ergo_tree != MINERS_FEE_ADDRESS.script().unwrap() {
+        //            return;
+        //        }
+        //        if let Some(first_vault_output) = tx.outputs.get(1) {
+        //            if let Some(num_vault_outputs) = self.get_num_new_vault_utxos(first_vault_output) {}
+        //        }
+        todo!()
     }
 }

@@ -1,6 +1,7 @@
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
+    fmt,
     sync::Arc,
 };
 
@@ -10,8 +11,13 @@ use ergo_lib::{
     ergo_chain_types::Digest32,
     ergotree_ir::{
         chain::{
-            ergo_box::{BoxId, ErgoBox},
+            address::{Address, AddressEncoder, NetworkPrefix},
+            ergo_box::{BoxId, ErgoBox, NonMandatoryRegisterId, RegisterValue},
             token::{Token, TokenAmount, TokenAmountError, TokenId},
+        },
+        mir::{
+            constant::Literal,
+            value::{CollKind, NativeColl},
         },
         serialization::SigmaSerializable,
     },
@@ -19,16 +25,17 @@ use ergo_lib::{
 use nonempty::NonEmpty;
 use num_bigint::BigUint;
 use rocksdb::{Direction, IteratorMode, ReadOptions};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{Kilobytes, NotarizedReportConstraints, ProtoTermCell};
 use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_ledger::cell::{AssetId, CustomAsset};
 use spectrum_offchain::{
     binary::prefixed_key,
     data::unique_entity::{Confirmed, Predicted},
+    event_sink::handlers::types::TryFromBox,
 };
 
-use crate::script::estimate_tx_size_in_kb;
+use crate::script::{estimate_tx_size_in_kb, VAULT_CONTRACT_SCRIPT_BYTES};
 
 #[async_trait(?Send)]
 pub trait VaultBoxRepo {
@@ -358,6 +365,88 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct VaultUtxo {
+    #[serde(
+        serialize_with = "serialize_option_address",
+        deserialize_with = "deserialize_option_address"
+    )]
+    from_user_address: Option<Address>,
+}
+
+impl TryFromBox for VaultUtxo {
+    fn try_from_box(bx: ErgoBox) -> Option<Self> {
+        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
+        let address = encoder
+            .parse_address_from_str(VAULT_CONTRACT_SCRIPT_BYTES)
+            .unwrap();
+        let ergo_tree = address.script().unwrap();
+
+        if bx.ergo_tree == ergo_tree {
+            let from_user_address = if let Some(r4) = bx.additional_registers.get(NonMandatoryRegisterId::R4)
+            {
+                let RegisterValue::Parsed(c) = r4 else {
+                    return None;
+                };
+                let Literal::Coll(CollKind::NativeColl(NativeColl::CollByte(bytes_i8))) = &c.v else {
+                    return None;
+                };
+                let bytes: Vec<u8> = bytes_i8.iter().map(|b| *b as u8).collect();
+                let address = Address::p2pk_from_pk_bytes(&bytes).unwrap();
+                Some(address)
+            } else {
+                None
+            };
+            Some(VaultUtxo { from_user_address })
+        } else {
+            None
+        }
+    }
+}
+
+fn serialize_option_address<S>(address: &Option<Address>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match address {
+        Some(addr) => serializer.serialize_some(&addr.content_bytes()),
+        None => serializer.serialize_none(),
+    }
+}
+
+// Custom deserialization for Option<Address>
+fn deserialize_option_address<'de, D>(deserializer: D) -> Result<Option<Address>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // Custom visitor to handle an Option<Address>
+    struct OptionAddressVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for OptionAddressVisitor {
+        type Value = Option<Address>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an Option<Address>")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            let s = <Vec<u8>>::deserialize(deserializer)?;
+            Address::p2pk_from_pk_bytes(&s)
+                .map(Some)
+                .map_err(serde::de::Error::custom)
+        }
+    }
+
+    deserializer.deserialize_option(OptionAddressVisitor)
+}
+
 fn compute_token_amounts(term_cells: &[ProtoTermCell]) -> HashMap<TokenId, BigUint> {
     let mut res = HashMap::new();
 
@@ -481,7 +570,7 @@ mod tests {
         },
     };
 
-    use super::VaultBoxRepoRocksDB;
+    use super::{VaultBoxRepoRocksDB, VaultUtxo};
 
     #[tokio::test]
     async fn collect_simple() {
@@ -649,6 +738,23 @@ mod tests {
             term_cell_ix
         );
         check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
+    }
+
+    #[test]
+    fn vault_utxo_serialization_roundtrip() {
+        let v = VaultUtxo {
+            from_user_address: None,
+        };
+        let bytes = bincode::serialize(&v).unwrap();
+        let deserialized_v: VaultUtxo = bincode::deserialize(&bytes).unwrap();
+        assert_eq!(v, deserialized_v);
+
+        let v = VaultUtxo {
+            from_user_address: Some(generate_address()),
+        };
+        let bytes = bincode::serialize(&v).unwrap();
+        let deserialized_v: VaultUtxo = bincode::deserialize(&bytes).unwrap();
+        assert_eq!(v, deserialized_v);
     }
 
     fn rocks_db_client() -> VaultBoxRepoRocksDB {
