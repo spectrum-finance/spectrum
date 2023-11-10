@@ -8,10 +8,11 @@ use ergo_lib::{
     wallet::miner_fee::MINERS_FEE_ADDRESS,
 };
 use spectrum_chain_connector::TxEvent;
-use spectrum_offchain::data::unique_entity::Confirmed;
+use spectrum_offchain::{data::unique_entity::Confirmed, event_sink::handlers::types::TryFromBox};
+use spectrum_offchain_lm::data::AsBox;
 
 use crate::rocksdb::{
-    vault_boxes::{VaultBoxRepo, VaultBoxRepoRocksDB},
+    vault_boxes::{VaultBoxRepo, VaultBoxRepoRocksDB, VaultUtxo},
     withdrawals::{WithdrawalRepo, WithdrawalRepoRocksDB},
 };
 
@@ -45,10 +46,12 @@ impl VaultHandler {
                         self.vault_box_repo.spend_box(box_id).await;
                     }
                     //
-                    let first_vault_output = tx.outputs.get(1).unwrap();
-                    self.vault_box_repo
-                        .put_confirmed(Confirmed(first_vault_output.clone()))
-                        .await;
+                    let first_vault_output = tx.outputs.get(1).unwrap().clone();
+                    let as_box = AsBox(
+                        first_vault_output.clone(),
+                        VaultUtxo::try_from_box(first_vault_output).unwrap(),
+                    );
+                    self.vault_box_repo.put_confirmed(Confirmed(as_box)).await;
 
                     // Add withdrawals
                     for output in tx.outputs.iter().skip(2) {

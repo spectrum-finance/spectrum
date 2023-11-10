@@ -11,7 +11,7 @@ use ergo_lib::{
     ergo_chain_types::Digest32,
     ergotree_ir::{
         chain::{
-            address::{Address, AddressEncoder, NetworkPrefix},
+            address::Address,
             ergo_box::{BoxId, ErgoBox, NonMandatoryRegisterId, RegisterValue},
             token::{Token, TokenAmount, TokenAmountError, TokenId},
         },
@@ -34,8 +34,9 @@ use spectrum_offchain::{
     data::unique_entity::{Confirmed, Predicted},
     event_sink::handlers::types::TryFromBox,
 };
+use spectrum_offchain_lm::data::AsBox;
 
-use crate::script::{estimate_tx_size_in_kb, VAULT_CONTRACT_SCRIPT_BYTES};
+use crate::script::{estimate_tx_size_in_kb, VAULT_CONTRACT};
 
 #[async_trait(?Send)]
 pub trait VaultBoxRepo {
@@ -44,8 +45,8 @@ pub trait VaultBoxRepo {
         &mut self,
         contraints: NotarizedReportConstraints,
     ) -> Result<(NonEmpty<ErgoBox>, usize), ()>;
-    async fn put_confirmed(&mut self, df: Confirmed<ErgoBox>);
-    async fn put_predicted(&mut self, df: Predicted<ErgoBox>);
+    async fn put_confirmed(&mut self, df: Confirmed<AsBox<VaultUtxo>>);
+    async fn put_predicted(&mut self, df: Predicted<AsBox<VaultUtxo>>);
     async fn spend_box(&mut self, box_id: BoxId);
     async fn unspend_box(&mut self, box_id: BoxId);
     /// False positive version of `exists()`.
@@ -112,9 +113,9 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                     }
                 }
 
-                let vault_utxo = ErgoBox::sigma_parse_bytes(&value_bytes).unwrap();
-                let current_utxo_value = *vault_utxo.value.as_u64();
-                let new_token_ids = if let Some(tokens) = &vault_utxo.tokens {
+                let AsBox(bx, vault_utxo): AsBox<VaultUtxo> = bincode::deserialize(&value_bytes).unwrap();
+                let current_utxo_value = *bx.value.as_u64();
+                let new_token_ids = if let Some(tokens) = &bx.tokens {
                     tokens
                         .iter()
                         .filter_map(|t| {
@@ -148,7 +149,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                     println!("Added vault UTXO. TX size: {}", estimated_tx_size);
                     num_withdrawals += 1;
                     num_token_occurrences += num_new_token_occurrences;
-                    included_vault_utxos.push(vault_utxo.clone());
+                    included_vault_utxos.push(bx.clone());
                 }
 
                 let nano_erg_diff = match asset_diff.nano_erg_diff {
@@ -165,7 +166,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                 };
                 asset_diff.nano_erg_diff = nano_erg_diff;
 
-                if let Some(tokens) = &vault_utxo.tokens {
+                if let Some(tokens) = &bx.tokens {
                     for token in tokens {
                         included_tokens.insert(token.token_id);
                         let utxo_amount = *token.amount.as_u64();
@@ -304,12 +305,12 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
         .await
     }
 
-    async fn put_confirmed(&mut self, Confirmed(bx): Confirmed<ErgoBox>) {
+    async fn put_confirmed(&mut self, Confirmed(bx): Confirmed<AsBox<VaultUtxo>>) {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || {
             let key = box_key(KEY_PREFIX, CONFIRMED_PRIORITY, &bx.box_id());
             let index_key = prefixed_key(KEY_INDEX_PREFIX, &bx.box_id());
-            let value = bx.sigma_serialize_bytes().unwrap();
+            let value = bincode::serialize(&bx).unwrap();
             let tx = db.transaction();
             tx.put(key.clone(), value).unwrap();
             tx.put(index_key, key).unwrap();
@@ -318,12 +319,12 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
         .await
     }
 
-    async fn put_predicted(&mut self, Predicted(bx): Predicted<ErgoBox>) {
+    async fn put_predicted(&mut self, Predicted(bx): Predicted<AsBox<VaultUtxo>>) {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || {
             let key = box_key(KEY_PREFIX, PREDICTED_PRIORITY, &bx.box_id());
             let index_key = prefixed_key(KEY_INDEX_PREFIX, &bx.box_id());
-            let value = bx.sigma_serialize_bytes().unwrap();
+            let value = bincode::serialize(&bx).unwrap();
             let tx = db.transaction();
             tx.put(key.clone(), value).unwrap();
             tx.put(index_key, key).unwrap();
@@ -366,7 +367,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-struct VaultUtxo {
+pub struct VaultUtxo {
     #[serde(
         serialize_with = "serialize_option_address",
         deserialize_with = "deserialize_option_address"
@@ -376,13 +377,7 @@ struct VaultUtxo {
 
 impl TryFromBox for VaultUtxo {
     fn try_from_box(bx: ErgoBox) -> Option<Self> {
-        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
-        let address = encoder
-            .parse_address_from_str(VAULT_CONTRACT_SCRIPT_BYTES)
-            .unwrap();
-        let ergo_tree = address.script().unwrap();
-
-        if bx.ergo_tree == ergo_tree {
+        if bx.ergo_tree == *VAULT_CONTRACT {
             let from_user_address = if let Some(r4) = bx.additional_registers.get(NonMandatoryRegisterId::R4)
             {
                 let RegisterValue::Parsed(c) = r4 else {
@@ -560,13 +555,15 @@ mod tests {
         ChainId,
     };
     use spectrum_move::SerializedValue;
-    use spectrum_offchain::data::unique_entity::Confirmed;
+    use spectrum_offchain::{data::unique_entity::Confirmed, event_sink::handlers::types::TryFromBox};
+    use spectrum_offchain_lm::data::AsBox;
 
     use crate::{
         rocksdb::vault_boxes::VaultBoxRepo,
         script::{
             estimate_tx_size_in_kb,
             tests::{gen_random_token, gen_tx_id, generate_address},
+            VAULT_CONTRACT,
         },
     };
 
@@ -575,7 +572,7 @@ mod tests {
     #[tokio::test]
     async fn collect_simple() {
         let mut client = rocks_db_client();
-        for f in generate_tokenless_utxos(500_000, 3) {
+        for f in generate_tokenless_vault_utxos(500_000, 3) {
             client.put_confirmed(Confirmed(f)).await
         }
         let constraints = NotarizedReportConstraints {
@@ -604,7 +601,7 @@ mod tests {
         // In this test, adding the terminal cell results in exceeding the Kb threshold. But we
         // should add in the extra vault UTXO to achieve surplus.
         let mut client = rocks_db_client();
-        for f in generate_tokenless_utxos(500_000, 3) {
+        for f in generate_tokenless_vault_utxos(500_000, 3) {
             client.put_confirmed(Confirmed(f)).await
         }
         let constraints = NotarizedReportConstraints {
@@ -637,7 +634,7 @@ mod tests {
         let mut client = rocks_db_client();
         let num_boxes = 3;
         let token = gen_random_token(num_boxes as usize);
-        for f in generate_utxos_with_tokens(
+        for f in generate_vault_utxos_with_tokens(
             500_000,
             num_boxes,
             vec![token.clone()],
@@ -689,7 +686,7 @@ mod tests {
 
         let mut selected_tokens: Vec<Token> = vec![];
 
-        for ergo_box in generate_utxos_with_tokens(
+        for AsBox(ergo_box, vault_utxo) in generate_vault_utxos_with_tokens(
             erg_per_box,
             num_boxes,
             tokens_pool.clone(),
@@ -708,7 +705,7 @@ mod tests {
                     }
                 }
             }
-            client.put_confirmed(Confirmed(ergo_box)).await
+            client.put_confirmed(Confirmed(AsBox(ergo_box, vault_utxo))).await
         }
 
         let estimated_number_of_byzantine_nodes = 20;
@@ -839,30 +836,31 @@ mod tests {
         ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
     }
 
-    fn generate_tokenless_utxos(erg_per_box: u64, num_boxes: u16) -> Vec<ErgoBox> {
+    fn generate_tokenless_vault_utxos(erg_per_box: u64, num_boxes: u16) -> Vec<AsBox<VaultUtxo>> {
         let tx_id = gen_tx_id();
         (0..num_boxes)
             .map(|index| {
-                ErgoBox::new(
+                let bx = ErgoBox::new(
                     BoxValue::try_from(erg_per_box).unwrap(),
-                    trivial_prop(),
+                    VAULT_CONTRACT.clone(),
                     None,
                     NonMandatoryRegisters::empty(),
                     500,
                     tx_id,
                     index,
                 )
-                .unwrap()
+                .unwrap();
+                AsBox(bx.clone(), VaultUtxo::try_from_box(bx).unwrap())
             })
             .collect()
     }
 
-    fn generate_utxos_with_tokens(
+    fn generate_vault_utxos_with_tokens(
         erg_per_box: u64,
         num_boxes: u16,
         tokens: Vec<Token>,
         strategy: TokenDistributionStrategy,
-    ) -> Vec<ErgoBox> {
+    ) -> Vec<AsBox<VaultUtxo>> {
         let tx_id = gen_tx_id();
 
         let mut rng = rand::thread_rng();
@@ -902,16 +900,17 @@ mod tests {
                     }
                 };
 
-                ErgoBox::new(
+                let bx = ErgoBox::new(
                     BoxValue::try_from(erg_per_box).unwrap(),
-                    trivial_prop(),
+                    VAULT_CONTRACT.clone(),
                     tokens,
                     NonMandatoryRegisters::empty(),
                     500,
                     tx_id,
                     index,
                 )
-                .unwrap()
+                .unwrap();
+                AsBox(bx.clone(), VaultUtxo::try_from_box(bx).unwrap())
             })
             .collect()
     }

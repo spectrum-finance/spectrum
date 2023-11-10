@@ -8,7 +8,7 @@ use ergo_chain_sync::client::types::Url;
 use ergo_lib::ergotree_ir::chain::address::{AddressEncoder, NetworkPrefix};
 use futures::{stream::select_all, StreamExt};
 use rocksdb::{vault_boxes::VaultBoxRepoRocksDB, withdrawals::WithdrawalRepoRocksDB};
-use script::VAULT_CONTRACT_SCRIPT_BYTES;
+use script::VAULT_CONTRACT;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use spectrum_chain_connector::{DataBridge, DataBridgeComponents, TxEvent, VaultMsgIn, VaultMsgOut};
@@ -51,15 +51,10 @@ async fn main() {
     let withdrawal_repo = WithdrawalRepoRocksDB::new(config.withdrawals_store_db_path);
     let vault_box_repo = VaultBoxRepoRocksDB::new(config.vault_boxes_store_db_path);
 
-    let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
-    let address = encoder
-        .parse_address_from_str(VAULT_CONTRACT_SCRIPT_BYTES)
-        .unwrap();
-    let ergo_tree = address.script().unwrap();
     let vault_handler = Arc::new(Mutex::new(VaultHandler::new(
         vault_box_repo,
         withdrawal_repo,
-        ergo_tree,
+        VAULT_CONTRACT.clone(),
     )));
 
     let chain_stream = Box::pin(ReceiverStream::new(receiver).then(|ev| async {
