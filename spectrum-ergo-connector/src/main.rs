@@ -17,7 +17,6 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_unix_ipc::channel_from_std;
 use vault::VaultHandler;
 
-mod data;
 mod data_bridge;
 mod rocksdb;
 mod script;
