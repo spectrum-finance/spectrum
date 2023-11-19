@@ -24,7 +24,7 @@ pub struct TaskPool<'a, TIn, TOut, R> {
     timeout: Duration,
     /// Communication channel with parental behaviour.
     channel: Sender<FromTask<TIn, TOut>>,
-    tasks: FuturesUnordered<Pin<Box<dyn Future<Output = Result<R, TimeoutError>> + Send + 'a>>>,
+    tasks: FuturesUnordered<Pin<Box<dyn Future<Output = Result<R, TimeoutError>> + 'a>>>,
 }
 
 impl<'a, TIn, TOut, R> TaskPool<'a, TIn, TOut, R> {
@@ -40,11 +40,11 @@ impl<'a, TIn, TOut, R> TaskPool<'a, TIn, TOut, R> {
     pub fn spawn<F, T>(&mut self, task: F)
     where
         F: FnOnce(Sender<FromTask<TIn, TOut>>) -> T,
-        T: Future<Output = R> + Send + 'a,
+        T: Future<Output = R> + 'a,
         R: 'a,
     {
         self.tasks
-            .push(timeout(self.timeout, task(self.channel.clone())).boxed())
+            .push(Box::pin(timeout(self.timeout, task(self.channel.clone()))))
     }
 }
 
@@ -54,7 +54,7 @@ impl<'a, TIn, TOut, R> Stream for TaskPool<'a, TIn, TOut, R> {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<R>> {
         loop {
             if !self.tasks.is_empty() {
-                match Stream::poll_next(Pin::new(&mut self.tasks), cx) {
+                match Stream::poll_next(std::pin::pin!(&mut self.tasks), cx) {
                     Poll::Ready(Some(Ok(res))) => {
                         return Poll::Ready(Some(res));
                     }

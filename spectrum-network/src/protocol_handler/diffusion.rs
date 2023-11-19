@@ -67,13 +67,11 @@ enum DiffusionBehaviourIn {
     },
 }
 
-#[async_trait::async_trait]
 trait DiffusionStateWrite {
     async fn update_peer(&self, peer_id: PeerId, peer_state: SyncState);
     async fn update_modifier(&self, modifier_id: ModifierId, status: ModifierStatus);
 }
 
-#[async_trait::async_trait]
 impl DiffusionStateWrite for Sender<FromTask<DiffusionBehaviourIn, DiffusionBehaviourOut>> {
     async fn update_peer(&self, peer_id: PeerId, peer_state: SyncState) {
         self.send(FromTask::ToBehaviour(DiffusionBehaviourIn::UpdatePeer {
@@ -94,12 +92,10 @@ impl DiffusionStateWrite for Sender<FromTask<DiffusionBehaviourIn, DiffusionBeha
     }
 }
 
-#[async_trait::async_trait]
 trait DiffusionStateRead {
     async fn modifier_status(&self, mid: ModifierId) -> ModifierStatus;
 }
 
-#[async_trait::async_trait]
 impl DiffusionStateRead for Sender<FromTask<DiffusionBehaviourIn, DiffusionBehaviourOut>> {
     async fn modifier_status(&self, modifier: ModifierId) -> ModifierStatus {
         let (snd, recv) = oneshot::channel();
@@ -179,58 +175,60 @@ where
     fn on_sync(&mut self, peer_id: PeerId, peer_status: SyncStatus, initial: bool) {
         let service = self.remote_sync.clone();
         let conf = self.conf;
-        self.tasks.spawn(|to_behaviour| async move {
-            let peer_state = service.remote_state(peer_status).await;
-            to_behaviour.update_peer(peer_id, peer_state.clone()).await;
-            if initial {
-                to_behaviour
-                    .send(FromTask::ToHandler(DiffusionBehaviourOut::NetworkAction(
-                        NetworkAction::EnablePeer {
-                            peer_id,
-                            handshakes: service.make_poly_handshake().await,
-                        },
-                    )))
-                    .await
-                    .unwrap();
-            }
-            match peer_state.cmp {
-                RemoteChainCmp::Equal | RemoteChainCmp::Nonsense => {}
-                RemoteChainCmp::Longer(None) | RemoteChainCmp::Fork(None) => {
-                    if !initial {
-                        // sync is alerady included into handshake if initial
+        self.tasks.spawn(|to_behaviour| {
+            async move {
+                let peer_state = service.remote_state(peer_status).await;
+                to_behaviour.update_peer(peer_id, peer_state.clone()).await;
+                if initial {
+                    to_behaviour
+                        .send(FromTask::ToHandler(DiffusionBehaviourOut::NetworkAction(
+                            NetworkAction::EnablePeer {
+                                peer_id,
+                                handshakes: service.make_poly_handshake().await,
+                            },
+                        )))
+                        .await
+                        .unwrap();
+                }
+                match peer_state.cmp {
+                    RemoteChainCmp::Equal | RemoteChainCmp::Nonsense => {}
+                    RemoteChainCmp::Longer(None) | RemoteChainCmp::Fork(None) => {
+                        if !initial {
+                            // sync is alerady included into handshake if initial
+                            to_behaviour
+                                .send(FromTask::ToHandler(DiffusionBehaviourOut::Send {
+                                    peer_id,
+                                    message: DiffusionMessage::sync_status_v1(service.local_status().await),
+                                }))
+                                .await
+                                .unwrap();
+                        }
+                    }
+                    RemoteChainCmp::Longer(Some(wanted_suffix)) => {
                         to_behaviour
                             .send(FromTask::ToHandler(DiffusionBehaviourOut::Send {
                                 peer_id,
-                                message: DiffusionMessage::sync_status_v1(service.local_status().await),
+                                message: DiffusionMessage::request_modifiers_v1(
+                                    ModifierType::BlockHeader,
+                                    wanted_suffix.into_iter().map(ModifierId::from).collect(),
+                                ),
                             }))
                             .await
                             .unwrap();
                     }
-                }
-                RemoteChainCmp::Longer(Some(wanted_suffix)) => {
-                    to_behaviour
-                        .send(FromTask::ToHandler(DiffusionBehaviourOut::Send {
-                            peer_id,
-                            message: DiffusionMessage::request_modifiers_v1(
-                                ModifierType::BlockHeader,
-                                wanted_suffix.into_iter().map(ModifierId::from).collect(),
-                            ),
-                        }))
-                        .await
-                        .unwrap();
-                }
-                RemoteChainCmp::Shorter(remote_tip) | RemoteChainCmp::Fork(Some(remote_tip)) => {
-                    let ext = service.extension(remote_tip, conf.max_inv_size).await;
-                    to_behaviour
-                        .send(FromTask::ToHandler(DiffusionBehaviourOut::Send {
-                            peer_id,
-                            message: DiffusionMessage::inv_v1(
-                                ModifierType::BlockHeader,
-                                ext.into_iter().map(ModifierId::from).collect(),
-                            ),
-                        }))
-                        .await
-                        .unwrap();
+                    RemoteChainCmp::Shorter(remote_tip) | RemoteChainCmp::Fork(Some(remote_tip)) => {
+                        let ext = service.extension(remote_tip, conf.max_inv_size).await;
+                        to_behaviour
+                            .send(FromTask::ToHandler(DiffusionBehaviourOut::Send {
+                                peer_id,
+                                message: DiffusionMessage::inv_v1(
+                                    ModifierType::BlockHeader,
+                                    ext.into_iter().map(ModifierId::from).collect(),
+                                ),
+                            }))
+                            .await
+                            .unwrap();
+                    }
                 }
             }
         })
@@ -438,7 +436,7 @@ mod tests {
         let inv = DiffusionMessage::inv_v1(ModifierType::BlockHeader, inv_modifiers);
         let remote_pid = PeerId::random();
         beh.inject_message(remote_pid, inv);
-        let handle = task::spawn(async move {
+        let handle = task::spawn_local(async move {
             let mut stream = BehaviourStream::new(beh);
             loop {
                 match stream.select_next_some().await {
@@ -475,7 +473,7 @@ mod tests {
 
         beh.inject_protocol_requested(remote_pid, Some(remote_hs));
 
-        let handle = task::spawn(async move {
+        let handle = task::spawn_local(async move {
             let mut stream = BehaviourStream::new(beh);
             loop {
                 match stream.select_next_some().await {

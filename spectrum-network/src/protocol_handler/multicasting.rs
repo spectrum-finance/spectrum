@@ -1,6 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 use std::ops::Sub;
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -222,20 +222,22 @@ where
     fn inject_message(&mut self, peer_id: PeerId, content: S) {
         if self.overlay.parent_nodes.contains(&peer_id) {
             let pd = Arc::clone(&self.public_data);
-            self.tasks.spawn(|to_behaviour| async move {
-                if let Ok(ver) = content.verify(&pd).await {
-                    to_behaviour
-                        .send(FromTask::ToBehaviour(ApplyStatement(ver)))
-                        .await
-                        .unwrap();
-                } else {
-                    to_behaviour
-                        .send(FromTask::ToHandler(ProtocolBehaviourOut::NetworkAction(
-                            NetworkAction::BanPeer(peer_id),
-                        )))
-                        .await
-                        .unwrap();
-                }
+            self.tasks.spawn(|to_behaviour| {
+                Box::pin(async move {
+                    if let Ok(ver) = content.verify(&pd).await {
+                        to_behaviour
+                            .send(FromTask::ToBehaviour(ApplyStatement(ver)))
+                            .await
+                            .unwrap();
+                    } else {
+                        to_behaviour
+                            .send(FromTask::ToHandler(ProtocolBehaviourOut::NetworkAction(
+                                NetworkAction::BanPeer(peer_id),
+                            )))
+                            .await
+                            .unwrap();
+                    }
+                })
             });
         }
     }
