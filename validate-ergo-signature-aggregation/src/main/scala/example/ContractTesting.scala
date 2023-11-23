@@ -486,12 +486,7 @@ object ContractTesting extends IOApp {
 
         val userOutBox = tb
           .outBoxBuilder()
-          .contract(
-            new ErgoTreeContract(
-              Address.create("4MQyML64GnzMxZgm").getErgoAddress.script,
-              NetworkType.MAINNET
-            )
-          )
+          .contract(validationContract)
           .value(INITIAL_VAULT_NANOERG_BALANCE - changeForMiner)
           .build()
 
@@ -522,7 +517,8 @@ object ContractTesting extends IOApp {
             ContextVar.of(4.toByte, ErgoValue.of(threshold.value)),
             ContextVar.of(5.toByte, termCells),
             ContextVar.of(6.toByte, ErgoValue.of(avlTreeData)),
-            ContextVar.of(7.toByte, ErgoValue.of(avlProof.value.toArray))
+            ContextVar.of(7.toByte, ErgoValue.of(avlProof.value.toArray)),
+            ContextVar.of(8.toByte, ErgoValue.of(changeForMiner))
           )
 
         val bytesInContextExtension =

@@ -66,6 +66,7 @@
   //  5: Terminal cells describing withdrawals from spectrum-network
   //  6: Starting AVL tree that is used in report notarization
   //  7: AVL tree proof, used to reconstruct part of the tree
+  //  8: Maximum miner fee
   val verificationData     = getVar[Coll[((Int, (GroupElement, Coll[Byte])), ((Coll[Byte], Int), (GroupElement, Coll[Byte])) )]](0).get
   val aggregateResponseRaw = getVar[(Coll[Byte], Int)](1).get
   val aggregateCommitment  = getVar[GroupElement](2).get
@@ -74,6 +75,7 @@
   val terminalCells        = getVar[Coll[(Long, (Coll[Byte], Coll[(Coll[Byte], Long)]))]](5).get
   val tree        = getVar[AvlTree](6).get
   val proof       = getVar[Coll[Byte]](7).get
+  val maxMinerFee = getVar[Long](8).get
 
   // Performs exponentiation of a GroupElement by an unsigned 256bit
   // integer I using the following decomposition of I:
@@ -282,8 +284,25 @@
       (key, value)
   }
 
-  val endTree = tree.insert(operations, proof).get
+  // maxMinerFee is also made to be an AVL insertion
+  val maxMinerFeeKey = longToByteArray(operations.size.toLong + 1L)
+  val maxMinerFeeBytes = longToByteArray(maxMinerFee)
+  
+  // Need to pad value to 32 bytes, since AVL trees expect constant lengths for keys and values.
+  val paddedValue = maxMinerFeeBytes.append(Coll(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).map { (x:Int) => x.toByte })
+  val avlInsertions = operations.append(Coll((maxMinerFeeKey, paddedValue))) 
+
+  val endTree = tree.insert(avlInsertions, proof).get
   val verifyDigest = blake2b256(endTree.digest) == message
+
+  val minerPropBytes = fromBase58("2iHkR7CWvD1R4j1yZg5bkeDRQavjAaVPeTDFGGLZduHyfWMuYpmhHocX8GJoaieTx78FntzJbCBVL6rf96ocJoZdmWBL2fci7NqWgAirppPQmZ7fN9V6z13Ay6brPriBKYqLp1bT2Fk4FkFLCfdPpe")
+  val validMinerFee = OUTPUTS
+        .map { (o: Box) =>
+          if (o.propositionBytes == minerPropBytes) o.value else 0L
+        }
+        .fold(0L, { (a: Long, b: Long) => a + b }) <= maxMinerFee
+
+  val scriptPreserved = OUTPUTS(OUTPUTS.size - 2).propositionBytes == SELF.propositionBytes
 
   sigmaProp (
     verifyEpoch &&
@@ -292,6 +311,8 @@
     verifyAggregateResponse &&
     verifySignaturesInExclusionSet &&
     verifyThreshold &&
-    verifyTxOutputs
+    verifyTxOutputs &&
+    validMinerFee &&
+    scriptPreserved
   )
 }
