@@ -1213,13 +1213,13 @@ pub mod tests {
 
         let mut values = IndexMap::new();
         values.insert(0, exclusion_set_data);
-        values.insert(1, aggregate_response);
-        values.insert(2, serialized_aggregate_commitment);
-        values.insert(3, Constant::from(md.as_ref().to_vec()));
-        values.insert(4, threshold.into());
-        values.insert(5, ErgoTermCells(terminal_cells).into());
-        values.insert(6, avl_const);
-        values.insert(7, proof);
+        values.insert(5, aggregate_response);
+        values.insert(1, serialized_aggregate_commitment);
+        values.insert(6, Constant::from(md.as_ref().to_vec()));
+        values.insert(9, threshold.into());
+        values.insert(2, ErgoTermCells(terminal_cells).into());
+        values.insert(7, avl_const);
+        values.insert(3, proof);
         values.insert(8, change_for_miner.as_i64().into());
 
         let input_box = ErgoBox::new(

@@ -506,18 +506,18 @@ object ContractTesting extends IOApp {
             ContextVar.of(0.toByte, eSet),
             ContextVar
               .of(
-                1.toByte,
+                5.toByte,
                 ErgoValue.pairOf(
                   ErgoValue.of(aggrResponse._1.toArray),
                   ErgoValue.of(aggrResponse._2)
                 )
               ),
-            ContextVar.of(2.toByte, ErgoValue.of(aggregateCommitment.value)),
-            ContextVar.of(3.toByte, ErgoValue.of(md.value.toArray)),
-            ContextVar.of(4.toByte, ErgoValue.of(threshold.value)),
-            ContextVar.of(5.toByte, termCells),
-            ContextVar.of(6.toByte, ErgoValue.of(avlTreeData)),
-            ContextVar.of(7.toByte, ErgoValue.of(avlProof.value.toArray)),
+            ContextVar.of(1.toByte, ErgoValue.of(aggregateCommitment.value)),
+            ContextVar.of(6.toByte, ErgoValue.of(md.value.toArray)),
+            ContextVar.of(9.toByte, ErgoValue.of(threshold.value)),
+            ContextVar.of(2.toByte, termCells),
+            ContextVar.of(7.toByte, ErgoValue.of(avlTreeData)),
+            ContextVar.of(3.toByte, ErgoValue.of(avlProof.value.toArray)),
             ContextVar.of(8.toByte, ErgoValue.of(changeForMiner))
           )
 

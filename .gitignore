@@ -15,3 +15,5 @@ log/
 **/metals.sbt
 **/out/
 *.log
+/*.yaml
+/*.yml

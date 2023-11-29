@@ -19,7 +19,6 @@ use ergo_lib::{
             constant::Literal,
             value::{CollKind, NativeColl},
         },
-        serialization::SigmaSerializable,
     },
 };
 use nonempty::NonEmpty;
@@ -114,6 +113,10 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                 }
 
                 let AsBox(bx, vault_utxo): AsBox<VaultUtxo> = bincode::deserialize(&value_bytes).unwrap();
+                let spent_key = prefixed_key(SPENT_PREFIX, &bx.box_id());
+                if db.get(&spent_key).unwrap().is_some() {
+                    continue 'vault_iter;
+                }
                 let current_utxo_value = *bx.value.as_u64();
                 let new_token_ids = if let Some(tokens) = &bx.tokens {
                     tokens
@@ -367,79 +370,16 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct VaultUtxo {
-    #[serde(
-        serialize_with = "serialize_option_address",
-        deserialize_with = "deserialize_option_address"
-    )]
-    from_user_address: Option<Address>,
-}
+pub struct VaultUtxo {}
 
 impl TryFromBox for VaultUtxo {
     fn try_from_box(bx: ErgoBox) -> Option<Self> {
         if bx.ergo_tree == *VAULT_CONTRACT {
-            let from_user_address = if let Some(r4) = bx.additional_registers.get(NonMandatoryRegisterId::R4)
-            {
-                let RegisterValue::Parsed(c) = r4 else {
-                    return None;
-                };
-                let Literal::Coll(CollKind::NativeColl(NativeColl::CollByte(bytes_i8))) = &c.v else {
-                    return None;
-                };
-                let bytes: Vec<u8> = bytes_i8.iter().map(|b| *b as u8).collect();
-                let address = Address::p2pk_from_pk_bytes(&bytes).unwrap();
-                Some(address)
-            } else {
-                None
-            };
-            Some(VaultUtxo { from_user_address })
+            Some(VaultUtxo {})
         } else {
             None
         }
     }
-}
-
-fn serialize_option_address<S>(address: &Option<Address>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    match address {
-        Some(addr) => serializer.serialize_some(&addr.content_bytes()),
-        None => serializer.serialize_none(),
-    }
-}
-
-// Custom deserialization for Option<Address>
-fn deserialize_option_address<'de, D>(deserializer: D) -> Result<Option<Address>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    // Custom visitor to handle an Option<Address>
-    struct OptionAddressVisitor;
-
-    impl<'de> serde::de::Visitor<'de> for OptionAddressVisitor {
-        type Value = Option<Address>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("an Option<Address>")
-        }
-
-        fn visit_none<E>(self) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-
-        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-        where
-            D: serde::Deserializer<'de>,
-        {
-            let s = <Vec<u8>>::deserialize(deserializer)?;
-            Address::p2pk_from_pk_bytes(&s)
-                .map(Some)
-                .map_err(serde::de::Error::custom)
-        }
-    }
-
-    deserializer.deserialize_option(OptionAddressVisitor)
 }
 
 fn compute_token_amounts(term_cells: &[ProtoTermCell]) -> HashMap<TokenId, BigUint> {
@@ -529,7 +469,7 @@ fn box_key_prefix(prefix: &str, seq_num: usize) -> Vec<u8> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use ergo_lib::{
@@ -739,16 +679,12 @@ mod tests {
 
     #[test]
     fn vault_utxo_serialization_roundtrip() {
-        let v = VaultUtxo {
-            from_user_address: None,
-        };
+        let v = VaultUtxo {};
         let bytes = bincode::serialize(&v).unwrap();
         let deserialized_v: VaultUtxo = bincode::deserialize(&bytes).unwrap();
         assert_eq!(v, deserialized_v);
 
-        let v = VaultUtxo {
-            from_user_address: Some(generate_address()),
-        };
+        let v = VaultUtxo {};
         let bytes = bincode::serialize(&v).unwrap();
         let deserialized_v: VaultUtxo = bincode::deserialize(&bytes).unwrap();
         assert_eq!(v, deserialized_v);
@@ -761,7 +697,7 @@ mod tests {
         }
     }
 
-    fn proto_term_cell(nano_ergs: u64, tokens: Vec<Token>, address_bytes: Vec<u8>) -> ProtoTermCell {
+    pub fn proto_term_cell(nano_ergs: u64, tokens: Vec<Token>, address_bytes: Vec<u8>) -> ProtoTermCell {
         let dst = BoxDestination {
             target: ChainId::from(0),
             address: SerializedValue::from(address_bytes),
