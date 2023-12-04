@@ -34,16 +34,16 @@ use scorex_crypto_avltree::batch_node::{Node, NodeHeader};
 use serde::{Deserialize, Serialize};
 use sha2::Digest as OtherDigest;
 use sha2::Sha256;
-use spectrum_chain_connector::{InboundValue, NotarizedReport, ProtoTermCell};
+use spectrum_chain_connector::{InboundValue, NotarizedReport, ProtoTermCell, UserValue};
 use spectrum_crypto::{
     digest::{Blake2b256, Blake2bDigest256},
     pubkey::PublicKey,
 };
 use spectrum_handel::Threshold;
 use spectrum_ledger::{
-    cell::{AssetId, CustomAsset, NativeCoin, PolicyId, SValue, TermCell},
-    interop::ReportCertificate,
-    ERGO_CHAIN_ID,
+    cell::{AssetId, CustomAsset, NativeCoin, Owner, PolicyId, ProgressPoint, SValue, TermCell},
+    interop::{Point, ReportCertificate},
+    ChainId, ERGO_CHAIN_ID,
 };
 use spectrum_sigma::{sigma_aggregation::AggregateCertificate, AggregateCommitment, Commitment, Signature};
 
@@ -71,12 +71,12 @@ pub struct ErgoCell {
     pub tokens: Vec<Token>,
 }
 
-impl From<ErgoInboundCell> for InboundValue {
-    fn from(ErgoInboundCell(value): ErgoInboundCell) -> Self {
+impl From<&ErgoCell> for SValue {
+    fn from(value: &ErgoCell) -> Self {
         let mut assets = HashMap::new();
         let asset_map: HashMap<AssetId, CustomAsset> = value
             .tokens
-            .into_iter()
+            .iter()
             .map(|t| {
                 let asset_id =
                     AssetId::from(Blake2bDigest256::try_from(<Vec<u8>>::from(t.token_id)).unwrap());
@@ -85,23 +85,35 @@ impl From<ErgoInboundCell> for InboundValue {
             })
             .collect();
         assets.insert(PolicyId::from(Blake2bDigest256::zero()), asset_map);
-        let s_value = SValue {
+        SValue {
             native: NativeCoin::from(*value.ergs.as_u64()),
             assets,
-        };
+        }
+    }
+}
 
+impl From<ErgoInboundCell> for InboundValue {
+    fn from(ErgoInboundCell(value): ErgoInboundCell) -> Self {
+        let s_value = SValue::from(&value);
         let owner = match value.address {
             Address::P2Pk(pdl) => {
-                let t = pdl.h.as_ref();
+                let affine_point = ProjectivePoint::from(pdl.h.as_ref().clone()).to_affine();
+                let pk = k256::PublicKey::from_affine(affine_point).unwrap();
+                Owner::ProveDlog(pk)
             }
 
-            Address::P2S(script_bytes) => {}
+            Address::P2S(_) => {
+                unimplemented!()
+            }
             Address::P2SH(_) => {
-                unreachable!("Never Address::P2SH");
+                unimplemented!()
             }
         };
 
-        todo!()
+        Self {
+            value: s_value,
+            owner,
+        }
     }
 }
 

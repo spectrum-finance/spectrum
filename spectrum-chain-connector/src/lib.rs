@@ -105,7 +105,6 @@ pub struct Kilobytes(pub f32);
 pub struct InboundValue {
     pub value: SValue,
     pub owner: Owner,
-    pub progress_point: ProgressPoint,
 }
 
 /// Represents an intention by Spectrum-network to create a `TermCell`.

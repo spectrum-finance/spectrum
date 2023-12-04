@@ -32,7 +32,8 @@ use rocksdb::{vault_boxes::VaultBoxRepoRocksDB, withdrawals::WithdrawalRepoRocks
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use spectrum_chain_connector::{
-    DataBridge, DataBridgeComponents, TxEvent, VaultMsgOut, VaultRequest, VaultResponse, VaultStatus,
+    DataBridge, DataBridgeComponents, MovedValue, TxEvent, VaultMsgOut, VaultRequest, VaultResponse,
+    VaultStatus,
 };
 use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_deploy_lm_pool::Explorer;
@@ -195,14 +196,20 @@ async fn main() {
                         }
                     }
                     VaultRequest::SyncFrom(point) => {
-                        // What does the driver need?
-                        // Needs to know inbound deposits, confirmed withdrawals, and any rollbacks of these operations.
-                        //
                         // mock driver doesn't do anything with it
 
-                        let moved_values = vault_handler
+                        let messages: Vec<_> = vault_handler
                             .sync_consensus_driver(point.map(|p| u64::from(p.point) as u32))
-                            .await;
+                            .await
+                            .into_iter()
+                            .map(|ergo_mv| VaultMsgOut::MovedValue(MovedValue::from(ergo_mv)))
+                            .collect();
+                        let current_height = node.get_height().await;
+                        let status = vault_handler.get_vault_status(current_height);
+                        msg_out_send
+                            .send(VaultResponse { status, messages })
+                            .await
+                            .unwrap();
                     }
                     VaultRequest::RotateCommittee => todo!(),
                     VaultRequest::GetStatus => {

@@ -1,6 +1,14 @@
 use async_trait::async_trait;
+use ergo_lib::chain::transaction::TxId;
 use serde::{Deserialize, Serialize};
-use spectrum_chain_connector::{MovedValue, UserValue};
+use spectrum_chain_connector::{InboundValue, MovedValue, UserValue};
+use spectrum_crypto::digest::Blake2bDigest256;
+use spectrum_ledger::{
+    cell::{BoxDestination, ProgressPoint, SValue, TermCell},
+    interop::Point,
+    ChainId,
+};
+use spectrum_move::SerializedValue;
 
 use crate::script::{ErgoInboundCell, ErgoTermCell};
 
@@ -18,11 +26,42 @@ pub struct ErgoUserValue {
     /// Value that was successfully exported from Spectrum-network to some recipient on-chain.
     pub exported_value: Vec<ErgoTermCell>,
     pub progress_point: u32,
+    pub tx_id: TxId,
 }
 
 impl From<ErgoUserValue> for UserValue {
     fn from(value: ErgoUserValue) -> Self {
-        todo!()
+        let imported_value: Vec<_> = value.imported_value.into_iter().map(InboundValue::from).collect();
+        let exported_value = value
+            .exported_value
+            .into_iter()
+            .enumerate()
+            .map(|(index, ErgoTermCell(ec))| {
+                let digest_bytes = value.tx_id.0 .0.to_vec();
+                let tx_id = spectrum_ledger::transaction::TxId::from(
+                    Blake2bDigest256::try_from(digest_bytes).unwrap(),
+                );
+                let dst = BoxDestination {
+                    target: ChainId::from(0),
+                    address: SerializedValue::from(ec.address.content_bytes()),
+                    inputs: None,
+                };
+                TermCell {
+                    value: SValue::from(&ec),
+                    tx_id,
+                    index: index as u32,
+                    dst,
+                }
+            })
+            .collect();
+        Self {
+            imported_value,
+            exported_value,
+            progress_point: ProgressPoint {
+                chain_id: ChainId::from(0),
+                point: Point::from(value.progress_point as u64),
+            },
+        }
     }
 }
 
@@ -100,6 +139,8 @@ impl MovedValueHistory for InMemoryMovedValueHistory {
 
 #[cfg(test)]
 mod tests {
+    use ergo_lib::chain::transaction::TxId;
+
     use crate::rocksdb::moved_value_history::{InMemoryMovedValueHistory, MovedValueHistory};
 
     use super::ErgoMovedValue;
@@ -145,6 +186,7 @@ mod tests {
             imported_value: vec![],
             exported_value: vec![],
             progress_point: height,
+            tx_id: TxId::zero(),
         })
     }
 }

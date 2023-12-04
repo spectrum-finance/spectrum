@@ -165,6 +165,7 @@ where
                         imported_value: vec![],
                         exported_value,
                         progress_point: height,
+                        tx_id: tx.id(),
                     };
 
                     self.moved_value_history
@@ -229,6 +230,7 @@ where
                         imported_value: vec![],
                         exported_value,
                         progress_point: height,
+                        tx_id: tx.id(),
                     };
 
                     self.moved_value_history
