@@ -1,27 +1,43 @@
-use std::{collections::HashMap, os::unix::net::UnixStream, sync::Arc};
+use std::{
+    collections::HashMap,
+    os::unix::net::{UnixListener, UnixStream},
+    sync::Arc,
+};
 
+use async_stream::stream;
 use bounded_integer::BoundedU8;
 use chrono::Duration;
 use clap::{arg, command, Parser};
 use data_bridge::ergo::{ErgoDataBridge, ErgoDataBridgeConfig};
-use ergo_chain_sync::client::types::Url;
+use ergo_chain_sync::client::{
+    node::{ErgoNetwork, ErgoNodeHttpClient},
+    types::Url,
+};
 use ergo_lib::{
-    chain::transaction::TxIoVec,
+    chain::transaction::{Transaction, TxIoVec},
     ergo_chain_types::EcPoint,
-    ergotree_ir::chain::{
-        address::{AddressEncoder, NetworkPrefix},
-        ergo_box::BoxId,
+    ergotree_ir::{
+        chain::{
+            address::{AddressEncoder, NetworkPrefix},
+            ergo_box::BoxId,
+        },
+        ergo_tree::ErgoTree,
     },
 };
 use futures::{stream::select_all, StreamExt};
 use isahc::{config::Configurable, HttpClient};
+use k256::PublicKey;
+use log::info;
 use rocksdb::{vault_boxes::VaultBoxRepoRocksDB, withdrawals::WithdrawalRepoRocksDB};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use spectrum_chain_connector::{DataBridge, DataBridgeComponents, TxEvent, VaultMsgIn, VaultMsgOut};
+use spectrum_chain_connector::{
+    DataBridge, DataBridgeComponents, TxEvent, VaultMsgOut, VaultRequest, VaultResponse, VaultStatus,
+};
 use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_deploy_lm_pool::Explorer;
 use spectrum_handel::Threshold;
+use spectrum_ledger::cell::ProgressPoint;
 use spectrum_offchain::{
     event_sink::handlers::types::IntoBoxCandidate, network::ErgoNetwork as EN,
     transaction::TransactionCandidate,
@@ -29,12 +45,17 @@ use spectrum_offchain::{
 use spectrum_offchain_lm::{
     data::miner::MinerOutput,
     ergo::{NanoErg, DEFAULT_MINER_FEE, MIN_SAFE_BOX_VALUE},
-    prover::{SeedPhrase, SigmaProver, Wallet},
+    prover::{SeedPhrase, SigmaProver},
 };
 use tokio::sync::Mutex;
 use tokio_stream::wrappers::ReceiverStream;
-use tokio_unix_ipc::channel_from_std;
+use tokio_unix_ipc::{symmetric_channel, Bootstrapper, Receiver, Sender};
 use vault::VaultHandler;
+
+use crate::{
+    rocksdb::moved_value_history::InMemoryMovedValueHistory,
+    script::{ExtraErgoData, SignatureAggregationWithNotarizationElements},
+};
 
 mod committee;
 mod data_bridge;
@@ -46,18 +67,26 @@ mod vault;
 async fn main() {
     let args = AppArgs::parse();
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
-    let config: AppConfig = serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
+    let config_proto: AppConfigProto = serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
+    let mut config = AppConfig::from(config_proto);
 
-    //if let Some(log4rs_path) = args.log4rs_path {
-    //    log4rs::init_file(log4rs_path, Default::default()).unwrap();
-    //} else {
-    //    log4rs::init_file(config.log4rs_yaml_path, Default::default()).unwrap();
-    //}
+    if let Some(log4rs_path) = args.log4rs_path {
+        log4rs::init_file(log4rs_path, Default::default()).unwrap();
+    } else {
+        log4rs::init_file(config.log4rs_yaml_path, Default::default()).unwrap();
+    }
+
+    let node_url = config.node_addr.clone();
+    let mut seed = SeedPhrase::from(String::from(""));
+    std::mem::swap(&mut config.operator_funding_secret, &mut seed);
+    let secret_str = String::from(seed);
+    config.operator_funding_secret = SeedPhrase::from(secret_str.clone());
+    let wallet = ergo_lib::wallet::Wallet::from_mnemonic(&secret_str, "").expect("Invalid wallet seed");
 
     let ergo_bridge_config = ErgoDataBridgeConfig {
         http_client_timeout_duration_secs: config.http_client_timeout_duration_secs,
         chain_sync_starting_height: config.chain_sync_starting_height,
-        chain_cache_db_path: String::from(config.chain_cache_db_path),
+        chain_cache_db_path: config.chain_cache_db_path,
         node_addr: config.node_addr,
     };
 
@@ -79,91 +108,189 @@ async fn main() {
         base_url: explorer_url,
     };
 
+    let node = ErgoNodeHttpClient::new(client, node_url);
+
     let mut data_inputs = vec![];
-    for box_id_str in config.committee_box_ids {
-        let box_id = BoxId::try_from(String::from(box_id_str)).unwrap();
+    for box_id in config.committee_box_ids {
         let ergo_box = explorer.get_box(box_id).await.unwrap();
         data_inputs.push(ergo_box);
     }
 
-    let mut committee_public_keys = vec![];
-    for encoded_key in &config.committee_public_keys {
-        let bytes = base16::decode(&encoded_key).unwrap();
-        let pk = k256::PublicKey::from_sec1_bytes(&bytes).unwrap();
-        committee_public_keys.push(EcPoint::from(pk.to_projective()));
+    let withdrawal_repo = WithdrawalRepoRocksDB::new(&config.withdrawals_store_db_path);
+    let vault_box_repo = VaultBoxRepoRocksDB::new(&config.vault_boxes_store_db_path);
+
+    let mut vault_handler = VaultHandler::new(
+        vault_box_repo,
+        withdrawal_repo,
+        config.committee_guarding_script,
+        config.committee_public_keys,
+        TxIoVec::try_from(data_inputs).unwrap(),
+        config.chain_sync_starting_height,
+        InMemoryMovedValueHistory::new(),
+    )
+    .unwrap();
+
+    let bootstrapper = Bootstrapper::new().unwrap();
+    let path = bootstrapper.path().to_owned();
+    let (msg_in_send, msg_in_recv) = symmetric_channel::<VaultRequest<ExtraErgoData>>().unwrap();
+    let (msg_out_send, msg_out_recv) = symmetric_channel::<VaultResponse>().unwrap();
+
+    enum C {
+        FromChain(TxEvent<(Transaction, bool, u32)>),
+        FromDriver(VaultRequest<ExtraErgoData>),
     }
 
-    let withdrawal_repo = WithdrawalRepoRocksDB::new(config.withdrawals_store_db_path);
-    let vault_box_repo = VaultBoxRepoRocksDB::new(config.vault_boxes_store_db_path);
+    type CombinedStream = std::pin::Pin<Box<dyn futures::stream::Stream<Item = C> + Send>>;
 
-    let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
-    let address = encoder
-        .parse_address_from_str(config.committee_guarding_script)
-        .unwrap();
-    let committee_guarding_script = address.script().unwrap();
-    let vault_handler = Arc::new(Mutex::new(
-        VaultHandler::new(
-            vault_box_repo,
-            withdrawal_repo,
-            committee_guarding_script,
-            committee_public_keys,
-            TxIoVec::try_from(data_inputs).unwrap(),
-        )
-        .unwrap(),
-    ));
+    // Convert the tokio_unix_ipc Receiver into a stream.
+    let consensus_driver_stream = stream! {
+        loop {
+            if let Ok(msg) = msg_in_recv.recv().await {
+                yield msg;
+            }
+        }
+    };
 
-    let chain_stream = Box::pin(ReceiverStream::new(receiver).then(|ev| async {
-        vault_handler.lock().await.handle(ev).await;
-    }));
+    let streams: Vec<CombinedStream> = vec![
+        ReceiverStream::new(receiver).map(C::FromChain).boxed(),
+        consensus_driver_stream.map(C::FromDriver).boxed(),
+    ];
+    let mut combined_stream = futures::stream::select_all(streams);
 
-    // Setup unix stream
-    //let sock = UnixStream::connect(config.unix_socket_path).unwrap();
-    //let (send, recv) = channel_from_std::<VaultMsgOut, VaultMsgIn>(sock).unwrap();
-
-    //tokio::spawn(async move {
-    //    loop {
-    //        match recv.recv().await {
-    //            Ok(msg) => match msg {
-    //                VaultMsgIn::ExportValue(report) => {
-    //                    // Just hard code committee boxes for now.
-
-    //                    //
-    //                }
-    //                VaultMsgIn::RequestTxsToNotarize(constraints) => todo!(),
-    //                VaultMsgIn::SyncFrom(point) => {
-    //                    // What does the driver need?
-    //                    // Needs to know inbound deposits, confirmed withdrawals, and any rollbacks of these operations.
-    //                }
-    //                VaultMsgIn::RotateCommittee => todo!(),
-    //            },
-    //            Err(e) => {}
-    //        }
-    //    }
-    //});
-
+    bootstrapper.send((msg_in_send, msg_out_recv)).await.unwrap();
     let _ = start_signal.send(());
 
-    let mut app = select_all(vec![chain_stream]);
-    loop {
-        app.select_next_some().await;
+    while let Some(m) = combined_stream.next().await {
+        match m {
+            C::FromChain(tx_event) => {
+                vault_handler.handle(tx_event).await;
+            }
+            C::FromDriver(msg_in) => {
+                match msg_in {
+                    VaultRequest::ExportValue(report) => {
+                        let current_height = node.get_height().await;
+                        let ergo_state_context = node.get_ergo_state_context().await.unwrap();
+                        let vault_utxo = explorer
+                            .get_box(report.additional_chain_data.vault_utxo)
+                            .await
+                            .unwrap();
+                        let inputs = SignatureAggregationWithNotarizationElements::from(*report);
+                        vault_handler
+                            .export_value(
+                                inputs,
+                                ergo_state_context,
+                                current_height,
+                                vault_utxo,
+                                &node,
+                                &wallet,
+                            )
+                            .await;
+                    }
+                    VaultRequest::RequestTxsToNotarize(constraints) => {
+                        let res = vault_handler.select_txs_to_notarize(constraints).await;
+
+                        match res {
+                            Ok((included_vault_utxos, term_cell_ix)) => (),
+                            Err(e) => (),
+                        }
+                    }
+                    VaultRequest::SyncFrom(point) => {
+                        // What does the driver need?
+                        // Needs to know inbound deposits, confirmed withdrawals, and any rollbacks of these operations.
+                        //
+                        // mock driver doesn't do anything with it
+
+                        let moved_values = vault_handler
+                            .sync_consensus_driver(point.map(|p| u64::from(p.point) as u32))
+                            .await;
+                    }
+                    VaultRequest::RotateCommittee => todo!(),
+                    VaultRequest::GetStatus => {
+                        let current_height = node.get_height().await;
+                        let status = vault_handler.get_vault_status(current_height);
+                        msg_out_send
+                            .send(VaultResponse {
+                                status,
+                                messages: vec![],
+                            })
+                            .await
+                            .unwrap()
+                    }
+                }
+            }
+        }
     }
 }
 
-#[derive(Deserialize)]
-struct AppConfig<'a> {
+struct AppConfig {
     node_addr: Url,
     http_client_timeout_duration_secs: u32,
     chain_sync_starting_height: u32,
     backlog_config: BacklogConfig,
-    log4rs_yaml_path: &'a str,
-    withdrawals_store_db_path: &'a str,
-    vault_boxes_store_db_path: &'a str,
-    chain_cache_db_path: &'a str,
-    unix_socket_path: &'a str,
-    committee_public_keys: Vec<&'a str>,
-    committee_box_ids: Vec<&'a str>,
+    log4rs_yaml_path: String,
+    withdrawals_store_db_path: String,
+    vault_boxes_store_db_path: String,
+    chain_cache_db_path: String,
+    unix_socket_path: String,
+    committee_public_keys: Vec<EcPoint>,
+    committee_box_ids: Vec<BoxId>,
     /// Base58 encoding of guarding script of committee boxes
-    committee_guarding_script: &'a str,
+    committee_guarding_script: ErgoTree,
+    operator_funding_secret: SeedPhrase,
+}
+
+#[derive(Deserialize)]
+struct AppConfigProto {
+    node_addr: Url,
+    http_client_timeout_duration_secs: u32,
+    chain_sync_starting_height: u32,
+    backlog_config: BacklogConfig,
+    log4rs_yaml_path: String,
+    withdrawals_store_db_path: String,
+    vault_boxes_store_db_path: String,
+    chain_cache_db_path: String,
+    unix_socket_path: String,
+    committee_public_keys: Vec<String>,
+    committee_box_ids: Vec<BoxId>,
+    /// Base58 encoding of guarding script of committee boxes
+    committee_guarding_script: String,
+    operator_funding_secret: String,
+}
+
+impl From<AppConfigProto> for AppConfig {
+    fn from(value: AppConfigProto) -> Self {
+        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
+        let address = encoder
+            .parse_address_from_str(&value.committee_guarding_script)
+            .unwrap();
+        let committee_guarding_script = address.script().unwrap();
+
+        let committee_public_keys = value
+            .committee_public_keys
+            .into_iter()
+            .map(|pk_str| {
+                let bytes = base16::decode(&pk_str).unwrap();
+                let pk = k256::PublicKey::from_sec1_bytes(&bytes).unwrap();
+                EcPoint::from(pk.to_projective())
+            })
+            .collect();
+        let operator_funding_secret = SeedPhrase::from(value.operator_funding_secret);
+        Self {
+            node_addr: value.node_addr,
+            http_client_timeout_duration_secs: value.http_client_timeout_duration_secs,
+            chain_sync_starting_height: value.chain_sync_starting_height,
+            backlog_config: value.backlog_config,
+            log4rs_yaml_path: value.log4rs_yaml_path,
+            withdrawals_store_db_path: value.withdrawals_store_db_path,
+            vault_boxes_store_db_path: value.vault_boxes_store_db_path,
+            chain_cache_db_path: value.chain_cache_db_path,
+            unix_socket_path: value.unix_socket_path,
+            committee_public_keys,
+            committee_box_ids: value.committee_box_ids,
+            committee_guarding_script,
+            operator_funding_secret,
+        }
+    }
 }
 
 #[serde_with::serde_as]

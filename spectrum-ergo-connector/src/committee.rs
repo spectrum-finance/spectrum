@@ -31,19 +31,14 @@ pub struct FirstCommitteeBox {
 impl TryFromBoxCtx<(ErgoTree, &[EcPoint])> for FirstCommitteeBox {
     fn try_from_box(bx: ErgoBox, (guarding_script, expected_keys): (ErgoTree, &[EcPoint])) -> Option<Self> {
         if bx.ergo_tree == guarding_script {
-            println!("GUARDING SCRIPT FINE");
             let committee_index = extract_committee_index(&bx)?;
             if committee_index != 0 {
                 return None;
             }
             let public_keys = extract_committee_keys(&bx, expected_keys)?;
-            println!("BBB");
             let vault_parameters = extract_vault_parameters(&bx)?;
-            println!("CCC");
             let committee_hash = extract_committee_hash(&bx)?;
-            println!("DDD");
             extract_group_elements(&bx)?;
-            println!("EEE");
             Some(FirstCommitteeBox {
                 public_keys,
                 vault_parameters,
@@ -100,9 +95,9 @@ impl TryFromBoxCtx<(BoxValue, ErgoTree, u32, &[EcPoint])> for SubsequentCommitte
     ) -> Option<Self> {
         if bx.ergo_tree == guarding_script {
             let committee_index = extract_committee_index(&bx)? as u32;
-            if committee_index != index {
-                return None;
-            }
+            //if committee_index != index {
+            //    return None;
+            //}
             let public_keys = extract_committee_keys(&bx, expected_keys)?;
             Some(SubsequentCommitteeBox {
                 public_keys,

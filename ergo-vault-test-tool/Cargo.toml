@@ -10,7 +10,7 @@ base16 = "0.2"
 clap = { version = "4.4", features = ["derive"] }
 k256 = { version = "0.13.*", features = ["serde", "arithmetic", "expose-field", "hash2curve"] }
 ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
-ergo-lib = { version = "0.26", features = ["arbitrary", "json"] }
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", features = ["arbitrary", "json"], branch = "impl_Into_ecpoint" }
 isahc = { version = "1.7.2", features = ["json"] }
 lazy_static = "1.4.0"
 spectrum-deploy-lm-pool = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }

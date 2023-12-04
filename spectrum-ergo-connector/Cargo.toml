@@ -32,7 +32,7 @@ futures = "0.3.28"
 rocksdb = "0.21"
 tokio = { version = "1.27.0", features = ["full"] }
 tokio-unix-ipc = { git = "https://github.com/mitsuhiko/tokio-unix-ipc", branch = "main", features = ["bootstrap", "serde"] }
-ergo-lib = { version = "0.26", features = ["arbitrary", "json"] }
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", features = ["arbitrary", "json"], branch = "impl_Into_ecpoint" }
 sigma-ser = "0.13.1" 
 elliptic-curve = "0.13.5"
 sha2 = "0.10.7"
@@ -54,6 +54,7 @@ chrono = "0.4.23"
 serde_yaml = "0.9"
 tokio-stream = "0.1.14"
 rand = "0.8.5"
+async-stream = "0.3.5"
 
 [dev-dependencies]
 reqwest = "0.11"

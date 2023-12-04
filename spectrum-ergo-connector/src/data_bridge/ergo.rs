@@ -7,13 +7,15 @@ use ergo_chain_sync::{
     rocksdb::RocksConfig,
     ChainSync,
 };
+use ergo_lib::chain::transaction::Transaction;
 use futures::StreamExt;
 use isahc::{prelude::Configurable, HttpClient};
 use spectrum_chain_connector::{DataBridge, DataBridgeComponents, TxEvent};
 use spectrum_offchain::event_source::{data::LedgerTxEvent, event_source_ledger};
 
 pub struct ErgoDataBridge {
-    pub receiver: tokio::sync::mpsc::Receiver<TxEvent<ergo_lib::chain::transaction::Transaction>>,
+    pub receiver:
+        tokio::sync::mpsc::Receiver<TxEvent<(ergo_lib::chain::transaction::Transaction, bool, u32)>>,
     tx_start: tokio::sync::oneshot::Sender<()>,
 }
 
@@ -36,7 +38,7 @@ impl ErgoDataBridge {
 }
 
 impl DataBridge for ErgoDataBridge {
-    type TxType = ergo_lib::chain::transaction::Transaction;
+    type TxType = (ergo_lib::chain::transaction::Transaction, bool, u32);
 
     fn get_components(self) -> DataBridgeComponents<Self::TxType> {
         DataBridgeComponents {
@@ -47,7 +49,7 @@ impl DataBridge for ErgoDataBridge {
 }
 
 async fn run_bridge(
-    tx: tokio::sync::mpsc::Sender<TxEvent<ergo_lib::chain::transaction::Transaction>>,
+    tx: tokio::sync::mpsc::Sender<TxEvent<(ergo_lib::chain::transaction::Transaction, bool, u32)>>,
     rx_start: tokio::sync::oneshot::Receiver<()>,
     config: ErgoDataBridgeConfig,
 ) {
@@ -81,12 +83,30 @@ async fn run_bridge(
 
     let mut tx_stream = Box::pin(event_source_ledger(chain_sync_stream(chain_sync)));
     while let Some(event) = tx_stream.next().await {
+        let tip_reached = signal_tip_reached.is_completed();
         let event = match event {
-            LedgerTxEvent::AppliedTx { tx, .. } => TxEvent::AppliedTx(tx),
-            LedgerTxEvent::UnappliedTx(tx) => TxEvent::UnappliedTx(tx),
+            LedgerTxEvent::AppliedTx { tx, .. } => {
+                let height = greatest_height(&tx);
+                TxEvent::AppliedTx((tx, tip_reached, height))
+            }
+            LedgerTxEvent::UnappliedTx(tx) => {
+                let height = greatest_height(&tx);
+                TxEvent::UnappliedTx((tx, tip_reached, height))
+            }
         };
         tx.send(event).await.unwrap();
     }
+}
+
+/// Returns greatest reported height of all output boxes of the TX
+fn greatest_height(tx: &Transaction) -> u32 {
+    tx.outputs.iter().fold(0, |acc, x| {
+        if x.creation_height > acc {
+            x.creation_height
+        } else {
+            acc
+        }
+    })
 }
 
 #[cfg(test)]
@@ -114,11 +134,11 @@ mod tests {
         for _ in 0..10 {
             let tx = receiver.recv().await.unwrap();
             match tx {
-                TxEvent::AppliedTx(tx) => {
+                TxEvent::AppliedTx((tx, _, _)) => {
                     let height = tx.outputs.first().creation_height;
                     println!("AppliedTx: {:?}, height: {}", tx.id(), height);
                 }
-                TxEvent::UnappliedTx(tx) => {
+                TxEvent::UnappliedTx((tx, _, _)) => {
                     let height = tx.outputs.first().creation_height;
                     println!("UnappliedTx: {:?}, height: {}", tx.id(), height);
                 }

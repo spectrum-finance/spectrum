@@ -41,8 +41,8 @@ use crate::script::{estimate_tx_size_in_kb, VAULT_CONTRACT};
 pub trait VaultBoxRepo {
     /// Collect vault boxes that meet the specified `constraints`.
     async fn collect(
-        &mut self,
-        contraints: NotarizedReportConstraints,
+        &self,
+        constraints: NotarizedReportConstraints,
     ) -> Result<(NonEmpty<ErgoBox>, usize), ()>;
     async fn put_confirmed(&mut self, df: Confirmed<AsBox<VaultUtxo>>);
     async fn put_predicted(&mut self, df: Predicted<AsBox<VaultUtxo>>);
@@ -68,7 +68,7 @@ impl VaultBoxRepoRocksDB {
 #[async_trait(?Send)]
 impl VaultBoxRepo for VaultBoxRepoRocksDB {
     async fn collect(
-        &mut self,
+        &self,
         constraints: NotarizedReportConstraints,
     ) -> Result<(NonEmpty<ErgoBox>, usize), ()> {
         let db = self.db.clone();

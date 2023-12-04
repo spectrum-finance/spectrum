@@ -15,6 +15,7 @@ pub trait WithdrawalRepo {
     async fn get_confirmation_height(&self, box_id: BoxId) -> Option<u32>;
     async fn put_confirmed(&mut self, df: Confirmed<ErgoBox>);
     async fn put_predicted(&mut self, df: Predicted<ErgoBox>);
+    async fn may_exist(&self, box_id: BoxId) -> bool;
     async fn remove(&mut self, fid: BoxId);
 }
 
@@ -34,6 +35,10 @@ impl WithdrawalRepo for WithdrawalRepoRocksDB {
 
     async fn put_predicted(&mut self, bx: Predicted<ErgoBox>) {
         self.0.put_predicted(bx).await
+    }
+
+    async fn may_exist(&self, box_id: BoxId) -> bool {
+        self.0.may_exist(box_id).await
     }
 
     async fn remove(&mut self, box_id: BoxId) {

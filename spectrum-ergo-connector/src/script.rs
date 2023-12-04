@@ -1,4 +1,4 @@
-use std::hash::Hash;
+use std::{collections::HashMap, hash::Hash};
 
 use derive_more::From;
 use elliptic_curve::ops::{LinearCombination, Reduce};
@@ -8,11 +8,15 @@ use ergo_lib::{
         bigint256::BigInt256,
         chain::{
             address::{Address, AddressEncoder, NetworkPrefix},
-            ergo_box::box_value::{BoxValue, BoxValueError},
+            ergo_box::{
+                box_value::{BoxValue, BoxValueError},
+                BoxId, ErgoBox,
+            },
             token::{Token, TokenAmount, TokenAmountError, TokenId},
         },
         ergo_tree::ErgoTree,
         mir::{
+            avl_tree_data::AvlTreeData,
             constant::{Constant, Literal},
             value::CollKind,
         },
@@ -23,16 +27,25 @@ use ergo_lib::{
         },
     },
 };
-use k256::{schnorr::Signature, FieldElement, NonZeroScalar, ProjectivePoint, Scalar, U256};
+use k256::{FieldElement, NonZeroScalar, ProjectivePoint, Scalar, U256};
 use lazy_static::lazy_static;
 use num_bigint::{BigUint, Sign, ToBigUint};
 use scorex_crypto_avltree::batch_node::{Node, NodeHeader};
+use serde::{Deserialize, Serialize};
 use sha2::Digest as OtherDigest;
 use sha2::Sha256;
-use spectrum_chain_connector::ProtoTermCell;
-use spectrum_crypto::digest::Blake2bDigest256;
-use spectrum_ledger::{cell::TermCell, ERGO_CHAIN_ID};
-use spectrum_sigma::Commitment;
+use spectrum_chain_connector::{InboundValue, NotarizedReport, ProtoTermCell};
+use spectrum_crypto::{
+    digest::{Blake2b256, Blake2bDigest256},
+    pubkey::PublicKey,
+};
+use spectrum_handel::Threshold;
+use spectrum_ledger::{
+    cell::{AssetId, CustomAsset, NativeCoin, PolicyId, SValue, TermCell},
+    interop::ReportCertificate,
+    ERGO_CHAIN_ID,
+};
+use spectrum_sigma::{sigma_aggregation::AggregateCertificate, AggregateCommitment, Commitment, Signature};
 
 const VAULT_CONTRACT_SCRIPT_BYTES: &str = "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";
 
@@ -43,19 +56,162 @@ lazy_static! {
         .script()
         .unwrap();
 }
-pub struct ErgoTermCell {
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ErgoTermCell(pub ErgoCell);
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ErgoInboundCell(pub ErgoCell);
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(from = "ErgoCellProto", into = "ErgoCellProto")]
+pub struct ErgoCell {
     pub ergs: BoxValue,
     pub address: Address,
     pub tokens: Vec<Token>,
 }
 
+impl From<ErgoInboundCell> for InboundValue {
+    fn from(ErgoInboundCell(value): ErgoInboundCell) -> Self {
+        let mut assets = HashMap::new();
+        let asset_map: HashMap<AssetId, CustomAsset> = value
+            .tokens
+            .into_iter()
+            .map(|t| {
+                let asset_id =
+                    AssetId::from(Blake2bDigest256::try_from(<Vec<u8>>::from(t.token_id)).unwrap());
+                let custom_asset = CustomAsset::from(*t.amount.as_u64());
+                (asset_id, custom_asset)
+            })
+            .collect();
+        assets.insert(PolicyId::from(Blake2bDigest256::zero()), asset_map);
+        let s_value = SValue {
+            native: NativeCoin::from(*value.ergs.as_u64()),
+            assets,
+        };
+
+        let owner = match value.address {
+            Address::P2Pk(pdl) => {
+                let t = pdl.h.as_ref();
+            }
+
+            Address::P2S(script_bytes) => {}
+            Address::P2SH(_) => {
+                unreachable!("Never Address::P2SH");
+            }
+        };
+
+        todo!()
+    }
+}
+
+impl From<&ErgoBox> for ErgoCell {
+    fn from(value: &ErgoBox) -> Self {
+        let address = Address::recreate_from_ergo_tree(&value.ergo_tree).unwrap();
+        let tokens = value
+            .tokens
+            .clone()
+            .map(|tokens| tokens.as_vec().clone())
+            .unwrap_or_default();
+        let ergs = value.value;
+        Self {
+            ergs,
+            address,
+            tokens,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ErgoCellProto {
+    pub ergs: BoxValue,
+    pub address_base58_string: String,
+    pub tokens: Vec<Token>,
+}
+
+impl From<ErgoCellProto> for ErgoCell {
+    fn from(value: ErgoCellProto) -> Self {
+        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
+        let address = encoder
+            .parse_address_from_str(&value.address_base58_string)
+            .unwrap();
+        Self {
+            ergs: value.ergs,
+            address,
+            tokens: value.tokens,
+        }
+    }
+}
+
+impl From<ErgoCell> for ErgoCellProto {
+    fn from(value: ErgoCell) -> Self {
+        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
+        Self {
+            ergs: value.ergs,
+            address_base58_string: encoder.address_to_str(&value.address),
+            tokens: value.tokens,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(from = "ExtraErgoDataProto", into = "ExtraErgoDataProto")]
+pub struct ExtraErgoData {
+    pub starting_avl_tree: AvlTreeData,
+    pub proof: Vec<u8>,
+    pub max_miner_fee: i64,
+    pub threshold: Threshold,
+    pub vault_utxo: BoxId,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ExtraErgoDataProto {
+    /// Base16-encoded byte representation of the starting AVL tree.
+    starting_avl_tree: String,
+    /// Base 16 encoded byte representation of the AVL tree proof.
+    proof: String,
+    max_miner_fee: i64,
+    threshold: Threshold,
+    vault_utxo: BoxId,
+}
+
+impl From<ExtraErgoDataProto> for ExtraErgoData {
+    fn from(value: ExtraErgoDataProto) -> Self {
+        let avl_tree_bytes = base16::decode(&value.starting_avl_tree).unwrap();
+        let starting_avl_tree = AvlTreeData::sigma_parse_bytes(&avl_tree_bytes).unwrap();
+        let proof_bytes = base16::decode(&value.proof).unwrap();
+        Self {
+            starting_avl_tree,
+            proof: proof_bytes,
+            max_miner_fee: value.max_miner_fee,
+            threshold: value.threshold,
+            vault_utxo: value.vault_utxo,
+        }
+    }
+}
+
+impl From<ExtraErgoData> for ExtraErgoDataProto {
+    fn from(value: ExtraErgoData) -> Self {
+        let starting_avl_tree_bytes = value.starting_avl_tree.sigma_serialize_bytes().unwrap();
+        let starting_avl_tree = base16::encode_lower(&starting_avl_tree_bytes);
+        let proof = base16::encode_lower(&value.proof);
+        Self {
+            starting_avl_tree,
+            proof,
+            max_miner_fee: value.max_miner_fee,
+            threshold: value.threshold,
+            vault_utxo: value.vault_utxo,
+        }
+    }
+}
+
 impl ErgoTermCell {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut res = vec![];
-        res.extend_from_slice(&self.ergs.as_i64().to_be_bytes());
-        let prop_bytes = self.address.script().unwrap().sigma_serialize_bytes().unwrap();
+        res.extend_from_slice(&self.0.ergs.as_i64().to_be_bytes());
+        let prop_bytes = self.0.address.script().unwrap().sigma_serialize_bytes().unwrap();
         res.extend(prop_bytes);
-        for Token { token_id, amount } in &self.tokens {
+        for Token { token_id, amount } in &self.0.tokens {
             let digest = ergo_lib::ergo_chain_types::Digest32::from(*token_id);
             res.extend(digest.0);
             res.extend(&(*amount.as_u64()).to_be_bytes());
@@ -66,13 +222,60 @@ impl ErgoTermCell {
 
 impl Hash for ErgoTermCell {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.ergs.as_i64().hash(state);
-        let prop_bytes = self.address.script().unwrap().sigma_serialize_bytes().unwrap();
+        self.0.ergs.as_i64().hash(state);
+        let prop_bytes = self.0.address.script().unwrap().sigma_serialize_bytes().unwrap();
         prop_bytes.hash(state);
-        for Token { token_id, amount } in &self.tokens {
+        for Token { token_id, amount } in &self.0.tokens {
             let digest = ergo_lib::ergo_chain_types::Digest32::from(*token_id);
             digest.0.hash(state);
             (*amount.as_u64() as i64).hash(state);
+        }
+    }
+}
+
+pub struct SignatureAggregationWithNotarizationElements {
+    pub aggregate_commitment: AggregateCommitment,
+    pub aggregate_response: Scalar,
+    pub exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
+    pub threshold: Threshold,
+    pub starting_avl_tree: AvlTreeData,
+    pub proof: Vec<u8>,
+    pub resulting_digest: Vec<u8>,
+    pub terminal_cells: Vec<ErgoTermCell>,
+    pub max_miner_fee: i64,
+}
+
+impl From<NotarizedReport<ExtraErgoData>> for SignatureAggregationWithNotarizationElements {
+    fn from(value: NotarizedReport<ExtraErgoData>) -> Self {
+        let ReportCertificate::SchnorrK256(AggregateCertificate {
+            message_digest,
+            aggregate_commitment,
+            aggregate_response,
+            exclusion_set,
+        }): ReportCertificate = value.certificate;
+        let ExtraErgoData {
+            starting_avl_tree,
+            proof,
+            max_miner_fee,
+            threshold,
+            ..
+        } = value.additional_chain_data;
+
+        let terminal_cells = value
+            .value_to_export
+            .into_iter()
+            .map(|tc| ErgoTermCell::try_from(tc).unwrap())
+            .collect();
+        Self {
+            aggregate_commitment,
+            aggregate_response,
+            exclusion_set,
+            threshold,
+            starting_avl_tree,
+            proof,
+            max_miner_fee,
+            resulting_digest: message_digest.as_ref().to_vec(),
+            terminal_cells,
         }
     }
 }
@@ -139,11 +342,11 @@ impl TryFrom<TermCell> for ErgoTermCell {
                 })
                 .collect();
 
-            Ok(ErgoTermCell {
+            Ok(ErgoTermCell(ErgoCell {
                 ergs,
                 address,
                 tokens,
-            })
+            }))
         } else {
             Err(ErgoTermCellError::WrongChainId)
         }
@@ -176,11 +379,11 @@ impl TryFrom<ProtoTermCell> for ErgoTermCell {
             })
             .collect();
 
-        Ok(ErgoTermCell {
+        Ok(ErgoTermCell(ErgoCell {
             ergs,
             address,
             tokens,
-        })
+        }))
     }
 }
 
@@ -189,6 +392,7 @@ impl From<ErgoTermCell> for Constant {
         // The Constant is of the form (nanoErg, (propositionBytes, tokens)), with type
         //    (Long, (Coll[Byte], Coll[(Coll[Byte], Long)]))
         //
+        let cell = cell.0;
         let nano_ergs: Constant = cell.ergs.into();
         let prop_bytes: Constant = cell
             .address
@@ -269,7 +473,7 @@ pub fn serialize_exclusion_set(
         }
     });
     for (ix, verifying_key, signature) in filtered_exclusion_set {
-        let signature_bytes = signature.to_bytes();
+        let signature_bytes = k256::schnorr::Signature::from(signature).to_bytes();
 
         // The components (r,s) of the taproot `Signature` struct are not public, but we can
         // extract it through its byte representation.
@@ -479,7 +683,7 @@ pub mod tests {
     use indexmap::IndexMap;
     use itertools::Itertools;
     use k256::{
-        schnorr::{signature::Signer, Signature, SigningKey},
+        schnorr::{signature::Signer, SigningKey},
         ProjectivePoint, Scalar, SecretKey,
     };
     use num_bigint::BigUint;
@@ -502,18 +706,18 @@ pub mod tests {
             aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof,
             individual_input, response, schnorr_commitment_pair, verify, verify_response,
         },
-        AggregateCommitment, Commitment,
+        AggregateCommitment, Commitment, Signature,
     };
     use std::collections::HashMap;
     use std::iter::repeat;
     use std::time::Instant;
 
     use crate::script::{
-        estimate_tx_size_in_kb, scalar_to_biguint, serialize_exclusion_set, ErgoTermCell, ErgoTermCells,
-        VAULT_CONTRACT, VAULT_CONTRACT_SCRIPT_BYTES,
+        estimate_tx_size_in_kb, scalar_to_biguint, serialize_exclusion_set, ErgoCell, ErgoTermCell,
+        ErgoTermCells, VAULT_CONTRACT, VAULT_CONTRACT_SCRIPT_BYTES,
     };
 
-    use super::dummy_resolver;
+    use super::{dummy_resolver, SignatureAggregationWithNotarizationElements};
 
     const KEY_LENGTH: usize = 8;
     const VALUE_LENGTH: usize = 32;
@@ -540,9 +744,9 @@ pub mod tests {
 
     #[test]
     fn verify_vault_contract_sigma_rust() {
-        let num_byzantine_nodes = vec![34];
+        let num_byzantine_nodes = vec![17];
 
-        let num_participants = 128;
+        let num_participants = 64;
         let epoch_len = 720;
         let current_epoch = 3;
         let threshold = Threshold { num: 2, denom: 4 };
@@ -593,7 +797,7 @@ pub mod tests {
     }
 
     async fn verify_vault_ergoscript_with_sigmastate(
-        inputs: SignatureAggregationWithNotarizationElements,
+        (inputs, committee): (SignatureAggregationWithNotarizationElements, Vec<PublicKey>),
         num_participants: usize,
         epoch_len: i32,
         current_epoch: i32,
@@ -602,12 +806,12 @@ pub mod tests {
             aggregate_commitment,
             aggregate_response,
             exclusion_set,
-            committee,
             threshold,
             starting_avl_tree,
             proof,
             resulting_digest,
             terminal_cells,
+            max_miner_fee,
         } = inputs;
         let threshold = (num_participants * threshold.num / threshold.denom) as i32;
         let c_bytes = committee.iter().fold(Vec::<u8>::new(), |mut b, p| {
@@ -681,7 +885,7 @@ pub mod tests {
         let proof = Constant::from(proof);
         let avl_const = Constant::from(starting_avl_tree);
         let num_withdrawals = terminal_cells.len();
-        let num_token_occurrences = terminal_cells.iter().fold(0, |acc, tc| tc.tokens.len() + acc);
+        let num_token_occurrences = terminal_cells.iter().fold(0, |acc, tc| tc.0.tokens.len() + acc);
         let input = VaultValidationInput {
             signature_input,
             terminal_cells: Constant::from(ErgoTermCells(terminal_cells))
@@ -849,7 +1053,10 @@ pub mod tests {
             let signature = signing_key.sign(msg);
             sigs.push((
                 i as usize,
-                Some((Commitment::from(*signing_key.verifying_key()), signature)),
+                Some((
+                    Commitment::from(*signing_key.verifying_key()),
+                    Signature::from(signature),
+                )),
             ));
         }
 
@@ -930,7 +1137,7 @@ pub mod tests {
         num_notarized_txs: usize,
         max_num_tokens: usize,
         max_miner_fee: i64,
-    ) -> SignatureAggregationWithNotarizationElements {
+    ) -> (SignatureAggregationWithNotarizationElements, Vec<PublicKey>) {
         let mut rng = OsRng;
         let mut byz_indexes = vec![];
         if num_byzantine_nodes > 0 {
@@ -988,11 +1195,11 @@ pub mod tests {
                 } else {
                     vec![]
                 };
-                ErgoTermCell {
+                ErgoTermCell(ErgoCell {
                     ergs,
                     address,
                     tokens,
-                }
+                })
             })
             .collect();
 
@@ -1082,37 +1289,28 @@ pub mod tests {
             md,
             threshold,
         ));
-        let k256_exclusion_set: Vec<_> = exclusion_set
-            .into_iter()
-            .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
-            .collect();
-        SignatureAggregationWithNotarizationElements {
-            aggregate_commitment,
-            aggregate_response,
-            exclusion_set: k256_exclusion_set,
+        //let k256_exclusion_set: Vec<_> = exclusion_set
+        //    .into_iter()
+        //    .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
+        //    .collect();
+        (
+            SignatureAggregationWithNotarizationElements {
+                aggregate_commitment,
+                aggregate_response,
+                exclusion_set,
+                threshold,
+                starting_avl_tree: avl_tree_data,
+                proof,
+                resulting_digest,
+                terminal_cells,
+                max_miner_fee,
+            },
             committee,
-            threshold,
-            starting_avl_tree: avl_tree_data,
-            proof,
-            resulting_digest,
-            terminal_cells,
-        }
-    }
-
-    pub struct SignatureAggregationWithNotarizationElements {
-        aggregate_commitment: AggregateCommitment,
-        aggregate_response: Scalar,
-        exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
-        committee: Vec<PublicKey>,
-        threshold: Threshold,
-        starting_avl_tree: AvlTreeData,
-        proof: Vec<u8>,
-        resulting_digest: Vec<u8>,
-        terminal_cells: Vec<ErgoTermCell>,
+        )
     }
 
     fn verify_vault_contract_ergoscript_with_sigma_rust(
-        inputs: SignatureAggregationWithNotarizationElements,
+        (inputs, committee): (SignatureAggregationWithNotarizationElements, Vec<PublicKey>),
         num_participants: usize,
         epoch_len: i32,
         current_epoch: i32,
@@ -1121,12 +1319,12 @@ pub mod tests {
             aggregate_commitment,
             aggregate_response,
             exclusion_set,
-            committee,
             threshold,
             starting_avl_tree,
             proof,
             resulting_digest,
             terminal_cells,
+            max_miner_fee,
         } = inputs;
         let c_bytes = committee.iter().fold(Vec::<u8>::new(), |mut b, p| {
             b.extend_from_slice(
@@ -1179,7 +1377,7 @@ pub mod tests {
         let proof = Constant::from(proof);
         let avl_const = Constant::from(starting_avl_tree);
         let num_withdrawals = terminal_cells.len();
-        let num_token_occurrences = terminal_cells.iter().fold(0, |acc, tc| tc.tokens.len() + acc);
+        let num_token_occurrences = terminal_cells.iter().fold(0, |acc, tc| tc.0.tokens.len() + acc);
 
         let current_height = 900000_i32;
 
@@ -1187,11 +1385,11 @@ pub mod tests {
         let mut term_cell_outputs: Vec<_> = terminal_cells
             .iter()
             .map(
-                |ErgoTermCell {
+                |ErgoTermCell(ErgoCell {
                      ergs,
                      address,
                      tokens,
-                 }| {
+                 })| {
                     let tokens = if tokens.is_empty() {
                         None
                     } else {
@@ -1209,7 +1407,7 @@ pub mod tests {
             .collect();
 
         let initial_vault_balance = 2000000000_i64;
-        let ergs_to_distribute: i64 = terminal_cells.iter().map(|t| t.ergs.as_i64()).sum();
+        let ergs_to_distribute: i64 = terminal_cells.iter().map(|t| t.0.ergs.as_i64()).sum();
 
         let mut values = IndexMap::new();
         values.insert(0, exclusion_set_data);

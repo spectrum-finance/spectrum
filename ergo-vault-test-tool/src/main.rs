@@ -259,14 +259,12 @@ async fn create_committee_boxes(config: &mut AppConfig) {
     let selection_value = BoxValue::try_from(accumulated_cost).unwrap();
     let box_selector = SimpleBoxSelector::new();
 
-    println!("NEED {:?} nErgs", selection_value);
     let box_selection = box_selector.select(utxos, selection_value, &[]).unwrap();
     let funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
         acc + NanoErg::from(ergobox.value)
     });
     let funds_remain = funds_total.safe_sub(accumulated_cost);
     if funds_remain >= MIN_SAFE_BOX_VALUE {
-        println!("XXXXXXXXXXXXX funds remain: {}", funds_remain);
         let builder = ErgoBoxCandidateBuilder::new(
             BoxValue::from(funds_remain),
             guarding_script,
@@ -274,7 +272,6 @@ async fn create_committee_boxes(config: &mut AppConfig) {
         );
         output_candidates.push(builder.build().unwrap());
     } else {
-        println!("YYYYYYYYYYYYYY");
         miner_output.erg_value = miner_output.erg_value + funds_remain;
     }
     output_candidates.push(miner_output.into_candidate(current_height as u32));

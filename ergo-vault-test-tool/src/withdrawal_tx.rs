@@ -17,11 +17,12 @@ use ergo_lib::{
             avl_tree_data::{AvlTreeData, AvlTreeFlags},
             constant::Constant,
         },
+        serialization::SigmaSerializable,
     },
     wallet::{miner_fee::MINERS_FEE_ADDRESS, tx_context::TransactionContext, Wallet},
 };
 use indexmap::IndexMap;
-use k256::{schnorr::Signature, ProjectivePoint, Scalar, SecretKey};
+use k256::{ProjectivePoint, Scalar, SecretKey};
 use num_bigint::{BigUint, Sign};
 use rand::{rngs::OsRng, Rng};
 use scorex_crypto_avltree::{
@@ -30,6 +31,7 @@ use scorex_crypto_avltree::{
     batch_node::AVLTree,
     operation::{KeyValue, Operation},
 };
+use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::ProtoTermCell;
 use spectrum_crypto::{digest::blake2b256_hash, pubkey::PublicKey};
 use spectrum_handel::Threshold;
@@ -38,11 +40,11 @@ use spectrum_sigma::{
         aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
         response, schnorr_commitment_pair, verify, verify_response,
     },
-    AggregateCommitment, Commitment,
+    AggregateCommitment, Commitment, Signature,
 };
 
 use spectrum_ergo_connector::script::{
-    dummy_resolver, scalar_to_biguint, serialize_exclusion_set, ErgoTermCell, ErgoTermCells,
+    dummy_resolver, scalar_to_biguint, serialize_exclusion_set, ErgoCell, ErgoTermCell, ErgoTermCells,
 };
 
 use crate::VAULT_CONTRACT;
@@ -195,7 +197,12 @@ pub fn simulate_signature_aggregation_notarized_proofs(
     ));
     let k256_exclusion_set: Vec<_> = exclusion_set
         .into_iter()
-        .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
+        .map(|(ix, pair)| {
+            (
+                ix,
+                pair.map(|(c, s)| (c, Signature::from(k256::schnorr::Signature::from(s)))),
+            )
+        })
         .collect();
     SignatureAggregationWithNotarizationElements {
         aggregate_commitment,
@@ -272,11 +279,11 @@ pub fn verify_vault_contract_ergoscript_with_sigma_rust(
     let mut term_cell_outputs: Vec<_> = terminal_cells
         .iter()
         .map(
-            |ErgoTermCell {
+            |ErgoTermCell(ErgoCell {
                  ergs,
                  address,
                  tokens,
-             }| {
+             })| {
                 let tokens = if tokens.is_empty() {
                     None
                 } else {
@@ -294,7 +301,7 @@ pub fn verify_vault_contract_ergoscript_with_sigma_rust(
         .collect();
 
     let initial_vault_balance = vault_utxo.value.as_i64();
-    let ergs_to_distribute: i64 = terminal_cells.iter().map(|t| t.ergs.as_i64()).sum();
+    let ergs_to_distribute: i64 = terminal_cells.iter().map(|t| t.0.ergs.as_i64()).sum();
 
     let mut values = IndexMap::new();
     values.insert(0, exclusion_set_data);
