@@ -176,7 +176,7 @@ async fn main() {
                             .await
                             .unwrap();
                         let inputs = SignatureAggregationWithNotarizationElements::from(*report);
-                        vault_handler
+                        let submitted = vault_handler
                             .export_value(
                                 inputs,
                                 ergo_state_context,
@@ -186,6 +186,18 @@ async fn main() {
                                 &wallet,
                             )
                             .await;
+
+                        let status = vault_handler.get_vault_status(current_height);
+
+                        let messages = if submitted {
+                            vec![VaultMsgOut::ExportValueSubmitted]
+                        } else {
+                            vec![VaultMsgOut::ExportValueFailed]
+                        };
+                        msg_out_send
+                            .send(VaultResponse { status, messages })
+                            .await
+                            .unwrap();
                     }
                     VaultRequest::RequestTxsToNotarize(constraints) => {
                         let res = vault_handler.select_txs_to_notarize(constraints).await;
@@ -211,12 +223,12 @@ async fn main() {
                             .await
                             .unwrap();
                     }
-                    VaultRequest::RotateCommittee => todo!(),
                     VaultRequest::GetStatus => {
                         let current_height = node.get_height().await;
                         let response = vault_handler.get_vault_status_response(current_height);
                         msg_out_send.send(response).await.unwrap()
                     }
+                    VaultRequest::RotateCommittee => todo!(),
                 }
             }
         }

@@ -34,6 +34,7 @@ pub enum VaultMsgOut {
     MovedValue(MovedValue),
     ProposedTxsToNotarize(Vec<usize>),
     ExportValueFailed,
+    ExportValueSubmitted,
 }
 
 /// Represents on-chain value of users that may be applied or rollback'ed on.
