@@ -214,14 +214,8 @@ async fn main() {
                     VaultRequest::RotateCommittee => todo!(),
                     VaultRequest::GetStatus => {
                         let current_height = node.get_height().await;
-                        let status = vault_handler.get_vault_status(current_height);
-                        msg_out_send
-                            .send(VaultResponse {
-                                status,
-                                messages: vec![],
-                            })
-                            .await
-                            .unwrap()
+                        let response = vault_handler.get_vault_status_response(current_height);
+                        msg_out_send.send(response).await.unwrap()
                     }
                 }
             }

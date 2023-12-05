@@ -29,7 +29,9 @@ use indexmap::IndexMap;
 use k256::ProjectivePoint;
 use nonempty::NonEmpty;
 use num_bigint::{BigUint, Sign};
-use spectrum_chain_connector::{MovedValue, NotarizedReportConstraints, ProtoTermCell, TxEvent, VaultStatus};
+use spectrum_chain_connector::{
+    MovedValue, NotarizedReportConstraints, ProtoTermCell, TxEvent, VaultMsgOut, VaultResponse, VaultStatus,
+};
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_ledger::{
     cell::{AssetId, BoxDestination, CustomAsset, NativeCoin, PolicyId, ProgressPoint, SValue},
@@ -72,6 +74,7 @@ pub struct VaultHandler<MVH> {
     synced_block_heights: VecDeque<u32>,
     sync_starting_height: u32,
     moved_value_history: MVH,
+    moved_values_since_last_status_check: Vec<MovedValue>,
 }
 
 impl<MVH> VaultHandler<MVH>
@@ -127,6 +130,7 @@ where
             synced_block_heights: VecDeque::with_capacity(MAX_SYNCED_BLOCK_HEIGHTS),
             sync_starting_height,
             moved_value_history,
+            moved_values_since_last_status_check: vec![],
         })
     }
 
@@ -168,9 +172,10 @@ where
                         tx_id: tx.id(),
                     };
 
-                    self.moved_value_history
-                        .append(moved_value_history::ErgoMovedValue::Applied(user_value))
-                        .await;
+                    let ergo_moved_value = moved_value_history::ErgoMovedValue::Applied(user_value);
+                    self.moved_values_since_last_status_check
+                        .push(MovedValue::from(ergo_moved_value.clone()));
+                    self.moved_value_history.append(ergo_moved_value).await;
 
                     if height > self.synced_block_heights.back().copied().unwrap_or(0) {
                         if self.synced_block_heights.len() == MAX_SYNCED_BLOCK_HEIGHTS {
@@ -179,32 +184,6 @@ where
                         self.synced_block_heights.push_back(height);
                     }
                 }
-                //else {
-                //    // println!("tx@ height {}", tx.outputs.first().creation_height);
-                //    // Vault deposit TX (TODO)
-                //    for output in tx.outputs {
-                //        if output.ergo_tree == VAULT_CONTRACT.clone() {
-                //            println!("Box_id {} is  a vault UTxO", output.box_id());
-                //            let as_box = AsBox(output.clone(), VaultUtxo::try_from_box(output).unwrap());
-                //            self.vault_box_repo.put_confirmed(Confirmed(as_box)).await;
-
-                //            // let constraints = NotarizedReportConstraints {
-                //            //     term_cells: vec![
-                //            //         proto_term_cell(u64::from(MIN_SAFE_BOX_VALUE), vec![], vec![0]),
-                //            //         proto_term_cell(500_000, vec![], vec![0]),
-                //            //     ],
-                //            //     last_progress_point: ProgressPoint {
-                //            //         chain_id: ChainId::from(0),
-                //            //         point: Point::from(1138759),
-                //            //     },
-                //            //     max_tx_size: spectrum_chain_connector::Kilobytes(3.0),
-                //            //     estimated_number_of_byzantine_nodes: 0,
-                //            // };
-                //            // let utxos = self.vault_box_repo.collect(constraints).await.unwrap();
-                //            // println!("Collected: {:?}", utxos);
-                //        }
-                //    }
-                //}
             }
             TxEvent::UnappliedTx((tx, _, height)) => {
                 if self.is_vault_withdrawal_tx(&tx).await {
@@ -233,9 +212,10 @@ where
                         tx_id: tx.id(),
                     };
 
-                    self.moved_value_history
-                        .append(moved_value_history::ErgoMovedValue::Unapplied(user_value))
-                        .await;
+                    let ergo_moved_value = moved_value_history::ErgoMovedValue::Unapplied(user_value);
+                    self.moved_values_since_last_status_check
+                        .push(MovedValue::from(ergo_moved_value.clone()));
+                    self.moved_value_history.append(ergo_moved_value).await;
 
                     if let Some(last_synced_height) = self.synced_block_heights.back() {
                         if *last_synced_height == height {
@@ -329,6 +309,23 @@ where
         } else {
             VaultStatus::Synced(current_progress_point)
         }
+    }
+
+    pub fn get_vault_status_response(&mut self, current_height: u32) -> VaultResponse {
+        let status = self.get_vault_status(current_height);
+
+        let mut new_moved_values = vec![];
+        std::mem::swap(
+            &mut self.moved_values_since_last_status_check,
+            &mut new_moved_values,
+        );
+
+        let messages = new_moved_values
+            .into_iter()
+            .map(VaultMsgOut::MovedValue)
+            .collect();
+
+        VaultResponse { status, messages }
     }
 
     pub async fn sync_consensus_driver(&self, from_height: Option<u32>) -> Vec<ErgoMovedValue> {
