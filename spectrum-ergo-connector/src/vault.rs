@@ -53,7 +53,7 @@ use crate::{
     committee::{CommitteeData, FirstCommitteeBox, SubsequentCommitteeBox},
     rocksdb::{
         moved_value_history::{self, ErgoMovedValue, ErgoUserValue, MovedValueHistory},
-        vault_boxes::{VaultBoxRepo, VaultBoxRepoRocksDB, VaultUtxo},
+        vault_boxes::{ErgoNotarizationBounds, VaultBoxRepo, VaultBoxRepoRocksDB, VaultUtxo},
         withdrawals::{WithdrawalRepo, WithdrawalRepoRocksDB},
     },
     script::{
@@ -287,7 +287,7 @@ where
     pub async fn select_txs_to_notarize(
         &self,
         constraints: NotarizedReportConstraints,
-    ) -> Result<(NonEmpty<ErgoBox>, usize), ()> {
+    ) -> Result<ErgoNotarizationBounds, ()> {
         self.vault_box_repo.collect(constraints).await
     }
 
@@ -311,7 +311,10 @@ where
         }
     }
 
-    pub fn get_vault_status_response(&mut self, current_height: u32) -> VaultResponse {
+    pub fn get_vault_status_response(
+        &mut self,
+        current_height: u32,
+    ) -> VaultResponse<ErgoNotarizationBounds> {
         let status = self.get_vault_status(current_height);
 
         let mut new_moved_values = vec![];

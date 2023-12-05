@@ -173,7 +173,7 @@ pub struct ExtraErgoData {
     pub proof: Vec<u8>,
     pub max_miner_fee: i64,
     pub threshold: Threshold,
-    pub vault_utxo: BoxId,
+    pub vault_utxos: Vec<BoxId>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -184,7 +184,7 @@ pub struct ExtraErgoDataProto {
     proof: String,
     max_miner_fee: i64,
     threshold: Threshold,
-    vault_utxo: BoxId,
+    vault_utxos: Vec<BoxId>,
 }
 
 impl From<ExtraErgoDataProto> for ExtraErgoData {
@@ -197,7 +197,7 @@ impl From<ExtraErgoDataProto> for ExtraErgoData {
             proof: proof_bytes,
             max_miner_fee: value.max_miner_fee,
             threshold: value.threshold,
-            vault_utxo: value.vault_utxo,
+            vault_utxos: value.vault_utxos,
         }
     }
 }
@@ -212,7 +212,7 @@ impl From<ExtraErgoData> for ExtraErgoDataProto {
             proof,
             max_miner_fee: value.max_miner_fee,
             threshold: value.threshold,
-            vault_utxo: value.vault_utxo,
+            vault_utxos: value.vault_utxos,
         }
     }
 }

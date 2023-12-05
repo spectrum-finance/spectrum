@@ -54,7 +54,7 @@ use tokio_unix_ipc::{symmetric_channel, Bootstrapper, Receiver, Sender};
 use vault::VaultHandler;
 
 use crate::{
-    rocksdb::moved_value_history::InMemoryMovedValueHistory,
+    rocksdb::{moved_value_history::InMemoryMovedValueHistory, vault_boxes::ErgoNotarizationBounds},
     script::{ExtraErgoData, SignatureAggregationWithNotarizationElements},
 };
 
@@ -134,7 +134,7 @@ async fn main() {
     let bootstrapper = Bootstrapper::new().unwrap();
     let path = bootstrapper.path().to_owned();
     let (msg_in_send, msg_in_recv) = symmetric_channel::<VaultRequest<ExtraErgoData>>().unwrap();
-    let (msg_out_send, msg_out_recv) = symmetric_channel::<VaultResponse>().unwrap();
+    let (msg_out_send, msg_out_recv) = symmetric_channel::<VaultResponse<ErgoNotarizationBounds>>().unwrap();
 
     enum C {
         FromChain(TxEvent<(Transaction, bool, u32)>),
@@ -172,7 +172,7 @@ async fn main() {
                         let current_height = node.get_height().await;
                         let ergo_state_context = node.get_ergo_state_context().await.unwrap();
                         let vault_utxo = explorer
-                            .get_box(report.additional_chain_data.vault_utxo)
+                            .get_box(*report.additional_chain_data.vault_utxos.first().unwrap())
                             .await
                             .unwrap();
                         let inputs = SignatureAggregationWithNotarizationElements::from(*report);
@@ -202,9 +202,16 @@ async fn main() {
                     VaultRequest::RequestTxsToNotarize(constraints) => {
                         let res = vault_handler.select_txs_to_notarize(constraints).await;
 
-                        match res {
-                            Ok((included_vault_utxos, term_cell_ix)) => (),
-                            Err(e) => (),
+                        if let Ok(bounds) = res {
+                            let current_height = node.get_height().await;
+                            let status = vault_handler.get_vault_status(current_height);
+                            msg_out_send
+                                .send(VaultResponse {
+                                    status,
+                                    messages: vec![VaultMsgOut::ProposedTxsToNotarize(bounds)],
+                                })
+                                .await
+                                .unwrap();
                         }
                     }
                     VaultRequest::SyncFrom(point) => {

@@ -40,10 +40,7 @@ use crate::script::{estimate_tx_size_in_kb, VAULT_CONTRACT};
 #[async_trait(?Send)]
 pub trait VaultBoxRepo {
     /// Collect vault boxes that meet the specified `constraints`.
-    async fn collect(
-        &self,
-        constraints: NotarizedReportConstraints,
-    ) -> Result<(NonEmpty<ErgoBox>, usize), ()>;
+    async fn collect(&self, constraints: NotarizedReportConstraints) -> Result<ErgoNotarizationBounds, ()>;
     async fn put_confirmed(&mut self, df: Confirmed<AsBox<VaultUtxo>>);
     async fn put_predicted(&mut self, df: Predicted<AsBox<VaultUtxo>>);
     async fn spend_box(&mut self, box_id: BoxId);
@@ -51,6 +48,15 @@ pub trait VaultBoxRepo {
     /// False positive version of `exists()`.
     async fn may_exist(&self, box_id: BoxId) -> bool;
     async fn remove(&mut self, fid: BoxId);
+}
+
+#[derive(Serialize, Deserialize)]
+/// Sent in response to a
+pub struct ErgoNotarizationBounds {
+    pub vault_utxos: NonEmpty<ErgoBox>,
+    /// Represents an index i within the terminal cells in NotarizedReportConstraints such that all
+    /// terminal cells up to and NOT including the i'th one will be included in the notarized report.
+    pub terminal_cell_bound: usize,
 }
 
 pub struct VaultBoxRepoRocksDB {
@@ -67,10 +73,7 @@ impl VaultBoxRepoRocksDB {
 
 #[async_trait(?Send)]
 impl VaultBoxRepo for VaultBoxRepoRocksDB {
-    async fn collect(
-        &self,
-        constraints: NotarizedReportConstraints,
-    ) -> Result<(NonEmpty<ErgoBox>, usize), ()> {
+    async fn collect(&self, constraints: NotarizedReportConstraints) -> Result<ErgoNotarizationBounds, ()> {
         let db = self.db.clone();
         spawn_blocking(move || {
             let NotarizedReportConstraints {
@@ -101,7 +104,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
 
             let mut add_term_cells = true;
 
-            let mut term_cell_index = 0;
+            let mut terminal_cell_bound = 0;
 
             'vault_iter: while let Some(Ok((_, value_bytes))) = vault_iter.next() {
                 println!("Back at the top");
@@ -142,12 +145,14 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
 
                 // TODO: even if we're over the limit, if we have shortfall we need to add more
                 // UTXOs till we're covered.
-                //println!("asset diff: {:?}", asset_diff);
                 if !asset_diff.in_shortfall()
                     && !included_vault_utxos.is_empty()
                     && estimated_tx_size > max_tx_size
                 {
-                    return Ok((NonEmpty::try_from(included_vault_utxos).unwrap(), term_cell_index));
+                    return Ok(ErgoNotarizationBounds {
+                        vault_utxos: NonEmpty::try_from(included_vault_utxos).unwrap(),
+                        terminal_cell_bound,
+                    });
                 } else {
                     println!("Added vault UTXO. TX size: {}", estimated_tx_size);
                     num_withdrawals += 1;
@@ -215,13 +220,13 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                             estimated_number_of_byzantine_nodes as usize,
                             num_token_occurrences + num_new_tokens,
                         );
-                        if estimated_tx_size > max_tx_size && term_cell_index > 0 {
+                        if estimated_tx_size > max_tx_size && terminal_cell_bound > 0 {
                             // Don't add anymore terminal cells.
                             println!("Term cell -> {} kb > limit", estimated_tx_size);
                             add_term_cells = false;
                             continue 'vault_iter;
                         } else {
-                            term_cell_index += 1;
+                            terminal_cell_bound += 1;
                             num_withdrawals += 1;
                             num_token_occurrences += num_new_tokens;
                         }
@@ -303,7 +308,11 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                     }
                 }
             }
-            Ok((NonEmpty::try_from(included_vault_utxos).unwrap(), term_cell_index))
+            let vault_utxos = NonEmpty::try_from(included_vault_utxos).unwrap();
+            Ok(ErgoNotarizationBounds {
+                vault_utxos,
+                terminal_cell_bound,
+            })
         })
         .await
     }
@@ -499,7 +508,7 @@ pub mod tests {
     use spectrum_offchain_lm::data::AsBox;
 
     use crate::{
-        rocksdb::vault_boxes::VaultBoxRepo,
+        rocksdb::vault_boxes::{ErgoNotarizationBounds, VaultBoxRepo},
         script::{
             estimate_tx_size_in_kb,
             tests::{gen_random_token, gen_tx_id, generate_address},
@@ -529,10 +538,13 @@ pub mod tests {
             estimated_number_of_byzantine_nodes: 10,
         };
         let term_cells = constraints.term_cells.clone();
-        let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
-        let vault_utxos_vec: Vec<_> = included_vault_utxos.into_iter().collect_vec();
-        check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
-        assert_eq!(term_cell_ix, 1);
+        let ErgoNotarizationBounds {
+            vault_utxos,
+            terminal_cell_bound,
+        } = client.collect(constraints).await.unwrap();
+        let vault_utxos_vec: Vec<_> = vault_utxos.into_iter().collect_vec();
+        check_sufficient_utxos(&vault_utxos_vec, &term_cells[..terminal_cell_bound]);
+        assert_eq!(terminal_cell_bound, 1);
         assert_eq!(vault_utxos_vec.len(), 2);
     }
 
@@ -558,10 +570,13 @@ pub mod tests {
             estimated_number_of_byzantine_nodes: 20,
         };
         let term_cells = constraints.term_cells.clone();
-        let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
-        let vault_utxos_vec: Vec<_> = included_vault_utxos.into_iter().collect_vec();
-        check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
-        assert_eq!(term_cell_ix, 1);
+        let ErgoNotarizationBounds {
+            vault_utxos,
+            terminal_cell_bound,
+        } = client.collect(constraints).await.unwrap();
+        let vault_utxos_vec: Vec<_> = vault_utxos.into_iter().collect_vec();
+        check_sufficient_utxos(&vault_utxos_vec, &term_cells[..terminal_cell_bound]);
+        assert_eq!(terminal_cell_bound, 1);
         assert_eq!(vault_utxos_vec.len(), 2);
     }
 
@@ -604,10 +619,13 @@ pub mod tests {
             estimated_number_of_byzantine_nodes: estimated_number_of_byzantine_nodes as u32,
         };
         let term_cells = constraints.term_cells.clone();
-        let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
-        let vault_utxos_vec: Vec<_> = included_vault_utxos.into_iter().collect_vec();
-        check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
-        assert_eq!(term_cell_ix, 1);
+        let ErgoNotarizationBounds {
+            vault_utxos,
+            terminal_cell_bound,
+        } = client.collect(constraints).await.unwrap();
+        let vault_utxos_vec: Vec<_> = vault_utxos.into_iter().collect_vec();
+        check_sufficient_utxos(&vault_utxos_vec, &term_cells[..terminal_cell_bound]);
+        assert_eq!(terminal_cell_bound, 1);
         assert_eq!(vault_utxos_vec.len(), 1);
     }
 
@@ -667,14 +685,17 @@ pub mod tests {
             estimated_number_of_byzantine_nodes: estimated_number_of_byzantine_nodes as u32,
         };
         let term_cells = constraints.term_cells.clone();
-        let (included_vault_utxos, term_cell_ix) = client.collect(constraints).await.unwrap();
-        let vault_utxos_vec: Vec<_> = included_vault_utxos.into_iter().collect_vec();
+        let ErgoNotarizationBounds {
+            vault_utxos,
+            terminal_cell_bound,
+        } = client.collect(constraints).await.unwrap();
+        let vault_utxos_vec: Vec<_> = vault_utxos.into_iter().collect_vec();
         println!(
             "# vault UTXOs: {}, # term cells: {}",
             vault_utxos_vec.len(),
-            term_cell_ix
+            terminal_cell_bound
         );
-        check_sufficient_utxos(&vault_utxos_vec, &term_cells[..term_cell_ix]);
+        check_sufficient_utxos(&vault_utxos_vec, &term_cells[..terminal_cell_bound]);
     }
 
     #[test]
