@@ -1,9 +1,14 @@
-use std::{collections::HashMap, hash::Hash};
+use std::{collections::HashMap, hash::Hash, iter::repeat};
 
+use blake2::Blake2b;
+use bytes::Bytes;
 use derive_more::From;
-use elliptic_curve::ops::{LinearCombination, Reduce};
+use elliptic_curve::{
+    consts::U32,
+    ops::{LinearCombination, Reduce},
+};
 use ergo_lib::{
-    ergo_chain_types::{Digest32 as ELDigest32, DigestNError, EcPoint},
+    ergo_chain_types::{Digest, Digest32 as ELDigest32, DigestNError, EcPoint},
     ergotree_ir::{
         bigint256::BigInt256,
         chain::{
@@ -16,7 +21,7 @@ use ergo_lib::{
         },
         ergo_tree::ErgoTree,
         mir::{
-            avl_tree_data::AvlTreeData,
+            avl_tree_data::{AvlTreeData, AvlTreeFlags},
             constant::{Constant, Literal},
             value::CollKind,
         },
@@ -27,16 +32,22 @@ use ergo_lib::{
         },
     },
 };
-use k256::{FieldElement, NonZeroScalar, ProjectivePoint, Scalar, U256};
+use k256::{FieldElement, NonZeroScalar, ProjectivePoint, Scalar, SecretKey, U256};
 use lazy_static::lazy_static;
 use num_bigint::{BigUint, Sign, ToBigUint};
-use scorex_crypto_avltree::batch_node::{Node, NodeHeader};
+use rand::{rngs::OsRng, Rng};
+use scorex_crypto_avltree::{
+    authenticated_tree_ops::AuthenticatedTreeOps,
+    batch_avl_prover::BatchAVLProver,
+    batch_node::{AVLTree, Node, NodeHeader},
+    operation::{KeyValue, Operation},
+};
 use serde::{Deserialize, Serialize};
 use sha2::Digest as OtherDigest;
 use sha2::Sha256;
 use spectrum_chain_connector::{InboundValue, NotarizedReport, ProtoTermCell, UserValue};
 use spectrum_crypto::{
-    digest::{Blake2b256, Blake2bDigest256},
+    digest::{blake2b256_hash, Blake2b256, Blake2bDigest256},
     pubkey::PublicKey,
 };
 use spectrum_handel::Threshold;
@@ -45,7 +56,14 @@ use spectrum_ledger::{
     interop::{Point, ReportCertificate},
     ChainId, ERGO_CHAIN_ID,
 };
-use spectrum_sigma::{sigma_aggregation::AggregateCertificate, AggregateCommitment, Commitment, Signature};
+use spectrum_sigma::{
+    crypto::{
+        aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
+        response, schnorr_commitment_pair, verify, verify_response,
+    },
+    sigma_aggregation::AggregateCertificate,
+    AggregateCommitment, Commitment, Signature,
+};
 
 const VAULT_CONTRACT_SCRIPT_BYTES: &str = "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";
 
@@ -650,17 +668,158 @@ pub fn estimate_tx_size_in_kb(
         + (num_token_occurrences as f32) * 0.039
 }
 
+pub fn simulate_signature_aggregation_notarized_proofs(
+    participant_secret_keys: Vec<SecretKey>,
+    terminal_cells: Vec<ErgoTermCell>,
+    num_byzantine_nodes: usize,
+    threshold: Threshold,
+    max_miner_fee: i64,
+) -> SignatureAggregationWithNotarizationElements {
+    let mut rng = OsRng;
+    let mut byz_indexes = vec![];
+    if num_byzantine_nodes > 0 {
+        loop {
+            let rng = rng.gen_range(0usize..participant_secret_keys.len());
+            if !byz_indexes.contains(&rng) {
+                byz_indexes.push(rng);
+            }
+            if byz_indexes.len() == num_byzantine_nodes {
+                break;
+            }
+        }
+    }
+    let individual_keys = participant_secret_keys
+        .into_iter()
+        .map(|sk| {
+            let pk = PublicKey::from(sk.public_key());
+            let (commitment_sk, commitment) = schnorr_commitment_pair();
+            (sk, pk, commitment_sk, commitment)
+        })
+        .collect::<Vec<_>>();
+    let committee = individual_keys
+        .iter()
+        .map(|(_, pk, _, _)| pk.clone())
+        .collect::<Vec<_>>();
+    let individual_inputs = individual_keys
+        .iter()
+        .map(|(_, pki, _, _)| individual_input::<Blake2b<U32>>(committee.clone(), pki.clone()))
+        .collect::<Vec<_>>();
+    let aggregate_x = aggregate_pk(
+        individual_keys.iter().map(|(_, pk, _, _)| pk.clone()).collect(),
+        individual_inputs.clone(),
+    );
+    let aggregate_commitment = aggregate_commitment(
+        individual_keys
+            .iter()
+            .map(|(_, _, _, commitment)| commitment.clone())
+            .collect(),
+    );
+
+    let empty_tree = AVLTree::new(dummy_resolver, KEY_LENGTH, Some(VALUE_LENGTH));
+    let mut prover = BatchAVLProver::new(empty_tree.clone(), true);
+    let initial_digest = prover.digest().unwrap().to_vec();
+
+    for (i, cell) in terminal_cells.iter().enumerate() {
+        let value = Bytes::copy_from_slice(blake2b256_hash(&cell.to_bytes()).as_ref());
+        let key_bytes = ((i + 1) as i64).to_be_bytes();
+        let key = Bytes::copy_from_slice(&key_bytes);
+        let kv = KeyValue { key, value };
+        let insert = Operation::Insert(kv.clone());
+        prover.perform_one_operation(&insert).unwrap();
+    }
+
+    // Perform insertion for max_miner_fee
+    {
+        let key_bytes = ((terminal_cells.len() + 1) as i64).to_be_bytes();
+        let key = Bytes::copy_from_slice(&key_bytes);
+        let mut value_bytes = max_miner_fee.to_be_bytes().to_vec();
+        // Need to pad to 32 bytes
+        value_bytes.extend(repeat(0).take(24));
+        let value = Bytes::copy_from_slice(&value_bytes);
+        let kv = KeyValue { key, value };
+        let insert = Operation::Insert(kv.clone());
+        prover.perform_one_operation(&insert).unwrap();
+    }
+
+    let proof = prover.generate_proof().to_vec();
+    let resulting_digest = prover.digest().unwrap().to_vec();
+    let avl_tree_data = AvlTreeData {
+        digest: Digest::<33>::try_from(initial_digest).unwrap(),
+        tree_flags: AvlTreeFlags::new(true, false, false),
+        key_length: KEY_LENGTH as u32,
+        value_length_opt: Some(Box::new(VALUE_LENGTH as u32)),
+    };
+
+    let md = blake2b256_hash(&resulting_digest);
+
+    let challenge = challenge(aggregate_x, aggregate_commitment.clone(), md);
+    let (byz_keys, active_keys): (Vec<_>, Vec<_>) = individual_keys
+        .clone()
+        .into_iter()
+        .enumerate()
+        .partition(|(i, _)| byz_indexes.contains(i));
+    let individual_responses_subset = active_keys
+        .iter()
+        .map(|(i, (sk, _, commitment_sk, _))| {
+            (
+                *i,
+                response(
+                    commitment_sk.clone(),
+                    sk.clone(),
+                    challenge,
+                    individual_inputs[*i],
+                ),
+            )
+        })
+        .collect::<Vec<_>>();
+    for (i, zi) in individual_responses_subset.iter() {
+        let (_, pk, _, commitment) = &individual_keys[*i];
+        assert!(verify_response(
+            zi,
+            &individual_inputs[*i],
+            &challenge,
+            commitment.clone(),
+            pk.clone()
+        ))
+    }
+    let aggregate_response =
+        aggregate_response(individual_responses_subset.into_iter().map(|(_, x)| x).collect());
+    let exclusion_set = byz_keys
+        .iter()
+        .map(|(i, (_, _, sk, commitment))| (*i, Some((commitment.clone(), exclusion_proof(sk.clone(), md)))))
+        .collect::<Vec<_>>();
+    assert!(verify(
+        aggregate_commitment.clone(),
+        aggregate_response,
+        exclusion_set.clone(),
+        committee.clone(),
+        md,
+        threshold,
+    ));
+    SignatureAggregationWithNotarizationElements {
+        aggregate_commitment,
+        aggregate_response,
+        exclusion_set,
+        threshold,
+        starting_avl_tree: avl_tree_data,
+        proof,
+        resulting_digest,
+        terminal_cells,
+        max_miner_fee,
+    }
+}
+
+const KEY_LENGTH: usize = 8;
+const VALUE_LENGTH: usize = 32;
+const MIN_KEY: [u8; KEY_LENGTH] = [0u8; KEY_LENGTH];
+const MAX_KEY: [u8; KEY_LENGTH] = [0xFFu8; KEY_LENGTH];
 #[cfg(test)]
 pub mod tests {
-    use blake2::Blake2b;
     use bytes::Bytes;
-    use elliptic_curve::consts::U32;
     use elliptic_curve::group::GroupEncoding;
-    use ergo_lib::ergo_chain_types::{
-        ec_point::generator, BlockId, Digest, EcPoint, Header, PreHeader, Votes,
-    };
+    use ergo_lib::ergo_chain_types::{ec_point::generator, Digest, EcPoint};
     use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
-    use ergo_lib::ergotree_ir::chain::address::{Address, NetworkAddress};
+    use ergo_lib::ergotree_ir::chain::address::Address;
     use ergo_lib::ergotree_ir::chain::ergo_box::BoxTokens;
     use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount};
     use ergo_lib::ergotree_ir::{
@@ -696,7 +855,7 @@ pub mod tests {
     use itertools::Itertools;
     use k256::{
         schnorr::{signature::Signer, SigningKey},
-        ProjectivePoint, Scalar, SecretKey,
+        ProjectivePoint, SecretKey,
     };
     use num_bigint::BigUint;
     use num_bigint::Sign;
@@ -708,20 +867,10 @@ pub mod tests {
     use serde::Deserialize;
     use serde::Serialize;
     use sigma_test_util::force_any_val;
-    use spectrum_crypto::{
-        digest::{blake2b256_hash, Blake2bDigest256},
-        pubkey::PublicKey,
-    };
+    use spectrum_crypto::{digest::blake2b256_hash, pubkey::PublicKey};
     use spectrum_handel::Threshold;
-    use spectrum_sigma::{
-        crypto::{
-            aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof,
-            individual_input, response, schnorr_commitment_pair, verify, verify_response,
-        },
-        AggregateCommitment, Commitment, Signature,
-    };
+    use spectrum_sigma::{crypto::schnorr_commitment_pair, Commitment, Signature};
     use std::collections::HashMap;
-    use std::iter::repeat;
     use std::time::Instant;
 
     use crate::script::{
@@ -729,12 +878,10 @@ pub mod tests {
         ErgoTermCells, VAULT_CONTRACT, VAULT_CONTRACT_SCRIPT_BYTES,
     };
 
-    use super::{dummy_resolver, SignatureAggregationWithNotarizationElements};
-
-    const KEY_LENGTH: usize = 8;
-    const VALUE_LENGTH: usize = 32;
-    const MIN_KEY: [u8; KEY_LENGTH] = [0u8; KEY_LENGTH];
-    const MAX_KEY: [u8; KEY_LENGTH] = [0xFFu8; KEY_LENGTH];
+    use super::{
+        dummy_resolver, simulate_signature_aggregation_notarized_proofs,
+        SignatureAggregationWithNotarizationElements, KEY_LENGTH, MAX_KEY, MIN_KEY, VALUE_LENGTH,
+    };
 
     fn random_key() -> ADKey {
         Bytes::copy_from_slice(&rand::random::<[u8; KEY_LENGTH]>())
@@ -756,6 +903,7 @@ pub mod tests {
 
     #[test]
     fn verify_vault_contract_sigma_rust() {
+        let mut rng = OsRng;
         let num_byzantine_nodes = vec![17];
 
         let num_participants = 64;
@@ -765,16 +913,46 @@ pub mod tests {
         let max_num_tokens = 122;
         let max_miner_fee = 1000000;
         for num_byzantine in num_byzantine_nodes {
+            let mut total_num_tokens = 0;
+            let terminal_cells: Vec<_> = (0..100)
+                .map(|_| {
+                    let address = generate_address();
+                    let ergs = BoxValue::try_from(rng.gen_range(1_u64..=9000000000)).unwrap();
+                    let contains_tokens = rng.gen_bool(0.5);
+                    let tokens = if contains_tokens {
+                        let num_tokens = rng.gen_range(0_usize..=10);
+                        if total_num_tokens + num_tokens <= max_num_tokens {
+                            total_num_tokens += num_tokens;
+                            (0..num_tokens).map(|_| gen_random_token(10000)).collect()
+                        } else {
+                            vec![]
+                        }
+                    } else {
+                        vec![]
+                    };
+                    ErgoTermCell(ErgoCell {
+                        ergs,
+                        address,
+                        tokens,
+                    })
+                })
+                .collect();
+            let participant_secret_keys: Vec<_> = (0..num_participants)
+                .map(|_| SecretKey::random(&mut rng))
+                .collect();
+            let public_keys = participant_secret_keys
+                .iter()
+                .map(|sk| PublicKey::from(sk.public_key()))
+                .collect();
             let inputs = simulate_signature_aggregation_notarized_proofs(
-                num_participants,
+                participant_secret_keys,
+                terminal_cells,
                 num_byzantine,
                 threshold,
-                100,
-                max_num_tokens,
                 max_miner_fee,
             );
             verify_vault_contract_ergoscript_with_sigma_rust(
-                inputs,
+                (inputs, public_keys),
                 num_participants,
                 epoch_len,
                 current_epoch,
@@ -784,6 +962,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn verify_vault_ergoscript_sigmastate() {
+        let mut rng = OsRng;
         let num_byzantine_nodes = vec![0]; //, 100, 150, 200, 250, 300, 340];
 
         let num_participants = 4;
@@ -795,16 +974,52 @@ pub mod tests {
         let num_byzantine = 0;
         let max_miner_fee = 1000000;
         for num_notarized_txs in vec![3] {
+            let mut total_num_tokens = 0;
+            let terminal_cells: Vec<_> = (0..num_notarized_txs)
+                .map(|_| {
+                    let address = generate_address();
+                    let ergs = BoxValue::try_from(rng.gen_range(1_u64..=9000000000)).unwrap();
+                    let contains_tokens = rng.gen_bool(0.5);
+                    let tokens = if contains_tokens {
+                        let num_tokens = rng.gen_range(0_usize..=10);
+                        if total_num_tokens + num_tokens <= max_num_tokens {
+                            total_num_tokens += num_tokens;
+                            (0..num_tokens).map(|_| gen_random_token(10000)).collect()
+                        } else {
+                            vec![]
+                        }
+                    } else {
+                        vec![]
+                    };
+                    ErgoTermCell(ErgoCell {
+                        ergs,
+                        address,
+                        tokens,
+                    })
+                })
+                .collect();
+            let participant_secret_keys: Vec<_> = (0..num_participants)
+                .map(|_| SecretKey::random(&mut rng))
+                .collect();
+            let public_keys = participant_secret_keys
+                .iter()
+                .map(|sk| PublicKey::from(sk.public_key()))
+                .collect();
             //vec![10, 20, 30, 40, 50, 100] {
             let inputs = simulate_signature_aggregation_notarized_proofs(
-                num_participants,
+                participant_secret_keys,
+                terminal_cells,
                 num_byzantine,
                 threshold,
-                num_notarized_txs,
-                max_num_tokens,
                 max_miner_fee,
             );
-            verify_vault_ergoscript_with_sigmastate(inputs, num_participants, epoch_len, current_epoch).await;
+            verify_vault_ergoscript_with_sigmastate(
+                (inputs, public_keys),
+                num_participants,
+                epoch_len,
+                current_epoch,
+            )
+            .await;
         }
     }
 
@@ -908,6 +1123,8 @@ pub mod tests {
             epoch_len,
             current_epoch,
         };
+
+        println!("\n\n\n{}\n\n\n", serde_json::to_string_pretty(&input).unwrap());
 
         let raw = reqwest::Client::new()
             .put("http://localhost:8080/validateVault")
@@ -1140,185 +1357,6 @@ pub mod tests {
     fn get_wallet() -> Wallet {
         const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
         Wallet::from_mnemonic(SEED_PHRASE, "").expect("Invalid seed")
-    }
-
-    pub fn simulate_signature_aggregation_notarized_proofs(
-        num_participants: usize,
-        num_byzantine_nodes: usize,
-        threshold: Threshold,
-        num_notarized_txs: usize,
-        max_num_tokens: usize,
-        max_miner_fee: i64,
-    ) -> (SignatureAggregationWithNotarizationElements, Vec<PublicKey>) {
-        let mut rng = OsRng;
-        let mut byz_indexes = vec![];
-        if num_byzantine_nodes > 0 {
-            loop {
-                let rng = rng.gen_range(0usize..num_participants);
-                if !byz_indexes.contains(&rng) {
-                    byz_indexes.push(rng);
-                }
-                if byz_indexes.len() == num_byzantine_nodes {
-                    break;
-                }
-            }
-        }
-        let individual_keys = (0..num_participants)
-            .map(|_| {
-                let sk = SecretKey::random(&mut rng);
-                let pk = PublicKey::from(sk.public_key());
-                let (commitment_sk, commitment) = schnorr_commitment_pair();
-                (sk, pk, commitment_sk, commitment)
-            })
-            .collect::<Vec<_>>();
-        let committee = individual_keys
-            .iter()
-            .map(|(_, pk, _, _)| pk.clone())
-            .collect::<Vec<_>>();
-        let individual_inputs = individual_keys
-            .iter()
-            .map(|(_, pki, _, _)| individual_input::<Blake2b<U32>>(committee.clone(), pki.clone()))
-            .collect::<Vec<_>>();
-        let aggregate_x = aggregate_pk(
-            individual_keys.iter().map(|(_, pk, _, _)| pk.clone()).collect(),
-            individual_inputs.clone(),
-        );
-        let aggregate_commitment = aggregate_commitment(
-            individual_keys
-                .iter()
-                .map(|(_, _, _, commitment)| commitment.clone())
-                .collect(),
-        );
-        let mut total_num_tokens = 0;
-
-        let terminal_cells: Vec<_> = (0..num_notarized_txs)
-            .map(|_| {
-                let address = generate_address();
-                let ergs = BoxValue::try_from(rng.gen_range(1_u64..=9000000000)).unwrap();
-                let contains_tokens = rng.gen_bool(0.5);
-                let tokens = if contains_tokens {
-                    let num_tokens = rng.gen_range(0_usize..=10);
-                    if total_num_tokens + num_tokens <= max_num_tokens {
-                        total_num_tokens += num_tokens;
-                        (0..num_tokens).map(|_| gen_random_token(10000)).collect()
-                    } else {
-                        vec![]
-                    }
-                } else {
-                    vec![]
-                };
-                ErgoTermCell(ErgoCell {
-                    ergs,
-                    address,
-                    tokens,
-                })
-            })
-            .collect();
-
-        println!("{} tokens generated", total_num_tokens);
-
-        let empty_tree = AVLTree::new(dummy_resolver, KEY_LENGTH, Some(VALUE_LENGTH));
-        let mut prover = BatchAVLProver::new(empty_tree.clone(), true);
-        let initial_digest = prover.digest().unwrap().to_vec();
-
-        for (i, cell) in terminal_cells.iter().enumerate() {
-            let value = Bytes::copy_from_slice(blake2b256_hash(&cell.to_bytes()).as_ref());
-            println!("value_bytes_len: {}", value.len());
-            let key_bytes = ((i + 1) as i64).to_be_bytes();
-            let key = Bytes::copy_from_slice(&key_bytes);
-            let kv = KeyValue { key, value };
-            let insert = Operation::Insert(kv.clone());
-            prover.perform_one_operation(&insert).unwrap();
-        }
-
-        // Perform insertion for max_miner_fee
-        {
-            let key_bytes = ((terminal_cells.len() + 1) as i64).to_be_bytes();
-            let key = Bytes::copy_from_slice(&key_bytes);
-            let mut value_bytes = max_miner_fee.to_be_bytes().to_vec();
-            // Need to pad to 32 bytes
-            value_bytes.extend(repeat(0).take(24));
-            let value = Bytes::copy_from_slice(&value_bytes);
-            let kv = KeyValue { key, value };
-            let insert = Operation::Insert(kv.clone());
-            prover.perform_one_operation(&insert).unwrap();
-        }
-
-        let proof = prover.generate_proof().to_vec();
-        let resulting_digest = prover.digest().unwrap().to_vec();
-        let avl_tree_data = AvlTreeData {
-            digest: Digest::<33>::try_from(initial_digest).unwrap(),
-            tree_flags: AvlTreeFlags::new(true, false, false),
-            key_length: KEY_LENGTH as u32,
-            value_length_opt: Some(Box::new(VALUE_LENGTH as u32)),
-        };
-
-        let md = blake2b256_hash(&resulting_digest);
-
-        let challenge = challenge(aggregate_x, aggregate_commitment.clone(), md);
-        let (byz_keys, active_keys): (Vec<_>, Vec<_>) = individual_keys
-            .clone()
-            .into_iter()
-            .enumerate()
-            .partition(|(i, _)| byz_indexes.contains(i));
-        let individual_responses_subset = active_keys
-            .iter()
-            .map(|(i, (sk, _, commitment_sk, _))| {
-                (
-                    *i,
-                    response(
-                        commitment_sk.clone(),
-                        sk.clone(),
-                        challenge,
-                        individual_inputs[*i],
-                    ),
-                )
-            })
-            .collect::<Vec<_>>();
-        for (i, zi) in individual_responses_subset.iter() {
-            let (_, pk, _, commitment) = &individual_keys[*i];
-            assert!(verify_response(
-                zi,
-                &individual_inputs[*i],
-                &challenge,
-                commitment.clone(),
-                pk.clone()
-            ))
-        }
-        let aggregate_response =
-            aggregate_response(individual_responses_subset.into_iter().map(|(_, x)| x).collect());
-        let exclusion_set = byz_keys
-            .iter()
-            .map(|(i, (_, _, sk, commitment))| {
-                (*i, Some((commitment.clone(), exclusion_proof(sk.clone(), md))))
-            })
-            .collect::<Vec<_>>();
-        assert!(verify(
-            aggregate_commitment.clone(),
-            aggregate_response,
-            exclusion_set.clone(),
-            committee.clone(),
-            md,
-            threshold,
-        ));
-        //let k256_exclusion_set: Vec<_> = exclusion_set
-        //    .into_iter()
-        //    .map(|(ix, pair)| (ix, pair.map(|(c, s)| (c, k256::schnorr::Signature::from(s)))))
-        //    .collect();
-        (
-            SignatureAggregationWithNotarizationElements {
-                aggregate_commitment,
-                aggregate_response,
-                exclusion_set,
-                threshold,
-                starting_avl_tree: avl_tree_data,
-                proof,
-                resulting_digest,
-                terminal_cells,
-                max_miner_fee,
-            },
-            committee,
-        )
     }
 
     fn verify_vault_contract_ergoscript_with_sigma_rust(

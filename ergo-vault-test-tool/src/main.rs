@@ -11,7 +11,7 @@ use ergo_lib::{
     ergotree_interpreter::sigma_protocol::prover::ContextExtension,
     ergotree_ir::{
         chain::{
-            address::{Address, AddressEncoder, NetworkPrefix},
+            address::{AddressEncoder, NetworkPrefix},
             ergo_box::{box_value::BoxValue, BoxId},
             token::{Token, TokenId},
         },
@@ -24,11 +24,14 @@ use isahc::{config::Configurable, HttpClient};
 use itertools::Itertools;
 use k256::{elliptic_curve::group::GroupEncoding, PublicKey, SecretKey};
 use rand::rngs::OsRng;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::ProtoTermCell;
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_deploy_lm_pool::Explorer;
-use spectrum_ergo_connector::committee::{FirstCommitteeBox, SubsequentCommitteeBox, VaultParameters};
+use spectrum_ergo_connector::{
+    committee::{FirstCommitteeBox, SubsequentCommitteeBox, VaultParameters},
+    script::{simulate_signature_aggregation_notarized_proofs, ErgoTermCell},
+};
 use spectrum_handel::Threshold;
 use spectrum_ledger::{
     cell::{AssetId, BoxDestination, CustomAsset, NativeCoin, PolicyId, SValue},
@@ -44,9 +47,6 @@ use spectrum_offchain_lm::{
     prover::{SeedPhrase, SigmaProver, Wallet},
 };
 use tokio::{fs::File, io::AsyncWriteExt};
-use withdrawal_tx::simulate_signature_aggregation_notarized_proofs;
-
-mod withdrawal_tx;
 
 #[tokio::main]
 async fn main() {
@@ -387,8 +387,6 @@ async fn create_vault_utxo(amt: NanoErg, mut config: AppConfig) -> AppConfigWith
     }
     output_candidates.push(miner_output.into_candidate(height));
 
-    let num_outputs = output_candidates.len();
-
     let inputs = TxIoVec::from_vec(
         box_selection
             .boxes
@@ -472,7 +470,10 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
         proto_term_cell(size, vec![], addr_1.content_bytes()),
         proto_term_cell(size, vec![], addr_1.content_bytes()),
         proto_term_cell(size, vec![], addr_1.content_bytes()),
-    ];
+    ]
+    .into_iter()
+    .map(|cell| ErgoTermCell::try_from(cell).unwrap())
+    .collect();
 
     let inputs = simulate_signature_aggregation_notarized_proofs(
         config.committee_secret_keys.clone(),
