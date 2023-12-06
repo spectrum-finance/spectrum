@@ -176,13 +176,13 @@ where
                     self.moved_values_since_last_status_check
                         .push(MovedValue::from(ergo_moved_value.clone()));
                     self.moved_value_history.append(ergo_moved_value).await;
+                }
 
-                    if height > self.synced_block_heights.back().copied().unwrap_or(0) {
-                        if self.synced_block_heights.len() == MAX_SYNCED_BLOCK_HEIGHTS {
-                            let _ = self.synced_block_heights.pop_front();
-                        }
-                        self.synced_block_heights.push_back(height);
+                if height > self.synced_block_heights.back().copied().unwrap_or(0) {
+                    if self.synced_block_heights.len() == MAX_SYNCED_BLOCK_HEIGHTS {
+                        let _ = self.synced_block_heights.pop_front();
                     }
+                    self.synced_block_heights.push_back(height);
                 }
             }
             TxEvent::UnappliedTx((tx, _, height)) => {
@@ -216,11 +216,10 @@ where
                     self.moved_values_since_last_status_check
                         .push(MovedValue::from(ergo_moved_value.clone()));
                     self.moved_value_history.append(ergo_moved_value).await;
-
-                    if let Some(last_synced_height) = self.synced_block_heights.back() {
-                        if *last_synced_height == height {
-                            let _ = self.synced_block_heights.pop_back();
-                        }
+                }
+                if let Some(last_synced_height) = self.synced_block_heights.back() {
+                    if *last_synced_height == height {
+                        let _ = self.synced_block_heights.pop_back();
                     }
                 }
             }

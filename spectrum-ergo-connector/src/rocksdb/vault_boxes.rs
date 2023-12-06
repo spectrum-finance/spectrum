@@ -50,7 +50,7 @@ pub trait VaultBoxRepo {
     async fn remove(&mut self, fid: BoxId);
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 /// Sent in response to a
 pub struct ErgoNotarizationBounds {
     pub vault_utxos: NonEmpty<ErgoBox>,
