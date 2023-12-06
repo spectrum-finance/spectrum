@@ -455,10 +455,10 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
 
     let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
     let addr_0 = encoder
-        .parse_address_from_str("9hodDWDNFhzmpY6qQm8spYNpbbus2jYoGEe6yFvM5uC8CfZfnMi")
+        .parse_address_from_str("9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMg")
         .unwrap();
     let addr_1 = encoder
-        .parse_address_from_str("9hkfeMZj1p3rBQJhENX5EKczYx3uVTjVPdN825YvdLnwzgxkKvj")
+        .parse_address_from_str("9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMg")
         .unwrap();
 
     let size = 500000; //(383979280 - 2_000_000 - 250000) / 2;
@@ -477,8 +477,8 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
     let inputs = simulate_signature_aggregation_notarized_proofs(
         config.committee_secret_keys.clone(),
         term_cells,
-        340,
-        Threshold { num: 2, denom: 3 },
+        0,
+        Threshold { num: 3, denom: 3 },
         max_miner_fee,
     );
 
@@ -489,8 +489,9 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
     config.operator_funding_secret = seed;
     let wallet = ergo_lib::wallet::Wallet::from_mnemonic(&secret_str, "").unwrap();
 
-    let signed_tx = withdrawal_tx::verify_vault_contract_ergoscript_with_sigma_rust(
+    let signed_tx = spectrum_ergo_connector::vault::verify_vault_contract_ergoscript_with_sigma_rust(
         inputs,
+        config.committee_public_keys.len() as u32,
         ergo_state_context,
         vault_utxo,
         data_boxes,

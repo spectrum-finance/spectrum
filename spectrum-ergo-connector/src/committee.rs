@@ -19,6 +19,17 @@ pub struct CommitteeData {
     pub subsequent_boxes: Option<TxIoVec<AsBox<SubsequentCommitteeBox>>>,
 }
 
+impl CommitteeData {
+    pub fn committee_size(&self) -> u32 {
+        let res = 1 + self
+            .subsequent_boxes
+            .as_ref()
+            .map(|boxes| boxes.len())
+            .unwrap_or(0);
+        res as u32
+    }
+}
+
 pub struct FirstCommitteeBox {
     pub public_keys: Vec<EcPoint>,
     pub vault_parameters: VaultParameters,

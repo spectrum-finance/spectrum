@@ -45,22 +45,10 @@ use spectrum_sigma::{
 
 use spectrum_ergo_connector::script::{
     dummy_resolver, scalar_to_biguint, serialize_exclusion_set, ErgoCell, ErgoTermCell, ErgoTermCells,
+    SignatureAggregationWithNotarizationElements,
 };
 
 use crate::VAULT_CONTRACT;
-
-pub struct SignatureAggregationWithNotarizationElements {
-    aggregate_commitment: AggregateCommitment,
-    aggregate_response: Scalar,
-    exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
-    committee: Vec<PublicKey>,
-    threshold: Threshold,
-    starting_avl_tree: AvlTreeData,
-    proof: Vec<u8>,
-    resulting_digest: Vec<u8>,
-    terminal_cells: Vec<ErgoTermCell>,
-    max_miner_fee: i64,
-}
 
 pub fn simulate_signature_aggregation_notarized_proofs(
     participant_secret_keys: Vec<SecretKey>,
@@ -208,7 +196,6 @@ pub fn simulate_signature_aggregation_notarized_proofs(
         aggregate_commitment,
         aggregate_response,
         exclusion_set: k256_exclusion_set,
-        committee,
         threshold,
         starting_avl_tree: avl_tree_data,
         proof,
@@ -218,147 +205,5 @@ pub fn simulate_signature_aggregation_notarized_proofs(
     }
 }
 
-pub fn verify_vault_contract_ergoscript_with_sigma_rust(
-    inputs: SignatureAggregationWithNotarizationElements,
-    ergo_state_context: ErgoStateContext,
-    vault_utxo: ErgoBox,
-    data_boxes: Vec<ErgoBox>,
-    wallet: &Wallet,
-    current_height: u32,
-) -> Transaction {
-    let SignatureAggregationWithNotarizationElements {
-        aggregate_commitment,
-        aggregate_response,
-        exclusion_set,
-        committee,
-        threshold,
-        starting_avl_tree,
-        proof,
-        resulting_digest,
-        terminal_cells,
-        max_miner_fee,
-    } = inputs;
-
-    let serialized_aggregate_commitment =
-        Constant::from(EcPoint::from(ProjectivePoint::from(aggregate_commitment)));
-
-    let s_biguint = scalar_to_biguint(aggregate_response);
-    let biguint_bytes = s_biguint.to_bytes_be();
-    if biguint_bytes.len() < 32 {
-        println!("# bytes: {}", biguint_bytes.len());
-    }
-    let split = biguint_bytes.len() - 16;
-    let upper = BigUint::from_bytes_be(&biguint_bytes[..split]);
-    let upper_256 = BigInt256::try_from(upper).unwrap();
-    assert_eq!(upper_256.sign(), Sign::Plus);
-    let lower = BigUint::from_bytes_be(&biguint_bytes[split..]);
-    let lower_256 = BigInt256::try_from(lower).unwrap();
-    assert_eq!(lower_256.sign(), Sign::Plus);
-
-    let mut aggregate_response_bytes = upper_256.to_signed_bytes_be();
-    // VERY IMPORTANT: Need this variable because we could add an extra byte to the encoding
-    // for signed-representation.
-    let first_len = aggregate_response_bytes.len() as i32;
-    aggregate_response_bytes.extend(lower_256.to_signed_bytes_be());
-
-    let change_for_miner = BoxValue::try_from(max_miner_fee).unwrap();
-
-    let md = blake2b256_hash(&resulting_digest);
-    let exclusion_set_data = serialize_exclusion_set(exclusion_set, md.as_ref());
-    let aggregate_response: Constant = (
-        Constant::from(aggregate_response_bytes),
-        Constant::from(first_len),
-    )
-        .into();
-    let num_participants = committee.len();
-    let threshold = (num_participants * threshold.num / threshold.denom) as i32;
-    let proof = Constant::from(proof);
-    let avl_const = Constant::from(starting_avl_tree);
-
-    // Create outboxes for terminal cells
-    let mut term_cell_outputs: Vec<_> = terminal_cells
-        .iter()
-        .map(
-            |ErgoTermCell(ErgoCell {
-                 ergs,
-                 address,
-                 tokens,
-             })| {
-                let tokens = if tokens.is_empty() {
-                    None
-                } else {
-                    Some(BoxTokens::from_vec(tokens.clone()).unwrap())
-                };
-                ErgoBoxCandidate {
-                    value: *ergs,
-                    ergo_tree: address.script().unwrap(),
-                    tokens,
-                    additional_registers: NonMandatoryRegisters::empty(),
-                    creation_height: current_height,
-                }
-            },
-        )
-        .collect();
-
-    let initial_vault_balance = vault_utxo.value.as_i64();
-    let ergs_to_distribute: i64 = terminal_cells.iter().map(|t| t.0.ergs.as_i64()).sum();
-
-    let mut values = IndexMap::new();
-    values.insert(0, exclusion_set_data);
-    values.insert(5, aggregate_response);
-    values.insert(1, serialized_aggregate_commitment);
-    values.insert(6, Constant::from(md.as_ref().to_vec()));
-    values.insert(9, threshold.into());
-    values.insert(2, ErgoTermCells(terminal_cells).into());
-    values.insert(7, avl_const);
-    values.insert(3, proof);
-    values.insert(8, change_for_miner.as_i64().into());
-
-    let vault_output_box = ErgoBoxCandidate {
-        value: BoxValue::try_from(initial_vault_balance - change_for_miner.as_i64() - ergs_to_distribute)
-            .unwrap(),
-        ergo_tree: VAULT_CONTRACT.clone(),
-        tokens: None,
-        additional_registers: NonMandatoryRegisters::empty(),
-        creation_height: current_height,
-    };
-
-    let miner_output = ErgoBoxCandidate {
-        value: change_for_miner,
-        ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
-        tokens: None,
-        additional_registers: NonMandatoryRegisters::empty(),
-        creation_height: current_height,
-    };
-    term_cell_outputs.push(vault_output_box);
-    term_cell_outputs.push(miner_output);
-    let outputs = TxIoVec::from_vec(term_cell_outputs).unwrap();
-    let unsigned_input = UnsignedInput::new(vault_utxo.box_id(), ContextExtension { values });
-
-    let data_inputs: Vec<_> = data_boxes
-        .iter()
-        .map(|d| DataInput { box_id: d.box_id() })
-        .collect();
-    let data_inputs = Some(TxIoVec::from_vec(data_inputs).unwrap());
-
-    let unsigned_tx = UnsignedTransaction::new(
-        TxIoVec::from_vec(vec![unsigned_input]).unwrap(),
-        data_inputs,
-        outputs,
-    )
-    .unwrap();
-    let tx_context = TransactionContext::new(unsigned_tx, vec![vault_utxo], data_boxes).unwrap();
-    let now = Instant::now();
-    println!("Signing TX...");
-    let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
-    if res.is_err() {
-        panic!("{:?}", res);
-    }
-    println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
-    res.unwrap()
-}
-
 const KEY_LENGTH: usize = 8;
 const VALUE_LENGTH: usize = 32;
-const MIN_KEY: [u8; KEY_LENGTH] = [0u8; KEY_LENGTH];
-const MAX_KEY: [u8; KEY_LENGTH] = [0xFFu8; KEY_LENGTH];

@@ -1,4 +1,4 @@
-use spectrum_crypto::digest::Blake2bDigest256;
-
 pub mod committee;
+mod rocksdb;
 pub mod script;
+pub mod vault;
