@@ -145,7 +145,7 @@ async fn main() {
     let (msg_out_send, msg_out_recv) = symmetric_channel::<VaultResponse<ErgoNotarizationBounds>>().unwrap();
 
     enum C {
-        FromChain(TxEvent<(Transaction, bool, u32)>),
+        FromChain(TxEvent<(Transaction, u32)>),
         FromDriver(VaultRequest<ExtraErgoData>),
     }
 

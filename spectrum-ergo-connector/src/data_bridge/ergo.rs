@@ -14,8 +14,7 @@ use spectrum_chain_connector::{DataBridge, DataBridgeComponents, TxEvent};
 use spectrum_offchain::event_source::{data::LedgerTxEvent, event_source_ledger};
 
 pub struct ErgoDataBridge {
-    pub receiver:
-        tokio::sync::mpsc::Receiver<TxEvent<(ergo_lib::chain::transaction::Transaction, bool, u32)>>,
+    pub receiver: tokio::sync::mpsc::Receiver<TxEvent<(ergo_lib::chain::transaction::Transaction, u32)>>,
     tx_start: tokio::sync::oneshot::Sender<()>,
 }
 
@@ -38,7 +37,7 @@ impl ErgoDataBridge {
 }
 
 impl DataBridge for ErgoDataBridge {
-    type TxType = (ergo_lib::chain::transaction::Transaction, bool, u32);
+    type TxType = (ergo_lib::chain::transaction::Transaction, u32);
 
     fn get_components(self) -> DataBridgeComponents<Self::TxType> {
         DataBridgeComponents {
@@ -49,7 +48,7 @@ impl DataBridge for ErgoDataBridge {
 }
 
 async fn run_bridge(
-    tx: tokio::sync::mpsc::Sender<TxEvent<(ergo_lib::chain::transaction::Transaction, bool, u32)>>,
+    tx: tokio::sync::mpsc::Sender<TxEvent<(ergo_lib::chain::transaction::Transaction, u32)>>,
     rx_start: tokio::sync::oneshot::Receiver<()>,
     config: ErgoDataBridgeConfig,
 ) {
@@ -83,15 +82,14 @@ async fn run_bridge(
 
     let mut tx_stream = Box::pin(event_source_ledger(chain_sync_stream(chain_sync)));
     while let Some(event) = tx_stream.next().await {
-        let tip_reached = signal_tip_reached.is_completed();
         let event = match event {
             LedgerTxEvent::AppliedTx { tx, .. } => {
                 let height = greatest_height(&tx);
-                TxEvent::AppliedTx((tx, tip_reached, height))
+                TxEvent::AppliedTx((tx, height))
             }
             LedgerTxEvent::UnappliedTx(tx) => {
                 let height = greatest_height(&tx);
-                TxEvent::UnappliedTx((tx, tip_reached, height))
+                TxEvent::UnappliedTx((tx, height))
             }
         };
         tx.send(event).await.unwrap();
@@ -134,11 +132,11 @@ mod tests {
         for _ in 0..10 {
             let tx = receiver.recv().await.unwrap();
             match tx {
-                TxEvent::AppliedTx((tx, _, _)) => {
+                TxEvent::AppliedTx((tx, _)) => {
                     let height = tx.outputs.first().creation_height;
                     println!("AppliedTx: {:?}, height: {}", tx.id(), height);
                 }
-                TxEvent::UnappliedTx((tx, _, _)) => {
+                TxEvent::UnappliedTx((tx, _)) => {
                     let height = tx.outputs.first().creation_height;
                     println!("UnappliedTx: {:?}, height: {}", tx.id(), height);
                 }

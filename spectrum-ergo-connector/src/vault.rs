@@ -71,7 +71,6 @@ pub struct VaultHandler<MVH> {
     withdrawal_repo: WithdrawalRepoRocksDB,
     vault_contract: ErgoTree,
     committee_data: CommitteeData,
-    chain_tip_reached: bool,
     synced_block_heights: VecDeque<u32>,
     sync_starting_height: u32,
     moved_value_history: MVH,
@@ -127,7 +126,6 @@ where
             withdrawal_repo,
             committee_data,
             vault_contract: VAULT_CONTRACT.clone(),
-            chain_tip_reached: false,
             synced_block_heights: VecDeque::with_capacity(MAX_SYNCED_BLOCK_HEIGHTS),
             sync_starting_height,
             moved_value_history,
@@ -135,16 +133,11 @@ where
         })
     }
 
-    pub async fn handle(&mut self, event: TxEvent<(Transaction, bool, u32)>) {
+    pub async fn handle(&mut self, event: TxEvent<(Transaction, u32)>) {
         match event {
-            TxEvent::AppliedTx((tx, tip_reached, height)) => {
-                self.chain_tip_reached = tip_reached;
+            TxEvent::AppliedTx((tx, height)) => {
                 if self.is_vault_withdrawal_tx(&tx).await {
-                    println!(
-                        "VAULT TX {:?} FOUND. Tip reached: {}",
-                        tx.id(),
-                        self.chain_tip_reached
-                    );
+                    info!(target: "vault", "VAULT TX {:?} FOUND", tx.id());
                     // Spend input vault box
                     self.vault_box_repo.spend_box(tx.inputs.first().box_id).await;
 
@@ -186,7 +179,7 @@ where
                     self.synced_block_heights.push_back(height);
                 }
             }
-            TxEvent::UnappliedTx((tx, _, height)) => {
+            TxEvent::UnappliedTx((tx, height)) => {
                 if self.is_vault_withdrawal_tx(&tx).await {
                     let num_outputs = tx.outputs.len();
                     let vault_box_id = tx.inputs.first().box_id;
