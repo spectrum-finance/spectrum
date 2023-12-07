@@ -27,6 +27,7 @@ use ergo_lib::{
 };
 use indexmap::IndexMap;
 use k256::ProjectivePoint;
+use log::info;
 use nonempty::NonEmpty;
 use num_bigint::{BigUint, Sign};
 use spectrum_chain_connector::{
@@ -287,7 +288,10 @@ where
         &self,
         constraints: NotarizedReportConstraints,
     ) -> Result<ErgoNotarizationBounds, ()> {
-        self.vault_box_repo.collect(constraints).await
+        self.vault_box_repo
+            .collect(constraints)
+            .await
+            .map(ErgoNotarizationBounds::from)
     }
 
     pub fn get_vault_status(&self, current_height: u32) -> VaultStatus {
@@ -310,26 +314,6 @@ where
         }
     }
 
-    pub fn get_vault_status_response(
-        &mut self,
-        current_height: u32,
-    ) -> VaultResponse<ErgoNotarizationBounds> {
-        let status = self.get_vault_status(current_height);
-
-        let mut new_moved_values = vec![];
-        std::mem::swap(
-            &mut self.moved_values_since_last_status_check,
-            &mut new_moved_values,
-        );
-
-        let messages = new_moved_values
-            .into_iter()
-            .map(VaultMsgOut::MovedValue)
-            .collect();
-
-        VaultResponse { status, messages }
-    }
-
     pub async fn sync_consensus_driver(&self, from_height: Option<u32>) -> Vec<ErgoMovedValue> {
         let mut res = vec![];
         let mut height = from_height.map(|h| h + 1).unwrap_or(self.sync_starting_height);
@@ -337,6 +321,8 @@ where
             if let Some((mv, next_height)) = self.moved_value_history.get(height).await {
                 res.push(mv);
                 height = next_height + 1;
+            } else {
+                break;
             }
         }
         res
@@ -351,7 +337,8 @@ where
         ergo_node: &ErgoNodeHttpClient,
         wallet: &ergo_lib::wallet::Wallet,
     ) -> bool {
-        if !self.chain_tip_reached {
+        if let VaultStatus::Syncing { .. } = self.get_vault_status(current_height) {
+            info!(target: "vault", "CHAIN TIP NOT REACHED");
             return false;
         }
 

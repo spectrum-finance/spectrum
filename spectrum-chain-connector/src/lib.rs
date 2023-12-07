@@ -27,10 +27,6 @@ pub struct DataBridgeComponents<T> {
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
 /// Outbound message from a Vault manager to consensus driver
 pub enum VaultMsgOut<T> {
-    /// Indicates that the vault manager will begin sync'ing from the given ProgressPoint. If the
-    /// consensus driver contains chain data prior to this point, delete it all and start from
-    /// scratch.
-    StartingSyncFrom(ProgressPoint),
     MovedValue(MovedValue),
     ProposedTxsToNotarize(T),
     ExportValueFailed,
@@ -74,7 +70,6 @@ pub enum VaultRequest<T> {
     /// progress point was given, then begin sync'ing from the oldest point known to the vault
     /// manager.
     SyncFrom(Option<ProgressPoint>),
-    GetStatus,
 }
 
 #[derive(Deserialize, Serialize)]

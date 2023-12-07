@@ -52,10 +52,14 @@ use spectrum_crypto::{
 };
 use spectrum_handel::Threshold;
 use spectrum_ledger::{
-    cell::{AssetId, CustomAsset, NativeCoin, Owner, PolicyId, ProgressPoint, SValue, TermCell},
+    cell::{
+        AssetId, BoxDestination, CustomAsset, NativeCoin, Owner, PolicyId, ProgressPoint, SValue, TermCell,
+    },
     interop::{Point, ReportCertificate},
+    transaction::TxId,
     ChainId, ERGO_CHAIN_ID,
 };
+use spectrum_move::SerializedValue;
 use spectrum_sigma::{
     crypto::{
         aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
@@ -304,7 +308,7 @@ impl From<NotarizedReport<ExtraErgoData>> for SignatureAggregationWithNotarizati
             starting_avl_tree,
             proof,
             max_miner_fee,
-            resulting_digest: message_digest.as_ref().to_vec(),
+            resulting_digest: value.authenticated_digest, //message_digest.as_ref().to_vec(),
             terminal_cells,
         }
     }
@@ -380,6 +384,36 @@ impl TryFrom<TermCell> for ErgoTermCell {
         } else {
             Err(ErgoTermCellError::WrongChainId)
         }
+    }
+}
+
+impl From<ErgoTermCell> for TermCell {
+    fn from(value: ErgoTermCell) -> Self {
+        let s_value = SValue::from(&value.0);
+        let dst = BoxDestination {
+            target: ChainId::from(0),
+            address: SerializedValue::from(value.0.address.content_bytes()),
+            inputs: None,
+        };
+
+        Self {
+            value: s_value,
+            tx_id: TxId::from(Blake2bDigest256::random()), // TODO: set by spectrum-network?
+            index: 0,
+            dst,
+        }
+    }
+}
+
+impl From<ErgoTermCell> for ProtoTermCell {
+    fn from(value: ErgoTermCell) -> Self {
+        let s_value = SValue::from(&value.0);
+        let dst = BoxDestination {
+            target: ChainId::from(0),
+            address: SerializedValue::from(value.0.address.content_bytes()),
+            inputs: None,
+        };
+        Self { value: s_value, dst }
     }
 }
 

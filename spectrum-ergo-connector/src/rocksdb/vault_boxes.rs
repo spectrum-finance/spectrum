@@ -40,7 +40,10 @@ use crate::script::{estimate_tx_size_in_kb, VAULT_CONTRACT};
 #[async_trait(?Send)]
 pub trait VaultBoxRepo {
     /// Collect vault boxes that meet the specified `constraints`.
-    async fn collect(&self, constraints: NotarizedReportConstraints) -> Result<ErgoNotarizationBounds, ()>;
+    async fn collect(
+        &self,
+        constraints: NotarizedReportConstraints,
+    ) -> Result<ErgoNotarizationBoundsWithBoxes, ()>;
     async fn put_confirmed(&mut self, df: Confirmed<AsBox<VaultUtxo>>);
     async fn put_predicted(&mut self, df: Predicted<AsBox<VaultUtxo>>);
     async fn spend_box(&mut self, box_id: BoxId);
@@ -51,12 +54,28 @@ pub trait VaultBoxRepo {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-/// Sent in response to a
+/// Sent in response to a request for notarization of terminal cell withdrawals.
 pub struct ErgoNotarizationBounds {
-    pub vault_utxos: NonEmpty<ErgoBox>,
+    pub vault_utxos: NonEmpty<BoxId>,
     /// Represents an index i within the terminal cells in NotarizedReportConstraints such that all
     /// terminal cells up to and NOT including the i'th one will be included in the notarized report.
     pub terminal_cell_bound: usize,
+}
+
+/// The same as `ErgoNotarizationBounds` above, but we retain boxes for testing/debugging purposes.
+pub struct ErgoNotarizationBoundsWithBoxes {
+    pub vault_utxos: NonEmpty<ErgoBox>,
+    pub terminal_cell_bound: usize,
+}
+
+impl From<ErgoNotarizationBoundsWithBoxes> for ErgoNotarizationBounds {
+    fn from(value: ErgoNotarizationBoundsWithBoxes) -> Self {
+        let vault_utxos = value.vault_utxos.map(|bx| bx.box_id());
+        Self {
+            vault_utxos,
+            terminal_cell_bound: value.terminal_cell_bound,
+        }
+    }
 }
 
 pub struct VaultBoxRepoRocksDB {
@@ -73,7 +92,10 @@ impl VaultBoxRepoRocksDB {
 
 #[async_trait(?Send)]
 impl VaultBoxRepo for VaultBoxRepoRocksDB {
-    async fn collect(&self, constraints: NotarizedReportConstraints) -> Result<ErgoNotarizationBounds, ()> {
+    async fn collect(
+        &self,
+        constraints: NotarizedReportConstraints,
+    ) -> Result<ErgoNotarizationBoundsWithBoxes, ()> {
         let db = self.db.clone();
         spawn_blocking(move || {
             let NotarizedReportConstraints {
@@ -107,7 +129,6 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
             let mut terminal_cell_bound = 0;
 
             'vault_iter: while let Some(Ok((_, value_bytes))) = vault_iter.next() {
-                println!("Back at the top");
                 if !add_term_cells {
                     match asset_diff.nano_erg_diff {
                         NanoErgDifference::Balanced | NanoErgDifference::Surplus(_) => break,
@@ -149,7 +170,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                     && !included_vault_utxos.is_empty()
                     && estimated_tx_size > max_tx_size
                 {
-                    return Ok(ErgoNotarizationBounds {
+                    return Ok(ErgoNotarizationBoundsWithBoxes {
                         vault_utxos: NonEmpty::try_from(included_vault_utxos).unwrap(),
                         terminal_cell_bound,
                     });
@@ -309,7 +330,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                 }
             }
             let vault_utxos = NonEmpty::try_from(included_vault_utxos).unwrap();
-            Ok(ErgoNotarizationBounds {
+            Ok(ErgoNotarizationBoundsWithBoxes {
                 vault_utxos,
                 terminal_cell_bound,
             })
@@ -508,7 +529,7 @@ pub mod tests {
     use spectrum_offchain_lm::data::AsBox;
 
     use crate::{
-        rocksdb::vault_boxes::{ErgoNotarizationBounds, VaultBoxRepo},
+        rocksdb::vault_boxes::{ErgoNotarizationBoundsWithBoxes, VaultBoxRepo},
         script::{
             estimate_tx_size_in_kb,
             tests::{gen_random_token, gen_tx_id, generate_address},
@@ -538,7 +559,7 @@ pub mod tests {
             estimated_number_of_byzantine_nodes: 10,
         };
         let term_cells = constraints.term_cells.clone();
-        let ErgoNotarizationBounds {
+        let ErgoNotarizationBoundsWithBoxes {
             vault_utxos,
             terminal_cell_bound,
         } = client.collect(constraints).await.unwrap();
@@ -570,7 +591,7 @@ pub mod tests {
             estimated_number_of_byzantine_nodes: 20,
         };
         let term_cells = constraints.term_cells.clone();
-        let ErgoNotarizationBounds {
+        let ErgoNotarizationBoundsWithBoxes {
             vault_utxos,
             terminal_cell_bound,
         } = client.collect(constraints).await.unwrap();
@@ -619,7 +640,7 @@ pub mod tests {
             estimated_number_of_byzantine_nodes: estimated_number_of_byzantine_nodes as u32,
         };
         let term_cells = constraints.term_cells.clone();
-        let ErgoNotarizationBounds {
+        let ErgoNotarizationBoundsWithBoxes {
             vault_utxos,
             terminal_cell_bound,
         } = client.collect(constraints).await.unwrap();
@@ -685,7 +706,7 @@ pub mod tests {
             estimated_number_of_byzantine_nodes: estimated_number_of_byzantine_nodes as u32,
         };
         let term_cells = constraints.term_cells.clone();
-        let ErgoNotarizationBounds {
+        let ErgoNotarizationBoundsWithBoxes {
             vault_utxos,
             terminal_cell_bound,
         } = client.collect(constraints).await.unwrap();
