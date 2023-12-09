@@ -110,7 +110,7 @@ pub struct ProtoTermCell {
     pub dst: BoxDestination,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct NotarizedReport<T> {
     pub certificate: ReportCertificate,
     pub value_to_export: Vec<TermCell>,

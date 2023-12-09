@@ -59,7 +59,7 @@ use tokio_unix_ipc::{symmetric_channel, Bootstrapper, Receiver, Sender};
 use vault::VaultHandler;
 
 use crate::{
-    rocksdb::{moved_value_history::InMemoryMovedValueHistory, vault_boxes::ErgoNotarizationBounds},
+    rocksdb::{moved_value_history::MovedValueHistoryRocksDB, vault_boxes::ErgoNotarizationBounds},
     script::{
         simulate_signature_aggregation_notarized_proofs, ErgoCell, ErgoTermCell, ExtraErgoData,
         SignatureAggregationWithNotarizationElements,
@@ -135,11 +135,11 @@ async fn main() {
         config.committee_public_keys,
         TxIoVec::try_from(data_inputs).unwrap(),
         config.chain_sync_starting_height,
-        InMemoryMovedValueHistory::new(),
+        MovedValueHistoryRocksDB::new(&config.moved_value_history_db_path),
     )
     .unwrap();
 
-    let bootstrapper = Bootstrapper::new().unwrap();
+    let bootstrapper = Bootstrapper::bind(config.unix_socket_path).unwrap();
     let path = bootstrapper.path().to_owned();
     let (msg_in_send, msg_in_recv) = symmetric_channel::<VaultRequest<ExtraErgoData>>().unwrap();
     let (msg_out_send, msg_out_recv) = symmetric_channel::<VaultResponse<ErgoNotarizationBounds>>().unwrap();
@@ -167,6 +167,7 @@ async fn main() {
     let mut combined_stream = futures::stream::select_all(streams);
 
     let participant_secret_keys = config.committee_secret_keys.clone();
+
     // Mock consensus driver
     tokio::spawn(async move {
         let receiver = Receiver::<(
@@ -380,6 +381,7 @@ struct AppConfig {
     log4rs_yaml_path: String,
     withdrawals_store_db_path: String,
     vault_boxes_store_db_path: String,
+    moved_value_history_db_path: String,
     chain_cache_db_path: String,
     unix_socket_path: String,
     committee_public_keys: Vec<EcPoint>,
@@ -401,6 +403,7 @@ struct AppConfigProto {
     log4rs_yaml_path: String,
     withdrawals_store_db_path: String,
     vault_boxes_store_db_path: String,
+    moved_value_history_db_path: String,
     chain_cache_db_path: String,
     unix_socket_path: String,
     committee_public_keys: Vec<String>,
@@ -445,6 +448,7 @@ impl From<AppConfigProto> for AppConfig {
             log4rs_yaml_path: value.log4rs_yaml_path,
             withdrawals_store_db_path: value.withdrawals_store_db_path,
             vault_boxes_store_db_path: value.vault_boxes_store_db_path,
+            moved_value_history_db_path: value.moved_value_history_db_path,
             chain_cache_db_path: value.chain_cache_db_path,
             unix_socket_path: value.unix_socket_path,
             committee_public_keys,

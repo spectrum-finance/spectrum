@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{collections::HashMap, hash::Hash, iter::repeat};
 
 use blake2::Blake2b;
@@ -42,7 +43,11 @@ use scorex_crypto_avltree::{
     batch_node::{AVLTree, Node, NodeHeader},
     operation::{KeyValue, Operation},
 };
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{MapAccess, SeqAccess, Visitor},
+    ser::SerializeStruct,
+    Deserialize, Deserializer, Serialize,
+};
 use sha2::Digest as OtherDigest;
 use sha2::Sha256;
 use spectrum_chain_connector::{InboundValue, NotarizedReport, ProtoTermCell, UserValue};
@@ -188,7 +193,7 @@ impl From<ErgoCell> for ErgoCellProto {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 #[serde(from = "ExtraErgoDataProto", into = "ExtraErgoDataProto")]
 pub struct ExtraErgoData {
     pub starting_avl_tree: AvlTreeData,
@@ -277,6 +282,13 @@ pub struct SignatureAggregationWithNotarizationElements {
     pub resulting_digest: Vec<u8>,
     pub terminal_cells: Vec<ErgoTermCell>,
     pub max_miner_fee: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct ProgressingWithdrawal {
+    pub report: NotarizedReport<ExtraErgoData>,
+    pub vault_utxo_box_id: BoxId,
+    pub timestamp: i64,
 }
 
 impl From<NotarizedReport<ExtraErgoData>> for SignatureAggregationWithNotarizationElements {

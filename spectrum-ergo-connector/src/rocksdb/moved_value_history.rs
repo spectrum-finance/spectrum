@@ -1,5 +1,9 @@
+use std::sync::Arc;
+
+use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use ergo_lib::chain::transaction::TxId;
+use rocksdb::{Direction, IteratorMode};
 use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{InboundValue, MovedValue, UserValue};
 use spectrum_crypto::digest::Blake2bDigest256;
@@ -99,6 +103,66 @@ impl From<ErgoMovedValue> for MovedValue {
     }
 }
 
+pub struct MovedValueHistoryRocksDB {
+    db: Arc<rocksdb::OptimisticTransactionDB>,
+}
+
+impl MovedValueHistoryRocksDB {
+    pub fn new(db_path: &str) -> Self {
+        Self {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(db_path).unwrap()),
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl MovedValueHistory for MovedValueHistoryRocksDB {
+    async fn append(&mut self, moved_value: ErgoMovedValue) {
+        let db = Arc::clone(&self.db);
+        spawn_blocking(move || {
+            let key = moved_value.get_height().to_be_bytes();
+
+            // `bincode` cannot handle arbitrary structs since it is a non-self-describing serialization
+            // format. We can use messagepack (via `rmp_serde`), which is a binary format that is also
+            // self-describing.
+            let value = rmp_serde::to_vec_named(&moved_value).unwrap();
+            db.put(key, value).unwrap();
+        })
+        .await
+    }
+
+    async fn get(&self, height: u32) -> Option<(ErgoMovedValue, u32)> {
+        let db = Arc::clone(&self.db);
+        spawn_blocking(move || {
+            let key = height.to_be_bytes();
+            let mut vault_iter = db.iterator(IteratorMode::From(&key, Direction::Forward));
+
+            let mut prev = None;
+            while let Some(Ok((key_bytes, value_bytes))) = vault_iter.next() {
+                let bb: [u8; 4] = key_bytes.as_ref().try_into().unwrap();
+                let next_height = u32::from_be_bytes(bb);
+                println!("HEIGHT: {}, NEXT HEIGHT: {}", height, next_height);
+                let moved_value: ErgoMovedValue = rmp_serde::from_slice(&value_bytes).unwrap();
+                if prev.is_none() {
+                    if height <= next_height {
+                        return Some((moved_value, next_height));
+                    } else {
+                        prev = Some(moved_value);
+                        continue;
+                    }
+                }
+                if height > prev.unwrap().get_height() && height <= next_height {
+                    return Some((moved_value.clone(), moved_value.get_height()));
+                } else {
+                    prev = Some(moved_value);
+                }
+            }
+            None
+        })
+        .await
+    }
+}
+
 pub struct InMemoryMovedValueHistory {
     history: Vec<ErgoMovedValue>,
 }
@@ -139,19 +203,40 @@ impl MovedValueHistory for InMemoryMovedValueHistory {
 
 #[cfg(test)]
 mod tests {
-    use ergo_lib::chain::transaction::TxId;
+    use std::sync::Arc;
 
-    use crate::rocksdb::moved_value_history::{InMemoryMovedValueHistory, MovedValueHistory};
+    use ergo_lib::{
+        chain::transaction::TxId,
+        ergotree_ir::chain::{
+            address::{AddressEncoder, NetworkPrefix},
+            ergo_box::box_value::BoxValue,
+        },
+    };
+    use rand::RngCore;
 
-    use super::ErgoMovedValue;
+    use crate::{
+        rocksdb::moved_value_history::{InMemoryMovedValueHistory, MovedValueHistory},
+        script::{ErgoCell, ErgoTermCell},
+    };
+
+    use super::{ErgoMovedValue, MovedValueHistoryRocksDB};
+
+    #[tokio::test]
+    async fn test_rocksdb_single_insertion() {
+        let history_rocksdb = rocks_db_client();
+        single_insertion(history_rocksdb).await;
+    }
 
     #[tokio::test]
     async fn test_in_memory_single_insertion() {
-        let mut history = InMemoryMovedValueHistory::new();
+        let history = InMemoryMovedValueHistory::new();
+        single_insertion(history).await;
+    }
+
+    async fn single_insertion<M: MovedValueHistory>(mut history: M) {
         let height = 1234;
         let mv = gen_moved_value(height);
         history.append(mv.clone()).await;
-
         // Test exact height
         assert_eq!(history.get(height).await, Some((mv.clone(), height)));
 
@@ -164,7 +249,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_in_memory_2_insertions() {
-        let mut history = InMemoryMovedValueHistory::new();
+        let history = InMemoryMovedValueHistory::new();
+        two_insertions(history).await;
+    }
+
+    #[tokio::test]
+    async fn test_rocksdb_2_insertions() {
+        let history = rocks_db_client();
+        two_insertions(history).await;
+    }
+
+    async fn two_insertions<M: MovedValueHistory>(mut history: M) {
         let height = 1234;
         let mv_0 = gen_moved_value(height);
         let mv_1 = gen_moved_value(height + 10);
@@ -182,11 +277,29 @@ mod tests {
     }
 
     fn gen_moved_value(height: u32) -> ErgoMovedValue {
+        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
+        let address = encoder
+            .parse_address_from_str("9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMg")
+            .unwrap();
+
+        let ergo_cell = ErgoCell {
+            ergs: BoxValue::try_from(100000_u64).unwrap(),
+            address,
+            tokens: vec![],
+        };
+
         ErgoMovedValue::Applied(super::ErgoUserValue {
             imported_value: vec![],
-            exported_value: vec![],
+            exported_value: vec![ErgoTermCell(ergo_cell)],
             progress_point: height,
             tx_id: TxId::zero(),
         })
+    }
+
+    fn rocks_db_client() -> MovedValueHistoryRocksDB {
+        let rnd = rand::thread_rng().next_u32();
+        MovedValueHistoryRocksDB {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
+        }
     }
 }
