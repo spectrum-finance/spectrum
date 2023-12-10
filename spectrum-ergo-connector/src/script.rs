@@ -9,6 +9,7 @@ use elliptic_curve::{
     ops::{LinearCombination, Reduce},
 };
 use ergo_lib::{
+    chain::transaction::Input,
     ergo_chain_types::{Digest, Digest32 as ELDigest32, DigestNError, EcPoint},
     ergotree_ir::{
         bigint256::BigInt256,
@@ -282,13 +283,6 @@ pub struct SignatureAggregationWithNotarizationElements {
     pub resulting_digest: Vec<u8>,
     pub terminal_cells: Vec<ErgoTermCell>,
     pub max_miner_fee: i64,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct ProgressingWithdrawal {
-    pub report: NotarizedReport<ExtraErgoData>,
-    pub vault_utxo_box_id: BoxId,
-    pub timestamp: i64,
 }
 
 impl From<NotarizedReport<ExtraErgoData>> for SignatureAggregationWithNotarizationElements {
