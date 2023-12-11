@@ -190,13 +190,14 @@ async fn main() {
 
         let mut synced = false;
         let mut current_progress_point = None;
+        let mut sent_tx_notarize_request = false;
         let max_miner_fee = 1000000;
 
         const TERM_CELL_VALUE: u64 = 700000;
 
         loop {
             sleep(tokio::time::Duration::from_secs(1)).await;
-            if synced {
+            if synced && !sent_tx_notarize_request {
                 let proto_term_cells = vec![ProtoTermCell::from(ErgoTermCell(ErgoCell {
                     ergs: BoxValue::try_from(TERM_CELL_VALUE).unwrap(),
                     address: address.clone(),
@@ -216,8 +217,8 @@ async fn main() {
                     .send(VaultRequest::RequestTxsToNotarize(constraints))
                     .await
                     .unwrap();
+                sent_tx_notarize_request = true;
             } else {
-                info!(target: "driver", "sending SyncFrom({:?}", current_progress_point);
                 cd_send
                     .send(VaultRequest::SyncFrom(current_progress_point.clone()))
                     .await
@@ -314,9 +315,8 @@ async fn main() {
                             .get_box(*report.additional_chain_data.vault_utxos.first().unwrap())
                             .await
                             .unwrap();
-                        let inputs = SignatureAggregationWithNotarizationElements::from(*report);
                         vault_handler
-                            .export_value(inputs, vault_utxo, &node, &wallet)
+                            .export_value(*report.clone(), false, vault_utxo, &node, &wallet)
                             .await;
 
                         let status = vault_handler.get_vault_status(current_height).await;

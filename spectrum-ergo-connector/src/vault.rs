@@ -1,5 +1,6 @@
 use std::{collections::VecDeque, time::Instant};
 
+use chrono::Utc;
 use ergo_chain_sync::client::node::{ErgoNetwork, ErgoNodeHttpClient};
 use ergo_lib::{
     chain::{
@@ -20,7 +21,9 @@ use indexmap::IndexMap;
 use k256::ProjectivePoint;
 use log::info;
 use num_bigint::{BigUint, Sign};
-use spectrum_chain_connector::{NotarizedReportConstraints, PendingExportStatus, TxEvent, VaultStatus};
+use spectrum_chain_connector::{
+    NotarizedReport, NotarizedReportConstraints, PendingExportStatus, TxEvent, VaultStatus,
+};
 use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_ledger::{cell::ProgressPoint, interop::Point, ChainId};
 use spectrum_offchain::{
@@ -34,7 +37,7 @@ use crate::{
     committee::{CommitteeData, FirstCommitteeBox, SubsequentCommitteeBox},
     rocksdb::{
         moved_value_history::{self, ErgoMovedValue, ErgoUserValue, MovedValueHistory},
-        tx_retry_scheduler::{Command, ExportTxRetryScheduler},
+        tx_retry_scheduler::{Command, ExportInProgress, ExportTxRetryScheduler},
         vault_boxes::{ErgoNotarizationBounds, VaultBoxRepo, VaultBoxRepoRocksDB, VaultUtxo},
         withdrawals::{WithdrawalRepo, WithdrawalRepoRocksDB},
     },
@@ -58,9 +61,9 @@ pub struct VaultHandler<MVH, E> {
     tx_retry_scheduler: E,
 }
 
-impl<MVH, E> VaultHandler<MVH, E>
+impl<M, E> VaultHandler<M, E>
 where
-    MVH: MovedValueHistory,
+    M: MovedValueHistory,
     E: ExportTxRetryScheduler,
 {
     pub fn new(
@@ -70,7 +73,7 @@ where
         committee_public_keys: Vec<EcPoint>,
         data_inputs: TxIoVec<ErgoBox>,
         sync_starting_height: u32,
-        moved_value_history: MVH,
+        moved_value_history: M,
         tx_retry_scheduler: E,
     ) -> Option<Self> {
         let mut slice_ix = 0_usize;
@@ -156,6 +159,7 @@ where
                             // by `tx_retry_scheduler`, we can be sure it is our Tx that has been
                             // confirmed.
                             if tracked_export.vault_utxo_signed_input == *tx.inputs.first() {
+                                info!(target: "vault", "VAULT TX {:?} CONFIRMED", tx.id());
                                 self.tx_retry_scheduler.notify_confirmed(&tracked_export).await;
                             }
                         }
@@ -219,8 +223,9 @@ where
     ) {
         let command = self.tx_retry_scheduler.next_command().await;
         if let Command::ResubmitTx(e) = command {
-            let inputs = SignatureAggregationWithNotarizationElements::from(e.report);
-            self.export_value(inputs, e.vault_utxo, ergo_node, wallet).await;
+            info!(target: "vault", "Resubmitting export tx");
+            self.export_value(e.report, true, e.vault_utxo, ergo_node, wallet)
+                .await;
         }
     }
 
@@ -335,7 +340,8 @@ where
 
     pub async fn export_value(
         &mut self,
-        inputs: SignatureAggregationWithNotarizationElements,
+        report: NotarizedReport<ExtraErgoData>,
+        is_resubmission: bool,
         vault_utxo: ErgoBox,
         ergo_node: &ErgoNodeHttpClient,
         wallet: &ergo_lib::wallet::Wallet,
@@ -346,6 +352,7 @@ where
             return false;
         }
 
+        let inputs = SignatureAggregationWithNotarizationElements::from(report.clone());
         let ergo_state_context = ergo_node.get_ergo_state_context().await.unwrap();
         let mut data_boxes = vec![self.committee_data.first_box.0.clone()];
         if let Some(subsequent) = &self.committee_data.subsequent_boxes {
@@ -355,7 +362,7 @@ where
             inputs,
             self.committee_data.committee_size(),
             ergo_state_context,
-            vault_utxo,
+            vault_utxo.clone(),
             data_boxes,
             wallet,
             current_height,
@@ -366,8 +373,17 @@ where
         let num_outputs = signed_tx.outputs.len();
         let vault_output_utxo = signed_tx.outputs.get(num_outputs - 2).unwrap().clone();
         let withdrawals = signed_tx.outputs.clone().into_iter().take(num_outputs - 2);
+        let export = ExportInProgress {
+            report,
+            vault_utxo_signed_input: signed_tx.inputs.first().clone(),
+            vault_utxo,
+            timestamp: Utc::now().timestamp(),
+        };
         if let Err(e) = ergo_node.submit_tx(signed_tx).await {
             println!("ERGO NODE ERROR: {:?}", e);
+            if is_resubmission {
+                self.tx_retry_scheduler.notify_failed(&export).await;
+            }
             false
         } else {
             println!("TX {:?} successfully submitted!", tx_id);
@@ -379,6 +395,10 @@ where
 
             for w in withdrawals {
                 self.withdrawal_repo.put_predicted(Predicted(w)).await;
+            }
+
+            if !is_resubmission {
+                self.tx_retry_scheduler.add_new_export(export).await;
             }
 
             true

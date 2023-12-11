@@ -120,7 +120,7 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
         spawn_blocking(move || {
             let value_bytes = db.get(EXPORT_KEY.as_bytes()).unwrap().unwrap();
             let value: ExportInProgress = rmp_serde::from_slice(&value_bytes).unwrap();
-            assert_eq!(value, cloned);
+            assert_eq!(value.vault_utxo_signed_input, cloned.vault_utxo_signed_input);
             let count_bytes = db.get(COUNT_KEY.as_bytes()).unwrap().unwrap();
             let count = u32::from_be_bytes(count_bytes.try_into().unwrap());
             db.put(COUNT_KEY.as_bytes(), (count + 1).to_be_bytes()).unwrap();
