@@ -58,16 +58,16 @@ pub struct VaultResponse<S, T> {
 /// Inbound message to a Vault manager from consensus driver
 #[derive(Deserialize, Serialize)]
 pub enum VaultRequest<T> {
-    /// Indicate to the vault manager to start rotating committee (WIP)
-    RotateCommittee,
-    /// Initiate transaction to settle exported value that's specified in the notarized report.
-    ExportValue(Box<NotarizedReport<T>>),
-    /// Request the vault manager to find a set of TXs to notarize, subject to various constraints.
-    RequestTxsToNotarize(NotarizedReportConstraints),
     /// Indicate to the vault manager to start sync'ing from the given progress point. If no
     /// progress point was given, then begin sync'ing from the oldest point known to the vault
     /// manager.
     SyncFrom(Option<ProgressPoint>),
+    /// Request the vault manager to find a set of TXs to notarize, subject to various constraints.
+    RequestTxsToNotarize(NotarizedReportConstraints),
+    /// Initiate transaction to settle exported value that's specified in the notarized report.
+    ExportValue(Box<NotarizedReport<T>>),
+    /// Indicate to the vault manager to start rotating committee (WIP)
+    RotateCommittee,
 }
 
 #[derive(Deserialize, Serialize)]
