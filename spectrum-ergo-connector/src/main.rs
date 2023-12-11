@@ -1,18 +1,9 @@
-use std::{
-    collections::HashMap,
-    os::unix::net::{UnixListener, UnixStream},
-    sync::Arc,
-};
-
 use async_stream::stream;
 use bounded_integer::BoundedU8;
 use chrono::Duration;
 use clap::{arg, command, Parser};
 use data_bridge::ergo::{ErgoDataBridge, ErgoDataBridgeConfig};
-use ergo_chain_sync::client::{
-    node::{ErgoNetwork, ErgoNodeHttpClient},
-    types::Url,
-};
+use ergo_chain_sync::client::{node::ErgoNodeHttpClient, types::Url};
 use ergo_lib::{
     chain::transaction::{Transaction, TxIoVec},
     ergo_chain_types::EcPoint,
@@ -24,9 +15,8 @@ use ergo_lib::{
         ergo_tree::ErgoTree,
     },
 };
-use futures::{stream::select_all, StreamExt};
+use futures::StreamExt;
 use isahc::{config::Configurable, HttpClient};
-use k256::PublicKey;
 use log::info;
 use rocksdb::{vault_boxes::VaultBoxRepoRocksDB, withdrawals::WithdrawalRepoRocksDB};
 use serde::{Deserialize, Serialize};
@@ -35,7 +25,7 @@ use spectrum_chain_connector::{
     DataBridge, DataBridgeComponents, Kilobytes, MovedValue, NotarizedReport, NotarizedReportConstraints,
     ProtoTermCell, TxEvent, VaultMsgOut, VaultRequest, VaultResponse, VaultStatus,
 };
-use spectrum_crypto::digest::{blake2b256_hash, Blake2b256, Blake2bDigest256};
+use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_deploy_lm_pool::Explorer;
 use spectrum_handel::Threshold;
 use spectrum_ledger::{
@@ -43,23 +33,19 @@ use spectrum_ledger::{
     interop::{Point, ReportCertificate},
     ChainId,
 };
-use spectrum_offchain::{
-    event_sink::handlers::types::IntoBoxCandidate, network::ErgoNetwork as EN,
-    transaction::TransactionCandidate,
-};
-use spectrum_offchain_lm::{
-    data::miner::MinerOutput,
-    ergo::{NanoErg, DEFAULT_MINER_FEE, MIN_SAFE_BOX_VALUE},
-    prover::{SeedPhrase, SigmaProver},
-};
+use spectrum_offchain::network::ErgoNetwork as EN;
+use spectrum_offchain_lm::prover::SeedPhrase;
 use spectrum_sigma::sigma_aggregation::AggregateCertificate;
-use tokio::{sync::Mutex, time::sleep};
+use tokio::time::sleep;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_unix_ipc::{symmetric_channel, Bootstrapper, Receiver, Sender};
 use vault::VaultHandler;
 
 use crate::{
-    rocksdb::{moved_value_history::MovedValueHistoryRocksDB, vault_boxes::ErgoNotarizationBounds},
+    rocksdb::{
+        moved_value_history::MovedValueHistoryRocksDB, tx_retry_scheduler::ExportTxRetrySchedulerRocksDB,
+        vault_boxes::ErgoNotarizationBounds,
+    },
     script::{
         simulate_signature_aggregation_notarized_proofs, ErgoCell, ErgoTermCell, ExtraErgoData,
         SignatureAggregationWithNotarizationElements,
@@ -136,20 +122,28 @@ async fn main() {
         TxIoVec::try_from(data_inputs).unwrap(),
         config.chain_sync_starting_height,
         MovedValueHistoryRocksDB::new(&config.moved_value_history_db_path),
+        ExportTxRetrySchedulerRocksDB::new(
+            &config.export_tx_retry_config.db_path,
+            config.export_tx_retry_config.retry_delay_duration.num_seconds(),
+            config.export_tx_retry_config.max_retries,
+        )
+        .await,
     )
     .unwrap();
 
     let bootstrapper = Bootstrapper::bind(config.unix_socket_path).unwrap();
     let path = bootstrapper.path().to_owned();
     let (msg_in_send, msg_in_recv) = symmetric_channel::<VaultRequest<ExtraErgoData>>().unwrap();
-    let (msg_out_send, msg_out_recv) = symmetric_channel::<VaultResponse<ErgoNotarizationBounds>>().unwrap();
+    let (msg_out_send, msg_out_recv) =
+        symmetric_channel::<VaultResponse<ExtraErgoData, ErgoNotarizationBounds>>().unwrap();
 
-    enum C {
-        FromChain(TxEvent<(Transaction, u32)>),
-        FromDriver(VaultRequest<ExtraErgoData>),
+    enum StreamValueFrom {
+        Chain(TxEvent<(Transaction, u32)>),
+        Driver(VaultRequest<ExtraErgoData>),
+        ResubmitExportTx,
     }
 
-    type CombinedStream = std::pin::Pin<Box<dyn futures::stream::Stream<Item = C> + Send>>;
+    type CombinedStream = std::pin::Pin<Box<dyn futures::stream::Stream<Item = StreamValueFrom> + Send>>;
 
     // Convert the tokio_unix_ipc Receiver into a stream.
     let consensus_driver_stream = stream! {
@@ -160,9 +154,20 @@ async fn main() {
         }
     };
 
+    // Every minute we check whether the export TX needs a resubmission.
+    let resubmit_export_tx_stream = stream! {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            yield ();
+        }
+    };
+
     let streams: Vec<CombinedStream> = vec![
-        ReceiverStream::new(receiver).map(C::FromChain).boxed(),
-        consensus_driver_stream.map(C::FromDriver).boxed(),
+        ReceiverStream::new(receiver).map(StreamValueFrom::Chain).boxed(),
+        consensus_driver_stream.map(StreamValueFrom::Driver).boxed(),
+        resubmit_export_tx_stream
+            .map(|_| StreamValueFrom::ResubmitExportTx)
+            .boxed(),
     ];
     let mut combined_stream = futures::stream::select_all(streams);
 
@@ -172,7 +177,7 @@ async fn main() {
     tokio::spawn(async move {
         let receiver = Receiver::<(
             Sender<VaultRequest<ExtraErgoData>>,
-            Receiver<VaultResponse<ErgoNotarizationBounds>>,
+            Receiver<VaultResponse<ExtraErgoData, ErgoNotarizationBounds>>,
         )>::connect(path)
         .await
         .unwrap();
@@ -187,17 +192,18 @@ async fn main() {
         let mut current_progress_point = None;
         let max_miner_fee = 1000000;
 
+        const TERM_CELL_VALUE: u64 = 700000;
+
         loop {
             sleep(tokio::time::Duration::from_secs(1)).await;
             if synced {
-                let term_cells = vec![ProtoTermCell::from(ErgoTermCell(ErgoCell {
-                    ergs: BoxValue::try_from(500000_u64).unwrap(),
+                let proto_term_cells = vec![ProtoTermCell::from(ErgoTermCell(ErgoCell {
+                    ergs: BoxValue::try_from(TERM_CELL_VALUE).unwrap(),
                     address: address.clone(),
                     tokens: vec![],
                 }))];
-
                 let constraints = NotarizedReportConstraints {
-                    term_cells,
+                    term_cells: proto_term_cells,
                     last_progress_point: ProgressPoint {
                         chain_id: ChainId::from(0),
                         point: Point::from(100), // Dummy value, doesn't matter for this test
@@ -218,12 +224,12 @@ async fn main() {
                     .unwrap();
             }
             let VaultResponse { status, messages } = cd_recv.recv().await.unwrap();
+
+            // `status` also describes the state of the export TX
+            info!(target: "driver", "status: {:?}", status);
+
             for msg in messages {
                 match msg {
-                    VaultMsgOut::ExportValueSubmitted => info!(target: "driver", "Export value TX submitted"),
-                    VaultMsgOut::ExportValueFailed => {
-                        info!(target: "driver", "Export value TX failed submission")
-                    }
                     VaultMsgOut::MovedValue(mv) => match mv {
                         MovedValue::Applied(uv) => {
                             current_progress_point = Some(uv.progress_point);
@@ -237,9 +243,8 @@ async fn main() {
                         let vault_utxos: Vec<_> = bounds.vault_utxos.into();
                         assert_eq!(bounds.terminal_cell_bound, 1);
 
-                        // TODO: submit ExportValue request
                         let value_to_export = vec![ErgoTermCell(ErgoCell {
-                            ergs: BoxValue::try_from(500000_u64).unwrap(),
+                            ergs: BoxValue::try_from(TERM_CELL_VALUE).unwrap(),
                             address: address.clone(),
                             tokens: vec![],
                         })];
@@ -287,7 +292,7 @@ async fn main() {
                     }
                 }
             }
-            if let VaultStatus::Synced(_) = status {
+            if let VaultStatus::Synced { .. } = status {
                 synced = true;
             }
         }
@@ -298,37 +303,25 @@ async fn main() {
 
     while let Some(m) = combined_stream.next().await {
         match m {
-            C::FromChain(tx_event) => {
+            StreamValueFrom::Chain(tx_event) => {
                 vault_handler.handle(tx_event).await;
             }
-            C::FromDriver(msg_in) => {
+            StreamValueFrom::Driver(msg_in) => {
                 match msg_in {
                     VaultRequest::ExportValue(report) => {
                         let current_height = node.get_height().await;
-                        let ergo_state_context = node.get_ergo_state_context().await.unwrap();
                         let vault_utxo = explorer
                             .get_box(*report.additional_chain_data.vault_utxos.first().unwrap())
                             .await
                             .unwrap();
                         let inputs = SignatureAggregationWithNotarizationElements::from(*report);
-                        let submitted = vault_handler
-                            .export_value(
-                                inputs,
-                                ergo_state_context,
-                                current_height,
-                                vault_utxo,
-                                &node,
-                                &wallet,
-                            )
+                        vault_handler
+                            .export_value(inputs, vault_utxo, &node, &wallet)
                             .await;
 
-                        let status = vault_handler.get_vault_status(current_height);
+                        let status = vault_handler.get_vault_status(current_height).await;
 
-                        let messages = if submitted {
-                            vec![VaultMsgOut::ExportValueSubmitted]
-                        } else {
-                            vec![VaultMsgOut::ExportValueFailed]
-                        };
+                        let messages = vec![];
                         msg_out_send
                             .send(VaultResponse { status, messages })
                             .await
@@ -339,7 +332,7 @@ async fn main() {
 
                         if let Ok(bounds) = res {
                             let current_height = node.get_height().await;
-                            let status = vault_handler.get_vault_status(current_height);
+                            let status = vault_handler.get_vault_status(current_height).await;
                             let messages = vec![VaultMsgOut::ProposedTxsToNotarize(bounds)];
                             info!(target: "vault", "Responding to RequestTxsToNotarize. status: {:?}, messages: {:?}", status, messages);
 
@@ -359,7 +352,7 @@ async fn main() {
                             .map(|ergo_mv| VaultMsgOut::MovedValue(MovedValue::from(ergo_mv)))
                             .collect();
                         let current_height = node.get_height().await;
-                        let status = vault_handler.get_vault_status(current_height);
+                        let status = vault_handler.get_vault_status(current_height).await;
                         info!(target: "vault", "respond to SyncFrom. status: {:?}, messages: {:?}", status, messages);
                         msg_out_send
                             .send(VaultResponse { status, messages })
@@ -368,6 +361,9 @@ async fn main() {
                     }
                     VaultRequest::RotateCommittee => todo!(),
                 }
+            }
+            StreamValueFrom::ResubmitExportTx => {
+                vault_handler.handle_tx_resubmission(&node, &wallet).await;
             }
         }
     }
@@ -378,6 +374,7 @@ struct AppConfig {
     http_client_timeout_duration_secs: u32,
     chain_sync_starting_height: u32,
     backlog_config: BacklogConfig,
+    export_tx_retry_config: ExportTxRetryConfig,
     log4rs_yaml_path: String,
     withdrawals_store_db_path: String,
     vault_boxes_store_db_path: String,
@@ -400,6 +397,7 @@ struct AppConfigProto {
     http_client_timeout_duration_secs: u32,
     chain_sync_starting_height: u32,
     backlog_config: BacklogConfig,
+    export_tx_retry_config: ExportTxRetryConfig,
     log4rs_yaml_path: String,
     withdrawals_store_db_path: String,
     vault_boxes_store_db_path: String,
@@ -445,6 +443,7 @@ impl From<AppConfigProto> for AppConfig {
             http_client_timeout_duration_secs: value.http_client_timeout_duration_secs,
             chain_sync_starting_height: value.chain_sync_starting_height,
             backlog_config: value.backlog_config,
+            export_tx_retry_config: value.export_tx_retry_config,
             log4rs_yaml_path: value.log4rs_yaml_path,
             withdrawals_store_db_path: value.withdrawals_store_db_path,
             vault_boxes_store_db_path: value.vault_boxes_store_db_path,
@@ -468,6 +467,15 @@ pub struct BacklogConfig {
     #[serde_as(as = "serde_with::DurationSeconds<i64>")]
     pub order_exec_time: Duration,
     pub retry_suspended_prob: BoundedU8<0, 100>,
+}
+
+#[serde_with::serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ExportTxRetryConfig {
+    db_path: String,
+    #[serde_as(as = "serde_with::DurationSeconds<i64>")]
+    pub retry_delay_duration: Duration,
+    pub max_retries: u32,
 }
 
 #[derive(Parser)]

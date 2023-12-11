@@ -29,8 +29,6 @@ pub struct DataBridgeComponents<T> {
 pub enum VaultMsgOut<T> {
     MovedValue(MovedValue),
     ProposedTxsToNotarize(T),
-    ExportValueFailed,
-    ExportValueSubmitted,
 }
 
 /// Represents on-chain value of users that may be applied or rollback'ed on.
@@ -52,8 +50,8 @@ pub enum MovedValue {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub struct VaultResponse<T> {
-    pub status: VaultStatus,
+pub struct VaultResponse<S, T> {
+    pub status: VaultStatus<S>,
     pub messages: Vec<VaultMsgOut<T>>,
 }
 
@@ -85,12 +83,23 @@ pub struct NotarizedReportConstraints {
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
-pub enum VaultStatus {
-    Synced(ProgressPoint),
+pub enum VaultStatus<T> {
+    Synced {
+        current_progress_point: ProgressPoint,
+        pending_export_status: Option<PendingExportStatus<T>>,
+    },
     Syncing {
         current_progress_point: ProgressPoint,
         num_points_remaining: u32,
+        pending_export_status: Option<PendingExportStatus<T>>,
     },
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
+pub enum PendingExportStatus<T> {
+    WaitingForConfirmation(NotarizedReport<T>),
+    Confirmed(NotarizedReport<T>),
+    Aborted(NotarizedReport<T>),
 }
 
 #[derive(Deserialize, Serialize)]

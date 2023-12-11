@@ -1,4 +1,3 @@
-use core::fmt;
 use std::{collections::HashMap, hash::Hash, iter::repeat};
 
 use blake2::Blake2b;
@@ -9,7 +8,6 @@ use elliptic_curve::{
     ops::{LinearCombination, Reduce},
 };
 use ergo_lib::{
-    chain::transaction::Input,
     ergo_chain_types::{Digest, Digest32 as ELDigest32, DigestNError, EcPoint},
     ergotree_ir::{
         bigint256::BigInt256,
@@ -44,24 +42,18 @@ use scorex_crypto_avltree::{
     batch_node::{AVLTree, Node, NodeHeader},
     operation::{KeyValue, Operation},
 };
-use serde::{
-    de::{MapAccess, SeqAccess, Visitor},
-    ser::SerializeStruct,
-    Deserialize, Deserializer, Serialize,
-};
+use serde::{Deserialize, Serialize};
 use sha2::Digest as OtherDigest;
 use sha2::Sha256;
-use spectrum_chain_connector::{InboundValue, NotarizedReport, ProtoTermCell, UserValue};
+use spectrum_chain_connector::{InboundValue, NotarizedReport, ProtoTermCell};
 use spectrum_crypto::{
-    digest::{blake2b256_hash, Blake2b256, Blake2bDigest256},
+    digest::{blake2b256_hash, Blake2bDigest256},
     pubkey::PublicKey,
 };
 use spectrum_handel::Threshold;
 use spectrum_ledger::{
-    cell::{
-        AssetId, BoxDestination, CustomAsset, NativeCoin, Owner, PolicyId, ProgressPoint, SValue, TermCell,
-    },
-    interop::{Point, ReportCertificate},
+    cell::{AssetId, BoxDestination, CustomAsset, NativeCoin, Owner, PolicyId, SValue, TermCell},
+    interop::ReportCertificate,
     transaction::TxId,
     ChainId, ERGO_CHAIN_ID,
 };

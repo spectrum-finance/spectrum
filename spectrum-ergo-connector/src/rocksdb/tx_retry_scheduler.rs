@@ -3,9 +3,9 @@ use std::{sync::Arc, time::Duration};
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use chrono::Utc;
-use ergo_lib::chain::transaction::Input;
+use ergo_lib::{chain::transaction::Input, ergotree_ir::chain::ergo_box::ErgoBox};
 use serde::{Deserialize, Serialize};
-use spectrum_chain_connector::NotarizedReport;
+use spectrum_chain_connector::{NotarizedReport, PendingExportStatus};
 
 use crate::script::ExtraErgoData;
 
@@ -53,6 +53,11 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
             tx.put(EXPORT_KEY.as_bytes(), value_bytes).unwrap();
             tx.put(COUNT_KEY.as_bytes(), 0_u32.to_be_bytes()).unwrap();
             tx.put(
+                STATUS_KEY.as_bytes(),
+                rmp_serde::to_vec_named(&Status::InProgress).unwrap(),
+            )
+            .unwrap();
+            tx.put(
                 RETRY_TIMESTAMP_KEY.as_bytes(),
                 (export.timestamp + retry_delay_duration).to_be_bytes(),
             )
@@ -64,28 +69,27 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
 
     async fn next_command(&self) -> Command {
         let db = Arc::clone(&self.db);
-        let max_retries = self.max_retries;
         spawn_blocking(move || match db.get(EXPORT_KEY.as_bytes()).unwrap() {
             Some(value_bytes) => {
+                let status_bytes = db.get(STATUS_KEY.as_bytes()).unwrap().unwrap();
+                let status: Status = rmp_serde::from_slice(&status_bytes).unwrap();
                 let export: ExportInProgress = rmp_serde::from_slice(&value_bytes).unwrap();
-                let ts_now = Utc::now().timestamp();
-                let timestamp_bytes = db.get(RETRY_TIMESTAMP_KEY.as_bytes()).unwrap().unwrap();
-                let next_timestamp = i64::from_be_bytes(timestamp_bytes.try_into().unwrap());
-                if ts_now >= next_timestamp {
-                    Command::ResubmitTx(export)
-                } else {
-                    Command::Wait(Duration::from_secs((next_timestamp - ts_now) as u64), export)
+                match status {
+                    Status::InProgress => {
+                        let ts_now = Utc::now().timestamp();
+                        let timestamp_bytes = db.get(RETRY_TIMESTAMP_KEY.as_bytes()).unwrap().unwrap();
+                        let next_timestamp = i64::from_be_bytes(timestamp_bytes.try_into().unwrap());
+                        if ts_now >= next_timestamp {
+                            Command::ResubmitTx(export)
+                        } else {
+                            Command::Wait(Duration::from_secs((next_timestamp - ts_now) as u64), export)
+                        }
+                    }
+                    Status::Confirmed => Command::Confirmed(export),
+                    Status::Aborted => Command::Abort(export),
                 }
             }
-            None => {
-                let count_bytes = db.get(COUNT_KEY.as_bytes()).unwrap().unwrap();
-                let count = u32::from_be_bytes(count_bytes.try_into().unwrap());
-                if count == max_retries {
-                    Command::Abort
-                } else {
-                    Command::SubmitNewTx
-                }
-            }
+            None => Command::Idle,
         })
         .await
     }
@@ -98,7 +102,11 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
             let value: ExportInProgress = rmp_serde::from_slice(&value_bytes).unwrap();
             assert_eq!(value, cloned);
             let tx = db.transaction();
-            tx.delete(EXPORT_KEY.as_bytes()).unwrap();
+            tx.put(
+                STATUS_KEY.as_bytes(),
+                rmp_serde::to_vec_named(&Status::Confirmed).unwrap(),
+            )
+            .unwrap();
             tx.put(COUNT_KEY.as_bytes(), 0_u32.to_be_bytes()).unwrap();
             tx.commit().unwrap()
         })
@@ -117,7 +125,11 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
             let count = u32::from_be_bytes(count_bytes.try_into().unwrap());
             db.put(COUNT_KEY.as_bytes(), (count + 1).to_be_bytes()).unwrap();
             if count + 1 == max_retries {
-                db.delete(EXPORT_KEY.as_bytes()).unwrap();
+                db.put(
+                    STATUS_KEY.as_bytes(),
+                    rmp_serde::to_vec_named(&Status::Aborted).unwrap(),
+                )
+                .unwrap();
             }
         })
         .await
@@ -127,24 +139,48 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
 const EXPORT_KEY: &str = "e:";
 const COUNT_KEY: &str = "c:";
 const RETRY_TIMESTAMP_KEY: &str = "r:";
+const STATUS_KEY: &str = "s:";
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum Command {
     /// Resubmit the export Tx.
     ResubmitTx(ExportInProgress),
     /// Give up trying to submit the Tx.
-    Abort,
+    Abort(ExportInProgress),
     /// Wait for the specified duration to retry export Tx
     Wait(Duration, ExportInProgress),
-    /// There is no outstanding Tx to retry
-    SubmitNewTx,
+    /// Current export has been confirmed
+    Confirmed(ExportInProgress),
+    /// There's currently no export in progress
+    Idle,
+}
+
+impl From<Command> for Option<PendingExportStatus<ExtraErgoData>> {
+    fn from(value: Command) -> Self {
+        match value {
+            Command::ResubmitTx(e) | Command::Wait(_, e) => {
+                Some(PendingExportStatus::WaitingForConfirmation(e.report))
+            }
+            Command::Abort(e) => Some(PendingExportStatus::Aborted(e.report)),
+            Command::Confirmed(e) => Some(PendingExportStatus::Confirmed(e.report)),
+            Command::Idle => None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct ExportInProgress {
     pub report: NotarizedReport<ExtraErgoData>,
-    pub vault_utxo: Input,
+    pub vault_utxo_signed_input: Input,
+    pub vault_utxo: ErgoBox,
     pub timestamp: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+enum Status {
+    InProgress,
+    Aborted,
+    Confirmed,
 }
 
 #[cfg(test)]
@@ -178,20 +214,20 @@ mod tests {
     async fn test_confirmed_export() {
         let mut client = rocks_db_client(10).await;
         let export = make_dummy_export();
-        assert_eq!(Command::SubmitNewTx, client.next_command().await);
+        assert_eq!(Command::Idle, client.next_command().await);
         client.add_new_export(export).await;
         let Command::Wait(_, exp) = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
         client.notify_confirmed(&exp).await;
-        assert_eq!(Command::SubmitNewTx, client.next_command().await);
+        assert_eq!(Command::Confirmed(exp.clone()), client.next_command().await);
     }
 
     #[tokio::test]
     async fn test_failed_export() {
         let mut client = rocks_db_client(10).await;
         let export = make_dummy_export();
-        assert_eq!(Command::SubmitNewTx, client.next_command().await);
+        assert_eq!(Command::Idle, client.next_command().await);
         client.add_new_export(export.clone()).await;
         client.notify_failed(&export).await;
         let Command::Wait(_, exp) = client.next_command().await else {
@@ -202,7 +238,7 @@ mod tests {
             panic!("Expected Command::Wait");
         };
         client.notify_failed(&exp).await;
-        assert_eq!(Command::Abort, client.next_command().await);
+        assert_eq!(Command::Abort(exp.clone()), client.next_command().await);
     }
 
     #[tokio::test]
@@ -262,7 +298,8 @@ mod tests {
 
         ExportInProgress {
             report,
-            vault_utxo: force_any_val::<Input>(),
+            vault_utxo_signed_input: force_any_val::<Input>(),
+            vault_utxo: force_any_val(),
             timestamp: Utc::now().timestamp(),
         }
     }

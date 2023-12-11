@@ -1,7 +1,6 @@
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
-    fmt,
     sync::Arc,
 };
 
@@ -9,16 +8,9 @@ use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use ergo_lib::{
     ergo_chain_types::Digest32,
-    ergotree_ir::{
-        chain::{
-            address::Address,
-            ergo_box::{BoxId, ErgoBox, NonMandatoryRegisterId, RegisterValue},
-            token::{Token, TokenAmount, TokenAmountError, TokenId},
-        },
-        mir::{
-            constant::Literal,
-            value::{CollKind, NativeColl},
-        },
+    ergotree_ir::chain::{
+        ergo_box::{BoxId, ErgoBox},
+        token::{Token, TokenAmount, TokenAmountError, TokenId},
     },
 };
 use nonempty::NonEmpty;

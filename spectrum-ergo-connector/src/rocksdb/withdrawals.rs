@@ -3,7 +3,6 @@ use std::sync::Arc;
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, ErgoBox};
-use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::Serialize;
 use spectrum_offchain::{
     binary::prefixed_key,

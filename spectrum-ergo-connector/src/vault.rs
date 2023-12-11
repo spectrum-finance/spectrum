@@ -1,9 +1,6 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    time::Instant,
-};
+use std::{collections::VecDeque, time::Instant};
 
-use ergo_chain_sync::client::node::ErgoNodeHttpClient;
+use ergo_chain_sync::client::node::{ErgoNetwork, ErgoNodeHttpClient};
 use ergo_lib::{
     chain::{
         ergo_state_context::ErgoStateContext,
@@ -13,52 +10,36 @@ use ergo_lib::{
     ergotree_interpreter::sigma_protocol::prover::ContextExtension,
     ergotree_ir::{
         bigint256::BigInt256,
-        chain::{
-            ergo_box::{
-                box_value::BoxValue, BoxId, BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId,
-                NonMandatoryRegisters, RegisterValue,
-            },
-            token::Token,
-        },
+        chain::ergo_box::{box_value::BoxValue, BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisters},
         ergo_tree::ErgoTree,
-        mir::constant::{Constant, Literal},
+        mir::constant::Constant,
     },
     wallet::{miner_fee::MINERS_FEE_ADDRESS, tx_context::TransactionContext},
 };
 use indexmap::IndexMap;
 use k256::ProjectivePoint;
 use log::info;
-use nonempty::NonEmpty;
 use num_bigint::{BigUint, Sign};
-use spectrum_chain_connector::{
-    MovedValue, NotarizedReportConstraints, ProtoTermCell, TxEvent, VaultMsgOut, VaultResponse, VaultStatus,
-};
-use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
-use spectrum_ledger::{
-    cell::{AssetId, BoxDestination, CustomAsset, NativeCoin, PolicyId, ProgressPoint, SValue},
-    interop::Point,
-    ChainId,
-};
-use spectrum_move::SerializedValue;
+use spectrum_chain_connector::{NotarizedReportConstraints, PendingExportStatus, TxEvent, VaultStatus};
+use spectrum_crypto::digest::blake2b256_hash;
+use spectrum_ledger::{cell::ProgressPoint, interop::Point, ChainId};
 use spectrum_offchain::{
     data::unique_entity::{Confirmed, Predicted},
     event_sink::handlers::types::{TryFromBox, TryFromBoxCtx},
-    network::ErgoNetwork,
+    network::ErgoNetwork as EN,
 };
-use spectrum_offchain_lm::{
-    data::AsBox,
-    ergo::{NanoErg, MIN_SAFE_BOX_VALUE},
-};
+use spectrum_offchain_lm::data::AsBox;
 
 use crate::{
     committee::{CommitteeData, FirstCommitteeBox, SubsequentCommitteeBox},
     rocksdb::{
         moved_value_history::{self, ErgoMovedValue, ErgoUserValue, MovedValueHistory},
+        tx_retry_scheduler::{Command, ExportTxRetryScheduler},
         vault_boxes::{ErgoNotarizationBounds, VaultBoxRepo, VaultBoxRepoRocksDB, VaultUtxo},
         withdrawals::{WithdrawalRepo, WithdrawalRepoRocksDB},
     },
     script::{
-        scalar_to_biguint, serialize_exclusion_set, ErgoCell, ErgoTermCell, ErgoTermCells,
+        scalar_to_biguint, serialize_exclusion_set, ErgoCell, ErgoTermCell, ErgoTermCells, ExtraErgoData,
         SignatureAggregationWithNotarizationElements, VAULT_CONTRACT,
     },
 };
@@ -66,7 +47,7 @@ use crate::{
 const MAX_SYNCED_BLOCK_HEIGHTS: usize = 100;
 const MAX_MOVED_VALUES_PER_RESPONSE: usize = 100;
 
-pub struct VaultHandler<MVH> {
+pub struct VaultHandler<MVH, E> {
     vault_box_repo: VaultBoxRepoRocksDB,
     withdrawal_repo: WithdrawalRepoRocksDB,
     vault_contract: ErgoTree,
@@ -74,12 +55,13 @@ pub struct VaultHandler<MVH> {
     synced_block_heights: VecDeque<u32>,
     sync_starting_height: u32,
     moved_value_history: MVH,
-    moved_values_since_last_status_check: Vec<MovedValue>,
+    tx_retry_scheduler: E,
 }
 
-impl<MVH> VaultHandler<MVH>
+impl<MVH, E> VaultHandler<MVH, E>
 where
     MVH: MovedValueHistory,
+    E: ExportTxRetryScheduler,
 {
     pub fn new(
         vault_box_repo: VaultBoxRepoRocksDB,
@@ -89,6 +71,7 @@ where
         data_inputs: TxIoVec<ErgoBox>,
         sync_starting_height: u32,
         moved_value_history: MVH,
+        tx_retry_scheduler: E,
     ) -> Option<Self> {
         let mut slice_ix = 0_usize;
 
@@ -129,7 +112,7 @@ where
             synced_block_heights: VecDeque::with_capacity(MAX_SYNCED_BLOCK_HEIGHTS),
             sync_starting_height,
             moved_value_history,
-            moved_values_since_last_status_check: vec![],
+            tx_retry_scheduler,
         })
     }
 
@@ -166,9 +149,20 @@ where
                         tx_id: tx.id(),
                     };
 
+                    // If this Tx was in the mempool and tracked, we can confirm it now.
+                    match self.tx_retry_scheduler.next_command().await {
+                        Command::ResubmitTx(tracked_export) | Command::Wait(_, tracked_export) => {
+                            // If the signed-input of the vault UTXO coincides with the input tracked
+                            // by `tx_retry_scheduler`, we can be sure it is our Tx that has been
+                            // confirmed.
+                            if tracked_export.vault_utxo_signed_input == *tx.inputs.first() {
+                                self.tx_retry_scheduler.notify_confirmed(&tracked_export).await;
+                            }
+                        }
+                        _ => (),
+                    }
+
                     let ergo_moved_value = moved_value_history::ErgoMovedValue::Applied(user_value);
-                    self.moved_values_since_last_status_check
-                        .push(MovedValue::from(ergo_moved_value.clone()));
                     self.moved_value_history.append(ergo_moved_value).await;
                 }
 
@@ -207,8 +201,6 @@ where
                     };
 
                     let ergo_moved_value = moved_value_history::ErgoMovedValue::Unapplied(user_value);
-                    self.moved_values_since_last_status_check
-                        .push(MovedValue::from(ergo_moved_value.clone()));
                     self.moved_value_history.append(ergo_moved_value).await;
                 }
                 if let Some(last_synced_height) = self.synced_block_heights.back() {
@@ -217,6 +209,18 @@ where
                     }
                 }
             }
+        }
+    }
+
+    pub async fn handle_tx_resubmission(
+        &mut self,
+        ergo_node: &ErgoNodeHttpClient,
+        wallet: &ergo_lib::wallet::Wallet,
+    ) {
+        let command = self.tx_retry_scheduler.next_command().await;
+        if let Command::ResubmitTx(e) = command {
+            let inputs = SignatureAggregationWithNotarizationElements::from(e.report);
+            self.export_value(inputs, e.vault_utxo, ergo_node, wallet).await;
         }
     }
 
@@ -287,7 +291,7 @@ where
             .map(ErgoNotarizationBounds::from)
     }
 
-    pub fn get_vault_status(&self, current_height: u32) -> VaultStatus {
+    pub async fn get_vault_status(&self, current_height: u32) -> VaultStatus<ExtraErgoData> {
         let current_sync_height = self
             .synced_block_heights
             .back()
@@ -297,13 +301,21 @@ where
             chain_id: ChainId::from(0),
             point: Point::from(current_sync_height as u64),
         };
+
+        let pending_export_status =
+            Option::<PendingExportStatus<ExtraErgoData>>::from(self.tx_retry_scheduler.next_command().await);
+
         if current_height > current_sync_height {
             VaultStatus::Syncing {
                 current_progress_point,
                 num_points_remaining: current_height - current_sync_height,
+                pending_export_status,
             }
         } else {
-            VaultStatus::Synced(current_progress_point)
+            VaultStatus::Synced {
+                current_progress_point,
+                pending_export_status,
+            }
         }
     }
 
@@ -324,17 +336,17 @@ where
     pub async fn export_value(
         &mut self,
         inputs: SignatureAggregationWithNotarizationElements,
-        ergo_state_context: ErgoStateContext,
-        current_height: u32,
         vault_utxo: ErgoBox,
         ergo_node: &ErgoNodeHttpClient,
         wallet: &ergo_lib::wallet::Wallet,
     ) -> bool {
-        if let VaultStatus::Syncing { .. } = self.get_vault_status(current_height) {
+        let current_height = ergo_node.get_height().await;
+        if let VaultStatus::Syncing { .. } = self.get_vault_status(current_height).await {
             info!(target: "vault", "CHAIN TIP NOT REACHED");
             return false;
         }
 
+        let ergo_state_context = ergo_node.get_ergo_state_context().await.unwrap();
         let mut data_boxes = vec![self.committee_data.first_box.0.clone()];
         if let Some(subsequent) = &self.committee_data.subsequent_boxes {
             data_boxes.extend(subsequent.iter().map(|AsBox(bx, _)| bx.clone()));

@@ -1,33 +1,18 @@
-use std::{
-    cmp::Ordering,
-    collections::{HashMap, HashSet},
-    fmt,
-    sync::Arc,
-};
+use std::{fmt, sync::Arc};
 
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
-use ergo_lib::{
-    ergo_chain_types::Digest32,
-    ergotree_ir::{
-        chain::{
-            address::Address,
-            ergo_box::{BoxId, ErgoBox, NonMandatoryRegisterId, RegisterValue},
-            token::{Token, TokenAmount, TokenAmountError, TokenId},
-        },
-        mir::{
-            constant::Literal,
-            value::{CollKind, NativeColl},
-        },
+use ergo_lib::ergotree_ir::{
+    chain::{
+        address::Address,
+        ergo_box::{BoxId, ErgoBox, NonMandatoryRegisterId, RegisterValue},
+    },
+    mir::{
+        constant::Literal,
+        value::{CollKind, NativeColl},
     },
 };
-use nonempty::NonEmpty;
-use num_bigint::BigUint;
-use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::{Deserialize, Serialize};
-use spectrum_chain_connector::{Kilobytes, NotarizedReportConstraints, ProtoTermCell};
-use spectrum_crypto::digest::Blake2bDigest256;
-use spectrum_ledger::cell::{AssetId, CustomAsset};
 use spectrum_offchain::{
     binary::prefixed_key,
     data::unique_entity::{Confirmed, Predicted},
@@ -35,7 +20,7 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_lm::data::AsBox;
 
-use crate::script::{estimate_tx_size_in_kb, VAULT_CONTRACT};
+use crate::script::VAULT_CONTRACT;
 
 #[async_trait(?Send)]
 pub trait VaultDepositRepo {
@@ -199,23 +184,6 @@ where
     deserializer.deserialize_option(OptionAddressVisitor)
 }
 
-fn compute_token_amounts(term_cells: &[ProtoTermCell]) -> HashMap<TokenId, BigUint> {
-    let mut res = HashMap::new();
-
-    for proto_term_cell in term_cells {
-        for map in proto_term_cell.value.assets.values() {
-            for (asset_id, asset) in map {
-                let digest_raw: [u8; 32] = *Blake2bDigest256::from(*asset_id).raw();
-                let token_id = TokenId::from(Digest32::from(digest_raw));
-                *res.entry(token_id).or_insert(BigUint::from(0_u64)) += BigUint::from(u64::from(*asset));
-                let token_amount = TokenAmount::try_from(u64::from(*asset)).unwrap();
-            }
-        }
-    }
-
-    res
-}
-
 const SPENT_PREFIX: &str = "spent";
 const KEY_PREFIX: &str = "key";
 const KEY_INDEX_PREFIX: &str = "key_index";
@@ -231,50 +199,28 @@ fn box_key<T: Serialize>(prefix: &str, seq_num: usize, id: &T) -> Vec<u8> {
     key_bytes
 }
 
-fn box_key_prefix(prefix: &str, seq_num: usize) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(prefix).unwrap();
-    let seq_num_bytes = bincode::serialize(&seq_num).unwrap();
-    key_bytes.extend_from_slice(&seq_num_bytes);
-    key_bytes
-}
-
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::sync::Arc;
 
     use ergo_lib::{
         chain::transaction::TxId,
-        ergo_chain_types::Digest32,
         ergotree_ir::{
             chain::{
                 ergo_box::{box_value::BoxValue, BoxTokens, ErgoBox, NonMandatoryRegisters},
-                token::{Token, TokenAmount, TokenId},
+                token::{Token, TokenAmount},
             },
             ergo_tree::ErgoTree,
             mir::{constant::Constant, expr::Expr},
         },
     };
-    use itertools::Itertools;
-    use num_bigint::BigUint;
     use rand::{Rng, RngCore};
-    use spectrum_chain_connector::{Kilobytes, NotarizedReportConstraints, ProtoTermCell};
-    use spectrum_crypto::digest::Blake2bDigest256;
-    use spectrum_ledger::{
-        cell::{AssetId, BoxDestination, CustomAsset, NativeCoin, PolicyId, ProgressPoint, SValue},
-        interop::Point,
-        ChainId,
-    };
-    use spectrum_move::SerializedValue;
-    use spectrum_offchain::{data::unique_entity::Confirmed, event_sink::handlers::types::TryFromBox};
+    use spectrum_offchain::event_sink::handlers::types::TryFromBox;
     use spectrum_offchain_lm::data::AsBox;
 
-    use crate::{
-        rocksdb::deposits::VaultDepositRepo,
-        script::{
-            estimate_tx_size_in_kb,
-            tests::{gen_random_token, gen_tx_id, generate_address},
-            VAULT_CONTRACT,
-        },
+    use crate::script::{
+        tests::{gen_tx_id, generate_address},
+        VAULT_CONTRACT,
     };
 
     use super::{VaultDeposit, VaultDepositRepoRocksDB};
