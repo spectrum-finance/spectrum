@@ -404,6 +404,14 @@ where
             true
         }
     }
+
+    pub async fn acknowledge_confirmed_export_tx(&mut self, report: &NotarizedReport<ExtraErgoData>) {
+        self.tx_retry_scheduler.clear_confirmed_export_tx(report).await;
+    }
+
+    pub async fn acknowledge_aborted_export_tx(&mut self, report: &NotarizedReport<ExtraErgoData>) {
+        self.tx_retry_scheduler.clear_aborted_export_tx(report).await;
+    }
 }
 
 pub fn verify_vault_contract_ergoscript_with_sigma_rust(

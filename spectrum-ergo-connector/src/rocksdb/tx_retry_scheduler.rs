@@ -17,6 +17,8 @@ pub trait ExportTxRetryScheduler {
     async fn next_command(&self) -> Command;
     async fn notify_confirmed(&mut self, export: &ExportInProgress);
     async fn notify_failed(&mut self, export: &ExportInProgress);
+    async fn clear_confirmed_export_tx(&mut self, report: &NotarizedReport<ExtraErgoData>);
+    async fn clear_aborted_export_tx(&mut self, report: &NotarizedReport<ExtraErgoData>);
 }
 
 pub struct ExportTxRetrySchedulerRocksDB {
@@ -130,6 +132,38 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
                     rmp_serde::to_vec_named(&Status::Aborted).unwrap(),
                 )
                 .unwrap();
+            }
+        })
+        .await
+    }
+
+    async fn clear_confirmed_export_tx(&mut self, report: &NotarizedReport<ExtraErgoData>) {
+        let db = Arc::clone(&self.db);
+        let cloned = report.clone();
+        spawn_blocking(move || {
+            if let Some(value_bytes) = db.get(EXPORT_KEY.as_bytes()).unwrap() {
+                let value: ExportInProgress = rmp_serde::from_slice(&value_bytes).unwrap();
+                assert_eq!(value.report, cloned);
+                let status_bytes = db.get(STATUS_KEY.as_bytes()).unwrap().unwrap();
+                let status: Status = rmp_serde::from_slice(&status_bytes).unwrap();
+                assert_eq!(status, Status::Confirmed);
+                db.delete(EXPORT_KEY.as_bytes()).unwrap();
+            }
+        })
+        .await
+    }
+
+    async fn clear_aborted_export_tx(&mut self, report: &NotarizedReport<ExtraErgoData>) {
+        let db = Arc::clone(&self.db);
+        let cloned = report.clone();
+        spawn_blocking(move || {
+            if let Some(value_bytes) = db.get(EXPORT_KEY.as_bytes()).unwrap() {
+                let value: ExportInProgress = rmp_serde::from_slice(&value_bytes).unwrap();
+                assert_eq!(value.report, cloned);
+                let status_bytes = db.get(STATUS_KEY.as_bytes()).unwrap().unwrap();
+                let status: Status = rmp_serde::from_slice(&status_bytes).unwrap();
+                assert_eq!(status, Status::Aborted);
+                db.delete(EXPORT_KEY.as_bytes()).unwrap();
             }
         })
         .await

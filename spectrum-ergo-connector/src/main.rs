@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use spectrum_chain_connector::{
     DataBridge, DataBridgeComponents, Kilobytes, MovedValue, NotarizedReport, NotarizedReportConstraints,
-    ProtoTermCell, TxEvent, VaultMsgOut, VaultRequest, VaultResponse, VaultStatus,
+    PendingExportStatus, ProtoTermCell, TxEvent, VaultMsgOut, VaultRequest, VaultResponse, VaultStatus,
 };
 use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_deploy_lm_pool::Explorer;
@@ -191,13 +191,14 @@ async fn main() {
         let mut synced = false;
         let mut current_progress_point = None;
         let mut sent_tx_notarize_request = false;
+        let mut pending_export_status = None;
         let max_miner_fee = 1000000;
 
         const TERM_CELL_VALUE: u64 = 700000;
 
         loop {
             sleep(tokio::time::Duration::from_secs(1)).await;
-            if synced && !sent_tx_notarize_request {
+            if synced && !sent_tx_notarize_request && pending_export_status.is_none() {
                 let proto_term_cells = vec![ProtoTermCell::from(ErgoTermCell(ErgoCell {
                     ergs: BoxValue::try_from(TERM_CELL_VALUE).unwrap(),
                     address: address.clone(),
@@ -219,12 +220,42 @@ async fn main() {
                     .unwrap();
                 sent_tx_notarize_request = true;
             } else {
-                cd_send
-                    .send(VaultRequest::SyncFrom(current_progress_point.clone()))
-                    .await
-                    .unwrap();
+                match &pending_export_status {
+                    Some(status) => {
+                        match status {
+                            PendingExportStatus::Confirmed(report) => {
+                                info!(target: "driver", "ACK CONFIRMED EXPORT TX");
+                                cd_send
+                                    .send(VaultRequest::AcknowledgeConfirmedExportTx(
+                                        Box::new(report.clone()),
+                                        current_progress_point.clone().unwrap(),
+                                    ))
+                                    .await
+                                    .unwrap();
+                            }
+                            PendingExportStatus::Aborted(report) => {
+                                //
+                            }
+                            PendingExportStatus::WaitingForConfirmation(_) => {
+                                cd_send
+                                    .send(VaultRequest::SyncFrom(current_progress_point.clone()))
+                                    .await
+                                    .unwrap();
+                            }
+                        }
+                    }
+
+                    None => {
+                        cd_send
+                            .send(VaultRequest::SyncFrom(current_progress_point.clone()))
+                            .await
+                            .unwrap();
+                    }
+                }
             }
             let VaultResponse { status, messages } = cd_recv.recv().await.unwrap();
+
+            pending_export_status = status.get_pending_export_status();
 
             // `status` also describes the state of the export TX
             info!(target: "driver", "status: {:?}", status);
@@ -285,6 +316,9 @@ async fn main() {
                             additional_chain_data: extra_ergo_data,
                         };
 
+                        // Note: by sending this message the driver is going to send 2 requests
+                        // before getting a response, which is not how the protocol is supposed
+                        // to work. We should be robust against this situation though.
                         info!(target: "driver", "Sending request to export value");
                         cd_send
                             .send(VaultRequest::ExportValue(Box::new(notarized_report)))
@@ -327,6 +361,7 @@ async fn main() {
                             .await
                             .unwrap();
                     }
+
                     VaultRequest::RequestTxsToNotarize(constraints) => {
                         let res = vault_handler.select_txs_to_notarize(constraints).await;
 
@@ -342,6 +377,7 @@ async fn main() {
                                 .unwrap();
                         }
                     }
+
                     VaultRequest::SyncFrom(point) => {
                         // mock driver doesn't do anything with it
 
@@ -359,6 +395,41 @@ async fn main() {
                             .await
                             .unwrap();
                     }
+
+                    VaultRequest::AcknowledgeConfirmedExportTx(report, point) => {
+                        vault_handler.acknowledge_confirmed_export_tx(&report).await;
+                        let messages: Vec<_> = vault_handler
+                            .sync_consensus_driver(Some(u64::from(point.point) as u32))
+                            .await
+                            .into_iter()
+                            .map(|ergo_mv| VaultMsgOut::MovedValue(MovedValue::from(ergo_mv)))
+                            .collect();
+                        let current_height = node.get_height().await;
+                        let status = vault_handler.get_vault_status(current_height).await;
+                        info!(target: "vault", "respond to AcknowledgeConfirmedExportTx. status: {:?}, messages: {:?}", status, messages);
+                        msg_out_send
+                            .send(VaultResponse { status, messages })
+                            .await
+                            .unwrap();
+                    }
+
+                    VaultRequest::AcknowledgeAbortedExportTx(report, point) => {
+                        vault_handler.acknowledge_aborted_export_tx(&report).await;
+                        let messages: Vec<_> = vault_handler
+                            .sync_consensus_driver(Some(u64::from(point.point) as u32))
+                            .await
+                            .into_iter()
+                            .map(|ergo_mv| VaultMsgOut::MovedValue(MovedValue::from(ergo_mv)))
+                            .collect();
+                        let current_height = node.get_height().await;
+                        let status = vault_handler.get_vault_status(current_height).await;
+                        info!(target: "vault", "respond to AcknowledgeAbortedExportTx. status: {:?}, messages: {:?}", status, messages);
+                        msg_out_send
+                            .send(VaultResponse { status, messages })
+                            .await
+                            .unwrap();
+                    }
+
                     VaultRequest::RotateCommittee => todo!(),
                 }
             }

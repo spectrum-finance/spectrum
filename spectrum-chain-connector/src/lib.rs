@@ -66,6 +66,8 @@ pub enum VaultRequest<T> {
     RequestTxsToNotarize(NotarizedReportConstraints),
     /// Initiate transaction to settle exported value that's specified in the notarized report.
     ExportValue(Box<NotarizedReport<T>>),
+    AcknowledgeConfirmedExportTx(Box<NotarizedReport<T>>, ProgressPoint),
+    AcknowledgeAbortedExportTx(Box<NotarizedReport<T>>, ProgressPoint),
     /// Indicate to the vault manager to start rotating committee (WIP)
     RotateCommittee,
 }
@@ -95,7 +97,25 @@ pub enum VaultStatus<T> {
     },
 }
 
-#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
+impl<T> VaultStatus<T>
+where
+    T: Clone,
+{
+    pub fn get_pending_export_status(&self) -> Option<PendingExportStatus<T>> {
+        match self {
+            VaultStatus::Synced {
+                pending_export_status,
+                ..
+            }
+            | VaultStatus::Syncing {
+                pending_export_status,
+                ..
+            } => pending_export_status.clone(),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 pub enum PendingExportStatus<T> {
     WaitingForConfirmation(NotarizedReport<T>),
     Confirmed(NotarizedReport<T>),
