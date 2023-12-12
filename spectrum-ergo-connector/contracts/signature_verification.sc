@@ -57,24 +57,25 @@
     }
   )
 
-  // ContextExtension constants:
+  // ContextExtension constants (why the strange ordering of indexes? Bug with recent version of
+  // sigmastate-interpreter. See: https://discord.com/channels/668903786361651200/669989266478202917/1177254194021945395):
   //  0: Data to verify the signatures within the exclusion set
-  //  1: Aggregate response 'z' from WP.
-  //  2: Aggregate commitment 'Y' from WP.
-  //  3: Message digest 'm' from WP.
-  //  4: Verification threshold
-  //  5: Terminal cells describing withdrawals from spectrum-network
-  //  6: Starting AVL tree that is used in report notarization
-  //  7: AVL tree proof, used to reconstruct part of the tree
+  //  5: Aggregate response 'z' from WP.
+  //  1: Aggregate commitment 'Y' from WP.
+  //  6: Message digest 'm' from WP.
+  //  9: Verification threshold
+  //  2: Terminal cells describing withdrawals from spectrum-network
+  //  7: Starting AVL tree that is used in report notarization
+  //  3: AVL tree proof, used to reconstruct part of the tree
   //  8: Maximum miner fee
   val verificationData     = getVar[Coll[((Int, (GroupElement, Coll[Byte])), ((Coll[Byte], Int), (GroupElement, Coll[Byte])) )]](0).get
-  val aggregateResponseRaw = getVar[(Coll[Byte], Int)](1).get
-  val aggregateCommitment  = getVar[GroupElement](2).get
-  val message              = getVar[Coll[Byte]](3).get
-  val threshold            = getVar[Int](4).get
-  val terminalCells        = getVar[Coll[(Long, (Coll[Byte], Coll[(Coll[Byte], Long)]))]](5).get
-  val tree        = getVar[AvlTree](6).get
-  val proof       = getVar[Coll[Byte]](7).get
+  val aggregateResponseRaw = getVar[(Coll[Byte], Int)](5).get
+  val aggregateCommitment  = getVar[GroupElement](1).get
+  val message              = getVar[Coll[Byte]](6).get
+  val threshold            = getVar[Int](9).get
+  val terminalCells        = getVar[Coll[(Long, (Coll[Byte], Coll[(Coll[Byte], Long)]))]](2).get
+  val tree        = getVar[AvlTree](7).get
+  val proof       = getVar[Coll[Byte]](3).get
   val maxMinerFee = getVar[Long](8).get
 
   // Performs exponentiation of a GroupElement by an unsigned 256bit
