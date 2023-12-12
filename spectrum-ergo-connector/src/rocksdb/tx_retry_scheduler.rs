@@ -9,6 +9,7 @@ use spectrum_chain_connector::{NotarizedReport, PendingExportStatus};
 
 use crate::script::ExtraErgoData;
 
+/// Handle resubmission of export TXs.
 #[async_trait(?Send)]
 pub trait ExportTxRetryScheduler {
     /// To be called when connector has submitted export TX to mempool.

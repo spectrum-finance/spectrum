@@ -29,6 +29,7 @@ use spectrum_offchain_lm::data::AsBox;
 
 use crate::script::{estimate_tx_size_in_kb, VAULT_CONTRACT};
 
+/// Track changing state of Vault UTxOs.
 #[async_trait(?Send)]
 pub trait VaultBoxRepo {
     /// Collect vault boxes that meet the specified `constraints`.

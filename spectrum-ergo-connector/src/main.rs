@@ -221,29 +221,34 @@ async fn main() {
                 sent_tx_notarize_request = true;
             } else {
                 match &pending_export_status {
-                    Some(status) => {
-                        match status {
-                            PendingExportStatus::Confirmed(report) => {
-                                info!(target: "driver", "ACK CONFIRMED EXPORT TX");
-                                cd_send
-                                    .send(VaultRequest::AcknowledgeConfirmedExportTx(
-                                        Box::new(report.clone()),
-                                        current_progress_point.clone().unwrap(),
-                                    ))
-                                    .await
-                                    .unwrap();
-                            }
-                            PendingExportStatus::Aborted(report) => {
-                                //
-                            }
-                            PendingExportStatus::WaitingForConfirmation(_) => {
-                                cd_send
-                                    .send(VaultRequest::SyncFrom(current_progress_point.clone()))
-                                    .await
-                                    .unwrap();
-                            }
+                    Some(status) => match status {
+                        PendingExportStatus::Confirmed(report) => {
+                            info!(target: "driver", "ACK CONFIRMED EXPORT TX");
+                            cd_send
+                                .send(VaultRequest::AcknowledgeConfirmedExportTx(
+                                    Box::new(report.clone()),
+                                    current_progress_point.clone().unwrap(),
+                                ))
+                                .await
+                                .unwrap();
                         }
-                    }
+                        PendingExportStatus::Aborted(report) => {
+                            info!(target: "driver", "ACK ABORTED EXPORT TX");
+                            cd_send
+                                .send(VaultRequest::AcknowledgeAbortedExportTx(
+                                    Box::new(report.clone()),
+                                    current_progress_point.clone().unwrap(),
+                                ))
+                                .await
+                                .unwrap();
+                        }
+                        PendingExportStatus::WaitingForConfirmation(_) => {
+                            cd_send
+                                .send(VaultRequest::SyncFrom(current_progress_point.clone()))
+                                .await
+                                .unwrap();
+                        }
+                    },
 
                     None => {
                         cd_send

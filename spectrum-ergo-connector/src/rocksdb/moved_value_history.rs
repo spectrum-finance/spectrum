@@ -16,6 +16,8 @@ use spectrum_move::SerializedValue;
 
 use crate::script::{ErgoInboundCell, ErgoTermCell};
 
+/// Store the entire history of `ErgoMovedValue`, allowing a new consensus-driver to sync with
+/// the ergo-connector.
 #[async_trait(?Send)]
 pub trait MovedValueHistory {
     async fn append(&mut self, moved_value: ErgoMovedValue);
@@ -23,6 +25,7 @@ pub trait MovedValueHistory {
     async fn get(&self, height: u32) -> Option<(ErgoMovedValue, u32)>;
 }
 
+/// Ergo-version of [spectrum_chain_connector::`UserValue`]
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 pub struct ErgoUserValue {
     /// Value that is inbound to Spectrum-network
