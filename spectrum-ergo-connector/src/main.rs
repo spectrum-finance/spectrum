@@ -34,7 +34,6 @@ use spectrum_ledger::{
     ChainId,
 };
 use spectrum_offchain::network::ErgoNetwork as EN;
-use spectrum_offchain_lm::prover::SeedPhrase;
 use spectrum_sigma::sigma_aggregation::AggregateCertificate;
 use tokio::time::sleep;
 use tokio_stream::wrappers::ReceiverStream;
@@ -46,10 +45,7 @@ use crate::{
         moved_value_history::MovedValueHistoryRocksDB, tx_retry_scheduler::ExportTxRetrySchedulerRocksDB,
         vault_boxes::ErgoNotarizationBounds,
     },
-    script::{
-        simulate_signature_aggregation_notarized_proofs, ErgoCell, ErgoTermCell, ExtraErgoData,
-        SignatureAggregationWithNotarizationElements,
-    },
+    script::{simulate_signature_aggregation_notarized_proofs, ErgoCell, ErgoTermCell, ExtraErgoData},
 };
 
 mod committee;
@@ -63,7 +59,7 @@ async fn main() {
     let args = AppArgs::parse();
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config_proto: AppConfigProto = serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
-    let mut config = AppConfig::from(config_proto);
+    let config = AppConfig::from(config_proto);
 
     if let Some(log4rs_path) = args.log4rs_path {
         log4rs::init_file(log4rs_path, Default::default()).unwrap();
@@ -72,11 +68,6 @@ async fn main() {
     }
 
     let node_url = config.node_addr.clone();
-    let mut seed = SeedPhrase::from(String::from(""));
-    std::mem::swap(&mut config.operator_funding_secret, &mut seed);
-    let secret_str = String::from(seed);
-    config.operator_funding_secret = SeedPhrase::from(secret_str.clone());
-    let wallet = ergo_lib::wallet::Wallet::from_mnemonic(&secret_str, "").expect("Invalid wallet seed");
 
     let ergo_bridge_config = ErgoDataBridgeConfig {
         http_client_timeout_duration_secs: config.http_client_timeout_duration_secs,
@@ -355,7 +346,7 @@ async fn main() {
                             .await
                             .unwrap();
                         vault_handler
-                            .export_value(*report.clone(), false, vault_utxo, &node, &wallet)
+                            .export_value(*report.clone(), false, vault_utxo, &node)
                             .await;
 
                         let status = vault_handler.get_vault_status(current_height).await;
@@ -439,7 +430,7 @@ async fn main() {
                 }
             }
             StreamValueFrom::ResubmitExportTx => {
-                vault_handler.handle_tx_resubmission(&node, &wallet).await;
+                vault_handler.handle_tx_resubmission(&node).await;
             }
         }
     }
@@ -464,7 +455,6 @@ struct AppConfig {
     committee_box_ids: Vec<BoxId>,
     /// Base58 encoding of guarding script of committee boxes
     committee_guarding_script: ErgoTree,
-    operator_funding_secret: SeedPhrase,
 }
 
 #[derive(Deserialize)]
@@ -485,7 +475,6 @@ struct AppConfigProto {
     committee_box_ids: Vec<BoxId>,
     /// Base58 encoding of guarding script of committee boxes
     committee_guarding_script: String,
-    operator_funding_secret: String,
 }
 
 impl From<AppConfigProto> for AppConfig {
@@ -513,7 +502,6 @@ impl From<AppConfigProto> for AppConfig {
                 k256::SecretKey::from_slice(&bytes).unwrap()
             })
             .collect();
-        let operator_funding_secret = SeedPhrase::from(value.operator_funding_secret);
         Self {
             node_addr: value.node_addr,
             http_client_timeout_duration_secs: value.http_client_timeout_duration_secs,
@@ -530,7 +518,6 @@ impl From<AppConfigProto> for AppConfig {
             committee_secret_keys,
             committee_box_ids: value.committee_box_ids,
             committee_guarding_script,
-            operator_funding_secret,
         }
     }
 }

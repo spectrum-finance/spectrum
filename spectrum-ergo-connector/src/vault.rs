@@ -15,7 +15,7 @@ use ergo_lib::{
         ergo_tree::ErgoTree,
         mir::constant::Constant,
     },
-    wallet::{miner_fee::MINERS_FEE_ADDRESS, tx_context::TransactionContext},
+    wallet::{miner_fee::MINERS_FEE_ADDRESS, tx_context::TransactionContext, Wallet},
 };
 use indexmap::IndexMap;
 use k256::ProjectivePoint;
@@ -59,6 +59,7 @@ pub struct VaultHandler<MVH, E> {
     sync_starting_height: u32,
     moved_value_history: MVH,
     tx_retry_scheduler: E,
+    dummy_wallet: Wallet,
 }
 
 impl<M, E> VaultHandler<M, E>
@@ -107,6 +108,8 @@ where
             first_box,
             subsequent_boxes,
         };
+        const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
+        let dummy_wallet = Wallet::from_mnemonic(SEED_PHRASE, "").expect("Invalid seed");
         Some(Self {
             vault_box_repo,
             withdrawal_repo,
@@ -116,6 +119,7 @@ where
             sync_starting_height,
             moved_value_history,
             tx_retry_scheduler,
+            dummy_wallet,
         })
     }
 
@@ -216,16 +220,11 @@ where
         }
     }
 
-    pub async fn handle_tx_resubmission(
-        &mut self,
-        ergo_node: &ErgoNodeHttpClient,
-        wallet: &ergo_lib::wallet::Wallet,
-    ) {
+    pub async fn handle_tx_resubmission(&mut self, ergo_node: &ErgoNodeHttpClient) {
         let command = self.tx_retry_scheduler.next_command().await;
         if let Command::ResubmitTx(e) = command {
             info!(target: "vault", "Resubmitting export tx");
-            self.export_value(e.report, true, e.vault_utxo, ergo_node, wallet)
-                .await;
+            self.export_value(e.report, true, e.vault_utxo, ergo_node).await;
         }
     }
 
@@ -344,7 +343,6 @@ where
         is_resubmission: bool,
         vault_utxo: ErgoBox,
         ergo_node: &ErgoNodeHttpClient,
-        wallet: &ergo_lib::wallet::Wallet,
     ) -> bool {
         let current_height = ergo_node.get_height().await;
         if let VaultStatus::Syncing { .. } = self.get_vault_status(current_height).await {
@@ -364,7 +362,7 @@ where
             ergo_state_context,
             vault_utxo.clone(),
             data_boxes,
-            wallet,
+            &self.dummy_wallet,
             current_height,
         );
 
