@@ -66,7 +66,9 @@ pub enum VaultRequest<T> {
     RequestTxsToNotarize(NotarizedReportConstraints),
     /// Initiate transaction to settle exported value that's specified in the notarized report.
     ExportValue(Box<NotarizedReport<T>>),
+    /// Ackowledge that export TX was confirmed.
     AcknowledgeConfirmedExportTx(Box<NotarizedReport<T>>, ProgressPoint),
+    /// Ackowledge that export TX was aborted.
     AcknowledgeAbortedExportTx(Box<NotarizedReport<T>>, ProgressPoint),
     /// Indicate to the vault manager to start rotating committee (WIP)
     RotateCommittee,
