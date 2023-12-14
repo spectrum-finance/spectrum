@@ -440,7 +440,6 @@ struct AppConfig {
     node_addr: Url,
     http_client_timeout_duration_secs: u32,
     chain_sync_starting_height: u32,
-    backlog_config: BacklogConfig,
     export_tx_retry_config: ExportTxRetryConfig,
     log4rs_yaml_path: String,
     withdrawals_store_db_path: String,
@@ -462,7 +461,6 @@ struct AppConfigProto {
     node_addr: Url,
     http_client_timeout_duration_secs: u32,
     chain_sync_starting_height: u32,
-    backlog_config: BacklogConfig,
     export_tx_retry_config: ExportTxRetryConfig,
     log4rs_yaml_path: String,
     withdrawals_store_db_path: String,
@@ -506,7 +504,6 @@ impl From<AppConfigProto> for AppConfig {
             node_addr: value.node_addr,
             http_client_timeout_duration_secs: value.http_client_timeout_duration_secs,
             chain_sync_starting_height: value.chain_sync_starting_height,
-            backlog_config: value.backlog_config,
             export_tx_retry_config: value.export_tx_retry_config,
             log4rs_yaml_path: value.log4rs_yaml_path,
             withdrawals_store_db_path: value.withdrawals_store_db_path,
@@ -520,16 +517,6 @@ impl From<AppConfigProto> for AppConfig {
             committee_guarding_script,
         }
     }
-}
-
-#[serde_with::serde_as]
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct BacklogConfig {
-    #[serde_as(as = "serde_with::DurationSeconds<i64>")]
-    pub order_lifespan: Duration,
-    #[serde_as(as = "serde_with::DurationSeconds<i64>")]
-    pub order_exec_time: Duration,
-    pub retry_suspended_prob: BoundedU8<0, 100>,
 }
 
 #[serde_with::serde_as]
