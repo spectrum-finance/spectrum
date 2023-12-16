@@ -15,7 +15,11 @@
   //  5. This contract verifies that the committee signed 'm', encodes the terminal cells and
   //     recreates the AVL tree proof, and checks that the hash of the resulting AVL digest is equal
   //     to 'm'.
-  //
+  
+  // Vault UTxO registers
+  //   R4[Coll[Coll[Byte]]]: The box IDs of UTxOs that contain the committee public keys
+  val committeeBoxIDs = INPUTS(0).R4[Coll[Coll[Byte]]].get
+
   // ===== Data inputs =====
   // Registers of dataInput(0), ..., dataInput(D):
   //   R4[Coll[GroupElement]]: Public keys of committee members
@@ -305,6 +309,12 @@
 
   val scriptPreserved = OUTPUTS(OUTPUTS.size - 2).propositionBytes == SELF.propositionBytes
 
+  val verifyCommitteeBoxes = CONTEXT.dataInputs.zip(committeeBoxIDs).forall { (tup: (Box, Coll[Byte])) =>
+    val dataInput = tup._1
+    val expectedBoxID = tup._2
+    dataInput.id == expectedBoxID
+  }
+
   sigmaProp (
     verifyEpoch &&
     verifyAtLeastOneWithdrawal &&
@@ -313,6 +323,7 @@
     verifySignaturesInExclusionSet &&
     verifyThreshold &&
     verifyTxOutputs &&
+    verifyCommitteeBoxes &&
     validMinerFee &&
     scriptPreserved
   )

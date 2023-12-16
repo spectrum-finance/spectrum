@@ -67,6 +67,7 @@ import org.ergoplatform.sdk.wallet.secrets.SecretKey
 import sigmastate.serialization.DataSerializer
 import org.ergoplatform.sdk.ErgoId
 import scorex.crypto.authds.ADDigest
+import sigmastate.eval.Colls
 
 object ContractTesting extends IOApp {
   case class SignatureValidationInput(
@@ -496,36 +497,6 @@ object ContractTesting extends IOApp {
 
         val committeeArray: Array[GroupElement] = committee.value.toArray;
 
-        val inputBox = inputBoxBuilder
-          .build()
-          .convertToInputWith(
-            "ce552663312afc2379a91f803c93e2b10b424f176fbc930055c10def2fd88a5d",
-            0
-          )
-          .withContextVars(
-            ContextVar.of(0.toByte, eSet),
-            ContextVar
-              .of(
-                5.toByte,
-                ErgoValue.pairOf(
-                  ErgoValue.of(aggrResponse._1.toArray),
-                  ErgoValue.of(aggrResponse._2)
-                )
-              ),
-            ContextVar.of(1.toByte, ErgoValue.of(aggregateCommitment.value)),
-            ContextVar.of(6.toByte, ErgoValue.of(md.value.toArray)),
-            ContextVar.of(9.toByte, ErgoValue.of(threshold.value)),
-            ContextVar.of(2.toByte, termCells),
-            ContextVar.of(7.toByte, ErgoValue.of(avlTreeData)),
-            ContextVar.of(3.toByte, ErgoValue.of(avlProof.value.toArray)),
-            ContextVar.of(8.toByte, ErgoValue.of(changeForMiner))
-          )
-
-        val bytesInContextExtension =
-          (exclusionSetBytes.length + aggregateResponseBytes.length
-            + aggregateCommitmentBytes.length + mdBytes.length + thresholdBytes.length + terminalCellsBytes.length
-            + startingAvlTreeBytes.length + avlProofBytes.length).toDouble / 1024.0
-
         val MAX_COMMITTEE_IN_BOX = 118
         val NUM_COMMITTEE_ELEMENTS_IN_FIRST_BOX = 115
         val num_boxes = committeeArray.length / MAX_COMMITTEE_IN_BOX + 1
@@ -576,6 +547,47 @@ object ContractTesting extends IOApp {
 
             }
           })
+          .toArray
+
+        val dataInputBoxIds = dataInputs
+          .map(_.getId().getBytes)
+
+        val dataInputBoxIdsAsColl =
+          Colls.fromArray(dataInputBoxIds.map(Colls.fromArray(_)))
+        val asErgoValue = ErgoValueBuilder.buildFor(dataInputBoxIdsAsColl)
+
+        val inputBox = inputBoxBuilder
+          .registers(
+            asErgoValue
+          )
+          .build()
+          .convertToInputWith(
+            "ce552663312afc2379a91f803c93e2b10b424f176fbc930055c10def2fd88a5d",
+            0
+          )
+          .withContextVars(
+            ContextVar.of(0.toByte, eSet),
+            ContextVar
+              .of(
+                5.toByte,
+                ErgoValue.pairOf(
+                  ErgoValue.of(aggrResponse._1.toArray),
+                  ErgoValue.of(aggrResponse._2)
+                )
+              ),
+            ContextVar.of(1.toByte, ErgoValue.of(aggregateCommitment.value)),
+            ContextVar.of(6.toByte, ErgoValue.of(md.value.toArray)),
+            ContextVar.of(9.toByte, ErgoValue.of(threshold.value)),
+            ContextVar.of(2.toByte, termCells),
+            ContextVar.of(7.toByte, ErgoValue.of(avlTreeData)),
+            ContextVar.of(3.toByte, ErgoValue.of(avlProof.value.toArray)),
+            ContextVar.of(8.toByte, ErgoValue.of(changeForMiner))
+          )
+
+        val bytesInContextExtension =
+          (exclusionSetBytes.length + aggregateResponseBytes.length
+            + aggregateCommitmentBytes.length + mdBytes.length + thresholdBytes.length + terminalCellsBytes.length
+            + startingAvlTreeBytes.length + avlProofBytes.length).toDouble / 1024.0
 
         val tx = tb
           .boxesToSpend(Seq(inputBox).asJava)

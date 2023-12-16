@@ -67,8 +67,7 @@ use spectrum_sigma::{
     AggregateCommitment, Commitment, Signature,
 };
 
-const VAULT_CONTRACT_SCRIPT_BYTES: &str = "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";
-
+const VAULT_CONTRACT_SCRIPT_BYTES: &str = "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";
 lazy_static! {
     pub static ref VAULT_CONTRACT: ErgoTree = AddressEncoder::new(NetworkPrefix::Mainnet)
         .parse_address_from_str(VAULT_CONTRACT_SCRIPT_BYTES)
@@ -1441,11 +1440,6 @@ pub mod tests {
         let first_len = aggregate_response_bytes.len() as i32;
         aggregate_response_bytes.extend(lower_256.to_signed_bytes_be());
 
-        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
-        let address = encoder
-            .parse_address_from_str(VAULT_CONTRACT_SCRIPT_BYTES)
-            .unwrap();
-        let ergo_tree = address.script().unwrap();
         let change_for_miner = BoxValue::try_from(1000000_u64).unwrap();
 
         let md = blake2b256_hash(&resulting_digest);
@@ -1502,17 +1496,6 @@ pub mod tests {
         values.insert(3, proof);
         values.insert(8, change_for_miner.as_i64().into());
 
-        let input_box = ErgoBox::new(
-            BoxValue::try_from(initial_vault_balance + ergs_to_distribute).unwrap(),
-            ergo_tree,
-            None,
-            NonMandatoryRegisters::empty(),
-            (current_height as u32) - 10,
-            TxId::zero(),
-            0,
-        )
-        .unwrap();
-
         let vault_output_box = ErgoBoxCandidate {
             value: BoxValue::try_from(initial_vault_balance - change_for_miner.as_i64()).unwrap(),
             ergo_tree: VAULT_CONTRACT.clone(),
@@ -1531,7 +1514,6 @@ pub mod tests {
         term_cell_outputs.push(vault_output_box);
         term_cell_outputs.push(miner_output);
         let outputs = TxIoVec::from_vec(term_cell_outputs).unwrap();
-        let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension { values });
 
         // The first committee box can hold 115 public keys together with other data necessary to
         // verify signatures.
@@ -1578,6 +1560,35 @@ pub mod tests {
             .collect();
         let data_inputs = Some(TxIoVec::from_vec(data_inputs).unwrap());
 
+        let items: Vec<_> = data_inputs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|input| Literal::from(input.box_id.sigma_serialize_bytes().unwrap()))
+            .collect();
+
+        let serialized_committee_box_ids = Constant {
+            tpe: SType::SColl(Box::new(SType::SColl(Box::new(SType::SByte)))),
+            v: Literal::Coll(CollKind::WrappedColl {
+                elem_tpe: SType::SColl(Box::new(SType::SByte)),
+                items,
+            }),
+        };
+
+        let mut registers = HashMap::new();
+        registers.insert(NonMandatoryRegisterId::R4, serialized_committee_box_ids);
+
+        let input_box = ErgoBox::new(
+            BoxValue::try_from(initial_vault_balance + ergs_to_distribute).unwrap(),
+            VAULT_CONTRACT.clone(),
+            None,
+            NonMandatoryRegisters::new(registers).unwrap(),
+            (current_height as u32) - 10,
+            TxId::zero(),
+            0,
+        )
+        .unwrap();
+        let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension { values });
         let unsigned_tx = UnsignedTransaction::new(
             TxIoVec::from_vec(vec![unsigned_input]).unwrap(),
             data_inputs,
