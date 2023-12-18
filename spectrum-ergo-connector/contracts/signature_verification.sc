@@ -251,7 +251,7 @@
 
   // Check that the address, nano-Erg value and tokens (if they exist) specified in each terminal cell T_i
   // are properly specified in the i'th output box 
-  val verifyTxOutputs = terminalCells.zip(OUTPUTS.slice(2, OUTPUTS.size)).forall { (e: ((Long, (Coll[Byte], Coll[(Coll[Byte], Long)])), Box)) => 
+  val verifyTxOutputs = terminalCells.zip(OUTPUTS.slice(1, OUTPUTS.size - 1)).forall { (e: ((Long, (Coll[Byte], Coll[(Coll[Byte], Long)])), Box)) => 
     val termCell = e._1
     val outputBox = e._2
     val termCellTokens: Coll[(Coll[Byte], Long)] = termCell._2._2
