@@ -523,9 +523,10 @@ pub fn verify_vault_contract_ergoscript_with_sigma_rust(
         additional_registers: NonMandatoryRegisters::empty(),
         creation_height: current_height,
     };
-    term_cell_outputs.push(vault_output_box);
-    term_cell_outputs.push(miner_output);
-    let outputs = TxIoVec::from_vec(term_cell_outputs).unwrap();
+    let mut outputs_vec = vec![vault_output_box];
+    outputs_vec.extend(term_cell_outputs);
+    outputs_vec.push(miner_output);
+    let outputs = TxIoVec::from_vec(outputs_vec).unwrap();
     let unsigned_input = UnsignedInput::new(vault_utxo.box_id(), ContextExtension { values });
 
     let data_inputs: Vec<_> = data_boxes

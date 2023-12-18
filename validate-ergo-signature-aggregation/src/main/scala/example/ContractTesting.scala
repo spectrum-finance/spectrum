@@ -491,7 +491,7 @@ object ContractTesting extends IOApp {
           .value(INITIAL_VAULT_NANOERG_BALANCE - changeForMiner)
           .build()
 
-        val outputs = outBoxes :+ userOutBox
+        val outputs = userOutBox +: outBoxes
 
         println(exclusionSet)
 

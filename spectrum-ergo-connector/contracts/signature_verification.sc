@@ -251,7 +251,7 @@
 
   // Check that the address, nano-Erg value and tokens (if they exist) specified in each terminal cell T_i
   // are properly specified in the i'th output box 
-  val verifyTxOutputs = terminalCells.zip(OUTPUTS).forall { (e: ((Long, (Coll[Byte], Coll[(Coll[Byte], Long)])), Box)) => 
+  val verifyTxOutputs = terminalCells.zip(OUTPUTS.slice(2, OUTPUTS.size)).forall { (e: ((Long, (Coll[Byte], Coll[(Coll[Byte], Long)])), Box)) => 
     val termCell = e._1
     val outputBox = e._2
     val termCellTokens: Coll[(Coll[Byte], Long)] = termCell._2._2
@@ -307,7 +307,7 @@
         }
         .fold(0L, { (a: Long, b: Long) => a + b }) <= maxMinerFee
 
-  val scriptPreserved = OUTPUTS(OUTPUTS.size - 2).propositionBytes == SELF.propositionBytes
+  val scriptPreserved = OUTPUTS(0).propositionBytes == SELF.propositionBytes
 
   val verifyCommitteeBoxes = CONTEXT.dataInputs.zip(committeeBoxIDs).forall { (tup: (Box, Coll[Byte])) =>
     val dataInput = tup._1
