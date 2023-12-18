@@ -72,3 +72,7 @@ guarded with a smart contract that performs the following validations:
  - For each cell $C^k_j, j \in \{1, \ldots, m\}$, perform the proof to
    authenticate the existence of $C^k_j$ in the report.
 
+
+### Example contract with Ergo
+
+![](./assets/SpectrumNetworkErgoVault.svg)
