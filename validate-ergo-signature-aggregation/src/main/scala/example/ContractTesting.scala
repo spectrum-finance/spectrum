@@ -88,6 +88,7 @@ object ContractTesting extends IOApp {
       terminalCells: String,
       startingAvlTree: String,
       avlProof: String,
+      vaultTokenId: String,
       epochLength: Int,
       currentEpoch: Int
   )
@@ -171,6 +172,7 @@ object ContractTesting extends IOApp {
       terminalCellsBytes <- Base16.decode(input.terminalCells)
       startingAvlTreeBytes <- Base16.decode(input.startingAvlTree)
       avlProofBytes <- Base16.decode(input.avlProof)
+      vaultTokenIdBytes <- Base16.decode(input.vaultTokenId)
 
     } yield {
       (
@@ -186,7 +188,8 @@ object ContractTesting extends IOApp {
         hashBytes,
         terminalCellsBytes,
         startingAvlTreeBytes,
-        avlProofBytes
+        avlProofBytes,
+        vaultTokenIdBytes
       )
     }
 
@@ -205,7 +208,8 @@ object ContractTesting extends IOApp {
               hashBytes,
               terminalCellsBytes,
               startingAvlTreeBytes,
-              avlProofBytes
+              avlProofBytes,
+              vaultTokenIdBytes
             )
           ) => {
         val validationContract = ctx.newContract(address.script)
@@ -418,6 +422,11 @@ object ContractTesting extends IOApp {
             .deserialize(SigmaSerializer.startReader(avlProofBytes))
             .asInstanceOf[Values.Constant[SCollection[SByte.type]]]
 
+        val vaultTokenId =
+          ConstantSerializer(DeserializationSigmaBuilder)
+            .deserialize(SigmaSerializer.startReader(vaultTokenIdBytes))
+            .asInstanceOf[Values.Constant[SCollection[SByte.type]]]
+
         val dummyErgoContract = new ErgoTreeContract(
           Address.create("4MQyML64GnzMxZgm").getErgoAddress.script,
           NetworkType.MAINNET
@@ -556,10 +565,13 @@ object ContractTesting extends IOApp {
           Colls.fromArray(dataInputBoxIds.map(Colls.fromArray(_)))
         val asErgoValue = ErgoValueBuilder.buildFor(dataInputBoxIdsAsColl)
 
+        val vaultTokenIdByteArray = vaultTokenId.value.toArray
+
         val inputBox = inputBoxBuilder
           .registers(
             asErgoValue
           )
+          .tokens(ErgoToken(new ErgoId(vaultTokenIdByteArray), 1000L))
           .build()
           .convertToInputWith(
             "ce552663312afc2379a91f803c93e2b10b424f176fbc930055c10def2fd88a5d",
@@ -581,7 +593,8 @@ object ContractTesting extends IOApp {
             ContextVar.of(2.toByte, termCells),
             ContextVar.of(7.toByte, ErgoValue.of(avlTreeData)),
             ContextVar.of(3.toByte, ErgoValue.of(avlProof.value.toArray)),
-            ContextVar.of(8.toByte, ErgoValue.of(changeForMiner))
+            ContextVar.of(8.toByte, ErgoValue.of(changeForMiner)),
+            ContextVar.of(4.toByte, ErgoValue.of(vaultTokenIdByteArray))
           )
 
         val bytesInContextExtension =

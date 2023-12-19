@@ -67,7 +67,7 @@ use spectrum_sigma::{
     AggregateCommitment, Commitment, Signature,
 };
 
-const VAULT_CONTRACT_SCRIPT_BYTES: &str = "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";
+const VAULT_CONTRACT_SCRIPT_BYTES: &str = "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";
 lazy_static! {
     pub static ref VAULT_CONTRACT: ErgoTree = AddressEncoder::new(NetworkPrefix::Mainnet)
         .parse_address_from_str(VAULT_CONTRACT_SCRIPT_BYTES)
@@ -1144,12 +1144,14 @@ pub mod tests {
         let avl_const = Constant::from(starting_avl_tree);
         let num_withdrawals = terminal_cells.len();
         let num_token_occurrences = terminal_cells.iter().fold(0, |acc, tc| tc.0.tokens.len() + acc);
+        let vault_token = gen_random_token(1000);
         let input = VaultValidationInput {
             signature_input,
             terminal_cells: Constant::from(ErgoTermCells(terminal_cells))
                 .base16_str()
                 .unwrap(),
             starting_avl_tree: avl_const.base16_str().unwrap(),
+            vault_token_id: Constant::from(vault_token.token_id).base16_str().unwrap(),
             avl_proof: proof.base16_str().unwrap(),
             epoch_len,
             current_epoch,
@@ -1484,6 +1486,7 @@ pub mod tests {
 
         let initial_vault_balance = 2000000000_i64;
         let ergs_to_distribute: i64 = terminal_cells.iter().map(|t| t.0.ergs.as_i64()).sum();
+        let vault_token = gen_random_token(1000);
 
         let mut values = IndexMap::new();
         values.insert(0, exclusion_set_data);
@@ -1495,6 +1498,7 @@ pub mod tests {
         values.insert(7, avl_const);
         values.insert(3, proof);
         values.insert(8, change_for_miner.as_i64().into());
+        values.insert(4, vault_token.token_id.into());
 
         let vault_output_box = ErgoBoxCandidate {
             value: BoxValue::try_from(initial_vault_balance - change_for_miner.as_i64()).unwrap(),
@@ -1579,10 +1583,11 @@ pub mod tests {
         let mut registers = HashMap::new();
         registers.insert(NonMandatoryRegisterId::R4, serialized_committee_box_ids);
 
+        let tokens = BoxTokens::try_from(vec![vault_token]).unwrap();
         let input_box = ErgoBox::new(
             BoxValue::try_from(initial_vault_balance + ergs_to_distribute).unwrap(),
             VAULT_CONTRACT.clone(),
-            None,
+            Some(tokens),
             NonMandatoryRegisters::new(registers).unwrap(),
             (current_height as u32) - 10,
             TxId::zero(),
@@ -1690,6 +1695,8 @@ pub mod tests {
         terminal_cells: String,
         #[serde(rename = "startingAvlTree")]
         starting_avl_tree: String,
+        #[serde(rename = "vaultTokenId")]
+        vault_token_id: String,
         #[serde(rename = "avlProof")]
         avl_proof: String,
         #[serde(rename = "epochLength")]

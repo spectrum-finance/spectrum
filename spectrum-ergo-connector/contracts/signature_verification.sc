@@ -81,6 +81,7 @@
   val tree        = getVar[AvlTree](7).get
   val proof       = getVar[Coll[Byte]](3).get
   val maxMinerFee = getVar[Long](8).get
+  val expectedVaultTokenId = getVar[Coll[Byte]](4).get
 
   // Performs exponentiation of a GroupElement by an unsigned 256bit
   // integer I using the following decomposition of I:
@@ -315,6 +316,8 @@
     dataInput.id == expectedBoxID
   }
 
+  val validVaultToken = INPUTS(0).tokens(0)._1 == expectedVaultTokenId
+
   sigmaProp (
     verifyEpoch &&
     verifyAtLeastOneWithdrawal &&
@@ -325,6 +328,7 @@
     verifyTxOutputs &&
     verifyCommitteeBoxes &&
     validMinerFee &&
-    scriptPreserved
+    scriptPreserved &&
+    validVaultToken
   )
 }
