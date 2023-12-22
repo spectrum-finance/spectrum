@@ -12,11 +12,18 @@ use ergo_lib::{
     ergotree_ir::{
         chain::{
             address::{AddressEncoder, NetworkPrefix},
-            ergo_box::{box_value::BoxValue, BoxId},
-            token::{Token, TokenId},
+            ergo_box::{
+                box_value::BoxValue, BoxId, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
+            },
+            token::{Token, TokenAmount, TokenId},
         },
         ergo_tree::ErgoTree,
+        mir::{
+            constant::{Constant, Literal},
+            value::CollKind,
+        },
         serialization::SigmaSerializable,
+        types::stype::SType,
     },
     wallet::box_selector::{BoxSelector, SimpleBoxSelector},
 };
@@ -72,6 +79,8 @@ async fn main() {
         Command::CreateVaultUtxo {
             config_path,
             nano_ergs,
+            minted_token_name,
+            minted_token_description,
         } => {
             let raw_config = tokio::fs::read_to_string(config_path.clone())
                 .await
@@ -79,7 +88,13 @@ async fn main() {
             let config_proto: AppConfigProto =
                 serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
             let config = AppConfig::try_from(config_proto).unwrap();
-            let vault_config = create_vault_utxo(NanoErg::from(nano_ergs), config).await;
+            let vault_config = create_vault_utxo(
+                NanoErg::from(nano_ergs),
+                minted_token_name,
+                minted_token_description,
+                config,
+            )
+            .await;
             tokio::fs::write(
                 config_path,
                 serde_yaml::to_string(&AppConfigWithVaultUtxoProto::from(vault_config)).unwrap(),
@@ -312,7 +327,12 @@ async fn create_committee_boxes(config: &mut AppConfig) {
     }
 }
 
-async fn create_vault_utxo(amt: NanoErg, mut config: AppConfig) -> AppConfigWithVaultUtxo {
+async fn create_vault_utxo(
+    amt: NanoErg,
+    token_name: String,
+    token_desc: String,
+    mut config: AppConfig,
+) -> AppConfigWithVaultUtxo {
     let client = HttpClient::builder()
         .timeout(std::time::Duration::from_secs(50))
         .build()
@@ -370,8 +390,41 @@ async fn create_vault_utxo(amt: NanoErg, mut config: AppConfig) -> AppConfigWith
 
     // Vault UTxO
     let guarding_script = VAULT_CONTRACT.clone();
-    let builder = ErgoBoxCandidateBuilder::new(target_balance, guarding_script, height);
-    let mut output_candidates = vec![builder.build().unwrap()];
+    let minted_token = Token {
+        token_id: box_selection.boxes.first().box_id().into(),
+        amount: TokenAmount::try_from(TokenAmount::MAX_RAW).unwrap(),
+    };
+    let mut builder = ErgoBoxCandidateBuilder::new(target_balance, guarding_script, height);
+    builder.mint_token(minted_token.clone(), token_name, token_desc, 0);
+    let mut vault_output_box = builder.build().unwrap();
+
+    let items: Vec<_> = config
+        .committee_box_ids
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|input| Literal::from(input.sigma_serialize_bytes().unwrap()))
+        .collect();
+
+    let serialized_committee_box_ids = Constant {
+        tpe: SType::SColl(Box::new(SType::SColl(Box::new(SType::SByte)))),
+        v: Literal::Coll(CollKind::WrappedColl {
+            elem_tpe: SType::SColl(Box::new(SType::SByte)),
+            items,
+        }),
+    };
+
+    let mut registers = HashMap::new();
+
+    // Since we're minting the token in this box, registers R4 to R6 are utilised
+    // (see https://github.com/ergoplatform/eips/blob/master/eip-0004.md)
+    // But we still need these padded values to satisfy validation in sigma-rust
+    registers.insert(NonMandatoryRegisterId::R4, 0_i8.into());
+    registers.insert(NonMandatoryRegisterId::R5, 0_i8.into());
+    registers.insert(NonMandatoryRegisterId::R6, 0_i8.into());
+    registers.insert(NonMandatoryRegisterId::R7, serialized_committee_box_ids);
+    vault_output_box.additional_registers = NonMandatoryRegisters::new(registers).unwrap();
+    let mut output_candidates = vec![vault_output_box];
 
     let funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
         acc + NanoErg::from(ergobox.value)
@@ -422,6 +475,7 @@ async fn create_vault_utxo(amt: NanoErg, mut config: AppConfig) -> AppConfigWith
         box_ids_to_ignore: config.box_ids_to_ignore,
         spent_vault_utxo_box_id: None,
         new_vault_utxo_box_id,
+        vault_utxo_token_id: minted_token.token_id,
     }
 }
 
@@ -455,25 +509,12 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
     let addr_0 = encoder
         .parse_address_from_str("9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMg")
         .unwrap();
-    let addr_1 = encoder
-        .parse_address_from_str("9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMg")
-        .unwrap();
 
-    let size = 500000; //(383979280 - 2_000_000 - 250000) / 2;
-    let term_cells = vec![
-        proto_term_cell(size, vec![], addr_0.content_bytes()),
-        proto_term_cell(size, vec![], addr_0.content_bytes()),
-        proto_term_cell(size, vec![], addr_0.content_bytes()),
-        proto_term_cell(size, vec![], addr_0.content_bytes()),
-        proto_term_cell(size, vec![], addr_1.content_bytes()),
-        proto_term_cell(size, vec![], addr_1.content_bytes()),
-        proto_term_cell(size, vec![], addr_1.content_bytes()),
-        proto_term_cell(size, vec![], addr_1.content_bytes()),
-        proto_term_cell(size, vec![], addr_1.content_bytes()),
-    ]
-    .into_iter()
-    .map(|cell| ErgoTermCell::try_from(cell).unwrap())
-    .collect();
+    let size = 46869640; //(383979280 - 2_000_000 - 250000) / 2;
+    let term_cells = vec![proto_term_cell(size, vec![], addr_0.content_bytes())]
+        .into_iter()
+        .map(|cell| ErgoTermCell::try_from(cell).unwrap())
+        .collect();
 
     let inputs = simulate_signature_aggregation_notarized_proofs(
         config.committee_secret_keys.clone(),
@@ -495,13 +536,14 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
         config.committee_public_keys.len() as u32,
         ergo_state_context,
         vault_utxo,
+        config.vault_utxo_token_id,
         data_boxes,
         &wallet,
         node.get_height().await,
     );
     let num_outputs = signed_tx.outputs.len();
     config.spent_vault_utxo_box_id = Some(vault_utxo_box_id);
-    config.new_vault_utxo_box_id = signed_tx.outputs.get(num_outputs - 2).unwrap().box_id();
+    config.new_vault_utxo_box_id = signed_tx.outputs.get(0).unwrap().box_id();
 
     let tx_id = signed_tx.id();
     if let Err(e) = node.submit_tx(signed_tx).await {
@@ -547,6 +589,7 @@ struct AppConfigWithVaultUtxo {
     box_ids_to_ignore: Option<Vec<BoxId>>,
     spent_vault_utxo_box_id: Option<BoxId>,
     new_vault_utxo_box_id: BoxId,
+    vault_utxo_token_id: TokenId,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -560,6 +603,7 @@ struct AppConfigWithVaultUtxoProto {
     box_ids_to_ignore: Option<Vec<BoxId>>,
     spent_vault_utxo_box_id: Option<BoxId>,
     new_vault_utxo_box_id: BoxId,
+    vault_utxo_token_id: TokenId,
 }
 
 struct AppConfig {
@@ -676,6 +720,7 @@ impl TryFrom<AppConfigWithVaultUtxoProto> for AppConfigWithVaultUtxo {
             box_ids_to_ignore: config.box_ids_to_ignore,
             spent_vault_utxo_box_id: value.spent_vault_utxo_box_id,
             new_vault_utxo_box_id: value.new_vault_utxo_box_id,
+            vault_utxo_token_id: value.vault_utxo_token_id,
         })
     }
 }
@@ -703,6 +748,7 @@ impl From<AppConfigWithVaultUtxo> for AppConfigWithVaultUtxoProto {
             box_ids_to_ignore: config_proto.box_ids_to_ignore,
             spent_vault_utxo_box_id: value.spent_vault_utxo_box_id,
             new_vault_utxo_box_id: value.new_vault_utxo_box_id,
+            vault_utxo_token_id: value.vault_utxo_token_id,
         }
     }
 }
@@ -724,12 +770,18 @@ enum Command {
     },
 
     CreateVaultUtxo {
-        #[arg(long, short)]
+        #[arg(long)]
         /// Path to the YAML configuration file.
         config_path: String,
-        #[arg(long, short)]
+        #[arg(long)]
         /// Amount of nano-ergs to be put into Vault UTxO
         nano_ergs: u64,
+        #[arg(long)]
+        /// Name of the Vault UTxO token to be minted
+        minted_token_name: String,
+        #[arg(long)]
+        /// Description of the Vault UTxO token to be minted
+        minted_token_description: String,
     },
 
     GenerateCommittee {

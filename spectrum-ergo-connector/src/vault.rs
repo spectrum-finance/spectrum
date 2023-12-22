@@ -11,7 +11,10 @@ use ergo_lib::{
     ergotree_interpreter::sigma_protocol::prover::ContextExtension,
     ergotree_ir::{
         bigint256::BigInt256,
-        chain::ergo_box::{box_value::BoxValue, BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisters},
+        chain::{
+            ergo_box::{box_value::BoxValue, BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisters},
+            token::TokenId,
+        },
         ergo_tree::ErgoTree,
         mir::constant::Constant,
     },
@@ -60,6 +63,7 @@ pub struct VaultHandler<MVH, E> {
     moved_value_history: MVH,
     tx_retry_scheduler: E,
     dummy_wallet: Wallet,
+    vault_utxo_token_id: TokenId,
 }
 
 impl<M, E> VaultHandler<M, E>
@@ -72,6 +76,7 @@ where
         withdrawal_repo: WithdrawalRepoRocksDB,
         committee_guarding_script: ErgoTree,
         committee_public_keys: Vec<EcPoint>,
+        vault_utxo_token_id: TokenId,
         data_inputs: TxIoVec<ErgoBox>,
         sync_starting_height: u32,
         moved_value_history: M,
@@ -120,6 +125,7 @@ where
             moved_value_history,
             tx_retry_scheduler,
             dummy_wallet,
+            vault_utxo_token_id,
         })
     }
 
@@ -361,6 +367,7 @@ where
             self.committee_data.committee_size(),
             ergo_state_context,
             vault_utxo.clone(),
+            self.vault_utxo_token_id,
             data_boxes,
             &self.dummy_wallet,
             current_height,
@@ -417,6 +424,7 @@ pub fn verify_vault_contract_ergoscript_with_sigma_rust(
     committee_size: u32,
     ergo_state_context: ErgoStateContext,
     vault_utxo: ErgoBox,
+    expected_vault_utxo_token_id: TokenId,
     data_boxes: Vec<ErgoBox>,
     wallet: &ergo_lib::wallet::Wallet,
     current_height: u32,
@@ -469,7 +477,7 @@ pub fn verify_vault_contract_ergoscript_with_sigma_rust(
     let avl_const = Constant::from(starting_avl_tree);
 
     // Create outboxes for terminal cells
-    let mut term_cell_outputs: Vec<_> = terminal_cells
+    let term_cell_outputs: Vec<_> = terminal_cells
         .iter()
         .map(
             |ErgoTermCell(ErgoCell {
@@ -506,13 +514,14 @@ pub fn verify_vault_contract_ergoscript_with_sigma_rust(
     values.insert(7, avl_const);
     values.insert(3, proof);
     values.insert(8, change_for_miner.as_i64().into());
+    values.insert(4, expected_vault_utxo_token_id.into());
 
     let vault_output_box = ErgoBoxCandidate {
         value: BoxValue::try_from(initial_vault_balance - change_for_miner.as_i64() - ergs_to_distribute)
             .unwrap(),
         ergo_tree: VAULT_CONTRACT.clone(),
-        tokens: None,
-        additional_registers: NonMandatoryRegisters::empty(),
+        tokens: vault_utxo.tokens.clone(),
+        additional_registers: vault_utxo.additional_registers.clone(),
         creation_height: current_height,
     };
 

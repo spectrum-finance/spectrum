@@ -67,10 +67,16 @@ use spectrum_sigma::{
     AggregateCommitment, Commitment, Signature,
 };
 
-const VAULT_CONTRACT_SCRIPT_BYTES: &str = "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";
+const VAULT_CONTRACT_SCRIPT_BYTES: &str = "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";
+const DEPOSIT_CONTRACT_SCRIPT_BYTES: &str = "5QA5EcTP5qiq1qZMa7J4gBnesZg66FRo3U9P4kPajkiXyj2Yx333pRdSK1q6zMDqr1dv5guqasQ5mMLzHU7XFXXUZjXc8YcGY6RwWfiEvfdxeMocNQ2kcR8Ud16LHYbrGbvPsQdP4DnAsNGrdKBuRUrgrdkCmKaWvjjPHNge9gAx3LA2sBLzZUeD2LaK9HLxschEw7tPSxV8J8qJfsUoFuPCMCcrGnFPeZstRJiJnRm58bEj5j2DH9C4AUmA4DFsn213M4fmSroWGZD9BwrsVCXPo4XPQ1vYvCYcxXxAJL9WNmyoj4E6oUGbWo5JoHo9d6fBAsH7BSBq2ZyG19CCJj2cTUbMXYTwj6m5R87CSkFmG31rDvYXy7WFTg3iLRvKPBuJjXTp4Cb9NPTKUurPCuyqvJUAXKb6Z1W5KUNk79YQhmpyssVvPJihJfj8criF8GQoz533FhfYTNFcQjkzCqcwq1JKNLSWvTAPF39W17WZcK1eCGwy8QDN88rwCqTqE8ttJQifDHUfdzKYd6oKWXJSahYb1jpph35nM4kQGwQMiFtehqAb5woVXtw5iYcSjADNgauN5bhy83EW4uf348ND2sUb3kFL7gSbM7bcjFubhKT3EUAiXFZZKKJNzKDa7JdwSxTch3sVEMWJmhY1NCpepEzA2dVjQHjc7nQe9nzKgGNqQLxQguqhNPisiQA8Ha48jiEWd9u33KjppCxKufoCLrVTSgtZV7gfZTCgoS3jtk6DDFp7mxKMarGGG7NRP4kePQ7qy5saFSW543GxAuU9WWXwbECzJPn65K3DRMaDgJPy5TyKobDyBU2qmpAA1j9JZvZxAXZAQCA74ggQDfd6i6qQP5c6qLL93S9QTKGVBHFKipiUtQGDmxzPerkKWMtCboqJsuypYXaUWEecZtBM9AiBcEAaP6H5PYjwSSL1U3RXNYdmtWWv5QWfemuSKw4yvwmRP48DCp2ew5fN8pLp4PsKCwPEZjxEhYsc8T4Nm1KWH7GBRum1MXM4NthtjcmuzvMDU3hfJ5iTBsDYe7U994jotdFNYjSH8dm4Bzpacro3P8BcpDKYhhXKEyn3M9PHzw5Mq5niTHN";
 lazy_static! {
     pub static ref VAULT_CONTRACT: ErgoTree = AddressEncoder::new(NetworkPrefix::Mainnet)
         .parse_address_from_str(VAULT_CONTRACT_SCRIPT_BYTES)
+        .unwrap()
+        .script()
+        .unwrap();
+    pub static ref DEPOSIT_CONTRACT: ErgoTree = AddressEncoder::new(NetworkPrefix::Mainnet)
+        .parse_address_from_str(DEPOSIT_CONTRACT_SCRIPT_BYTES)
         .unwrap()
         .script()
         .unwrap();
@@ -851,8 +857,9 @@ pub mod tests {
     use ergo_lib::ergo_chain_types::{ec_point::generator, Digest, EcPoint};
     use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
     use ergo_lib::ergotree_ir::chain::address::Address;
-    use ergo_lib::ergotree_ir::chain::ergo_box::BoxTokens;
+    use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, BoxTokens};
     use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount};
+    use ergo_lib::ergotree_ir::mir::value::NativeColl;
     use ergo_lib::ergotree_ir::{
         base16_str::Base16Str,
         bigint256::BigInt256,
@@ -891,6 +898,7 @@ pub mod tests {
     use num_bigint::BigUint;
     use num_bigint::Sign;
     use rand::rngs::OsRng;
+    use rand::seq::SliceRandom;
     use rand::Rng;
     use scorex_crypto_avltree::{
         authenticated_tree_ops::*, batch_avl_prover::BatchAVLProver, batch_node::*, operation::*,
@@ -900,13 +908,14 @@ pub mod tests {
     use sigma_test_util::force_any_val;
     use spectrum_crypto::{digest::blake2b256_hash, pubkey::PublicKey};
     use spectrum_handel::Threshold;
+    use spectrum_offchain_lm::prover::SeedPhrase;
     use spectrum_sigma::{crypto::schnorr_commitment_pair, Commitment, Signature};
     use std::collections::HashMap;
     use std::time::Instant;
 
     use crate::script::{
         estimate_tx_size_in_kb, scalar_to_biguint, serialize_exclusion_set, ErgoCell, ErgoTermCell,
-        ErgoTermCells, VAULT_CONTRACT, VAULT_CONTRACT_SCRIPT_BYTES,
+        ErgoTermCells, DEPOSIT_CONTRACT, VAULT_CONTRACT, VAULT_CONTRACT_SCRIPT_BYTES,
     };
 
     use super::{
@@ -932,6 +941,288 @@ pub mod tests {
         }
     }
 
+    #[test]
+    fn verify_deposits_no_tokens() {
+        let mut rng = OsRng;
+        let n = rng.gen_range(10..30);
+        let deposit_tokens = std::iter::repeat(vec![]).take(n).collect();
+        test_deposits_with_dummy_vault_box(vec![], deposit_tokens);
+    }
+
+    #[test]
+    fn verify_deposits_with_tokens() {
+        let mut rng = OsRng;
+        let mut tokens: Vec<Token> = std::iter::repeat_with(|| gen_random_token(200))
+            .take(100)
+            .collect();
+
+        tokens.shuffle(&mut rng);
+        let initial_vault_tokens = tokens
+            .iter()
+            .take(rng.gen_range(10..tokens.len()))
+            .cloned()
+            .collect();
+
+        let num_deposits = rng.gen_range(1..5);
+        let mut deposit_tokens = vec![];
+        for _ in 0..num_deposits {
+            tokens.shuffle(&mut rng);
+            let dep_tokens = tokens.iter().take(rng.gen_range(1..10)).cloned().collect();
+            deposit_tokens.push(dep_tokens);
+        }
+        test_deposits_with_dummy_vault_box(initial_vault_tokens, deposit_tokens);
+    }
+
+    //
+    fn test_deposits_with_dummy_vault_box(initial_vault_tokens: Vec<Token>, deposit_tokens: Vec<Vec<Token>>) {
+        let mut rng = OsRng;
+        let vault_token = gen_random_token(100);
+        let initial_vault_balance = 2000000000_i64;
+
+        let current_height = 100000_u32;
+        const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
+        let seed = SeedPhrase::from(String::from(SEED_PHRASE));
+        let (_, wallet_addr) =
+            spectrum_offchain_lm::prover::Wallet::try_from_seed(seed).expect("Invalid wallet seed");
+        let guarding_script = wallet_addr.script().unwrap();
+
+        // Input vault UTxO
+        let mut vault_tokens = vec![vault_token.clone()];
+        vault_tokens.extend(initial_vault_tokens);
+        let tokens = BoxTokens::try_from(vault_tokens).unwrap();
+        let vault_input_box = ErgoBox::new(
+            BoxValue::try_from(initial_vault_balance).unwrap(),
+            guarding_script.clone(),
+            Some(tokens),
+            NonMandatoryRegisters::empty(),
+            current_height - 10,
+            TxId::zero(),
+            0,
+        )
+        .unwrap();
+
+        // Deposit box
+        let mut total_deposit_value = 0;
+
+        let unsigned_vault_input = UnsignedInput::new(
+            vault_input_box.box_id(),
+            ContextExtension {
+                values: IndexMap::new(),
+            },
+        );
+
+        let max_miner_fee = 1_000_000_i64;
+        let change_for_miner = BoxValue::try_from(max_miner_fee).unwrap();
+
+        let vault_input_box_registers = vault_input_box.additional_registers.clone();
+
+        let mut output_vault_tokens = vault_input_box
+            .tokens
+            .clone()
+            .map(|t| t.to_vec())
+            .unwrap_or_default();
+        let mut unsigned_inputs = vec![unsigned_vault_input];
+        let mut boxes_to_spend = vec![vault_input_box];
+        let num_deposits = deposit_tokens.len();
+        for (ix, tokens) in deposit_tokens.into_iter().enumerate() {
+            for t in &tokens {
+                if let Some(i) = output_vault_tokens
+                    .iter()
+                    .position(|tok| tok.token_id == t.token_id)
+                {
+                    let new_amount = output_vault_tokens[i].amount.checked_add(&t.amount).unwrap();
+                    output_vault_tokens[i].amount = new_amount;
+                } else {
+                    output_vault_tokens.push(t.clone());
+                }
+            }
+
+            let tokens = if tokens.is_empty() {
+                None
+            } else {
+                Some(BoxTokens::try_from(tokens).unwrap())
+            };
+            // expected vault token id
+            let mut registers = HashMap::new();
+            registers.insert(NonMandatoryRegisterId::R4, Constant::from(vault_token.token_id));
+            registers.insert(
+                NonMandatoryRegisterId::R5,
+                Constant::from(generate_address().content_bytes()),
+            );
+
+            // Context extension for deposit box
+            let mut constants = IndexMap::new();
+            constants.insert(8_u8, Constant::from(max_miner_fee));
+            let deposit_value = rng.gen_range(10000000_i64..99000000_i64);
+            total_deposit_value += deposit_value;
+            let deposit_box = ErgoBox::new(
+                BoxValue::try_from(deposit_value).unwrap(),
+                DEPOSIT_CONTRACT.clone(),
+                tokens,
+                NonMandatoryRegisters::new(registers.clone()).unwrap(),
+                current_height - 10,
+                TxId::zero(),
+                (ix as u16) + 1,
+            )
+            .unwrap();
+            let unsigned_deposit_input = UnsignedInput::new(
+                deposit_box.box_id(),
+                ContextExtension {
+                    values: constants.clone(),
+                },
+            );
+            unsigned_inputs.push(unsigned_deposit_input);
+            boxes_to_spend.push(deposit_box);
+        }
+
+        let vault_output_tokens = if output_vault_tokens.is_empty() {
+            None
+        } else {
+            Some(BoxTokens::try_from(output_vault_tokens).unwrap())
+        };
+        let vault_output_box = ErgoBoxCandidate {
+            value: BoxValue::try_from(
+                initial_vault_balance + total_deposit_value - change_for_miner.as_i64(),
+            )
+            .unwrap(),
+            ergo_tree: guarding_script,
+            tokens: vault_output_tokens,
+            additional_registers: vault_input_box_registers,
+            creation_height: current_height,
+        };
+
+        let miner_output = ErgoBoxCandidate {
+            value: change_for_miner,
+            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: current_height,
+        };
+        let outputs = TxIoVec::from_vec(vec![vault_output_box, miner_output]).unwrap();
+
+        let unsigned_tx =
+            UnsignedTransaction::new(TxIoVec::from_vec(unsigned_inputs).unwrap(), None, outputs).unwrap();
+        let tx_context = TransactionContext::new(unsigned_tx, boxes_to_spend, vec![]).unwrap();
+        let wallet = get_wallet();
+        let mut ergo_state_context = force_any_val::<ErgoStateContext>();
+        // Set height in ergo context
+        ergo_state_context.pre_header.height = current_height;
+        for c in &mut ergo_state_context.headers {
+            c.height = current_height;
+        }
+        let now = Instant::now();
+        println!("Signing TX...");
+        let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
+        if res.is_err() {
+            panic!("{:?}", res);
+        }
+        println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
+    }
+
+    fn test_deposits_backup(initial_vault_tokens: Vec<Token>, deposit_tokens: Vec<Vec<Token>>) {
+        let vault_token = gen_random_token(100);
+        let initial_vault_balance = 2000000000_i64;
+
+        let current_height = 100000_u32;
+        const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
+        let seed = SeedPhrase::from(String::from(SEED_PHRASE));
+        let (_, wallet_addr) =
+            spectrum_offchain_lm::prover::Wallet::try_from_seed(seed).expect("Invalid wallet seed");
+        let guarding_script = wallet_addr.script().unwrap();
+
+        // Input vault UTxO
+        let mut vault_tokens = vec![vault_token.clone()];
+        vault_tokens.extend(initial_vault_tokens);
+        let tokens = BoxTokens::try_from(vault_tokens).unwrap();
+        let vault_input_box = ErgoBox::new(
+            BoxValue::try_from(initial_vault_balance).unwrap(),
+            guarding_script.clone(),
+            Some(tokens),
+            NonMandatoryRegisters::empty(),
+            current_height - 10,
+            TxId::zero(),
+            0,
+        )
+        .unwrap();
+
+        // Deposit box
+        let deposit_value = 10000000_i64;
+
+        // expected vault token id
+        let mut registers = HashMap::new();
+        registers.insert(NonMandatoryRegisterId::R4, Constant::from(vault_token.token_id));
+
+        for (ix, tokens) in deposit_tokens.into_iter().enumerate() {}
+
+        let deposit_box = ErgoBox::new(
+            BoxValue::try_from(deposit_value).unwrap(),
+            DEPOSIT_CONTRACT.clone(),
+            None,
+            NonMandatoryRegisters::new(registers).unwrap(),
+            current_height - 10,
+            TxId::zero(),
+            1,
+        )
+        .unwrap();
+
+        // Context extension for deposit box
+        let mut constants = IndexMap::new();
+        let max_miner_fee = 1_000_000_i64;
+        let change_for_miner = BoxValue::try_from(max_miner_fee).unwrap();
+        constants.insert(8_u8, Constant::from(max_miner_fee));
+
+        let unsigned_deposit_input =
+            UnsignedInput::new(deposit_box.box_id(), ContextExtension { values: constants });
+
+        let vault_output_box = ErgoBoxCandidate {
+            value: BoxValue::try_from(initial_vault_balance + deposit_value - change_for_miner.as_i64())
+                .unwrap(),
+            ergo_tree: guarding_script,
+            tokens: vault_input_box.tokens.clone(),
+            additional_registers: vault_input_box.additional_registers.clone(),
+            creation_height: current_height,
+        };
+
+        let miner_output = ErgoBoxCandidate {
+            value: change_for_miner,
+            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: current_height,
+        };
+        let mut outputs_vec = vec![vault_output_box];
+        outputs_vec.push(miner_output);
+        let outputs = TxIoVec::from_vec(outputs_vec).unwrap();
+
+        let unsigned_vault_input = UnsignedInput::new(
+            vault_input_box.box_id(),
+            ContextExtension {
+                values: IndexMap::new(),
+            },
+        );
+        let unsigned_tx = UnsignedTransaction::new(
+            TxIoVec::from_vec(vec![unsigned_vault_input, unsigned_deposit_input]).unwrap(),
+            None,
+            outputs,
+        )
+        .unwrap();
+        let tx_context =
+            TransactionContext::new(unsigned_tx, vec![vault_input_box, deposit_box], vec![]).unwrap();
+        let wallet = get_wallet();
+        let mut ergo_state_context = force_any_val::<ErgoStateContext>();
+        // Set height in ergo context
+        ergo_state_context.pre_header.height = current_height;
+        for c in &mut ergo_state_context.headers {
+            c.height = current_height;
+        }
+        let now = Instant::now();
+        println!("Signing TX...");
+        let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
+        if res.is_err() {
+            panic!("{:?}", res);
+        }
+        println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
+    }
     #[test]
     fn verify_vault_contract_sigma_rust() {
         let mut rng = OsRng;
@@ -1500,26 +1791,6 @@ pub mod tests {
         values.insert(8, change_for_miner.as_i64().into());
         values.insert(4, vault_token.token_id.into());
 
-        let vault_output_box = ErgoBoxCandidate {
-            value: BoxValue::try_from(initial_vault_balance - change_for_miner.as_i64()).unwrap(),
-            ergo_tree: VAULT_CONTRACT.clone(),
-            tokens: None,
-            additional_registers: NonMandatoryRegisters::empty(),
-            creation_height: current_height as u32,
-        };
-
-        let miner_output = ErgoBoxCandidate {
-            value: change_for_miner,
-            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
-            tokens: None,
-            additional_registers: NonMandatoryRegisters::empty(),
-            creation_height: current_height as u32,
-        };
-        let mut outputs_vec = vec![vault_output_box];
-        outputs_vec.extend(term_cell_outputs);
-        outputs_vec.push(miner_output);
-        let outputs = TxIoVec::from_vec(outputs_vec).unwrap();
-
         // The first committee box can hold 115 public keys together with other data necessary to
         // verify signatures.
         const NUM_COMMITTEE_ELEMENTS_IN_FIRST_BOX: usize = 115;
@@ -1581,7 +1852,13 @@ pub mod tests {
         };
 
         let mut registers = HashMap::new();
-        registers.insert(NonMandatoryRegisterId::R4, serialized_committee_box_ids);
+
+        // Padded values
+        registers.insert(NonMandatoryRegisterId::R4, 0_i8.into());
+        registers.insert(NonMandatoryRegisterId::R5, 0_i8.into());
+        registers.insert(NonMandatoryRegisterId::R6, 0_i8.into());
+
+        registers.insert(NonMandatoryRegisterId::R7, serialized_committee_box_ids);
 
         let tokens = BoxTokens::try_from(vec![vault_token]).unwrap();
         let input_box = ErgoBox::new(
@@ -1594,6 +1871,27 @@ pub mod tests {
             0,
         )
         .unwrap();
+
+        let vault_output_box = ErgoBoxCandidate {
+            value: BoxValue::try_from(initial_vault_balance - change_for_miner.as_i64()).unwrap(),
+            ergo_tree: VAULT_CONTRACT.clone(),
+            tokens: input_box.tokens.clone(),
+            additional_registers: input_box.additional_registers.clone(),
+            creation_height: current_height as u32,
+        };
+
+        let miner_output = ErgoBoxCandidate {
+            value: change_for_miner,
+            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: current_height as u32,
+        };
+        let mut outputs_vec = vec![vault_output_box];
+        outputs_vec.extend(term_cell_outputs);
+        outputs_vec.push(miner_output);
+        let outputs = TxIoVec::from_vec(outputs_vec).unwrap();
+
         let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension { values });
         let unsigned_tx = UnsignedTransaction::new(
             TxIoVec::from_vec(vec![unsigned_input]).unwrap(),
@@ -1740,7 +2038,7 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         rng.fill(&mut digest.0);
 
-        let amount = TokenAmount::try_from(rng.gen_range((min_quantity as i64)..=i64::MAX) as u64).unwrap();
+        let amount = TokenAmount::try_from(rng.gen_range((min_quantity as i64)..=100000) as u64).unwrap();
 
         token.token_id = TokenId::from(digest);
         token.amount = amount;

@@ -17,8 +17,8 @@
   //     to 'm'.
   
   // Vault UTxO registers
-  //   R4[Coll[Coll[Byte]]]: The box IDs of UTxOs that contain the committee public keys
-  val committeeBoxIDs = INPUTS(0).R4[Coll[Coll[Byte]]].get
+  //   R7[Coll[Coll[Byte]]]: The box IDs of UTxOs that contain the committee public keys
+  val committeeBoxIDs = INPUTS(0).R7[Coll[Coll[Byte]]].get
 
   // ===== Data inputs =====
   // Registers of dataInput(0), ..., dataInput(D):
@@ -301,7 +301,7 @@
   val endTree = tree.insert(avlInsertions, proof).get
   val verifyDigest = blake2b256(endTree.digest) == message
 
-  val minerPropBytes = fromBase58("2iHkR7CWvD1R4j1yZg5bkeDRQavjAaVPeTDFGGLZduHyfWMuYpmhHocX8GJoaieTx78FntzJbCBVL6rf96ocJoZdmWBL2fci7NqWgAirppPQmZ7fN9V6z13Ay6brPriBKYqLp1bT2Fk4FkFLCfdPpe")
+  val minerPropBytes = fromBase16("1005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a57304")
   val validMinerFee = OUTPUTS
         .map { (o: Box) =>
           if (o.propositionBytes == minerPropBytes) o.value else 0L

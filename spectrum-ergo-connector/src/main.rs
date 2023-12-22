@@ -13,6 +13,7 @@ use ergo_lib::{
         chain::{
             address::{AddressEncoder, NetworkPrefix},
             ergo_box::{box_value::BoxValue, BoxId},
+            token::TokenId,
         },
         ergo_tree::ErgoTree,
     },
@@ -113,6 +114,7 @@ async fn main() {
         withdrawal_repo,
         config.committee_guarding_script,
         config.committee_public_keys,
+        config.vault_utxo_token_id,
         TxIoVec::try_from(data_inputs).unwrap(),
         config.chain_sync_starting_height,
         MovedValueHistoryRocksDB::new(&config.moved_value_history_db_path),
@@ -459,6 +461,7 @@ struct AppConfig {
     committee_box_ids: Vec<BoxId>,
     /// Base58 encoding of guarding script of committee boxes
     committee_guarding_script: ErgoTree,
+    vault_utxo_token_id: TokenId,
 }
 
 #[derive(Deserialize)]
@@ -478,6 +481,7 @@ struct AppConfigProto {
     committee_box_ids: Vec<BoxId>,
     /// Base58 encoding of guarding script of committee boxes
     committee_guarding_script: String,
+    vault_utxo_token_id: TokenId,
 }
 
 impl From<AppConfigProto> for AppConfig {
@@ -520,6 +524,7 @@ impl From<AppConfigProto> for AppConfig {
             committee_secret_keys,
             committee_box_ids: value.committee_box_ids,
             committee_guarding_script,
+            vault_utxo_token_id: value.vault_utxo_token_id,
         }
     }
 }
