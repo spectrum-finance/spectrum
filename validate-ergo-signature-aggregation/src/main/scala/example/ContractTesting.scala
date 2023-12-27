@@ -494,14 +494,6 @@ object ContractTesting extends IOApp {
 
         val changeForMiner = 1000000.toLong
 
-        val userOutBox = tb
-          .outBoxBuilder()
-          .contract(validationContract)
-          .value(INITIAL_VAULT_NANOERG_BALANCE - changeForMiner)
-          .build()
-
-        val outputs = userOutBox +: outBoxes
-
         println(exclusionSet)
 
         val committeeArray: Array[GroupElement] = committee.value.toArray;
@@ -599,6 +591,15 @@ object ContractTesting extends IOApp {
             ContextVar.of(8.toByte, ErgoValue.of(changeForMiner)),
             ContextVar.of(4.toByte, ErgoValue.of(vaultTokenIdByteArray))
           )
+
+        val userOutBox = tb
+          .outBoxBuilder()
+          .tokens(ErgoToken(new ErgoId(vaultTokenIdByteArray), 1000L))
+          .contract(validationContract)
+          .value(INITIAL_VAULT_NANOERG_BALANCE - changeForMiner)
+          .build()
+
+        val outputs = userOutBox +: outBoxes
 
         val bytesInContextExtension =
           (exclusionSetBytes.length + aggregateResponseBytes.length

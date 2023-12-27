@@ -8,9 +8,10 @@
   
   val maxMinerFee = getVar[Long](8).get
   val expectedVaultTokenId = SELF.R4[Coll[Byte]].get
+  val refundPk = SELF.R5[SigmaProp].get
 
   // Validate (1) (Note that validation of (4) ensures that the vault token is preserved)
-  val validVaultUTxO = expectedVaultTokenId == INPUTS(0).tokens(0)._1
+  val validVaultUTxO = INPUTS(0).tokens.size > 0 && expectedVaultTokenId == INPUTS(0).tokens(0)._1
 
   // Validate (2)
   val scriptPreserved = OUTPUTS(0).propositionBytes == INPUTS(0).propositionBytes
@@ -163,12 +164,11 @@
   val depositorAddressPresent = !(SELF.R5[Coll[Byte]].isEmpty)
 
 
-  sigmaProp(
-    validVaultUTxO &&
+  
+   refundPk || sigmaProp(validVaultUTxO &&
     scriptPreserved &&
     validMinerFee &&
     validErgDeposits &&
     validTokenDeposits &&
-    depositorAddressPresent
-  )
+    depositorAddressPresent)
 }
