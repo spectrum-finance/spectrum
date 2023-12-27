@@ -561,9 +561,6 @@ object ContractTesting extends IOApp {
 
         val inputBox = inputBoxBuilder
           .registers(
-            ErgoValue.of(0.toByte),
-            ErgoValue.of(0.toByte),
-            ErgoValue.of(0.toByte),
             asErgoValue
           )
           .tokens(ErgoToken(new ErgoId(vaultTokenIdByteArray), 1000L))

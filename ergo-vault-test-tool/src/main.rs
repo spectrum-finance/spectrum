@@ -371,31 +371,93 @@ async fn create_vault_utxo(
         .collect();
     let height = node.get_height().await;
 
-    let target_balance = BoxValue::from(amt);
-    let mut miner_output = MinerOutput {
-        erg_value: DEFAULT_MINER_FEE,
-    };
-    let accumulated_cost = miner_output.erg_value + NanoErg::from(target_balance);
-    let selection_value = BoxValue::try_from(accumulated_cost).unwrap();
+    // To mint the initial Vault UTxO, we will require a chain TX with 2 legs:
+    //  1. First need a TX to mint the vault tokens (requires MIN_SAFE_BOX_VALUE + DEFAULT_MINER_FEE)
+    //  2. Create the initial Vault UTxO (requires another `amt - MIN_SAFE_BOX_VALUE + DEFAULT_MINER_FEE`,
+    //     since we will spend the box holding the tokens in the first tx).
+    let selection_value = BoxValue::from(amt + DEFAULT_MINER_FEE + DEFAULT_MINER_FEE);
     let box_selector = SimpleBoxSelector::new();
     let box_selection = box_selector.select(utxos, selection_value, &[]).unwrap();
-
-    let mut token_quantities: HashMap<TokenId, u64> = HashMap::new();
-
-    for ergobox in &box_selection.boxes {
-        for t in ergobox.tokens.iter().flatten() {
-            *token_quantities.entry(t.token_id).or_insert(0) += t.amount.as_u64();
-        }
-    }
-
-    // Vault UTxO
-    let guarding_script = VAULT_CONTRACT.clone();
+    let box_selection_total_value = BoxValue::try_from(
+        box_selection
+            .boxes
+            .iter()
+            .fold(0_u64, |acc, bx| acc + bx.value.as_u64()),
+    )
+    .unwrap();
     let minted_token = Token {
         token_id: box_selection.boxes.first().box_id().into(),
         amount: TokenAmount::try_from(TokenAmount::MAX_RAW).unwrap(),
     };
-    let mut builder = ErgoBoxCandidateBuilder::new(target_balance, guarding_script, height);
+    let guarding_script = wallet_addr.script().unwrap();
+    let mut builder = ErgoBoxCandidateBuilder::new(
+        BoxValue::from(MIN_SAFE_BOX_VALUE),
+        guarding_script.clone(),
+        height,
+    );
     builder.mint_token(minted_token.clone(), token_name, token_desc, 0);
+    let mut output_candidates = vec![builder.build().unwrap()];
+
+    let miner_output = MinerOutput {
+        erg_value: DEFAULT_MINER_FEE,
+    };
+
+    let funds_for_next_tx = ErgoBoxCandidateBuilder::new(
+        BoxValue::from(amt + DEFAULT_MINER_FEE - MIN_SAFE_BOX_VALUE),
+        guarding_script.clone(),
+        height,
+    )
+    .build()
+    .unwrap();
+
+    let remaining_funds = ErgoBoxCandidateBuilder::new(
+        box_selection_total_value.checked_sub(&selection_value).unwrap(),
+        guarding_script.clone(),
+        height,
+    )
+    .build()
+    .unwrap();
+
+    output_candidates.extend(vec![
+        funds_for_next_tx,
+        remaining_funds,
+        miner_output.clone().into_candidate(height),
+    ]);
+
+    let inputs = TxIoVec::from_vec(
+        box_selection
+            .boxes
+            .into_iter()
+            .map(|bx| (bx, ContextExtension::empty()))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+
+    let output_candidates = TxIoVec::from_vec(output_candidates.clone()).unwrap();
+    let tx_candidate = TransactionCandidate {
+        inputs,
+        data_inputs: None,
+        output_candidates,
+    };
+    let signed_token_minting_tx = wallet.sign(tx_candidate).unwrap();
+    let tx_id = signed_token_minting_tx.id();
+
+    let inputs: Vec<_> = signed_token_minting_tx
+        .outputs
+        .clone()
+        .into_iter()
+        .take(2)
+        .collect();
+
+    if let Err(e) = node.submit_tx(signed_token_minting_tx).await {
+        println!("ERGO NODE ERROR: {:?}", e);
+    } else {
+        println!("Token minting TX {:?} successfully submitted!", tx_id);
+    }
+
+    // Vault UTxO.
+    let mut builder = ErgoBoxCandidateBuilder::new(BoxValue::from(amt), VAULT_CONTRACT.clone(), height);
+    builder.add_token(minted_token.clone());
     let mut vault_output_box = builder.build().unwrap();
 
     let items: Vec<_> = config
@@ -415,35 +477,14 @@ async fn create_vault_utxo(
     };
 
     let mut registers = HashMap::new();
-
-    // Since we're minting the token in this box, registers R4 to R6 are utilised
-    // (see https://github.com/ergoplatform/eips/blob/master/eip-0004.md)
-    // But we still need these padded values to satisfy validation in sigma-rust
-    registers.insert(NonMandatoryRegisterId::R4, 0_i8.into());
-    registers.insert(NonMandatoryRegisterId::R5, 0_i8.into());
-    registers.insert(NonMandatoryRegisterId::R6, 0_i8.into());
-    registers.insert(NonMandatoryRegisterId::R7, serialized_committee_box_ids);
+    registers.insert(NonMandatoryRegisterId::R4, serialized_committee_box_ids);
     vault_output_box.additional_registers = NonMandatoryRegisters::new(registers).unwrap();
     let mut output_candidates = vec![vault_output_box];
 
-    let funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
-        acc + NanoErg::from(ergobox.value)
-    });
-    let funds_remain = funds_total.safe_sub(accumulated_cost);
-    if funds_remain >= MIN_SAFE_BOX_VALUE {
-        let to_ergo_tree = wallet_addr.script().unwrap();
-        let builder =
-            ErgoBoxCandidateBuilder::new(BoxValue::from(funds_remain), to_ergo_tree.clone(), height);
-        output_candidates.push(builder.build().unwrap());
-    } else {
-        miner_output.erg_value = miner_output.erg_value + funds_remain;
-    }
     output_candidates.push(miner_output.into_candidate(height));
 
     let inputs = TxIoVec::from_vec(
-        box_selection
-            .boxes
-            .clone()
+        inputs
             .into_iter()
             .map(|bx| (bx, ContextExtension::empty()))
             .collect::<Vec<_>>(),
@@ -463,7 +504,7 @@ async fn create_vault_utxo(
     if let Err(e) = node.submit_tx(signed_tx).await {
         println!("ERGO NODE ERROR: {:?}", e);
     } else {
-        println!("TX {:?} successfully submitted!", tx_id);
+        println!("Vault UTxO creation TX {:?} successfully submitted!", tx_id);
     }
     AppConfigWithVaultUtxo {
         node_addr: config.node_addr,
@@ -510,7 +551,7 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
         .parse_address_from_str("9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMg")
         .unwrap();
 
-    let size = 46869640; //(383979280 - 2_000_000 - 250000) / 2;
+    let size = 466160; //46869640; //(383979280 - 2_000_000 - 250000) / 2;
     let term_cells = vec![proto_term_cell(size, vec![], addr_0.content_bytes())]
         .into_iter()
         .map(|cell| ErgoTermCell::try_from(cell).unwrap())

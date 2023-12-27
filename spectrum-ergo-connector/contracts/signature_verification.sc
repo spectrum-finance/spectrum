@@ -30,13 +30,14 @@
   val scriptPreserved = OUTPUTS(0).propositionBytes == SELF.propositionBytes
 
   val expectedVaultTokenId = getVar[Coll[Byte]](4).get
-  val validVaultToken = 
+  val validVaultToken =
+    INPUTS(0).tokens.size > 0 &&
     INPUTS(0).tokens(0)._1 == expectedVaultTokenId &&
     INPUTS(0).tokens(0)._2 == OUTPUTS(0).tokens(0)._2
 
   // Vault UTxO registers
-  //   R7[Coll[Coll[Byte]]]: The box IDs of UTxOs that contain the committee public keys
-  val committeeBoxIDs = INPUTS(0).R7[Coll[Coll[Byte]]].get
+  //   R4[Coll[Coll[Byte]]]: The box IDs of UTxOs that contain the committee public keys
+  val committeeBoxIDs = INPUTS(0).R4[Coll[Coll[Byte]]].get
   val verifyCommitteeBoxes = CONTEXT.dataInputs.zip(committeeBoxIDs).forall { (tup: (Box, Coll[Byte])) =>
     val dataInput = tup._1
     val expectedBoxID = tup._2
@@ -327,19 +328,13 @@
     val endTree = tree.insert(avlInsertions, proof).get
     val verifyDigest = blake2b256(endTree.digest) == message
 
+    verifyAtLeastOneWithdrawal &&
+    verifyDigest &&
+    verifyAggregateResponse &&
+    verifySignaturesInExclusionSet &&
+    verifyThreshold &&
+    verifyTxOutputs
 
-
-    verifyEpoch &&
-      verifyAtLeastOneWithdrawal &&
-      verifyDigest &&
-      verifyAggregateResponse &&
-      verifySignaturesInExclusionSet &&
-      verifyThreshold &&
-      verifyTxOutputs &&
-      verifyCommitteeBoxes &&
-      validMinerFee &&
-      scriptPreserved &&
-      validVaultToken
   
   } else {
 
@@ -351,15 +346,15 @@
       inputTokenID == outputTokenID && inputTokenQty <= outputTokenQty
     }
 
-    validMinerFee &&
-    verifyEpoch &&
-    verifyCommitteeBoxes &&
-    scriptPreserved &&
-    validVaultToken &&
     noTokensLost
   }
 
   sigmaProp (
+   verifyEpoch &&
+   verifyCommitteeBoxes &&
+   validMinerFee &&
+   scriptPreserved &&
+   validVaultToken &&
    validAction 
   )
 }
