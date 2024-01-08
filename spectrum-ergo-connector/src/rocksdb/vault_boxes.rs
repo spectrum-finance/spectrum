@@ -39,6 +39,7 @@ pub trait VaultBoxRepo {
     ) -> Result<ErgoNotarizationBoundsWithBoxes, ()>;
     async fn put_confirmed(&mut self, df: Confirmed<AsBox<VaultUtxo>>);
     async fn put_predicted(&mut self, df: Predicted<AsBox<VaultUtxo>>);
+    async fn get_confirmed(&self, box_id: &BoxId) -> Option<Confirmed<AsBox<VaultUtxo>>>;
     async fn spend_box(&mut self, box_id: BoxId);
     async fn unspend_box(&mut self, box_id: BoxId);
     /// False positive version of `exists()`.
@@ -355,6 +356,20 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
             tx.put(key.clone(), value).unwrap();
             tx.put(index_key, key).unwrap();
             tx.commit().unwrap()
+        })
+        .await
+    }
+
+    async fn get_confirmed(&self, box_id: &BoxId) -> Option<Confirmed<AsBox<VaultUtxo>>> {
+        let db = Arc::clone(&self.db);
+        let box_id = *box_id;
+        spawn_blocking(move || {
+            let key = box_key(KEY_PREFIX, CONFIRMED_PRIORITY, &box_id);
+            if let Ok(Some(bytes)) = db.get(key) {
+                let value: AsBox<VaultUtxo> = bincode::deserialize(&bytes).unwrap();
+                return Some(Confirmed(value));
+            }
+            None
         })
         .await
     }

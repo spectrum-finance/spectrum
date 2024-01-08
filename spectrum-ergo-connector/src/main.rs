@@ -46,14 +46,15 @@ use vault::VaultHandler;
 
 use crate::{
     rocksdb::{
-        moved_value_history::MovedValueHistoryRocksDB, tx_retry_scheduler::ExportTxRetrySchedulerRocksDB,
-        vault_boxes::ErgoNotarizationBounds,
+        deposits::DepositRepoRocksDB, moved_value_history::MovedValueHistoryRocksDB,
+        tx_retry_scheduler::ExportTxRetrySchedulerRocksDB, vault_boxes::ErgoNotarizationBounds,
     },
     script::{simulate_signature_aggregation_notarized_proofs, ErgoCell, ErgoTermCell, ExtraErgoData},
 };
 
 mod committee;
 mod data_bridge;
+mod deposit;
 mod rocksdb;
 mod script;
 mod vault;
@@ -108,10 +109,12 @@ async fn main() {
 
     let withdrawal_repo = WithdrawalRepoRocksDB::new(&config.withdrawals_store_db_path);
     let vault_box_repo = VaultBoxRepoRocksDB::new(&config.vault_boxes_store_db_path);
+    let deposit_repo = DepositRepoRocksDB::new(&config.deposits_store_db_path);
 
     let mut vault_handler = VaultHandler::new(
         vault_box_repo,
         withdrawal_repo,
+        deposit_repo,
         config.committee_guarding_script,
         config.committee_public_keys,
         config.vault_utxo_token_id,
@@ -450,6 +453,7 @@ struct AppConfig {
     export_tx_retry_config: ExportTxRetryConfig,
     log4rs_yaml_path: String,
     withdrawals_store_db_path: String,
+    deposits_store_db_path: String,
     vault_boxes_store_db_path: String,
     moved_value_history_db_path: String,
     chain_cache_db_path: String,
@@ -473,6 +477,7 @@ struct AppConfigProto {
     log4rs_yaml_path: String,
     withdrawals_store_db_path: String,
     vault_boxes_store_db_path: String,
+    deposits_store_db_path: String,
     moved_value_history_db_path: String,
     chain_cache_db_path: String,
     unix_socket_path: String,
@@ -516,6 +521,7 @@ impl From<AppConfigProto> for AppConfig {
             export_tx_retry_config: value.export_tx_retry_config,
             log4rs_yaml_path: value.log4rs_yaml_path,
             withdrawals_store_db_path: value.withdrawals_store_db_path,
+            deposits_store_db_path: value.deposits_store_db_path,
             vault_boxes_store_db_path: value.vault_boxes_store_db_path,
             moved_value_history_db_path: value.moved_value_history_db_path,
             chain_cache_db_path: value.chain_cache_db_path,

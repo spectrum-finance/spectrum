@@ -26,13 +26,14 @@ use ergo_lib::{
             value::CollKind,
         },
         serialization::{SigmaParsingError, SigmaSerializable},
+        sigma_protocol::sigma_boolean::ProveDlog,
         types::{
             stuple::{STuple, TupleItems},
             stype::SType,
         },
     },
 };
-use k256::{FieldElement, NonZeroScalar, ProjectivePoint, Scalar, SecretKey, U256};
+use k256::{AffinePoint, FieldElement, NonZeroScalar, ProjectivePoint, Scalar, SecretKey, U256};
 use lazy_static::lazy_static;
 use num_bigint::{BigUint, Sign, ToBigUint};
 use rand::{rngs::OsRng, Rng};
@@ -349,6 +350,7 @@ pub enum ErgoTermCellError {
     SigmaParsing(SigmaParsingError),
     DigestN(DigestNError),
     TokenAmount(TokenAmountError),
+    EllipticCurve(elliptic_curve::Error),
     WrongChainId,
 }
 
@@ -359,7 +361,9 @@ impl TryFrom<TermCell> for ErgoTermCell {
         if value.dst.target == ERGO_CHAIN_ID {
             let ergs = BoxValue::try_from(u64::from(value.value.native))?;
             let address_bytes: Vec<u8> = value.dst.address.into();
-            let address = Address::p2pk_from_pk_bytes(&address_bytes)?;
+            let pk = k256::PublicKey::from_sec1_bytes(&address_bytes)?;
+            let prove_dlog = ProveDlog::new(EcPoint::from(pk.to_projective()));
+            let address = Address::P2Pk(prove_dlog);
             let mut token_details = vec![];
             for (_, assets) in value.value.assets {
                 for (id, a) in assets {
@@ -393,9 +397,16 @@ impl TryFrom<TermCell> for ErgoTermCell {
 impl From<ErgoTermCell> for TermCell {
     fn from(value: ErgoTermCell) -> Self {
         let s_value = SValue::from(&value.0);
+        let Address::P2Pk(prove_dlog) = value.0.address else {
+            panic!("ONLY P2PK addresses supported atm");
+        };
+        let address_bytes = k256::PublicKey::from_affine(ProjectivePoint::from(*prove_dlog.h).to_affine())
+            .unwrap()
+            .to_sec1_bytes()
+            .to_vec();
         let dst = BoxDestination {
             target: ChainId::from(0),
-            address: SerializedValue::from(value.0.address.content_bytes()),
+            address: SerializedValue::from(address_bytes),
             inputs: None,
         };
 
@@ -411,9 +422,16 @@ impl From<ErgoTermCell> for TermCell {
 impl From<ErgoTermCell> for ProtoTermCell {
     fn from(value: ErgoTermCell) -> Self {
         let s_value = SValue::from(&value.0);
+        let Address::P2Pk(prove_dlog) = value.0.address else {
+            panic!("ONLY P2PK addresses supported atm");
+        };
+        let address_bytes = k256::PublicKey::from_affine(ProjectivePoint::from(*prove_dlog.h).to_affine())
+            .unwrap()
+            .to_sec1_bytes()
+            .to_vec();
         let dst = BoxDestination {
             target: ChainId::from(0),
-            address: SerializedValue::from(value.0.address.content_bytes()),
+            address: SerializedValue::from(address_bytes),
             inputs: None,
         };
         Self { value: s_value, dst }
@@ -426,7 +444,9 @@ impl TryFrom<ProtoTermCell> for ErgoTermCell {
     fn try_from(value: ProtoTermCell) -> Result<Self, Self::Error> {
         let ergs = BoxValue::try_from(u64::from(value.value.native))?;
         let address_bytes: Vec<u8> = value.dst.address.into();
-        let address = Address::p2pk_from_pk_bytes(&address_bytes)?;
+        let pk = k256::PublicKey::from_sec1_bytes(&address_bytes)?;
+        let prove_dlog = ProveDlog::new(EcPoint::from(pk.to_projective()));
+        let address = Address::P2Pk(prove_dlog);
         let mut token_details = vec![];
         for (_, assets) in value.value.assets {
             for (id, a) in assets {
