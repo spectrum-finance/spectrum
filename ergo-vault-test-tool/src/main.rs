@@ -11,7 +11,7 @@ use ergo_lib::{
     ergotree_interpreter::sigma_protocol::prover::ContextExtension,
     ergotree_ir::{
         chain::{
-            address::{AddressEncoder, NetworkPrefix},
+            address::{Address, AddressEncoder, NetworkPrefix},
             ergo_box::{
                 box_value::BoxValue, BoxId, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
             },
@@ -37,7 +37,9 @@ use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_deploy_lm_pool::Explorer;
 use spectrum_ergo_connector::{
     committee::{FirstCommitteeBox, SubsequentCommitteeBox, VaultParameters},
-    script::{simulate_signature_aggregation_notarized_proofs, ErgoTermCell, VAULT_CONTRACT},
+    script::{
+        simulate_signature_aggregation_notarized_proofs, ErgoTermCell, DEPOSIT_CONTRACT, VAULT_CONTRACT,
+    },
 };
 use spectrum_handel::Threshold;
 use spectrum_ledger::{
@@ -147,6 +149,19 @@ async fn main() {
 
             // Write the data to the file
             file.write_all(yaml_str.as_bytes()).await.unwrap();
+        }
+
+        Command::MakeDeposit {
+            nano_ergs,
+            config_path,
+        } => {
+            let raw_config = tokio::fs::read_to_string(config_path.clone())
+                .await
+                .expect("Cannot load configuration file");
+            let config_proto: AppConfigWithVaultUtxoProto =
+                serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
+            let mut config = AppConfigWithVaultUtxo::try_from(config_proto).unwrap();
+            make_deposit_tx(NanoErg::from(nano_ergs), &mut config).await;
         }
     }
 }
@@ -594,6 +609,111 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
     }
 }
 
+async fn make_deposit_tx(deposit_amt: NanoErg, config: &mut AppConfigWithVaultUtxo) {
+    let client = HttpClient::builder()
+        .timeout(std::time::Duration::from_secs(50))
+        .build()
+        .unwrap();
+
+    let node_url = config.node_addr.clone();
+    let explorer_url = Url::try_from(String::from("https://api.ergoplatform.com")).unwrap();
+    let explorer = Explorer {
+        client: client.clone(),
+        base_url: explorer_url,
+    };
+    let node = ErgoNodeHttpClient::new(client, node_url);
+
+    let mut seed = SeedPhrase::from(String::from(""));
+    swap(&mut config.operator_funding_secret, &mut seed);
+    let secret_str = String::from(seed);
+    seed = SeedPhrase::from(secret_str.clone());
+    config.operator_funding_secret = SeedPhrase::from(secret_str);
+    let (wallet, wallet_addr) = Wallet::try_from_seed(seed).expect("Invalid wallet seed");
+    let guarding_script = wallet_addr.script().unwrap();
+    let Address::P2Pk(prove_dlog) = wallet_addr.clone() else {
+        panic!("EXPECT P2PK ADDRESS FOR WALLET");
+    };
+
+    let mut box_ids_to_ignore = if let Some(to_ignore) = &config.committee_box_ids {
+        to_ignore.clone()
+    } else {
+        vec![]
+    };
+    if let Some(to_ignore) = &config.box_ids_to_ignore {
+        box_ids_to_ignore.extend(to_ignore);
+    }
+    // Need to make sure we don't spent the committee box
+    let utxos = explorer
+        .get_utxos(&wallet_addr)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|bx| !box_ids_to_ignore.contains(&bx.box_id()))
+        .collect();
+    let current_height = node.get_height().await;
+    let mut miner_output = MinerOutput {
+        erg_value: DEFAULT_MINER_FEE,
+    };
+    let selection_value = BoxValue::from(deposit_amt + DEFAULT_MINER_FEE);
+
+    let mut registers = HashMap::new();
+    registers.insert(
+        NonMandatoryRegisterId::R4,
+        Constant::from(config.vault_utxo_token_id),
+    );
+    registers.insert(NonMandatoryRegisterId::R5, Constant::from(prove_dlog));
+    let deposit_box = ErgoBoxCandidate {
+        value: BoxValue::from(deposit_amt),
+        ergo_tree: DEPOSIT_CONTRACT.clone(),
+        tokens: None,
+        additional_registers: NonMandatoryRegisters::new(registers).unwrap(),
+        creation_height: current_height,
+    };
+
+    let mut output_candidates = vec![deposit_box];
+
+    let box_selector = SimpleBoxSelector::new();
+    let box_selection = box_selector.select(utxos, selection_value, &[]).unwrap();
+    let funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
+        acc + NanoErg::from(ergobox.value)
+    });
+    let funds_remain = funds_total.safe_sub(NanoErg::from(selection_value));
+    if funds_remain >= MIN_SAFE_BOX_VALUE {
+        let builder = ErgoBoxCandidateBuilder::new(
+            BoxValue::from(funds_remain),
+            guarding_script,
+            current_height as u32,
+        );
+        output_candidates.push(builder.build().unwrap());
+    } else {
+        miner_output.erg_value = miner_output.erg_value + funds_remain;
+    }
+    output_candidates.push(miner_output.into_candidate(current_height as u32));
+
+    let inputs = TxIoVec::from_vec(
+        box_selection
+            .boxes
+            .clone()
+            .into_iter()
+            .map(|bx| (bx, ContextExtension::empty()))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+
+    let tx_candidate = TransactionCandidate {
+        inputs,
+        data_inputs: None,
+        output_candidates: TxIoVec::from_vec(output_candidates).unwrap(),
+    };
+    let signed_tx = wallet.sign(tx_candidate).unwrap();
+    let tx_id = signed_tx.id();
+    if let Err(e) = node.submit_tx(signed_tx).await {
+        println!("ERGO NODE ERROR: {:?}", e);
+    } else {
+        println!("DEPOSIT TX {:?} successfully submitted!", tx_id);
+    }
+}
+
 pub fn proto_term_cell(nano_ergs: u64, tokens: Vec<Token>, address_bytes: Vec<u8>) -> ProtoTermCell {
     let dst = BoxDestination {
         target: ChainId::from(0),
@@ -837,6 +957,16 @@ enum Command {
     MakeWithdrawalTx {
         #[arg(long, short)]
         max_miner_fee: i64,
+
+        #[arg(long, short)]
+        /// Path to the YAML configuration file.
+        config_path: String,
+    },
+
+    MakeDeposit {
+        #[arg(long, short)]
+        /// Amount of nano-ergs to be deposited
+        nano_ergs: u64,
 
         #[arg(long, short)]
         /// Path to the YAML configuration file.
