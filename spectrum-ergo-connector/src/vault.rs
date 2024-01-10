@@ -49,7 +49,7 @@ use crate::{
     rocksdb::{
         deposits::{DepositRepo, DepositRepoRocksDB, UnprocessedDeposit},
         moved_value_history::{self, ErgoMovedValue, ErgoUserValue, MovedValueHistory},
-        tx_retry_scheduler::{Command, ExportInProgress, ExportTxRetryScheduler},
+        tx_retry_scheduler::{Command, ExportInProgress, TxRetryScheduler},
         vault_boxes::{ErgoNotarizationBounds, VaultBoxRepo, VaultBoxRepoRocksDB, VaultUtxo},
         withdrawals::{WithdrawalRepo, WithdrawalRepoRocksDB},
     },
@@ -79,7 +79,7 @@ pub struct VaultHandler<MVH, E> {
 impl<M, E> VaultHandler<M, E>
 where
     M: MovedValueHistory,
-    E: ExportTxRetryScheduler,
+    E: TxRetryScheduler<ExportInProgress, NotarizedReport<ExtraErgoData>>,
 {
     pub fn new(
         vault_box_repo: VaultBoxRepoRocksDB,
@@ -436,7 +436,7 @@ where
             }
 
             if !is_resubmission {
-                self.tx_retry_scheduler.add_new_export(export).await;
+                self.tx_retry_scheduler.add(export).await;
             }
 
             true
@@ -444,11 +444,11 @@ where
     }
 
     pub async fn acknowledge_confirmed_export_tx(&mut self, report: &NotarizedReport<ExtraErgoData>) {
-        self.tx_retry_scheduler.clear_confirmed_export_tx(report).await;
+        self.tx_retry_scheduler.clear_confirmed(report).await;
     }
 
     pub async fn acknowledge_aborted_export_tx(&mut self, report: &NotarizedReport<ExtraErgoData>) {
-        self.tx_retry_scheduler.clear_aborted_export_tx(report).await;
+        self.tx_retry_scheduler.clear_aborted(report).await;
     }
 
     async fn try_extract_vault_tx(&self, tx: &Transaction) -> Option<VaultTx> {

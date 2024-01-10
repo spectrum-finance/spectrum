@@ -1,25 +1,38 @@
+use std::fmt::Debug;
 use std::{sync::Arc, time::Duration};
 
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use chrono::Utc;
 use ergo_lib::{chain::transaction::Input, ergotree_ir::chain::ergo_box::ErgoBox};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{NotarizedReport, PendingExportStatus};
 
 use crate::script::ExtraErgoData;
 
-/// Handle resubmission of export TXs.
+/// Handle resubmission of Spectrum Network TXs.
 #[async_trait(?Send)]
-pub trait ExportTxRetryScheduler {
+pub trait TxRetryScheduler<T, U>
+where
+    T: Has<U>,
+{
     /// To be called when connector has submitted export TX to mempool.
-    async fn add_new_export(&mut self, export: ExportInProgress);
+    async fn add(&mut self, data: T);
     /// Obtain next command from the scheduler
-    async fn next_command(&self) -> Command;
-    async fn notify_confirmed(&mut self, export: &ExportInProgress);
-    async fn notify_failed(&mut self, export: &ExportInProgress);
-    async fn clear_confirmed_export_tx(&mut self, report: &NotarizedReport<ExtraErgoData>);
-    async fn clear_aborted_export_tx(&mut self, report: &NotarizedReport<ExtraErgoData>);
+    async fn next_command(&self) -> Command<T>;
+    async fn notify_confirmed(&mut self, data: &T);
+    async fn notify_failed(&mut self, export: &T);
+    async fn clear_confirmed(&mut self, element: &U);
+    async fn clear_aborted(&mut self, element: &U);
+}
+
+trait Has<T> {
+    fn has(&self, t: &T) -> bool;
+}
+
+trait Timestamped {
+    fn get_timestamp(&self) -> i64;
 }
 
 pub struct ExportTxRetrySchedulerRocksDB {
@@ -46,12 +59,16 @@ impl ExportTxRetrySchedulerRocksDB {
 }
 
 #[async_trait(?Send)]
-impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
-    async fn add_new_export(&mut self, export: ExportInProgress) {
+impl<'a, T, U> TxRetryScheduler<T, U> for ExportTxRetrySchedulerRocksDB
+where
+    T: Has<U> + Timestamped + Clone + Debug + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
+    U: Clone + Debug + Send + Sync + 'static,
+{
+    async fn add(&mut self, data: T) {
         let db = Arc::clone(&self.db);
         let retry_delay_duration = self.retry_delay_duration;
         spawn_blocking(move || {
-            let value_bytes = rmp_serde::to_vec_named(&export).unwrap();
+            let value_bytes = rmp_serde::to_vec_named(&data).unwrap();
             let tx = db.transaction();
             tx.put(EXPORT_KEY.as_bytes(), value_bytes).unwrap();
             tx.put(COUNT_KEY.as_bytes(), 0_u32.to_be_bytes()).unwrap();
@@ -62,7 +79,7 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
             .unwrap();
             tx.put(
                 RETRY_TIMESTAMP_KEY.as_bytes(),
-                (export.timestamp + retry_delay_duration).to_be_bytes(),
+                (data.get_timestamp() + retry_delay_duration).to_be_bytes(),
             )
             .unwrap();
             tx.commit().unwrap()
@@ -70,13 +87,13 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
         .await
     }
 
-    async fn next_command(&self) -> Command {
+    async fn next_command(&self) -> Command<T> {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || match db.get(EXPORT_KEY.as_bytes()).unwrap() {
             Some(value_bytes) => {
                 let status_bytes = db.get(STATUS_KEY.as_bytes()).unwrap().unwrap();
                 let status: Status = rmp_serde::from_slice(&status_bytes).unwrap();
-                let export: ExportInProgress = rmp_serde::from_slice(&value_bytes).unwrap();
+                let export: T = rmp_serde::from_slice(&value_bytes).unwrap();
                 match status {
                     Status::InProgress => {
                         let ts_now = Utc::now().timestamp();
@@ -97,12 +114,12 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
         .await
     }
 
-    async fn notify_confirmed(&mut self, export: &ExportInProgress) {
+    async fn notify_confirmed(&mut self, export: &T) {
         let db = Arc::clone(&self.db);
         let cloned = export.clone();
         spawn_blocking(move || {
             let value_bytes = db.get(EXPORT_KEY.as_bytes()).unwrap().unwrap();
-            let value: ExportInProgress = rmp_serde::from_slice(&value_bytes).unwrap();
+            let value: T = rmp_serde::from_slice(&value_bytes).unwrap();
             assert_eq!(value, cloned);
             let tx = db.transaction();
             tx.put(
@@ -116,14 +133,14 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
         .await
     }
 
-    async fn notify_failed(&mut self, export: &ExportInProgress) {
+    async fn notify_failed(&mut self, data: &T) {
         let db = Arc::clone(&self.db);
-        let cloned = export.clone();
+        let cloned = data.clone();
         let max_retries = self.max_retries;
         spawn_blocking(move || {
             let value_bytes = db.get(EXPORT_KEY.as_bytes()).unwrap().unwrap();
-            let value: ExportInProgress = rmp_serde::from_slice(&value_bytes).unwrap();
-            assert_eq!(value.vault_utxo_signed_input, cloned.vault_utxo_signed_input);
+            let value: T = rmp_serde::from_slice(&value_bytes).unwrap();
+            assert_eq!(value, cloned);
             let count_bytes = db.get(COUNT_KEY.as_bytes()).unwrap().unwrap();
             let count = u32::from_be_bytes(count_bytes.try_into().unwrap());
             db.put(COUNT_KEY.as_bytes(), (count + 1).to_be_bytes()).unwrap();
@@ -138,13 +155,13 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
         .await
     }
 
-    async fn clear_confirmed_export_tx(&mut self, report: &NotarizedReport<ExtraErgoData>) {
+    async fn clear_confirmed(&mut self, element: &U) {
         let db = Arc::clone(&self.db);
-        let cloned = report.clone();
+        let cloned = element.clone();
         spawn_blocking(move || {
             if let Some(value_bytes) = db.get(EXPORT_KEY.as_bytes()).unwrap() {
-                let value: ExportInProgress = rmp_serde::from_slice(&value_bytes).unwrap();
-                assert_eq!(value.report, cloned);
+                let value: T = rmp_serde::from_slice(&value_bytes).unwrap();
+                assert!(value.has(&cloned));
                 let status_bytes = db.get(STATUS_KEY.as_bytes()).unwrap().unwrap();
                 let status: Status = rmp_serde::from_slice(&status_bytes).unwrap();
                 assert_eq!(status, Status::Confirmed);
@@ -154,13 +171,13 @@ impl ExportTxRetryScheduler for ExportTxRetrySchedulerRocksDB {
         .await
     }
 
-    async fn clear_aborted_export_tx(&mut self, report: &NotarizedReport<ExtraErgoData>) {
+    async fn clear_aborted(&mut self, element: &U) {
         let db = Arc::clone(&self.db);
-        let cloned = report.clone();
+        let cloned = element.clone();
         spawn_blocking(move || {
             if let Some(value_bytes) = db.get(EXPORT_KEY.as_bytes()).unwrap() {
-                let value: ExportInProgress = rmp_serde::from_slice(&value_bytes).unwrap();
-                assert_eq!(value.report, cloned);
+                let value: T = rmp_serde::from_slice(&value_bytes).unwrap();
+                assert!(value.has(&cloned));
                 let status_bytes = db.get(STATUS_KEY.as_bytes()).unwrap().unwrap();
                 let status: Status = rmp_serde::from_slice(&status_bytes).unwrap();
                 assert_eq!(status, Status::Aborted);
@@ -177,21 +194,21 @@ const RETRY_TIMESTAMP_KEY: &str = "r:";
 const STATUS_KEY: &str = "s:";
 
 #[derive(PartialEq, Eq, Debug)]
-pub enum Command {
+pub enum Command<T> {
     /// Resubmit the export Tx.
-    ResubmitTx(ExportInProgress),
+    ResubmitTx(T),
     /// Give up trying to submit the Tx.
-    Abort(ExportInProgress),
+    Abort(T),
     /// Wait for the specified duration to retry export Tx
-    Wait(Duration, ExportInProgress),
+    Wait(Duration, T),
     /// Current export has been confirmed
-    Confirmed(ExportInProgress),
+    Confirmed(T),
     /// There's currently no export in progress
     Idle,
 }
 
-impl From<Command> for Option<PendingExportStatus<ExtraErgoData>> {
-    fn from(value: Command) -> Self {
+impl From<Command<ExportInProgress>> for Option<PendingExportStatus<ExtraErgoData>> {
+    fn from(value: Command<ExportInProgress>) -> Self {
         match value {
             Command::ResubmitTx(e) | Command::Wait(_, e) => {
                 Some(PendingExportStatus::WaitingForConfirmation(e.report))
@@ -209,6 +226,18 @@ pub struct ExportInProgress {
     pub vault_utxo_signed_input: Input,
     pub vault_utxo: ErgoBox,
     pub timestamp: i64,
+}
+
+impl Has<NotarizedReport<ExtraErgoData>> for ExportInProgress {
+    fn has(&self, t: &NotarizedReport<ExtraErgoData>) -> bool {
+        self.report == *t
+    }
+}
+
+impl Timestamped for ExportInProgress {
+    fn get_timestamp(&self) -> i64 {
+        self.timestamp
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
@@ -239,7 +268,7 @@ mod tests {
     use spectrum_sigma::{sigma_aggregation::AggregateCertificate, AggregateCommitment};
 
     use crate::{
-        rocksdb::tx_retry_scheduler::{Command, ExportTxRetryScheduler},
+        rocksdb::tx_retry_scheduler::{Command, TxRetryScheduler},
         script::{dummy_resolver, ExtraErgoData},
     };
 
@@ -249,9 +278,10 @@ mod tests {
     async fn test_confirmed_export() {
         let mut client = rocks_db_client(10).await;
         let export = make_dummy_export();
-        assert_eq!(Command::Idle, client.next_command().await);
-        client.add_new_export(export).await;
-        let Command::Wait(_, exp) = client.next_command().await else {
+        let idle: Command<crate::rocksdb::tx_retry_scheduler::ExportInProgress> = Command::Idle;
+        assert_eq!(idle, client.next_command().await);
+        client.add(export).await;
+        let Command::Wait(_, exp): Command<ExportInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
         client.notify_confirmed(&exp).await;
@@ -262,14 +292,15 @@ mod tests {
     async fn test_failed_export() {
         let mut client = rocks_db_client(10).await;
         let export = make_dummy_export();
-        assert_eq!(Command::Idle, client.next_command().await);
-        client.add_new_export(export.clone()).await;
+        let idle: Command<crate::rocksdb::tx_retry_scheduler::ExportInProgress> = Command::Idle;
+        assert_eq!(idle, client.next_command().await);
+        client.add(export.clone()).await;
         client.notify_failed(&export).await;
-        let Command::Wait(_, exp) = client.next_command().await else {
+        let Command::Wait(_, exp): Command<ExportInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
         client.notify_failed(&exp).await;
-        let Command::Wait(_, exp) = client.next_command().await else {
+        let Command::Wait(_, exp): Command<ExportInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
         client.notify_failed(&exp).await;
@@ -280,13 +311,13 @@ mod tests {
     async fn test_delays() {
         let mut client = rocks_db_client(1).await;
         let export = make_dummy_export();
-        client.add_new_export(export.clone()).await;
-        let Command::Wait(d, exp) = client.next_command().await else {
+        client.add(export.clone()).await;
+        let Command::Wait(d, exp): Command<ExportInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
         println!("Wait {:?}", d);
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        let Command::ResubmitTx(exp) = client.next_command().await else {
+        let Command::ResubmitTx(exp): Command<ExportInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
         assert_eq!(exp, export);
