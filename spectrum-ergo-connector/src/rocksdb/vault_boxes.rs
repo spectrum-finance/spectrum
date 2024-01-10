@@ -47,7 +47,7 @@ pub trait VaultBoxRepo {
     async fn remove(&mut self, fid: BoxId);
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 /// Sent in response to a request for notarization of terminal cell withdrawals.
 pub struct ErgoNotarizationBounds {
     pub vault_utxos: NonEmpty<BoxId>,

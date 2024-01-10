@@ -24,7 +24,7 @@ pub struct DataBridgeComponents<T> {
     pub start_signal: tokio::sync::oneshot::Sender<()>,
 }
 
-#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 /// Outbound message from a Vault manager to consensus driver
 pub enum VaultMsgOut<T> {
     MovedValue(MovedValue),
@@ -32,7 +32,7 @@ pub enum VaultMsgOut<T> {
 }
 
 /// Represents on-chain value of users that may be applied or rollback'ed on.
-#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 pub struct UserValue {
     /// Value that is inbound to Spectrum-network
     pub imported_value: Vec<InboundValue>,
@@ -41,7 +41,7 @@ pub struct UserValue {
     pub progress_point: ProgressPoint,
 }
 
-#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 pub enum MovedValue {
     /// A new set of TXs are made on-chain for a given progress point.
     Applied(UserValue),
@@ -49,7 +49,7 @@ pub enum MovedValue {
     Unapplied(UserValue),
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct VaultResponse<S, T> {
     pub status: VaultStatus<S>,
     pub messages: Vec<VaultMsgOut<T>>,
@@ -86,7 +86,7 @@ pub struct NotarizedReportConstraints {
     pub estimated_number_of_byzantine_nodes: u32,
 }
 
-#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 pub enum VaultStatus<T> {
     Synced {
         current_progress_point: ProgressPoint,
@@ -124,10 +124,19 @@ pub enum PendingExportStatus<T> {
     Aborted(NotarizedReport<T>),
 }
 
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
+pub struct PendingDepositStatus {}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
+pub enum PendingTxStatus<T> {
+    Export(PendingExportStatus<T>),
+    Deposit(PendingDepositStatus),
+}
+
 #[derive(Deserialize, Serialize)]
 pub struct Kilobytes(pub f32);
 
-#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 /// Represents a value that is inbound to Spectrum-network on-chain.
 pub struct InboundValue {
     pub value: SValue,

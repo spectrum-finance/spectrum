@@ -18,7 +18,8 @@ members = [
     "spectrum-chain-connector",
     "algebra-core",
     "futures-util",
-    "ergo-vault-test-tool"
+    "ergo-vault-test-tool",
+    "mock-consensus-driver"
 ]
 
 exclude = [

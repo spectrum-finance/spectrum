@@ -1,7 +1,4 @@
-use std::path::PathBuf;
-
 use async_stream::stream;
-use bounded_integer::BoundedU8;
 use chrono::Duration;
 use clap::{arg, command, Parser};
 use data_bridge::ergo::{ErgoDataBridge, ErgoDataBridgeConfig};
@@ -12,7 +9,7 @@ use ergo_lib::{
     ergotree_ir::{
         chain::{
             address::{AddressEncoder, NetworkPrefix},
-            ergo_box::{box_value::BoxValue, BoxId},
+            ergo_box::BoxId,
             token::TokenId,
         },
         ergo_tree::ErgoTree,
@@ -20,28 +17,17 @@ use ergo_lib::{
 };
 use futures::StreamExt;
 use isahc::{config::Configurable, HttpClient};
-use k256::{Secp256k1, SecretKey};
 use log::info;
 use rocksdb::{vault_boxes::VaultBoxRepoRocksDB, withdrawals::WithdrawalRepoRocksDB};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use spectrum_chain_connector::{
-    DataBridge, DataBridgeComponents, Kilobytes, MovedValue, NotarizedReport, NotarizedReportConstraints,
-    PendingExportStatus, ProtoTermCell, TxEvent, VaultMsgOut, VaultRequest, VaultResponse, VaultStatus,
+    DataBridge, DataBridgeComponents, MovedValue, TxEvent, VaultMsgOut, VaultRequest, VaultResponse,
 };
-use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_deploy_lm_pool::Explorer;
-use spectrum_handel::Threshold;
-use spectrum_ledger::{
-    cell::{ProgressPoint, TermCell},
-    interop::{Point, ReportCertificate},
-    ChainId,
-};
 use spectrum_offchain::network::ErgoNetwork as EN;
-use spectrum_sigma::sigma_aggregation::AggregateCertificate;
-use tokio::time::sleep;
 use tokio_stream::wrappers::ReceiverStream;
-use tokio_unix_ipc::{symmetric_channel, Bootstrapper, Receiver, Sender};
+use tokio_unix_ipc::{symmetric_channel, Bootstrapper};
 use vault::VaultHandler;
 
 use crate::{
@@ -49,7 +35,7 @@ use crate::{
         deposits::DepositRepoRocksDB, moved_value_history::MovedValueHistoryRocksDB,
         tx_retry_scheduler::ExportTxRetrySchedulerRocksDB, vault_boxes::ErgoNotarizationBounds,
     },
-    script::{simulate_signature_aggregation_notarized_proofs, ErgoCell, ErgoTermCell, ExtraErgoData},
+    script::ExtraErgoData,
 };
 
 mod committee;
@@ -170,11 +156,6 @@ async fn main() {
     ];
     let mut combined_stream = futures::stream::select_all(streams);
 
-    let participant_secret_keys = config.committee_secret_keys.clone();
-
-    // Mock consensus driver
-    tokio::spawn(mock_consensus_driver(path, participant_secret_keys));
-
     bootstrapper.send((msg_in_send, msg_out_recv)).await.unwrap();
     let _ = start_signal.send(());
 
@@ -282,170 +263,6 @@ async fn main() {
     }
 }
 
-async fn mock_consensus_driver(path: PathBuf, participant_secret_keys: Vec<SecretKey>) {
-    let receiver = Receiver::<(
-        Sender<VaultRequest<ExtraErgoData>>,
-        Receiver<VaultResponse<ExtraErgoData, ErgoNotarizationBounds>>,
-    )>::connect(path)
-    .await
-    .unwrap();
-    let (cd_send, cd_recv) = receiver.recv().await.unwrap();
-
-    let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
-    let address = encoder
-        .parse_address_from_str("9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMg")
-        .unwrap();
-
-    let mut synced = false;
-    let mut current_progress_point = None;
-    let mut sent_tx_notarize_request = false;
-    let mut pending_export_status = None;
-    let max_miner_fee = 1000000;
-
-    const TERM_CELL_VALUE: u64 = 700000;
-
-    loop {
-        sleep(tokio::time::Duration::from_secs(1)).await;
-        if synced && !sent_tx_notarize_request && pending_export_status.is_none() {
-            let proto_term_cells = vec![ProtoTermCell::from(ErgoTermCell(ErgoCell {
-                ergs: BoxValue::try_from(TERM_CELL_VALUE).unwrap(),
-                address: address.clone(),
-                tokens: vec![],
-            }))];
-            let constraints = NotarizedReportConstraints {
-                term_cells: proto_term_cells,
-                last_progress_point: ProgressPoint {
-                    chain_id: ChainId::from(0),
-                    point: Point::from(100), // Dummy value, doesn't matter for this test
-                },
-                max_tx_size: Kilobytes(5.0),
-                estimated_number_of_byzantine_nodes: 0,
-            };
-
-            cd_send
-                .send(VaultRequest::RequestTxsToNotarize(constraints))
-                .await
-                .unwrap();
-            sent_tx_notarize_request = true;
-        } else {
-            match &pending_export_status {
-                Some(status) => match status {
-                    PendingExportStatus::Confirmed(report) => {
-                        info!(target: "driver", "ACK CONFIRMED EXPORT TX");
-                        cd_send
-                            .send(VaultRequest::AcknowledgeConfirmedExportTx(
-                                Box::new(report.clone()),
-                                current_progress_point.clone().unwrap(),
-                            ))
-                            .await
-                            .unwrap();
-                    }
-                    PendingExportStatus::Aborted(report) => {
-                        info!(target: "driver", "ACK ABORTED EXPORT TX");
-                        cd_send
-                            .send(VaultRequest::AcknowledgeAbortedExportTx(
-                                Box::new(report.clone()),
-                                current_progress_point.clone().unwrap(),
-                            ))
-                            .await
-                            .unwrap();
-                    }
-                    PendingExportStatus::WaitingForConfirmation(_) => {
-                        cd_send
-                            .send(VaultRequest::SyncFrom(current_progress_point.clone()))
-                            .await
-                            .unwrap();
-                    }
-                },
-
-                None => {
-                    cd_send
-                        .send(VaultRequest::SyncFrom(current_progress_point.clone()))
-                        .await
-                        .unwrap();
-                }
-            }
-        }
-        let VaultResponse { status, messages } = cd_recv.recv().await.unwrap();
-
-        pending_export_status = status.get_pending_export_status();
-
-        // `status` also describes the state of the export TX
-        info!(target: "driver", "status: {:?}", status);
-
-        for msg in messages {
-            match msg {
-                VaultMsgOut::MovedValue(mv) => match mv {
-                    MovedValue::Applied(uv) => {
-                        current_progress_point = Some(uv.progress_point);
-                    }
-                    MovedValue::Unapplied(uv) => {
-                        current_progress_point = Some(uv.progress_point);
-                    }
-                },
-                VaultMsgOut::ProposedTxsToNotarize(bounds) => {
-                    info!(target: "driver", "notarization bounds: {:?}", bounds);
-                    let vault_utxos: Vec<_> = bounds.vault_utxos.into();
-                    assert_eq!(bounds.terminal_cell_bound, 1);
-
-                    let value_to_export = vec![ErgoTermCell(ErgoCell {
-                        ergs: BoxValue::try_from(TERM_CELL_VALUE).unwrap(),
-                        address: address.clone(),
-                        tokens: vec![],
-                    })];
-
-                    let inputs = simulate_signature_aggregation_notarized_proofs(
-                        participant_secret_keys.clone(),
-                        value_to_export.clone(),
-                        0,
-                        Threshold { num: 4, denom: 4 },
-                        max_miner_fee,
-                    );
-
-                    let extra_ergo_data = ExtraErgoData {
-                        starting_avl_tree: inputs.starting_avl_tree,
-                        proof: inputs.proof,
-                        max_miner_fee,
-                        threshold: inputs.threshold,
-                        vault_utxos: vault_utxos.clone(),
-                    };
-
-                    let certificate = ReportCertificate::SchnorrK256(AggregateCertificate {
-                        message_digest: blake2b256_hash(&inputs.resulting_digest),
-                        aggregate_commitment: inputs.aggregate_commitment,
-                        aggregate_response: inputs.aggregate_response,
-                        exclusion_set: inputs.exclusion_set,
-                    });
-
-                    let value_to_export = value_to_export
-                        .into_iter()
-                        .take(bounds.terminal_cell_bound)
-                        .map(TermCell::from)
-                        .collect();
-                    let notarized_report = NotarizedReport {
-                        certificate,
-                        value_to_export,
-                        authenticated_digest: inputs.resulting_digest,
-                        additional_chain_data: extra_ergo_data,
-                    };
-
-                    // Note: by sending this message the driver is going to send 2 requests
-                    // before getting a response, which is not how the protocol is supposed
-                    // to work. We should be robust against this situation though.
-                    info!(target: "driver", "Sending request to export value");
-                    cd_send
-                        .send(VaultRequest::ExportValue(Box::new(notarized_report)))
-                        .await
-                        .unwrap();
-                }
-            }
-        }
-        if let VaultStatus::Synced { .. } = status {
-            synced = true;
-        }
-    }
-}
-
 struct AppConfig {
     node_addr: Url,
     http_client_timeout_duration_secs: u32,
@@ -459,9 +276,6 @@ struct AppConfig {
     chain_cache_db_path: String,
     unix_socket_path: String,
     committee_public_keys: Vec<EcPoint>,
-    /// NOTE: in practice secret keys shouldn't be here. It's just convenient to spawn the mock
-    /// driver as a separate async process. To be removed.
-    committee_secret_keys: Vec<k256::SecretKey>,
     committee_box_ids: Vec<BoxId>,
     /// Base58 encoding of guarding script of committee boxes
     committee_guarding_script: ErgoTree,
@@ -482,7 +296,6 @@ struct AppConfigProto {
     chain_cache_db_path: String,
     unix_socket_path: String,
     committee_public_keys: Vec<String>,
-    committee_secret_keys: Vec<String>,
     committee_box_ids: Vec<BoxId>,
     /// Base58 encoding of guarding script of committee boxes
     committee_guarding_script: String,
@@ -506,14 +319,6 @@ impl From<AppConfigProto> for AppConfig {
                 EcPoint::from(pk.to_projective())
             })
             .collect();
-        let committee_secret_keys = value
-            .committee_secret_keys
-            .into_iter()
-            .map(|sk_str| {
-                let bytes = base16::decode(&sk_str).unwrap();
-                k256::SecretKey::from_slice(&bytes).unwrap()
-            })
-            .collect();
         Self {
             node_addr: value.node_addr,
             http_client_timeout_duration_secs: value.http_client_timeout_duration_secs,
@@ -527,7 +332,6 @@ impl From<AppConfigProto> for AppConfig {
             chain_cache_db_path: value.chain_cache_db_path,
             unix_socket_path: value.unix_socket_path,
             committee_public_keys,
-            committee_secret_keys,
             committee_box_ids: value.committee_box_ids,
             committee_guarding_script,
             vault_utxo_token_id: value.vault_utxo_token_id,
