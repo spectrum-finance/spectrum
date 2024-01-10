@@ -35,13 +35,13 @@ trait Timestamped {
     fn get_timestamp(&self) -> i64;
 }
 
-pub struct ExportTxRetrySchedulerRocksDB {
+pub struct TxRetrySchedulerRocksDB {
     db: Arc<rocksdb::OptimisticTransactionDB>,
     retry_delay_duration: i64,
     max_retries: u32,
 }
 
-impl ExportTxRetrySchedulerRocksDB {
+impl TxRetrySchedulerRocksDB {
     pub async fn new(db_path: &str, retry_delay_duration: i64, max_retries: u32) -> Self {
         let res = Self {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(db_path).unwrap()),
@@ -59,7 +59,7 @@ impl ExportTxRetrySchedulerRocksDB {
 }
 
 #[async_trait(?Send)]
-impl<'a, T, U> TxRetryScheduler<T, U> for ExportTxRetrySchedulerRocksDB
+impl<'a, T, U> TxRetryScheduler<T, U> for TxRetrySchedulerRocksDB
 where
     T: Has<U> + Timestamped + Clone + Debug + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
     U: Clone + Debug + Send + Sync + 'static,
@@ -272,7 +272,7 @@ mod tests {
         script::{dummy_resolver, ExtraErgoData},
     };
 
-    use super::{ExportInProgress, ExportTxRetrySchedulerRocksDB};
+    use super::{ExportInProgress, TxRetrySchedulerRocksDB};
 
     #[tokio::test]
     async fn test_confirmed_export() {
@@ -370,8 +370,8 @@ mod tests {
         }
     }
 
-    async fn rocks_db_client(retry_delay_duration: i64) -> ExportTxRetrySchedulerRocksDB {
+    async fn rocks_db_client(retry_delay_duration: i64) -> TxRetrySchedulerRocksDB {
         let rnd = rand::thread_rng().next_u32();
-        ExportTxRetrySchedulerRocksDB::new(&format!("./tmp/{}", rnd), retry_delay_duration, 3).await
+        TxRetrySchedulerRocksDB::new(&format!("./tmp/{}", rnd), retry_delay_duration, 3).await
     }
 }
