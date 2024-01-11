@@ -314,7 +314,7 @@ fn render_status_line(vault_manager_status: &Option<VaultStatus<ExtraErgoData>>)
     match vault_manager_status {
         Some(VaultStatus::Synced {
             current_progress_point,
-            pending_export_status,
+            pending_tx_status: pending_export_status,
         }) => {
             spans.push(Span::styled("Sync'ed", Style::default().fg(Color::Green)));
             spans.push(Span::styled(
@@ -325,7 +325,7 @@ fn render_status_line(vault_manager_status: &Option<VaultStatus<ExtraErgoData>>)
         Some(VaultStatus::Syncing {
             current_progress_point,
             num_points_remaining,
-            pending_export_status,
+            pending_tx_status: pending_export_status,
         }) => {
             let extra_spans = vec![
                 Span::styled("Syncing", Style::default().fg(Color::Yellow)),

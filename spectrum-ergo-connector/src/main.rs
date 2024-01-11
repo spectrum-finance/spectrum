@@ -22,7 +22,8 @@ use rocksdb::{vault_boxes::VaultBoxRepoRocksDB, withdrawals::WithdrawalRepoRocks
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use spectrum_chain_connector::{
-    DataBridge, DataBridgeComponents, MovedValue, TxEvent, VaultMsgOut, VaultRequest, VaultResponse,
+    DataBridge, DataBridgeComponents, MovedValue, PendingTxIdentifier, TxEvent, VaultMsgOut, VaultRequest,
+    VaultResponse,
 };
 use spectrum_deploy_lm_pool::Explorer;
 use spectrum_offchain::network::ErgoNetwork as EN;
@@ -108,13 +109,7 @@ async fn main() {
         config.chain_sync_starting_height,
         MovedValueHistoryRocksDB::new(&config.moved_value_history_db_path),
         TxRetrySchedulerRocksDB::new(
-            &config.deposit_tx_retry_db_path,
-            config.tx_retry_config.retry_delay_duration.num_seconds(),
-            config.tx_retry_config.max_retries,
-        )
-        .await,
-        TxRetrySchedulerRocksDB::new(
-            &config.export_tx_retry_db_path,
+            &config.tx_retry_db_path,
             config.tx_retry_config.retry_delay_duration.num_seconds(),
             config.tx_retry_config.max_retries,
         )
@@ -226,7 +221,9 @@ async fn main() {
                     }
 
                     VaultRequest::AcknowledgeConfirmedExportTx(report, point) => {
-                        vault_handler.acknowledge_confirmed_export_tx(&report).await;
+                        vault_handler
+                            .acknowledge_confirmed_tx(&PendingTxIdentifier::Export(report))
+                            .await;
                         let messages: Vec<_> = vault_handler
                             .sync_consensus_driver(Some(u64::from(point.point) as u32))
                             .await
@@ -243,7 +240,9 @@ async fn main() {
                     }
 
                     VaultRequest::AcknowledgeAbortedExportTx(report, point) => {
-                        vault_handler.acknowledge_aborted_export_tx(&report).await;
+                        vault_handler
+                            .acknowledge_aborted_tx(&PendingTxIdentifier::Export(report))
+                            .await;
                         let messages: Vec<_> = vault_handler
                             .sync_consensus_driver(Some(u64::from(point.point) as u32))
                             .await
@@ -292,8 +291,7 @@ struct AppConfig {
     chain_sync_starting_height: u32,
     tx_retry_config: TxRetryConfig,
     log4rs_yaml_path: String,
-    deposit_tx_retry_db_path: String,
-    export_tx_retry_db_path: String,
+    tx_retry_db_path: String,
     withdrawals_store_db_path: String,
     deposits_store_db_path: String,
     vault_boxes_store_db_path: String,
@@ -314,8 +312,7 @@ struct AppConfigProto {
     chain_sync_starting_height: u32,
     tx_retry_config: TxRetryConfig,
     log4rs_yaml_path: String,
-    deposit_tx_retry_db_path: String,
-    export_tx_retry_db_path: String,
+    tx_retry_db_path: String,
     withdrawals_store_db_path: String,
     vault_boxes_store_db_path: String,
     deposits_store_db_path: String,
@@ -352,8 +349,7 @@ impl From<AppConfigProto> for AppConfig {
             chain_sync_starting_height: value.chain_sync_starting_height,
             tx_retry_config: value.tx_retry_config,
             log4rs_yaml_path: value.log4rs_yaml_path,
-            deposit_tx_retry_db_path: value.deposit_tx_retry_db_path,
-            export_tx_retry_db_path: value.export_tx_retry_db_path,
+            tx_retry_db_path: value.tx_retry_db_path,
             withdrawals_store_db_path: value.withdrawals_store_db_path,
             deposits_store_db_path: value.deposits_store_db_path,
             vault_boxes_store_db_path: value.vault_boxes_store_db_path,

@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::{Deserialize, Serialize};
+use spectrum_chain_connector::InboundValue;
 use spectrum_offchain_lm::data::AsBox;
 
 use crate::script::ErgoInboundCell;
@@ -14,6 +15,12 @@ pub struct ProcessedDeposit(pub AsBox<ErgoInboundCell>);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct UnprocessedDeposit(pub AsBox<ErgoInboundCell>);
+
+impl From<UnprocessedDeposit> for InboundValue {
+    fn from(value: UnprocessedDeposit) -> Self {
+        InboundValue::from(value.0 .1)
+    }
+}
 
 #[async_trait(?Send)]
 pub trait DepositRepo {

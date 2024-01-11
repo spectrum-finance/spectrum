@@ -10,8 +10,9 @@ use k256::SecretKey;
 use log::info;
 use serde::Deserialize;
 use spectrum_chain_connector::{
-    Kilobytes, MovedValue, NotarizedReport, NotarizedReportConstraints, PendingExportStatus, ProtoTermCell,
-    VaultMsgOut, VaultRequest, VaultResponse, VaultStatus,
+    Kilobytes, MovedValue, NotarizedReport, NotarizedReportConstraints, PendingDepositStatus,
+    PendingExportStatus, PendingTxStatus, ProtoTermCell, TxStatus, VaultMsgOut, VaultRequest, VaultResponse,
+    VaultStatus,
 };
 use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_ergo_connector::{
@@ -112,32 +113,45 @@ async fn mock_consensus_driver(
         } else {
             match &pending_export_status {
                 Some(status) => match status {
-                    PendingExportStatus::Confirmed(report) => {
-                        info!(target: "driver", "ACK CONFIRMED EXPORT TX");
-                        cd_send
-                            .send(VaultRequest::AcknowledgeConfirmedExportTx(
-                                Box::new(report.clone()),
-                                current_progress_point.clone().unwrap(),
-                            ))
-                            .await
-                            .unwrap();
-                    }
-                    PendingExportStatus::Aborted(report) => {
-                        info!(target: "driver", "ACK ABORTED EXPORT TX");
-                        cd_send
-                            .send(VaultRequest::AcknowledgeAbortedExportTx(
-                                Box::new(report.clone()),
-                                current_progress_point.clone().unwrap(),
-                            ))
-                            .await
-                            .unwrap();
-                    }
-                    PendingExportStatus::WaitingForConfirmation(_) => {
-                        cd_send
-                            .send(VaultRequest::SyncFrom(current_progress_point.clone()))
-                            .await
-                            .unwrap();
-                    }
+                    PendingTxStatus::Export(PendingExportStatus {
+                        identifier: data,
+                        status,
+                    }) => match status {
+                        TxStatus::Confirmed => {
+                            info!(target: "driver", "ACK CONFIRMED EXPORT TX");
+                            cd_send
+                                .send(VaultRequest::AcknowledgeConfirmedExportTx(
+                                    Box::new(data.clone()),
+                                    current_progress_point.clone().unwrap(),
+                                ))
+                                .await
+                                .unwrap();
+                        }
+                        TxStatus::Aborted => {
+                            info!(target: "driver", "ACK ABORTED EXPORT TX");
+                            cd_send
+                                .send(VaultRequest::AcknowledgeAbortedExportTx(
+                                    Box::new(data.clone()),
+                                    current_progress_point.clone().unwrap(),
+                                ))
+                                .await
+                                .unwrap();
+                        }
+                        TxStatus::WaitingForConfirmation => {
+                            cd_send
+                                .send(VaultRequest::SyncFrom(current_progress_point.clone()))
+                                .await
+                                .unwrap();
+                        }
+                    },
+                    PendingTxStatus::Deposit(PendingDepositStatus {
+                        identifier: data,
+                        status,
+                    }) => match status {
+                        TxStatus::WaitingForConfirmation => {}
+                        TxStatus::Confirmed => {}
+                        TxStatus::Aborted => {}
+                    },
                 },
 
                 None => {
@@ -152,7 +166,7 @@ async fn mock_consensus_driver(
         tx.send(resp.clone()).await.unwrap();
         let VaultResponse { status, messages } = resp;
 
-        pending_export_status = status.get_pending_export_status();
+        pending_export_status = status.get_pending_tx_status();
 
         // `status` also describes the state of the export TX
         info!(target: "driver", "status: {:?}", status);

@@ -8,7 +8,10 @@ use chrono::Utc;
 use ergo_lib::{chain::transaction::Input, ergotree_ir::chain::ergo_box::ErgoBox};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use spectrum_chain_connector::{NotarizedReport, PendingExportStatus};
+use spectrum_chain_connector::{
+    InboundValue, NotarizedReport, PendingDepositStatus, PendingExportStatus, PendingTxIdentifier,
+    PendingTxStatus, TxStatus,
+};
 
 use crate::script::ExtraErgoData;
 
@@ -16,7 +19,7 @@ use crate::script::ExtraErgoData;
 #[async_trait(?Send)]
 pub trait TxRetryScheduler<T, U>
 where
-    T: Has<U>,
+    T: IdentifyBy<U>,
 {
     /// To be called when connector has submitted export TX to mempool.
     async fn add(&mut self, data: T);
@@ -28,8 +31,8 @@ where
     async fn clear_aborted(&mut self, element: &U);
 }
 
-trait Has<T> {
-    fn has(&self, t: &T) -> bool;
+trait IdentifyBy<T> {
+    fn is_identified_by(&self, t: &T) -> bool;
 }
 
 trait Timestamped {
@@ -62,7 +65,16 @@ impl TxRetrySchedulerRocksDB {
 #[async_trait(?Send)]
 impl<T, U> TxRetryScheduler<T, U> for TxRetrySchedulerRocksDB
 where
-    T: Has<U> + Timestamped + Clone + Debug + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: IdentifyBy<U>
+        + Timestamped
+        + Clone
+        + Debug
+        + Eq
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     U: Clone + Debug + Send + Sync + 'static,
 {
     async fn add(&mut self, data: T) {
@@ -162,7 +174,7 @@ where
         spawn_blocking(move || {
             if let Some(value_bytes) = db.get(EXPORT_KEY.as_bytes()).unwrap() {
                 let value: T = rmp_serde::from_slice(&value_bytes).unwrap();
-                assert!(value.has(&cloned));
+                assert!(value.is_identified_by(&cloned));
                 let status_bytes = db.get(STATUS_KEY.as_bytes()).unwrap().unwrap();
                 let status: Status = rmp_serde::from_slice(&status_bytes).unwrap();
                 assert_eq!(status, Status::Confirmed);
@@ -178,7 +190,7 @@ where
         spawn_blocking(move || {
             if let Some(value_bytes) = db.get(EXPORT_KEY.as_bytes()).unwrap() {
                 let value: T = rmp_serde::from_slice(&value_bytes).unwrap();
-                assert!(value.has(&cloned));
+                assert!(value.is_identified_by(&cloned));
                 let status_bytes = db.get(STATUS_KEY.as_bytes()).unwrap().unwrap();
                 let status: Status = rmp_serde::from_slice(&status_bytes).unwrap();
                 assert_eq!(status, Status::Aborted);
@@ -211,14 +223,58 @@ pub enum Command<T> {
 impl From<Command<ExportInProgress>> for Option<PendingExportStatus<ExtraErgoData>> {
     fn from(value: Command<ExportInProgress>) -> Self {
         match value {
-            Command::ResubmitTx(e) | Command::Wait(_, e) => {
-                Some(PendingExportStatus::WaitingForConfirmation(e.report))
-            }
-            Command::Abort(e) => Some(PendingExportStatus::Aborted(e.report)),
-            Command::Confirmed(e) => Some(PendingExportStatus::Confirmed(e.report)),
+            Command::ResubmitTx(e) | Command::Wait(_, e) => Some(PendingExportStatus {
+                identifier: e.report,
+                status: TxStatus::WaitingForConfirmation,
+            }),
+            Command::Abort(e) => Some(PendingExportStatus {
+                identifier: e.report,
+                status: TxStatus::Aborted,
+            }),
+
+            Command::Confirmed(e) => Some(PendingExportStatus {
+                identifier: e.report,
+                status: TxStatus::Confirmed,
+            }),
             Command::Idle => None,
         }
     }
+}
+
+impl From<Command<TxInProgress>> for Option<PendingTxStatus<ExtraErgoData>> {
+    fn from(value: Command<TxInProgress>) -> Self {
+        let status = match value {
+            Command::ResubmitTx(_) | Command::Wait(_, _) => Some(TxStatus::WaitingForConfirmation),
+            Command::Abort(_) => Some(TxStatus::Aborted),
+            Command::Confirmed(_) => Some(TxStatus::Confirmed),
+            Command::Idle => None,
+        };
+        match value {
+            Command::ResubmitTx(t) | Command::Wait(_, t) | Command::Abort(t) | Command::Confirmed(t) => {
+                match t {
+                    TxInProgress::Export(e) => Some(PendingTxStatus::Export(PendingExportStatus {
+                        identifier: e.report,
+                        status: status.unwrap(),
+                    })),
+                    TxInProgress::Deposit(d) => Some(PendingTxStatus::Deposit(PendingDepositStatus {
+                        identifier: d
+                            .unprocessed_deposits
+                            .into_iter()
+                            .map(InboundValue::from)
+                            .collect(),
+                        status: status.unwrap(),
+                    })),
+                }
+            }
+            Command::Idle => None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub enum TxInProgress {
+    Export(ExportInProgress),
+    Deposit(DepositInProgress),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
@@ -229,18 +285,6 @@ pub struct ExportInProgress {
     pub timestamp: i64,
 }
 
-impl Has<NotarizedReport<ExtraErgoData>> for ExportInProgress {
-    fn has(&self, t: &NotarizedReport<ExtraErgoData>) -> bool {
-        self.report == *t
-    }
-}
-
-impl Timestamped for ExportInProgress {
-    fn get_timestamp(&self) -> i64 {
-        self.timestamp
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct DepositInProgress {
     pub unprocessed_deposits: Vec<UnprocessedDeposit>,
@@ -249,15 +293,67 @@ pub struct DepositInProgress {
     pub timestamp: i64,
 }
 
-impl Has<Vec<UnprocessedDeposit>> for DepositInProgress {
-    fn has(&self, t: &Vec<UnprocessedDeposit>) -> bool {
-        self.unprocessed_deposits == *t
+//#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+//pub enum TxIdentifier {
+//    Deposit(Vec<InboundValue>),
+//    Export(Box<NotarizedReport<ExtraErgoData>>),
+//}
+//
+//impl From<PendingTxIdentifier<ExtraErgoData>> for TxIdentifier {
+//    fn from(value: PendingTxIdentifier<ExtraErgoData>) -> Self {
+//        match value {
+//            PendingTxIdentifier::Export(e) => TxIdentifier::Export(e),
+//            PendingTxIdentifier::Deposit(d) => TxIdentifier::Deposit(d),
+//        }
+//    }
+//}
+//
+//impl IdentifyBy<TxIdentifier> for TxInProgress {
+//    fn is_identified_by(&self, t: &TxIdentifier) -> bool {
+//        match (self, t) {
+//            (TxInProgress::Export(e), TxIdentifier::Export(notarized_report)) => {
+//                e.report == *notarized_report.as_ref()
+//            }
+//            (TxInProgress::Deposit(d), TxIdentifier::Deposit(unprocessed_deposits)) => {
+//                let inbound_values: Vec<InboundValue> = d
+//                    .unprocessed_deposits
+//                    .clone()
+//                    .into_iter()
+//                    .map(InboundValue::from)
+//                    .collect();
+//                inbound_values == *unprocessed_deposits
+//            }
+//            _ => false,
+//        }
+//    }
+//}
+
+impl IdentifyBy<PendingTxIdentifier<ExtraErgoData>> for TxInProgress {
+    fn is_identified_by(&self, t: &PendingTxIdentifier<ExtraErgoData>) -> bool {
+        match (self, t) {
+            (TxInProgress::Export(e), PendingTxIdentifier::Export(notarized_report)) => {
+                e.report == *notarized_report.as_ref()
+            }
+            (TxInProgress::Deposit(d), PendingTxIdentifier::Deposit(unprocessed_deposits)) => {
+                let inbound_values: Vec<InboundValue> = d
+                    .unprocessed_deposits
+                    .clone()
+                    .into_iter()
+                    .map(InboundValue::from)
+                    .collect();
+                inbound_values == *unprocessed_deposits
+            }
+            _ => false,
+        }
     }
 }
 
-impl Timestamped for DepositInProgress {
+impl Timestamped for TxInProgress {
     fn get_timestamp(&self) -> i64 {
-        self.timestamp
+        match self {
+            TxInProgress::Deposit(d) => d.timestamp,
+            TxInProgress::Export(report) => report.timestamp,
+        }
     }
 }
 

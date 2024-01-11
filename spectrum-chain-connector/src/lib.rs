@@ -92,12 +92,12 @@ pub struct NotarizedReportConstraints {
 pub enum VaultStatus<T> {
     Synced {
         current_progress_point: ProgressPoint,
-        pending_export_status: Option<PendingExportStatus<T>>,
+        pending_tx_status: Option<PendingTxStatus<T>>,
     },
     Syncing {
         current_progress_point: ProgressPoint,
         num_points_remaining: u32,
-        pending_export_status: Option<PendingExportStatus<T>>,
+        pending_tx_status: Option<PendingTxStatus<T>>,
     },
 }
 
@@ -105,34 +105,47 @@ impl<T> VaultStatus<T>
 where
     T: Clone,
 {
-    pub fn get_pending_export_status(&self) -> Option<PendingExportStatus<T>> {
+    pub fn get_pending_tx_status(&self) -> Option<PendingTxStatus<T>> {
         match self {
             VaultStatus::Synced {
-                pending_export_status,
-                ..
+                pending_tx_status, ..
             }
             | VaultStatus::Syncing {
-                pending_export_status,
-                ..
-            } => pending_export_status.clone(),
+                pending_tx_status, ..
+            } => pending_tx_status.clone(),
         }
     }
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub enum PendingExportStatus<T> {
-    WaitingForConfirmation(NotarizedReport<T>),
-    Confirmed(NotarizedReport<T>),
-    Aborted(NotarizedReport<T>),
+pub enum TxStatus {
+    WaitingForConfirmation,
+    Confirmed,
+    Aborted,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub struct PendingDepositStatus {}
+pub struct PendingExportStatus<T> {
+    pub identifier: NotarizedReport<T>,
+    pub status: TxStatus,
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
+pub struct PendingDepositStatus {
+    pub identifier: Vec<InboundValue>,
+    pub status: TxStatus,
+}
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 pub enum PendingTxStatus<T> {
     Export(PendingExportStatus<T>),
     Deposit(PendingDepositStatus),
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
+pub enum PendingTxIdentifier<T> {
+    Export(Box<NotarizedReport<T>>),
+    Deposit(Vec<InboundValue>),
 }
 
 #[derive(Deserialize, Serialize)]
