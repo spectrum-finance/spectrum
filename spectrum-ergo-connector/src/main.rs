@@ -220,10 +220,8 @@ async fn main() {
                             .unwrap();
                     }
 
-                    VaultRequest::AcknowledgeConfirmedExportTx(report, point) => {
-                        vault_handler
-                            .acknowledge_confirmed_tx(&PendingTxIdentifier::Export(report))
-                            .await;
+                    VaultRequest::AcknowledgeConfirmedTx(identifier, point) => {
+                        vault_handler.acknowledge_confirmed_tx(&identifier).await;
                         let messages: Vec<_> = vault_handler
                             .sync_consensus_driver(Some(u64::from(point.point) as u32))
                             .await
@@ -239,10 +237,8 @@ async fn main() {
                             .unwrap();
                     }
 
-                    VaultRequest::AcknowledgeAbortedExportTx(report, point) => {
-                        vault_handler
-                            .acknowledge_aborted_tx(&PendingTxIdentifier::Export(report))
-                            .await;
+                    VaultRequest::AcknowledgeAbortedTx(identifier, point) => {
+                        vault_handler.acknowledge_aborted_tx(&identifier).await;
                         let messages: Vec<_> = vault_handler
                             .sync_consensus_driver(Some(u64::from(point.point) as u32))
                             .await

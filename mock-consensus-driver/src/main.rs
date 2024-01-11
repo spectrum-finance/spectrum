@@ -11,8 +11,8 @@ use log::info;
 use serde::Deserialize;
 use spectrum_chain_connector::{
     Kilobytes, MovedValue, NotarizedReport, NotarizedReportConstraints, PendingDepositStatus,
-    PendingExportStatus, PendingTxStatus, ProtoTermCell, TxStatus, VaultMsgOut, VaultRequest, VaultResponse,
-    VaultStatus,
+    PendingExportStatus, PendingTxIdentifier, PendingTxStatus, ProtoTermCell, TxStatus, VaultMsgOut,
+    VaultRequest, VaultResponse, VaultStatus,
 };
 use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_ergo_connector::{
@@ -120,8 +120,8 @@ async fn mock_consensus_driver(
                         TxStatus::Confirmed => {
                             info!(target: "driver", "ACK CONFIRMED EXPORT TX");
                             cd_send
-                                .send(VaultRequest::AcknowledgeConfirmedExportTx(
-                                    Box::new(data.clone()),
+                                .send(VaultRequest::AcknowledgeConfirmedTx(
+                                    PendingTxIdentifier::Export(Box::new(data.clone())),
                                     current_progress_point.clone().unwrap(),
                                 ))
                                 .await
@@ -130,8 +130,8 @@ async fn mock_consensus_driver(
                         TxStatus::Aborted => {
                             info!(target: "driver", "ACK ABORTED EXPORT TX");
                             cd_send
-                                .send(VaultRequest::AcknowledgeAbortedExportTx(
-                                    Box::new(data.clone()),
+                                .send(VaultRequest::AcknowledgeAbortedTx(
+                                    PendingTxIdentifier::Export(Box::new(data.clone())),
                                     current_progress_point.clone().unwrap(),
                                 ))
                                 .await

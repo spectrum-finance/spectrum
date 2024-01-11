@@ -68,10 +68,10 @@ pub enum VaultRequest<T> {
     ExportValue(Box<NotarizedReport<T>>),
     /// Instruct the vault-manager to process deposits.
     ProcessDeposits,
-    /// Ackowledge that export TX was confirmed.
-    AcknowledgeConfirmedExportTx(Box<NotarizedReport<T>>, ProgressPoint),
-    /// Ackowledge that export TX was aborted.
-    AcknowledgeAbortedExportTx(Box<NotarizedReport<T>>, ProgressPoint),
+    /// Acknowledge that TX was confirmed.
+    AcknowledgeConfirmedTx(PendingTxIdentifier<T>, ProgressPoint),
+    /// Acknowledge that TX was aborted.
+    AcknowledgeAbortedTx(PendingTxIdentifier<T>, ProgressPoint),
     /// Indicate to the vault manager to start rotating committee (WIP)
     RotateCommittee,
 }
