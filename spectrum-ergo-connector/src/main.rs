@@ -108,6 +108,12 @@ async fn main() {
         config.chain_sync_starting_height,
         MovedValueHistoryRocksDB::new(&config.moved_value_history_db_path),
         TxRetrySchedulerRocksDB::new(
+            &config.deposit_tx_retry_db_path,
+            config.tx_retry_config.retry_delay_duration.num_seconds(),
+            config.tx_retry_config.max_retries,
+        )
+        .await,
+        TxRetrySchedulerRocksDB::new(
             &config.export_tx_retry_db_path,
             config.tx_retry_config.retry_delay_duration.num_seconds(),
             config.tx_retry_config.max_retries,
@@ -125,7 +131,7 @@ async fn main() {
     enum StreamValueFrom {
         Chain(TxEvent<(Transaction, u32)>),
         Driver(VaultRequest<ExtraErgoData>),
-        ResubmitExportTx,
+        ResubmitTx,
     }
 
     type CombinedStream = std::pin::Pin<Box<dyn futures::stream::Stream<Item = StreamValueFrom> + Send>>;
@@ -151,7 +157,7 @@ async fn main() {
         ReceiverStream::new(receiver).map(StreamValueFrom::Chain).boxed(),
         consensus_driver_stream.map(StreamValueFrom::Driver).boxed(),
         resubmit_export_tx_stream
-            .map(|_| StreamValueFrom::ResubmitExportTx)
+            .map(|_| StreamValueFrom::ResubmitTx)
             .boxed(),
     ];
     let mut combined_stream = futures::stream::select_all(streams);
@@ -253,10 +259,27 @@ async fn main() {
                             .unwrap();
                     }
 
+                    VaultRequest::ProcessDeposits => {
+                        let current_height = node.get_height().await;
+                        let status = vault_handler.get_vault_status(current_height).await;
+                        //let vault_utxo = explorer.get_box().await.unwrap();
+                        //vault_handler
+                        //    .export_value(*report.clone(), false, vault_utxo, &node)
+                        //    .await;
+
+                        //let status = vault_handler.get_vault_status(current_height).await;
+
+                        //let messages = vec![];
+                        //msg_out_send
+                        //    .send(VaultResponse { status, messages })
+                        //    .await
+                        //    .unwrap();
+                    }
+
                     VaultRequest::RotateCommittee => todo!(),
                 }
             }
-            StreamValueFrom::ResubmitExportTx => {
+            StreamValueFrom::ResubmitTx => {
                 vault_handler.handle_tx_resubmission(&node).await;
             }
         }
@@ -269,6 +292,7 @@ struct AppConfig {
     chain_sync_starting_height: u32,
     tx_retry_config: TxRetryConfig,
     log4rs_yaml_path: String,
+    deposit_tx_retry_db_path: String,
     export_tx_retry_db_path: String,
     withdrawals_store_db_path: String,
     deposits_store_db_path: String,
@@ -290,6 +314,7 @@ struct AppConfigProto {
     chain_sync_starting_height: u32,
     tx_retry_config: TxRetryConfig,
     log4rs_yaml_path: String,
+    deposit_tx_retry_db_path: String,
     export_tx_retry_db_path: String,
     withdrawals_store_db_path: String,
     vault_boxes_store_db_path: String,
@@ -327,6 +352,7 @@ impl From<AppConfigProto> for AppConfig {
             chain_sync_starting_height: value.chain_sync_starting_height,
             tx_retry_config: value.tx_retry_config,
             log4rs_yaml_path: value.log4rs_yaml_path,
+            deposit_tx_retry_db_path: value.deposit_tx_retry_db_path,
             export_tx_retry_db_path: value.export_tx_retry_db_path,
             withdrawals_store_db_path: value.withdrawals_store_db_path,
             deposits_store_db_path: value.deposits_store_db_path,

@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::{sync::Arc, time::Duration};
 
+use crate::rocksdb::deposits::UnprocessedDeposit;
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -59,7 +60,7 @@ impl TxRetrySchedulerRocksDB {
 }
 
 #[async_trait(?Send)]
-impl<'a, T, U> TxRetryScheduler<T, U> for TxRetrySchedulerRocksDB
+impl<T, U> TxRetryScheduler<T, U> for TxRetrySchedulerRocksDB
 where
     T: Has<U> + Timestamped + Clone + Debug + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
     U: Clone + Debug + Send + Sync + 'static,
@@ -235,6 +236,26 @@ impl Has<NotarizedReport<ExtraErgoData>> for ExportInProgress {
 }
 
 impl Timestamped for ExportInProgress {
+    fn get_timestamp(&self) -> i64 {
+        self.timestamp
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct DepositInProgress {
+    pub unprocessed_deposits: Vec<UnprocessedDeposit>,
+    pub vault_utxo_signed_input: Input,
+    pub vault_utxo: ErgoBox,
+    pub timestamp: i64,
+}
+
+impl Has<Vec<UnprocessedDeposit>> for DepositInProgress {
+    fn has(&self, t: &Vec<UnprocessedDeposit>) -> bool {
+        self.unprocessed_deposits == *t
+    }
+}
+
+impl Timestamped for DepositInProgress {
     fn get_timestamp(&self) -> i64 {
         self.timestamp
     }

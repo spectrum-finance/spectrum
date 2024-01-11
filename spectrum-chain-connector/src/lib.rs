@@ -66,6 +66,8 @@ pub enum VaultRequest<T> {
     RequestTxsToNotarize(NotarizedReportConstraints),
     /// Initiate transaction to settle exported value that's specified in the notarized report.
     ExportValue(Box<NotarizedReport<T>>),
+    /// Instruct the vault-manager to process deposits.
+    ProcessDeposits,
     /// Ackowledge that export TX was confirmed.
     AcknowledgeConfirmedExportTx(Box<NotarizedReport<T>>, ProgressPoint),
     /// Ackowledge that export TX was aborted.
