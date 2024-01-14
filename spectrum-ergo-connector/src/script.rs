@@ -118,6 +118,41 @@ impl From<&ErgoCell> for SValue {
     }
 }
 
+impl From<&ProtoTermCell> for ErgoCell {
+    fn from(value: &ProtoTermCell) -> Self {
+        let ergs = BoxValue::try_from(u64::from(value.value.native)).unwrap();
+
+        let projective_point = EcPoint::from(
+            k256::PublicKey::from_sec1_bytes(&<Vec<u8>>::from(value.dst.address.clone()))
+                .unwrap()
+                .to_projective(),
+        );
+
+        let prove_dlog = ProveDlog::new(projective_point);
+        let address = Address::P2Pk(prove_dlog);
+
+        let policy_id = PolicyId::from(Blake2bDigest256::zero());
+        let tokens = if let Some(tokens) = value.value.assets.get(&policy_id) {
+            let mut result = vec![];
+            for (asset_id, value) in tokens {
+                let token_id = TokenId::from(ergo_lib::ergo_chain_types::Digest32::from(
+                    Blake2bDigest256::from(*asset_id).raw().clone(),
+                ));
+                let amount = TokenAmount::try_from(u64::from(*value)).unwrap();
+                result.push(Token { token_id, amount });
+            }
+            result
+        } else {
+            vec![]
+        };
+        ErgoCell {
+            ergs,
+            address,
+            tokens,
+        }
+    }
+}
+
 impl From<ErgoInboundCell> for InboundValue {
     fn from(ErgoInboundCell(value): ErgoInboundCell) -> Self {
         let s_value = SValue::from(&value);

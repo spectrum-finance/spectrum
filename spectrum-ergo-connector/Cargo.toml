@@ -56,10 +56,10 @@ tokio-stream = "0.1.14"
 rand = "0.8.5"
 async-stream = "0.3.5"
 rmp-serde = "1.1.2"
+sigma-test-util = "0.3"
 
 [dev-dependencies]
 reqwest = { version = "0.11", features = ["json"]}
-sigma-test-util = "0.3"
 
 [profile.test]
 opt-level = 3

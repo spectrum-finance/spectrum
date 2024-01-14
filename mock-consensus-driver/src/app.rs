@@ -2,7 +2,7 @@ use color_eyre::eyre::Result;
 use crossterm::event::KeyEvent;
 use ratatui::prelude::Rect;
 use serde::{Deserialize, Serialize};
-use spectrum_chain_connector::VaultResponse;
+use spectrum_chain_connector::{InboundValue, VaultResponse};
 use spectrum_ergo_connector::rocksdb::vault_boxes::ErgoNotarizationBounds;
 use spectrum_ergo_connector::script::ExtraErgoData;
 use tokio::sync::mpsc;
@@ -166,4 +166,9 @@ impl App {
         tui.exit()?;
         Ok(())
     }
+}
+
+pub enum MsgFromDriver {
+    NewDeposits(Vec<InboundValue>),
+    UpdatedVaultUtxo,
 }

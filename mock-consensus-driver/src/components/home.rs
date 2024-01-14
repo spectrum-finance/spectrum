@@ -9,9 +9,10 @@ use ratatui::{
     widgets::{block::*, *},
 };
 use serde::{Deserialize, Serialize};
-use spectrum_chain_connector::{VaultResponse, VaultStatus};
+use spectrum_chain_connector::{VaultMsgOut, VaultResponse, VaultStatus};
 use spectrum_ergo_connector::rocksdb::vault_boxes::ErgoNotarizationBounds;
 use spectrum_ergo_connector::script::ExtraErgoData;
+use spectrum_ledger::cell::SValue;
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -28,6 +29,7 @@ pub struct Home {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
     vault_manager_status: Option<VaultStatus<ExtraErgoData>>,
+    vault_utxo_details: Option<SValue>,
 }
 
 impl Home {
@@ -57,6 +59,13 @@ impl Component for Home {
                 },
                 Event::VaultManager(VaultResponse { status, messages }) => {
                     self.vault_manager_status = Some(status);
+                    for msg in messages {
+                        match msg {
+                            VaultMsgOut::MovedValue(_) => {}
+                            VaultMsgOut::ProposedTxsToNotarize(_) => {}
+                            VaultMsgOut::GenesisVaultUtxo(s) => {}
+                        }
+                    }
                     None
                 }
             },
@@ -84,9 +93,10 @@ impl Component for Home {
             .split(f.size());
 
         let status_line = render_status_line(&self.vault_manager_status);
+        let vault_line = render_vault_utxo_details(&self.vault_utxo_details);
 
         f.render_widget(
-            Paragraph::new(status_line).block(
+            Paragraph::new(vec![status_line]).block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title(Title::from(" Spectrum Network Vault "))
@@ -345,6 +355,26 @@ fn render_status_line(vault_manager_status: &Option<VaultStatus<ExtraErgoData>>)
         }
     };
     Line::from(spans)
+}
+
+fn render_vault_utxo_details(value: &Option<SValue>) -> Vec<Line> {
+    let spans = vec![Span::styled(
+        "Vault UTxO: ",
+        Style::default().add_modifier(Modifier::BOLD),
+    )];
+
+    let vault_heading = Line::from(spans);
+
+    let content = if let Some(value) = value {
+        format!("  Value: {:?}", value.native)
+    } else {
+        String::from("  UNKNOWN")
+    };
+
+    let spans = vec![Span::styled(content, Style::default())];
+    let value_line = Line::from(spans);
+
+    vec![vault_heading, value_line]
 }
 
 fn gen_tx_rows<'a>() -> Vec<Row<'a>> {

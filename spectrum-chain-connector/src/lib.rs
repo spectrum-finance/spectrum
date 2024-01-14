@@ -29,6 +29,7 @@ pub struct DataBridgeComponents<T> {
 pub enum VaultMsgOut<T> {
     MovedValue(MovedValue),
     ProposedTxsToNotarize(T),
+    GenesisVaultUtxo(SValue),
 }
 
 /// Represents on-chain value of users that may be applied or rollback'ed on.
@@ -113,6 +114,19 @@ where
             | VaultStatus::Syncing {
                 pending_tx_status, ..
             } => pending_tx_status.clone(),
+        }
+    }
+
+    pub fn get_current_progress_point(&self) -> ProgressPoint {
+        match self {
+            VaultStatus::Synced {
+                current_progress_point,
+                ..
+            }
+            | VaultStatus::Syncing {
+                current_progress_point,
+                ..
+            } => current_progress_point.clone(),
         }
     }
 }

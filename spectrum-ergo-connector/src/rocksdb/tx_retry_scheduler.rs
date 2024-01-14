@@ -389,16 +389,16 @@ mod tests {
         script::{dummy_resolver, ExtraErgoData},
     };
 
-    use super::{ExportInProgress, TxRetrySchedulerRocksDB};
+    use super::{ExportInProgress, TxInProgress, TxRetrySchedulerRocksDB};
 
     #[tokio::test]
     async fn test_confirmed_export() {
         let mut client = rocks_db_client(10).await;
         let export = make_dummy_export();
-        let idle: Command<crate::rocksdb::tx_retry_scheduler::ExportInProgress> = Command::Idle;
+        let idle: Command<TxInProgress> = Command::Idle;
         assert_eq!(idle, client.next_command().await);
         client.add(export).await;
-        let Command::Wait(_, exp): Command<ExportInProgress> = client.next_command().await else {
+        let Command::Wait(_, exp): Command<TxInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
         client.notify_confirmed(&exp).await;
@@ -409,15 +409,15 @@ mod tests {
     async fn test_failed_export() {
         let mut client = rocks_db_client(10).await;
         let export = make_dummy_export();
-        let idle: Command<crate::rocksdb::tx_retry_scheduler::ExportInProgress> = Command::Idle;
+        let idle: Command<TxInProgress> = Command::Idle;
         assert_eq!(idle, client.next_command().await);
         client.add(export.clone()).await;
         client.notify_failed(&export).await;
-        let Command::Wait(_, exp): Command<ExportInProgress> = client.next_command().await else {
+        let Command::Wait(_, exp): Command<TxInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
         client.notify_failed(&exp).await;
-        let Command::Wait(_, exp): Command<ExportInProgress> = client.next_command().await else {
+        let Command::Wait(_, exp): Command<TxInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
         client.notify_failed(&exp).await;
@@ -429,18 +429,18 @@ mod tests {
         let mut client = rocks_db_client(1).await;
         let export = make_dummy_export();
         client.add(export.clone()).await;
-        let Command::Wait(d, exp): Command<ExportInProgress> = client.next_command().await else {
+        let Command::Wait(d, exp): Command<TxInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
         println!("Wait {:?}", d);
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        let Command::ResubmitTx(exp): Command<ExportInProgress> = client.next_command().await else {
+        let Command::ResubmitTx(exp): Command<TxInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
         assert_eq!(exp, export);
     }
 
-    fn make_dummy_export() -> ExportInProgress {
+    fn make_dummy_export() -> TxInProgress {
         let empty_tree = AVLTree::new(dummy_resolver, 8, Some(32));
         let mut prover = BatchAVLProver::new(empty_tree.clone(), true);
         let initial_digest = prover.digest().unwrap().to_vec();
@@ -479,12 +479,12 @@ mod tests {
             additional_chain_data,
         };
 
-        ExportInProgress {
+        TxInProgress::Export(ExportInProgress {
             report,
             vault_utxo_signed_input: force_any_val::<Input>(),
             vault_utxo: force_any_val(),
             timestamp: Utc::now().timestamp(),
-        }
+        })
     }
 
     async fn rocks_db_client(retry_delay_duration: i64) -> TxRetrySchedulerRocksDB {

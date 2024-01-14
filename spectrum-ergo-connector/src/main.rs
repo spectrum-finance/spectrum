@@ -26,6 +26,7 @@ use spectrum_chain_connector::{
     VaultResponse,
 };
 use spectrum_deploy_lm_pool::Explorer;
+use spectrum_ledger::cell::SValue;
 use spectrum_offchain::network::ErgoNetwork as EN;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_unix_ipc::{symmetric_channel, Bootstrapper};
@@ -205,12 +206,17 @@ async fn main() {
                     VaultRequest::SyncFrom(point) => {
                         // mock driver doesn't do anything with it
 
-                        let messages: Vec<_> = vault_handler
-                            .sync_consensus_driver(point.map(|p| u64::from(p.point) as u32))
+                        let mut messages: Vec<_> = vault_handler
+                            .sync_consensus_driver(point.as_ref().map(|p| u64::from(p.point) as u32))
                             .await
                             .into_iter()
                             .map(|ergo_mv| VaultMsgOut::MovedValue(MovedValue::from(ergo_mv)))
                             .collect();
+                        if let (None, Some(genesis_vault_utxo)) =
+                            (point, vault_handler.get_genesis_vault_utxo())
+                        {
+                            messages.push(VaultMsgOut::GenesisVaultUtxo(SValue::from(&genesis_vault_utxo)));
+                        }
                         let current_height = node.get_height().await;
                         let status = vault_handler.get_vault_status(current_height).await;
                         info!(target: "vault", "respond to SyncFrom. status: {:?}, messages: {:?}", status, messages);

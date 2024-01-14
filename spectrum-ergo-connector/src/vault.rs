@@ -2,6 +2,7 @@ use std::{collections::VecDeque, time::Instant};
 
 use chrono::Utc;
 use ergo_chain_sync::client::node::{ErgoNetwork, ErgoNodeHttpClient};
+use ergo_lib::ergotree_ir::chain::address::{AddressEncoder, NetworkPrefix};
 use ergo_lib::{
     chain::{
         ergo_state_context::ErgoStateContext,
@@ -77,6 +78,7 @@ pub struct VaultHandler<MVH, E> {
     tx_retry_scheduler: E,
     dummy_wallet: Wallet,
     vault_utxo_token_id: TokenId,
+    genesis_vault_utxo_box_id: Option<VaultUtxo>,
 }
 
 impl<M, E> VaultHandler<M, E>
@@ -141,6 +143,7 @@ where
             tx_retry_scheduler: tx_retry_scheduler,
             dummy_wallet,
             vault_utxo_token_id,
+            genesis_vault_utxo_box_id: None,
         })
     }
 
@@ -156,7 +159,7 @@ where
                         let vault_output = tx.outputs.first().clone();
                         let as_box = AsBox(
                             vault_output.clone(),
-                            VaultUtxo::try_from_box(vault_output).unwrap(),
+                            VaultUtxo::try_from_box(vault_output, self.vault_utxo_token_id).unwrap(),
                         );
                         self.vault_box_repo.put_confirmed(Confirmed(as_box)).await;
 
@@ -205,7 +208,7 @@ where
                         let vault_output = tx.outputs.first().clone();
                         let as_box = AsBox(
                             vault_output.clone(),
-                            VaultUtxo::try_from_box(vault_output).unwrap(),
+                            VaultUtxo::try_from_box(vault_output, self.vault_utxo_token_id).unwrap(),
                         );
                         self.vault_box_repo.put_confirmed(Confirmed(as_box)).await;
 
@@ -244,10 +247,37 @@ where
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
                     None => {
-                        // Scan for deposit boxes
+                        // Scan for refunded deposits
+                        for input in &tx.inputs {
+                            if let Some(unprocessed_deposit) =
+                                self.deposit_repo.get_unprocessed(input.box_id).await
+                            {
+                                let addr_str = AddressEncoder::encode_address_as_string(
+                                    NetworkPrefix::Mainnet,
+                                    &unprocessed_deposit.0 .1 .0.address,
+                                );
+                                info!("REFUNDING DEPOSIT FROM {:?} ", addr_str);
+                            }
+                        }
+
+                        // Scan for genesis Vault UTxO and created deposit boxes
                         for output in &tx.outputs {
                             if let Some(unprocessed_deposit) = self.try_extract_unprocessed_deposit(output) {
+                                info!(
+                                    "DEPOSIT FOUND (value: {:?} nErgs)",
+                                    unprocessed_deposit.0 .1 .0.ergs
+                                );
                                 self.deposit_repo.put(unprocessed_deposit).await;
+                            } else if let Some(vault_utxo) =
+                                VaultUtxo::try_from_box(output.clone(), self.vault_utxo_token_id)
+                            {
+                                info!("GENESIS VAULT UTXO {:?} FOUND", output.box_id());
+                                // A Vault UTxO that appears in an output outside the context of a withdrawal or
+                                // deposit TX means that this is a genesis UTxO of Spectrum Network.
+                                assert!(self.genesis_vault_utxo_box_id.is_none());
+                                self.genesis_vault_utxo_box_id = Some(vault_utxo.clone());
+                                let as_box = AsBox(output.clone(), vault_utxo);
+                                self.vault_box_repo.put_confirmed(Confirmed(as_box)).await;
                             }
                         }
                     }
@@ -325,6 +355,10 @@ where
                 }
             }
         }
+    }
+
+    pub fn get_genesis_vault_utxo(&self) -> Option<VaultUtxo> {
+        self.genesis_vault_utxo_box_id.clone()
     }
 
     pub async fn handle_tx_resubmission(&mut self, ergo_node: &ErgoNodeHttpClient) {
@@ -504,7 +538,10 @@ where
 
             // Update persistent stores
             self.vault_box_repo
-                .put_predicted(Predicted(AsBox(vault_output_utxo, VaultUtxo {})))
+                .put_predicted(Predicted(AsBox(
+                    vault_output_utxo.clone(),
+                    VaultUtxo::try_from_box(vault_output_utxo, self.vault_utxo_token_id).unwrap(),
+                )))
                 .await;
 
             for unprocessed_deposits in unprocessed_deposits {
@@ -576,7 +613,10 @@ where
 
             // Update persistent stores
             self.vault_box_repo
-                .put_predicted(Predicted(AsBox(vault_output_utxo, VaultUtxo {})))
+                .put_predicted(Predicted(AsBox(
+                    vault_output_utxo.clone(),
+                    VaultUtxo::try_from_box(vault_output_utxo, self.vault_utxo_token_id).unwrap(),
+                )))
                 .await;
 
             for w in withdrawals {
@@ -600,13 +640,11 @@ where
     }
 
     async fn try_extract_vault_tx(&self, tx: &Transaction) -> Option<VaultTx> {
-        let first_output_box = tx.outputs.first();
-        if first_output_box.ergo_tree == *VAULT_CONTRACT
-            && first_output_box.tokens.is_some()
-            && first_output_box.tokens.as_ref().unwrap().first().token_id == self.vault_utxo_token_id
+        if let Some(vault_utxo) =
+            VaultUtxo::try_from_box(tx.outputs.first().clone(), self.vault_utxo_token_id)
         {
             if let Some(Confirmed(bx)) = self.vault_box_repo.get_confirmed(&tx.inputs.first().box_id).await {
-                if bx.0.value > first_output_box.value {
+                if bx.0.value > vault_utxo.value {
                     // withdrawal
                     let mut withdrawals = vec![];
                     for withdrawal_bx in tx.outputs.iter().skip(1).take(tx.outputs.len() - 2) {
@@ -616,7 +654,7 @@ where
                     return Some(VaultTx::Withdrawals {
                         terminal_cells: withdrawals,
                     });
-                } else if bx.0.value < first_output_box.value {
+                } else if bx.0.value < vault_utxo.value {
                     // deposit
                     let mut deposits = vec![];
                     for deposit_input in tx.inputs.iter().skip(1).take(tx.outputs.len() - 2) {

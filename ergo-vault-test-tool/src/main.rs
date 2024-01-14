@@ -5,6 +5,9 @@ use ergo_chain_sync::client::{
     node::{ErgoNetwork as _, ErgoNodeHttpClient},
     types::{InvalidUrl, Url},
 };
+use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
+use ergo_lib::chain::transaction::UnsignedInput;
+use ergo_lib::wallet::signing::TransactionContext;
 use ergo_lib::{
     chain::{ergo_box::box_builder::ErgoBoxCandidateBuilder, transaction::TxIoVec},
     ergo_chain_types::EcPoint,
@@ -27,6 +30,7 @@ use ergo_lib::{
     },
     wallet::box_selector::{BoxSelector, SimpleBoxSelector},
 };
+use indexmap::IndexMap;
 use isahc::{config::Configurable, HttpClient};
 use itertools::Itertools;
 use k256::{elliptic_curve::group::GroupEncoding, PublicKey, SecretKey};
@@ -162,6 +166,19 @@ async fn main() {
                 serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
             let mut config = AppConfigWithVaultUtxo::try_from(config_proto).unwrap();
             make_deposit_tx(NanoErg::from(nano_ergs), &mut config).await;
+        }
+
+        Command::RefundDeposit { box_id, config_path } => {
+            let raw_config = tokio::fs::read_to_string(config_path.clone())
+                .await
+                .expect("Cannot load configuration file");
+            let config_proto: AppConfigWithVaultUtxoProto =
+                serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
+            let mut config = AppConfigWithVaultUtxo::try_from(config_proto).unwrap();
+
+            let box_id = BoxId::try_from(box_id).unwrap();
+
+            make_refund_deposit_tx(box_id, &mut config).await;
         }
     }
 }
@@ -714,6 +731,80 @@ async fn make_deposit_tx(deposit_amt: NanoErg, config: &mut AppConfigWithVaultUt
     }
 }
 
+async fn make_refund_deposit_tx(deposit_box_id: BoxId, config: &mut AppConfigWithVaultUtxo) {
+    let client = HttpClient::builder()
+        .timeout(std::time::Duration::from_secs(50))
+        .build()
+        .unwrap();
+
+    let explorer_url = Url::try_from(String::from("https://api.ergoplatform.com")).unwrap();
+    let explorer = Explorer {
+        client: client.clone(),
+        base_url: explorer_url,
+    };
+
+    let deposit_box = explorer.get_box(deposit_box_id).await.unwrap();
+    let deposit_amt = NanoErg::from(deposit_box.value);
+    if deposit_amt <= DEFAULT_MINER_FEE {
+        panic!("Deposit value is smaller than miner fee. Shouldn't happen");
+    }
+
+    let node_url = config.node_addr.clone();
+    let node = ErgoNodeHttpClient::new(client, node_url);
+
+    let mut seed = SeedPhrase::from(String::from(""));
+    swap(&mut config.operator_funding_secret, &mut seed);
+    let secret_str = String::from(seed);
+    seed = SeedPhrase::from(secret_str.clone());
+    config.operator_funding_secret = SeedPhrase::from(secret_str.clone());
+    let (wallet, wallet_addr) = Wallet::try_from_seed(seed).expect("Invalid wallet seed");
+    let guarding_script = wallet_addr.script().unwrap();
+    println!("WALLET ADDR: {:?}", wallet_addr);
+    let Address::P2Pk(prove_dlog) = wallet_addr.clone() else {
+        panic!("EXPECT P2PK ADDRESS FOR WALLET");
+    };
+
+    let current_height = node.get_height().await;
+    let mut miner_output = MinerOutput {
+        erg_value: DEFAULT_MINER_FEE,
+    };
+
+    let refund_output_box = ErgoBoxCandidate {
+        value: BoxValue::try_from(deposit_amt - DEFAULT_MINER_FEE).unwrap(),
+        ergo_tree: guarding_script,
+        tokens: deposit_box.tokens.clone(),
+        additional_registers: NonMandatoryRegisters::empty(),
+        creation_height: current_height,
+    };
+    let mut constants = IndexMap::new();
+    constants.insert(8_u8, Constant::from(BoxValue::from(DEFAULT_MINER_FEE)));
+    let inputs = TxIoVec::from_vec(vec![
+        (UnsignedInput::new(deposit_box.box_id(), ContextExtension { values: constants })),
+    ])
+    .unwrap();
+    //deposit_box.clone(),
+    let output_candidates = TxIoVec::from_vec(vec![
+        refund_output_box,
+        miner_output.into_candidate(current_height),
+    ])
+    .unwrap();
+    let unsigned_tx = UnsignedTransaction::new(inputs, None, output_candidates).unwrap();
+    let tx_context = TransactionContext::new(unsigned_tx, vec![deposit_box], vec![]).unwrap();
+
+    // Need Wallet instance from ergo-lib
+    let ergo_wallet = ergo_lib::wallet::Wallet::from_mnemonic(&secret_str, "").unwrap();
+    let ergo_state_context = node.get_ergo_state_context().await.unwrap();
+    let signed_tx = ergo_wallet
+        .sign_transaction(tx_context, &ergo_state_context, None)
+        .unwrap();
+    let tx_id = signed_tx.id();
+    if let Err(e) = node.submit_tx(signed_tx).await {
+        println!("ERGO NODE ERROR: {:?}", e);
+    } else {
+        println!("REFUND TX {:?} successfully submitted!", tx_id);
+    }
+}
+
 pub fn proto_term_cell(nano_ergs: u64, tokens: Vec<Token>, address_bytes: Vec<u8>) -> ProtoTermCell {
     let dst = BoxDestination {
         target: ChainId::from(0),
@@ -968,6 +1059,15 @@ enum Command {
         /// Amount of nano-ergs to be deposited
         nano_ergs: u64,
 
+        #[arg(long, short)]
+        /// Path to the YAML configuration file.
+        config_path: String,
+    },
+
+    RefundDeposit {
+        #[arg(long, short)]
+        /// Base58 encoding of the Box id of the deposit box
+        box_id: String,
         #[arg(long, short)]
         /// Path to the YAML configuration file.
         config_path: String,
