@@ -27,27 +27,38 @@ pub struct DataBridgeComponents<T> {
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 /// Outbound message from a Vault manager to consensus driver
 pub enum VaultMsgOut<T> {
-    MovedValue(MovedValue),
+    MovedValue(ChainTxEvent),
     ProposedTxsToNotarize(T),
     GenesisVaultUtxo(SValue),
 }
 
-/// Represents on-chain value of users that may be applied or rollback'ed on.
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub struct UserValue {
-    /// Value that is inbound to Spectrum-network
-    pub imported_value: Vec<InboundValue>,
-    /// Value that was successfully exported from Spectrum-network to some recipient on-chain.
-    pub exported_value: Vec<TermCell>,
+pub struct SpectrumTx {
     pub progress_point: ProgressPoint,
+    pub tx_type: SpectrumTxType,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub enum MovedValue {
+pub enum SpectrumTxType {
+    /// Spectrum Network deposit transaction
+    Deposit {
+        /// Value that is inbound to Spectrum-network
+        imported_value: Vec<InboundValue>,
+    },
+
+    /// Spectrum Network withdrawal transaction
+    Withdrawal {
+        /// Value that was successfully exported from Spectrum-network to some recipient on-chain.
+        exported_value: Vec<TermCell>,
+    },
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
+pub enum ChainTxEvent {
     /// A new set of TXs are made on-chain for a given progress point.
-    Applied(UserValue),
+    Applied(SpectrumTx),
     /// When the chain experiences a rollback, movements of value must be unapplied.
-    Unapplied(UserValue),
+    Unapplied(SpectrumTx),
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

@@ -22,7 +22,7 @@ use rocksdb::{vault_boxes::VaultBoxRepoRocksDB, withdrawals::WithdrawalRepoRocks
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use spectrum_chain_connector::{
-    DataBridge, DataBridgeComponents, MovedValue, PendingTxIdentifier, TxEvent, VaultMsgOut, VaultRequest,
+    ChainTxEvent, DataBridge, DataBridgeComponents, PendingTxIdentifier, TxEvent, VaultMsgOut, VaultRequest,
     VaultResponse,
 };
 use spectrum_deploy_lm_pool::Explorer;
@@ -210,11 +210,9 @@ async fn main() {
                             .sync_consensus_driver(point.as_ref().map(|p| u64::from(p.point) as u32))
                             .await
                             .into_iter()
-                            .map(|ergo_mv| VaultMsgOut::MovedValue(MovedValue::from(ergo_mv)))
+                            .map(|ergo_mv| VaultMsgOut::MovedValue(ChainTxEvent::from(ergo_mv)))
                             .collect();
-                        if let (None, Some(genesis_vault_utxo)) =
-                            (point, vault_handler.get_genesis_vault_utxo())
-                        {
+                        if let Some(genesis_vault_utxo) = vault_handler.get_genesis_vault_utxo() {
                             messages.push(VaultMsgOut::GenesisVaultUtxo(SValue::from(&genesis_vault_utxo)));
                         }
                         let current_height = node.get_height().await;
@@ -232,7 +230,7 @@ async fn main() {
                             .sync_consensus_driver(Some(u64::from(point.point) as u32))
                             .await
                             .into_iter()
-                            .map(|ergo_mv| VaultMsgOut::MovedValue(MovedValue::from(ergo_mv)))
+                            .map(|ergo_mv| VaultMsgOut::MovedValue(ChainTxEvent::from(ergo_mv)))
                             .collect();
                         let current_height = node.get_height().await;
                         let status = vault_handler.get_vault_status(current_height).await;
@@ -249,7 +247,7 @@ async fn main() {
                             .sync_consensus_driver(Some(u64::from(point.point) as u32))
                             .await
                             .into_iter()
-                            .map(|ergo_mv| VaultMsgOut::MovedValue(MovedValue::from(ergo_mv)))
+                            .map(|ergo_mv| VaultMsgOut::MovedValue(ChainTxEvent::from(ergo_mv)))
                             .collect();
                         let current_height = node.get_height().await;
                         let status = vault_handler.get_vault_status(current_height).await;

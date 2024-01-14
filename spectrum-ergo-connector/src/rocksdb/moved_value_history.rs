@@ -2,11 +2,18 @@ use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
+use elliptic_curve::PublicKey;
 use ergo_lib::chain::transaction::TxId;
+use ergo_lib::ergotree_ir::chain::address::Address;
+use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
+use ergo_lib::ergotree_ir::chain::token::Token;
+use k256::ProjectivePoint;
 use rocksdb::{Direction, IteratorMode};
 use serde::{Deserialize, Serialize};
-use spectrum_chain_connector::{InboundValue, MovedValue, UserValue};
+use spectrum_chain_connector::{ChainTxEvent, InboundValue, SpectrumTx, SpectrumTxType};
 use spectrum_crypto::digest::Blake2bDigest256;
+use spectrum_ledger::cell::AnyCell::Term;
+use spectrum_ledger::cell::Owner;
 use spectrum_ledger::{
     cell::{BoxDestination, ProgressPoint, SValue, TermCell},
     interop::Point,
@@ -20,88 +27,97 @@ use crate::script::{ErgoInboundCell, ErgoTermCell};
 /// the ergo-connector.
 #[async_trait(?Send)]
 pub trait MovedValueHistory {
-    async fn append(&mut self, moved_value: ErgoMovedValue);
+    async fn append(&mut self, moved_value: ErgoTxEvent);
     /// Returns ErgoMovedValue that is closest and >= `height`.
-    async fn get(&self, height: u32) -> Option<(ErgoMovedValue, u32)>;
+    async fn get(&self, height: u32) -> Option<(ErgoTxEvent, u32)>;
 }
 
-/// Ergo-version of [spectrum_chain_connector::`UserValue`]
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub struct ErgoUserValue {
-    /// Value that is inbound to Spectrum-network
-    pub imported_value: Vec<ErgoInboundCell>,
-    /// Value that was successfully exported from Spectrum-network to some recipient on-chain.
-    pub exported_value: Vec<ErgoTermCell>,
+pub struct SpectrumErgoTx {
     pub progress_point: u32,
     pub tx_id: TxId,
-}
-
-impl From<ErgoUserValue> for UserValue {
-    fn from(value: ErgoUserValue) -> Self {
-        let imported_value: Vec<_> = value.imported_value.into_iter().map(InboundValue::from).collect();
-        let exported_value = value
-            .exported_value
-            .into_iter()
-            .enumerate()
-            .map(|(index, ErgoTermCell(ec))| {
-                let digest_bytes = value.tx_id.0 .0.to_vec();
-                let tx_id = spectrum_ledger::transaction::TxId::from(
-                    Blake2bDigest256::try_from(digest_bytes).unwrap(),
-                );
-                let dst = BoxDestination {
-                    target: ChainId::from(0),
-                    address: SerializedValue::from(ec.address.content_bytes()),
-                    inputs: None,
-                };
-                TermCell {
-                    value: SValue::from(&ec),
-                    tx_id,
-                    index: index as u32,
-                    dst,
-                }
-            })
-            .collect();
-        Self {
-            imported_value,
-            exported_value,
-            progress_point: ProgressPoint {
-                chain_id: ChainId::from(0),
-                point: Point::from(value.progress_point as u64),
-            },
-        }
-    }
+    pub tx_type: ErgoTxType,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub enum ErgoMovedValue {
-    /// A new set of TXs are made on-chain for a given progress point.
-    Applied(ErgoUserValue),
-    /// When the chain experiences a rollback, movements of value must be unapplied.
-    Unapplied(ErgoUserValue),
+pub enum ErgoTxType {
+    /// Spectrum Network deposit transaction
+    Deposit {
+        /// Value that is inbound to Spectrum-network
+        imported_value: Vec<ErgoInboundCell>,
+    },
+
+    /// Spectrum Network withdrawal transaction
+    Withdrawal {
+        /// Value that was successfully exported from Spectrum-network to some recipient on-chain.
+        exported_value: Vec<ErgoTermCell>,
+    },
 }
 
-impl ErgoMovedValue {
-    pub fn get_height(&self) -> u32 {
-        match self {
-            ErgoMovedValue::Applied(user_value) | ErgoMovedValue::Unapplied(user_value) => {
-                user_value.progress_point
+impl From<SpectrumErgoTx> for SpectrumTx {
+    fn from(value: SpectrumErgoTx) -> Self {
+        let SpectrumErgoTx {
+            progress_point,
+            tx_type,
+            ..
+        } = value;
+        let progress_point = ProgressPoint {
+            chain_id: ChainId::from(0),
+            point: Point::from(progress_point as u64),
+        };
+        match tx_type {
+            ErgoTxType::Deposit { imported_value } => {
+                let imported_value = imported_value
+                    .into_iter()
+                    .map(|c| {
+                        let value = SValue::from(&c.0);
+                        let Address::P2Pk(prove_dlog) = c.0.address else {
+                            panic!("Only P2Pk addresses supported");
+                        };
+                        let affine_point = ProjectivePoint::from(prove_dlog.h.as_ref().clone()).to_affine();
+                        let pk = k256::PublicKey::from_affine(affine_point).unwrap();
+                        let owner = Owner::ProveDlog(pk);
+                        InboundValue { value, owner }
+                    })
+                    .collect();
+
+                SpectrumTx {
+                    progress_point,
+                    tx_type: SpectrumTxType::Deposit { imported_value },
+                }
+            }
+            ErgoTxType::Withdrawal { exported_value } => {
+                let exported_value = exported_value.into_iter().map(|c| TermCell::from(c)).collect();
+                SpectrumTx {
+                    progress_point,
+                    tx_type: SpectrumTxType::Withdrawal { exported_value },
+                }
             }
         }
     }
+}
 
-    pub fn get_user_value(&self) -> ErgoUserValue {
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
+pub enum ErgoTxEvent {
+    /// A new set of TXs are made on-chain for a given progress point.
+    Applied(SpectrumErgoTx),
+    /// When the chain experiences a rollback, movements of value must be unapplied.
+    Unapplied(SpectrumErgoTx),
+}
+
+impl ErgoTxEvent {
+    pub fn get_height(&self) -> u32 {
         match self {
-            ErgoMovedValue::Applied(mv) | ErgoMovedValue::Unapplied(mv) => mv.clone(),
+            ErgoTxEvent::Applied(tx) | ErgoTxEvent::Unapplied(tx) => tx.progress_point,
         }
     }
 }
 
-impl From<ErgoMovedValue> for MovedValue {
-    fn from(value: ErgoMovedValue) -> Self {
-        let user_value = UserValue::from(value.get_user_value());
+impl From<ErgoTxEvent> for ChainTxEvent {
+    fn from(value: ErgoTxEvent) -> Self {
         match value {
-            ErgoMovedValue::Applied(_) => MovedValue::Applied(user_value),
-            ErgoMovedValue::Unapplied(_) => MovedValue::Unapplied(user_value),
+            ErgoTxEvent::Applied(tx) => ChainTxEvent::Applied(SpectrumTx::from(tx)),
+            ErgoTxEvent::Unapplied(tx) => ChainTxEvent::Unapplied(SpectrumTx::from(tx)),
         }
     }
 }
@@ -120,7 +136,7 @@ impl MovedValueHistoryRocksDB {
 
 #[async_trait(?Send)]
 impl MovedValueHistory for MovedValueHistoryRocksDB {
-    async fn append(&mut self, moved_value: ErgoMovedValue) {
+    async fn append(&mut self, moved_value: ErgoTxEvent) {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || {
             let key = moved_value.get_height().to_be_bytes();
@@ -134,7 +150,7 @@ impl MovedValueHistory for MovedValueHistoryRocksDB {
         .await
     }
 
-    async fn get(&self, height: u32) -> Option<(ErgoMovedValue, u32)> {
+    async fn get(&self, height: u32) -> Option<(ErgoTxEvent, u32)> {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || {
             let key = height.to_be_bytes();
@@ -145,7 +161,7 @@ impl MovedValueHistory for MovedValueHistoryRocksDB {
                 let bb: [u8; 4] = key_bytes.as_ref().try_into().unwrap();
                 let next_height = u32::from_be_bytes(bb);
                 println!("HEIGHT: {}, NEXT HEIGHT: {}", height, next_height);
-                let moved_value: ErgoMovedValue = rmp_serde::from_slice(&value_bytes).unwrap();
+                let moved_value: ErgoTxEvent = rmp_serde::from_slice(&value_bytes).unwrap();
                 if prev.is_none() {
                     if height <= next_height {
                         return Some((moved_value, next_height));
@@ -167,7 +183,7 @@ impl MovedValueHistory for MovedValueHistoryRocksDB {
 }
 
 pub struct InMemoryMovedValueHistory {
-    history: Vec<ErgoMovedValue>,
+    history: Vec<ErgoTxEvent>,
 }
 
 impl InMemoryMovedValueHistory {
@@ -178,11 +194,11 @@ impl InMemoryMovedValueHistory {
 
 #[async_trait(?Send)]
 impl MovedValueHistory for InMemoryMovedValueHistory {
-    async fn append(&mut self, moved_value: ErgoMovedValue) {
+    async fn append(&mut self, moved_value: ErgoTxEvent) {
         self.history.push(moved_value);
     }
 
-    async fn get(&self, height: u32) -> Option<(ErgoMovedValue, u32)> {
+    async fn get(&self, height: u32) -> Option<(ErgoTxEvent, u32)> {
         let mut prev = None;
         for moved_value in &self.history {
             let next_height = moved_value.get_height();
@@ -222,7 +238,7 @@ mod tests {
         script::{ErgoCell, ErgoTermCell},
     };
 
-    use super::{ErgoMovedValue, MovedValueHistoryRocksDB};
+    use super::{ErgoTxEvent, MovedValueHistoryRocksDB};
 
     #[tokio::test]
     async fn test_rocksdb_single_insertion() {
@@ -279,7 +295,7 @@ mod tests {
         assert_eq!(history.get(height + 1).await, Some((mv_1.clone(), height + 10)));
     }
 
-    fn gen_moved_value(height: u32) -> ErgoMovedValue {
+    fn gen_moved_value(height: u32) -> ErgoTxEvent {
         let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
         let address = encoder
             .parse_address_from_str("9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMg")
@@ -291,7 +307,7 @@ mod tests {
             tokens: vec![],
         };
 
-        ErgoMovedValue::Applied(super::ErgoUserValue {
+        ErgoTxEvent::Applied(super::ErgoUserValue {
             imported_value: vec![],
             exported_value: vec![ErgoTermCell(ergo_cell)],
             progress_point: height,

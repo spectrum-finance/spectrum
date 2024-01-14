@@ -63,7 +63,9 @@ impl Component for Home {
                         match msg {
                             VaultMsgOut::MovedValue(_) => {}
                             VaultMsgOut::ProposedTxsToNotarize(_) => {}
-                            VaultMsgOut::GenesisVaultUtxo(s) => {}
+                            VaultMsgOut::GenesisVaultUtxo(s) => {
+                                self.vault_utxo_details = Some(s);
+                            }
                         }
                     }
                     None
@@ -92,11 +94,12 @@ impl Component for Home {
             ])
             .split(f.size());
 
+        let mut vault_lines = render_vault_utxo_details(&self.vault_utxo_details);
         let status_line = render_status_line(&self.vault_manager_status);
-        let vault_line = render_vault_utxo_details(&self.vault_utxo_details);
+        vault_lines.push(status_line);
 
         f.render_widget(
-            Paragraph::new(vec![status_line]).block(
+            Paragraph::new(vault_lines).block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title(Title::from(" Spectrum Network Vault "))

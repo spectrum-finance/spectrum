@@ -47,12 +47,13 @@ use spectrum_offchain::{
 use spectrum_offchain_lm::data::AsBox;
 use spectrum_offchain_lm::prover::SeedPhrase;
 
+use crate::rocksdb::moved_value_history::{ErgoTxType, SpectrumErgoTx};
 use crate::rocksdb::tx_retry_scheduler::{DepositInProgress, TxInProgress};
 use crate::{
     committee::{CommitteeData, FirstCommitteeBox, SubsequentCommitteeBox},
     rocksdb::{
         deposits::{DepositRepo, DepositRepoRocksDB, UnprocessedDeposit},
-        moved_value_history::{self, ErgoMovedValue, ErgoUserValue, MovedValueHistory},
+        moved_value_history::{self, ErgoTxEvent, MovedValueHistory},
         tx_retry_scheduler::{Command, ExportInProgress, TxRetryScheduler},
         vault_boxes::{ErgoNotarizationBounds, VaultBoxRepo, VaultBoxRepoRocksDB, VaultUtxo},
         withdrawals::{WithdrawalRepo, WithdrawalRepoRocksDB},
@@ -190,13 +191,12 @@ where
                             _ => (),
                         }
 
-                        let user_value = ErgoUserValue {
-                            imported_value: vec![],
-                            exported_value,
+                        let tx = SpectrumErgoTx {
                             progress_point: height,
                             tx_id: tx.id(),
+                            tx_type: ErgoTxType::Withdrawal { exported_value },
                         };
-                        let ergo_moved_value = moved_value_history::ErgoMovedValue::Applied(user_value);
+                        let ergo_moved_value = moved_value_history::ErgoTxEvent::Applied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
 
@@ -237,13 +237,12 @@ where
                             _ => (),
                         }
 
-                        let user_value = ErgoUserValue {
-                            imported_value,
-                            exported_value: vec![],
+                        let tx = SpectrumErgoTx {
                             progress_point: height,
                             tx_id: tx.id(),
+                            tx_type: ErgoTxType::Deposit { imported_value },
                         };
-                        let ergo_moved_value = moved_value_history::ErgoMovedValue::Applied(user_value);
+                        let ergo_moved_value = moved_value_history::ErgoTxEvent::Applied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
                     None => {
@@ -305,14 +304,12 @@ where
                             exported_value.push(term_cell);
                         }
 
-                        let user_value = ErgoUserValue {
-                            imported_value: vec![],
-                            exported_value,
+                        let tx = SpectrumErgoTx {
                             progress_point: height,
                             tx_id: tx.id(),
+                            tx_type: ErgoTxType::Withdrawal { exported_value },
                         };
-
-                        let ergo_moved_value = moved_value_history::ErgoMovedValue::Unapplied(user_value);
+                        let ergo_moved_value = moved_value_history::ErgoTxEvent::Unapplied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
                     Some(VaultTx::Deposits { deposits }) => {
@@ -328,13 +325,12 @@ where
                             imported_value.push(inbound_cell);
                         }
 
-                        let user_value = ErgoUserValue {
-                            imported_value,
-                            exported_value: vec![],
+                        let tx = SpectrumErgoTx {
                             progress_point: height,
                             tx_id: tx.id(),
+                            tx_type: ErgoTxType::Deposit { imported_value },
                         };
-                        let ergo_moved_value = moved_value_history::ErgoMovedValue::Unapplied(user_value);
+                        let ergo_moved_value = moved_value_history::ErgoTxEvent::Unapplied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
                     None => {
@@ -416,7 +412,7 @@ where
         }
     }
 
-    pub async fn sync_consensus_driver(&self, from_height: Option<u32>) -> Vec<ErgoMovedValue> {
+    pub async fn sync_consensus_driver(&self, from_height: Option<u32>) -> Vec<ErgoTxEvent> {
         let mut res = vec![];
         let mut height = from_height.map(|h| h + 1).unwrap_or(self.sync_starting_height);
         while res.len() < MAX_MOVED_VALUES_PER_RESPONSE {

@@ -12,9 +12,9 @@ use k256::SecretKey;
 use log::info;
 use serde::Deserialize;
 use spectrum_chain_connector::{
-    InboundValue, Kilobytes, MovedValue, NotarizedReport, NotarizedReportConstraints, PendingDepositStatus,
-    PendingExportStatus, PendingTxIdentifier, PendingTxStatus, ProtoTermCell, TxStatus, UserValue,
-    VaultMsgOut, VaultRequest, VaultResponse, VaultStatus,
+    ChainTxEvent, InboundValue, Kilobytes, NotarizedReport, NotarizedReportConstraints, PendingDepositStatus,
+    PendingExportStatus, PendingTxIdentifier, PendingTxStatus, ProtoTermCell, SpectrumTx, SpectrumTxType,
+    TxStatus, VaultMsgOut, VaultRequest, VaultResponse, VaultStatus,
 };
 use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_ergo_connector::{
@@ -246,21 +246,19 @@ impl MockConsensusDriver {
             for msg in messages {
                 match msg {
                     VaultMsgOut::MovedValue(mv) => match mv {
-                        MovedValue::Applied(UserValue {
-                            imported_value,
-                            exported_value,
-                            ..
-                        }) => {
-                            for inbound_value in imported_value {
-                                assert!(!self.unprocessed_deposits.contains(&inbound_value));
-                                self.unprocessed_deposits.push(inbound_value);
+                        ChainTxEvent::Applied(SpectrumTx {
+                            progress_point,
+                            tx_type,
+                        }) => match tx_type {
+                            SpectrumTxType::Deposit { imported_value } => {
+                                for inbound_value in imported_value {
+                                    assert!(!self.unprocessed_deposits.contains(&inbound_value));
+                                    self.unprocessed_deposits.push(inbound_value);
+                                }
                             }
-                        }
-                        MovedValue::Unapplied(UserValue {
-                            imported_value,
-                            exported_value,
-                            ..
-                        }) => {
+                            SpectrumTxType::Withdrawal { exported_value } => {}
+                        },
+                        ChainTxEvent::Unapplied(_) => {
                             // TODO
                         }
                     },
@@ -442,10 +440,10 @@ async fn mock_consensus_driver(
         for msg in messages {
             match msg {
                 VaultMsgOut::MovedValue(mv) => match mv {
-                    MovedValue::Applied(uv) => {
+                    ChainTxEvent::Applied(uv) => {
                         current_progress_point = Some(uv.progress_point);
                     }
-                    MovedValue::Unapplied(uv) => {
+                    ChainTxEvent::Unapplied(uv) => {
                         current_progress_point = Some(uv.progress_point);
                     }
                 },
