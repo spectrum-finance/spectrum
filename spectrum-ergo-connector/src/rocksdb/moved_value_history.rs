@@ -8,6 +8,7 @@ use ergo_lib::ergotree_ir::chain::address::Address;
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
 use ergo_lib::ergotree_ir::chain::token::Token;
 use k256::ProjectivePoint;
+use log::info;
 use rocksdb::{Direction, IteratorMode};
 use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{ChainTxEvent, InboundValue, SpectrumTx, SpectrumTxType};
@@ -52,6 +53,8 @@ pub enum ErgoTxType {
         /// Value that was successfully exported from Spectrum-network to some recipient on-chain.
         exported_value: Vec<ErgoTermCell>,
     },
+
+    NewUnprocessedDeposit(ErgoInboundCell),
 }
 
 impl From<SpectrumErgoTx> for SpectrumTx {
@@ -91,6 +94,13 @@ impl From<SpectrumErgoTx> for SpectrumTx {
                 SpectrumTx {
                     progress_point,
                     tx_type: SpectrumTxType::Withdrawal { exported_value },
+                }
+            }
+            ErgoTxType::NewUnprocessedDeposit(inbound_cell) => {
+                let inbound_value = InboundValue::from(inbound_cell);
+                SpectrumTx {
+                    progress_point,
+                    tx_type: SpectrumTxType::NewUnprocessedDeposit(inbound_value),
                 }
             }
         }
@@ -160,8 +170,12 @@ impl MovedValueHistory for MovedValueHistoryRocksDB {
             while let Some(Ok((key_bytes, value_bytes))) = vault_iter.next() {
                 let bb: [u8; 4] = key_bytes.as_ref().try_into().unwrap();
                 let next_height = u32::from_be_bytes(bb);
-                println!("HEIGHT: {}, NEXT HEIGHT: {}", height, next_height);
                 let moved_value: ErgoTxEvent = rmp_serde::from_slice(&value_bytes).unwrap();
+                info!(
+                    target: "vault",
+                    "moved_value_hist: HEIGHT: {}, NEXT HEIGHT: {}, value: {:?}",
+                    height, next_height, moved_value
+                );
                 if prev.is_none() {
                     if height <= next_height {
                         return Some((moved_value, next_height));

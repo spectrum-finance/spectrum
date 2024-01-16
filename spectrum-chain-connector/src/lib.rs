@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use spectrum_ledger::cell::{ActiveCell, Serial};
+use spectrum_ledger::transaction::TxId;
 use spectrum_ledger::{
     cell::{BoxDestination, Owner, ProgressPoint, SValue, TermCell},
     interop::ReportCertificate,
@@ -27,7 +29,7 @@ pub struct DataBridgeComponents<T> {
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 /// Outbound message from a Vault manager to consensus driver
 pub enum VaultMsgOut<T> {
-    MovedValue(ChainTxEvent),
+    TxEvent(ChainTxEvent),
     ProposedTxsToNotarize(T),
     GenesisVaultUtxo(SValue),
 }
@@ -51,6 +53,8 @@ pub enum SpectrumTxType {
         /// Value that was successfully exported from Spectrum-network to some recipient on-chain.
         exported_value: Vec<TermCell>,
     },
+
+    NewUnprocessedDeposit(InboundValue),
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
@@ -181,6 +185,40 @@ pub struct Kilobytes(pub f32);
 pub struct InboundValue {
     pub value: SValue,
     pub owner: Owner,
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
+/// Represents a value that is inbound to Spectrum-network on-chain.
+pub struct ConfirmedInboundValue {
+    pub value: SValue,
+    pub owner: Owner,
+    pub tx_id: TxId,
+}
+
+impl ConfirmedInboundValue {
+    pub fn new(value: InboundValue, tx_id: TxId) -> Self {
+        Self {
+            value: value.value,
+            owner: value.owner,
+            tx_id,
+        }
+    }
+}
+
+impl From<ConfirmedInboundValue> for ActiveCell {
+    fn from(value: ConfirmedInboundValue) -> Self {
+        ActiveCell {
+            value: value.value,
+            owner: value.owner,
+            datum: None,
+            reference_script: None,
+            reference_datum: None,
+            // TBD when Spectrum Network chain is complete
+            tx_id: value.tx_id,
+            index: 0,
+            ver: Serial::INITIAL,
+        }
+    }
 }
 
 /// Represents an intention by Spectrum-network to create a `TermCell`.

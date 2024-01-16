@@ -3,16 +3,22 @@ use crossterm::{
     event::{KeyCode, KeyEvent},
     style::Stylize,
 };
+use ergo_lib::ergo_chain_types::EcPoint;
+use ergo_lib::ergotree_ir::chain::address::{Address, AddressEncoder, NetworkPrefix};
+use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::ProveDlog;
+use k256::ProjectivePoint;
 use rand::{distributions::Alphanumeric, rngs::OsRng, Rng};
 use ratatui::{
     prelude::*,
     widgets::{block::*, *},
 };
 use serde::{Deserialize, Serialize};
-use spectrum_chain_connector::{VaultMsgOut, VaultResponse, VaultStatus};
+use spectrum_chain_connector::{
+    ChainTxEvent, InboundValue, SpectrumTx, SpectrumTxType, VaultMsgOut, VaultResponse, VaultStatus,
+};
 use spectrum_ergo_connector::rocksdb::vault_boxes::ErgoNotarizationBounds;
 use spectrum_ergo_connector::script::ExtraErgoData;
-use spectrum_ledger::cell::SValue;
+use spectrum_ledger::cell::{Owner, SValue};
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -30,6 +36,7 @@ pub struct Home {
     config: Config,
     vault_manager_status: Option<VaultStatus<ExtraErgoData>>,
     vault_utxo_details: Option<SValue>,
+    unprocessed_deposits: Vec<InboundValue>,
 }
 
 impl Home {
@@ -61,7 +68,13 @@ impl Component for Home {
                     self.vault_manager_status = Some(status);
                     for msg in messages {
                         match msg {
-                            VaultMsgOut::MovedValue(_) => {}
+                            VaultMsgOut::TxEvent(ChainTxEvent::Applied(SpectrumTx {
+                                tx_type: SpectrumTxType::NewUnprocessedDeposit(inbound_value),
+                                ..
+                            })) => {
+                                self.unprocessed_deposits.push(inbound_value);
+                            }
+                            VaultMsgOut::TxEvent(_) => (),
                             VaultMsgOut::ProposedTxsToNotarize(_) => {}
                             VaultMsgOut::GenesisVaultUtxo(s) => {
                                 self.vault_utxo_details = Some(s);
@@ -103,6 +116,7 @@ impl Component for Home {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(Title::from(" Spectrum Network Vault "))
+                    .style(Style::default().fg(Color::Indexed(57)))
                     .border_type(BorderType::Rounded)
                     .padding(Padding::uniform(1)),
             ),
@@ -205,58 +219,34 @@ impl Component for Home {
             second_row[1],
         );
 
-        let deposit_rows = [
-            Row::new(vec![
-                Cell::from("2B834..."),
-                Cell::from("34.4"),
-                Cell::from("..."),
-            ]),
-            Row::new(vec![
-                Cell::from("1BCC9..."),
-                Cell::from("16.143"),
-                Cell::from("..."),
-            ]),
-            Row::new(vec![
-                Cell::from("FFA14..."),
-                Cell::from("27.9"),
-                Cell::from("..."),
-            ]),
-            Row::new(vec![Cell::from("C16DB..."), Cell::from("8.5"), Cell::from("...")]),
-            Row::new(vec![
-                Cell::from("9E24D..."),
-                Cell::from("15.2"),
-                Cell::from("..."),
-            ]),
-            Row::new(vec![
-                Cell::from("EF1A2..."),
-                Cell::from("22.7"),
-                Cell::from("..."),
-            ]),
-            Row::new(vec![
-                Cell::from("05EB8..."),
-                Cell::from("12.3"),
-                Cell::from("..."),
-            ]),
-            Row::new(vec![
-                Cell::from("14C03..."),
-                Cell::from("19.8"),
-                Cell::from("..."),
-            ]),
-            Row::new(vec![Cell::from("CF0A7..."), Cell::from("5.6"), Cell::from("...")]),
-            Row::new(vec![
-                Cell::from("23A26..."),
-                Cell::from("30.1"),
-                Cell::from("..."),
-            ]),
-        ];
-
         let widths = [
             Constraint::Length(10),
             Constraint::Length(15),
             Constraint::Length(10),
         ];
 
-        let deposit_cell_table = Table::new(gen_cells(), &widths)
+        let deposit_rows: Vec<_> = self
+            .unprocessed_deposits
+            .iter()
+            .map(|inbound_value| {
+                let Owner::ProveDlog(pk) = inbound_value.owner else {
+                    panic!("Script Hash owners of deposits not supported");
+                };
+
+                let projective_point = ProjectivePoint::from(pk.as_affine().clone());
+                let prove_dlog = ProveDlog::from(EcPoint::from(projective_point));
+                let owner_str = AddressEncoder::encode_address_as_string(
+                    NetworkPrefix::Mainnet,
+                    &Address::P2Pk(prove_dlog),
+                );
+                Row::new(vec![
+                    Cell::from(format!("{}", owner_str)),
+                    Cell::from(format!("{:?}", inbound_value.value.native)),
+                    Cell::from("..."),
+                ])
+            })
+            .collect();
+        let deposit_cell_table = Table::new(deposit_rows, &widths)
             .column_spacing(1)
             .header(
                 Row::new(vec!["From", "Value", "Tokens"])
@@ -363,7 +353,7 @@ fn render_status_line(vault_manager_status: &Option<VaultStatus<ExtraErgoData>>)
 fn render_vault_utxo_details(value: &Option<SValue>) -> Vec<Line> {
     let spans = vec![Span::styled(
         "Vault UTxO: ",
-        Style::default().add_modifier(Modifier::BOLD),
+        Style::reset().add_modifier(Modifier::BOLD),
     )];
 
     let vault_heading = Line::from(spans);
@@ -374,7 +364,7 @@ fn render_vault_utxo_details(value: &Option<SValue>) -> Vec<Line> {
         String::from("  UNKNOWN")
     };
 
-    let spans = vec![Span::styled(content, Style::default())];
+    let spans = vec![Span::styled(content, Style::reset())];
     let value_line = Line::from(spans);
 
     vec![vault_heading, value_line]
@@ -407,7 +397,6 @@ fn gen_tx_rows<'a>() -> Vec<Row<'a>> {
 fn gen_cells<'a>() -> Vec<Row<'a>> {
     let mut rng = OsRng;
     let n = rng.gen_range(10..30);
-    let tx_type = ["DEPOSIT", "WITHDRAWAL"];
     let mut res = vec![];
 
     let mut height = 1158826;

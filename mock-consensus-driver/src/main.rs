@@ -245,18 +245,23 @@ impl MockConsensusDriver {
 
             for msg in messages {
                 match msg {
-                    VaultMsgOut::MovedValue(mv) => match mv {
+                    VaultMsgOut::TxEvent(mv) => match mv {
                         ChainTxEvent::Applied(SpectrumTx {
                             progress_point,
                             tx_type,
                         }) => match tx_type {
                             SpectrumTxType::Deposit { imported_value } => {
-                                for inbound_value in imported_value {
-                                    assert!(!self.unprocessed_deposits.contains(&inbound_value));
-                                    self.unprocessed_deposits.push(inbound_value);
-                                }
+                                for inbound_value in imported_value {}
                             }
-                            SpectrumTxType::Withdrawal { exported_value } => {}
+
+                            SpectrumTxType::Withdrawal { exported_value } => {
+                                // TODO
+                            }
+
+                            SpectrumTxType::NewUnprocessedDeposit(inbound_value) => {
+                                assert!(!self.unprocessed_deposits.contains(&inbound_value));
+                                self.unprocessed_deposits.push(inbound_value);
+                            }
                         },
                         ChainTxEvent::Unapplied(_) => {
                             // TODO
@@ -439,7 +444,7 @@ async fn mock_consensus_driver(
 
         for msg in messages {
             match msg {
-                VaultMsgOut::MovedValue(mv) => match mv {
+                VaultMsgOut::TxEvent(mv) => match mv {
                     ChainTxEvent::Applied(uv) => {
                         current_progress_point = Some(uv.progress_point);
                     }

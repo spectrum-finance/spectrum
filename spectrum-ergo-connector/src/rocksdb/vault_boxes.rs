@@ -43,6 +43,7 @@ pub trait VaultBoxRepo {
     async fn put_confirmed(&mut self, df: Confirmed<AsBox<VaultUtxo>>);
     async fn put_predicted(&mut self, df: Predicted<AsBox<VaultUtxo>>);
     async fn get_confirmed(&self, box_id: &BoxId) -> Option<Confirmed<AsBox<VaultUtxo>>>;
+    async fn get_all_confirmed(&self) -> Vec<Confirmed<AsBox<VaultUtxo>>>;
     async fn spend_box(&mut self, box_id: BoxId);
     async fn unspend_box(&mut self, box_id: BoxId);
     /// False positive version of `exists()`.
@@ -373,6 +374,25 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                 return Some(Confirmed(value));
             }
             None
+        })
+        .await
+    }
+
+    async fn get_all_confirmed(&self) -> Vec<Confirmed<AsBox<VaultUtxo>>> {
+        let db = Arc::clone(&self.db);
+        spawn_blocking(move || {
+            let mut res = vec![];
+
+            let prefix = box_key_prefix(KEY_PREFIX, CONFIRMED_PRIORITY);
+            let mut readopts = ReadOptions::default();
+            readopts.set_iterate_range(rocksdb::PrefixRange(prefix.clone()));
+            let mut vault_iter = db.iterator_opt(IteratorMode::From(&prefix, Direction::Forward), readopts);
+
+            while let Some(Ok((_, value_bytes))) = vault_iter.next() {
+                let value: AsBox<VaultUtxo> = rmp_serde::from_slice(&value_bytes).unwrap();
+                res.push(Confirmed(value));
+            }
+            res
         })
         .await
     }

@@ -141,7 +141,7 @@ where
             synced_block_heights: VecDeque::with_capacity(MAX_SYNCED_BLOCK_HEIGHTS),
             sync_starting_height,
             moved_value_history,
-            tx_retry_scheduler: tx_retry_scheduler,
+            tx_retry_scheduler,
             dummy_wallet,
             vault_utxo_token_id,
             genesis_vault_utxo_box_id: None,
@@ -263,10 +263,18 @@ where
                         for output in &tx.outputs {
                             if let Some(unprocessed_deposit) = self.try_extract_unprocessed_deposit(output) {
                                 info!(
-                                    "DEPOSIT FOUND (value: {:?} nErgs)",
-                                    unprocessed_deposit.0 .1 .0.ergs
+                                    target: "vault",
+                                    "DEPOSIT FOUND (value: {:?} nErgs), height: {}",
+                                    unprocessed_deposit.0 .1 .0.ergs, height
                                 );
-                                self.deposit_repo.put(unprocessed_deposit).await;
+                                self.deposit_repo.put(unprocessed_deposit.clone()).await;
+                                self.moved_value_history
+                                    .append(ErgoTxEvent::Applied(SpectrumErgoTx {
+                                        progress_point: height,
+                                        tx_id: tx.id(),
+                                        tx_type: ErgoTxType::NewUnprocessedDeposit(unprocessed_deposit.0 .1),
+                                    }))
+                                    .await;
                             } else if let Some(vault_utxo) =
                                 VaultUtxo::try_from_box(output.clone(), self.vault_utxo_token_id)
                             {
@@ -367,8 +375,7 @@ where
                 }
                 TxInProgress::Deposit(d) => {
                     info!(target: "vault", "Resubmitting deposit tx");
-                    self.process_deposits(d.unprocessed_deposits, true, d.vault_utxo, ergo_node)
-                        .await;
+                    self.process_deposits(true, ergo_node).await;
                 }
             }
         }
@@ -426,13 +433,7 @@ where
         res
     }
 
-    pub async fn process_deposits(
-        &mut self,
-        unprocessed_deposits: Vec<UnprocessedDeposit>,
-        is_resubmission: bool,
-        vault_utxo: ErgoBox,
-        ergo_node: &ErgoNodeHttpClient,
-    ) -> bool {
+    pub async fn process_deposits(&mut self, is_resubmission: bool, ergo_node: &ErgoNodeHttpClient) -> bool {
         let current_height = ergo_node.get_height().await;
         if let VaultStatus::Syncing { .. } = self.get_vault_status(current_height).await {
             info!(target: "vault", "CHAIN TIP NOT REACHED");
@@ -447,6 +448,15 @@ where
         values.insert(4_u8, Constant::from(self.vault_utxo_token_id));
         let context_extension = ContextExtension { values };
 
+        // For now we assume only 1 vault UTxO
+        let Confirmed(AsBox(vault_utxo, _)) = self
+            .vault_box_repo
+            .get_all_confirmed()
+            .await
+            .first()
+            .unwrap()
+            .clone();
+
         let vault_input_box_registers = vault_utxo.additional_registers.clone();
         let mut output_vault_tokens = vault_utxo.tokens.clone().map(|t| t.to_vec()).unwrap_or_default();
         let unsigned_vault_input = UnsignedInput::new(vault_utxo.box_id(), context_extension);
@@ -455,6 +465,7 @@ where
         let mut boxes_to_spend = vec![vault_utxo.clone()];
 
         let mut total_deposit_value = 0_i64;
+        let unprocessed_deposits = self.deposit_repo.get_all_unprocessed_deposits().await;
         for UnprocessedDeposit(AsBox(bx, cell)) in &unprocessed_deposits {
             for t in &cell.0.tokens {
                 if let Some(i) = output_vault_tokens

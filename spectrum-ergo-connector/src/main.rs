@@ -17,7 +17,7 @@ use ergo_lib::{
 };
 use futures::StreamExt;
 use isahc::{config::Configurable, HttpClient};
-use log::info;
+use log::{error, info};
 use rocksdb::{vault_boxes::VaultBoxRepoRocksDB, withdrawals::WithdrawalRepoRocksDB};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -28,6 +28,8 @@ use spectrum_chain_connector::{
 use spectrum_deploy_lm_pool::Explorer;
 use spectrum_ledger::cell::SValue;
 use spectrum_offchain::network::ErgoNetwork as EN;
+use std::io;
+use tokio::time::Instant;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_unix_ipc::{symmetric_channel, Bootstrapper};
 use vault::VaultHandler;
@@ -126,7 +128,7 @@ async fn main() {
 
     enum StreamValueFrom {
         Chain(TxEvent<(Transaction, u32)>),
-        Driver(VaultRequest<ExtraErgoData>),
+        Driver(io::Result<VaultRequest<ExtraErgoData>>),
         ResubmitTx,
     }
 
@@ -135,9 +137,7 @@ async fn main() {
     // Convert the tokio_unix_ipc Receiver into a stream.
     let consensus_driver_stream = stream! {
         loop {
-            if let Ok(msg) = msg_in_recv.recv().await {
-                yield msg;
-            }
+            yield msg_in_recv.recv().await;
         }
     };
 
@@ -158,16 +158,25 @@ async fn main() {
     ];
     let mut combined_stream = futures::stream::select_all(streams);
 
-    bootstrapper.send((msg_in_send, msg_out_recv)).await.unwrap();
     let _ = start_signal.send(());
+    let mut send_comms_to_frontend = Some((msg_in_send, msg_out_recv));
+    let start_time = Instant::now();
 
     while let Some(m) = combined_stream.next().await {
         match m {
             StreamValueFrom::Chain(tx_event) => {
                 vault_handler.handle(tx_event).await;
+                if send_comms_to_frontend.is_some() {
+                    let now = Instant::now();
+                    if (now - start_time) > std::time::Duration::from_secs(10) {
+                        info!(target: "vault", "Sending comms to frontend");
+                        let t = send_comms_to_frontend.take().unwrap();
+                        bootstrapper.send(t).await.unwrap();
+                    }
+                }
             }
-            StreamValueFrom::Driver(msg_in) => {
-                match msg_in {
+            StreamValueFrom::Driver(msg_in) => match msg_in {
+                Ok(request) => match request {
                     VaultRequest::ExportValue(report) => {
                         let current_height = node.get_height().await;
                         let vault_utxo = explorer
@@ -178,6 +187,18 @@ async fn main() {
                             .export_value(*report.clone(), false, vault_utxo, &node)
                             .await;
 
+                        let status = vault_handler.get_vault_status(current_height).await;
+
+                        let messages = vec![];
+                        msg_out_send
+                            .send(VaultResponse { status, messages })
+                            .await
+                            .unwrap();
+                    }
+
+                    VaultRequest::ProcessDeposits => {
+                        let current_height = node.get_height().await;
+                        vault_handler.process_deposits(false, &node).await;
                         let status = vault_handler.get_vault_status(current_height).await;
 
                         let messages = vec![];
@@ -204,20 +225,22 @@ async fn main() {
                     }
 
                     VaultRequest::SyncFrom(point) => {
-                        // mock driver doesn't do anything with it
-
                         let mut messages: Vec<_> = vault_handler
                             .sync_consensus_driver(point.as_ref().map(|p| u64::from(p.point) as u32))
                             .await
                             .into_iter()
-                            .map(|ergo_mv| VaultMsgOut::MovedValue(ChainTxEvent::from(ergo_mv)))
+                            .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
                             .collect();
                         if let Some(genesis_vault_utxo) = vault_handler.get_genesis_vault_utxo() {
                             messages.push(VaultMsgOut::GenesisVaultUtxo(SValue::from(&genesis_vault_utxo)));
                         }
                         let current_height = node.get_height().await;
                         let status = vault_handler.get_vault_status(current_height).await;
-                        info!(target: "vault", "respond to SyncFrom. status: {:?}, messages: {:?}", status, messages);
+                        info!(
+                            target: "vault",
+                            "respond to SyncFrom({:?}). Current height: {} status: {:?}, messages: {:?}",
+                            point, current_height, status, messages
+                        );
                         msg_out_send
                             .send(VaultResponse { status, messages })
                             .await
@@ -230,7 +253,7 @@ async fn main() {
                             .sync_consensus_driver(Some(u64::from(point.point) as u32))
                             .await
                             .into_iter()
-                            .map(|ergo_mv| VaultMsgOut::MovedValue(ChainTxEvent::from(ergo_mv)))
+                            .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
                             .collect();
                         let current_height = node.get_height().await;
                         let status = vault_handler.get_vault_status(current_height).await;
@@ -247,7 +270,7 @@ async fn main() {
                             .sync_consensus_driver(Some(u64::from(point.point) as u32))
                             .await
                             .into_iter()
-                            .map(|ergo_mv| VaultMsgOut::MovedValue(ChainTxEvent::from(ergo_mv)))
+                            .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
                             .collect();
                         let current_height = node.get_height().await;
                         let status = vault_handler.get_vault_status(current_height).await;
@@ -258,26 +281,10 @@ async fn main() {
                             .unwrap();
                     }
 
-                    VaultRequest::ProcessDeposits => {
-                        let current_height = node.get_height().await;
-                        let status = vault_handler.get_vault_status(current_height).await;
-                        //let vault_utxo = explorer.get_box().await.unwrap();
-                        //vault_handler
-                        //    .export_value(*report.clone(), false, vault_utxo, &node)
-                        //    .await;
-
-                        //let status = vault_handler.get_vault_status(current_height).await;
-
-                        //let messages = vec![];
-                        //msg_out_send
-                        //    .send(VaultResponse { status, messages })
-                        //    .await
-                        //    .unwrap();
-                    }
-
                     VaultRequest::RotateCommittee => todo!(),
-                }
-            }
+                },
+                Err(e) => error!(target: "vault", "Error from frontend: {:?}",e),
+            },
             StreamValueFrom::ResubmitTx => {
                 vault_handler.handle_tx_resubmission(&node).await;
             }
