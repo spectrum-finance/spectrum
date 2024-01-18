@@ -9,13 +9,13 @@ edition = "2021"
 base16 = "0.2"
 clap = { version = "4.4", features = ["derive"] }
 k256 = { version = "0.13.*", features = ["serde", "arithmetic", "expose-field", "hash2curve"] }
-ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
+ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
 ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", features = ["arbitrary", "json"], rev = "a360b255f8780d3ae9e6da44266c774e6e4055c5" }
 isahc = { version = "1.7.2", features = ["json"] }
 lazy_static = "1.4.0"
-spectrum-deploy-lm-pool = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
-spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
-spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
+spectrum-deploy-lm-pool = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
+spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
+spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
 spectrum-chain-connector = { version = "0.1.0", path = "../spectrum-chain-connector" }
 spectrum-ergo-connector = { version = "0.1.0", path = "../spectrum-ergo-connector" }
 spectrum-ledger = { version = "0.1.0", path = "../spectrum-ledger" }

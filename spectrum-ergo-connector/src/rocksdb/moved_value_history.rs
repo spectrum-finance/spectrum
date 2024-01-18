@@ -6,12 +6,13 @@ use elliptic_curve::PublicKey;
 use ergo_lib::chain::transaction::TxId;
 use ergo_lib::ergotree_ir::chain::address::Address;
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
+use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use ergo_lib::ergotree_ir::chain::token::Token;
 use k256::ProjectivePoint;
 use log::info;
 use rocksdb::{Direction, IteratorMode};
 use serde::{Deserialize, Serialize};
-use spectrum_chain_connector::{ChainTxEvent, InboundValue, SpectrumTx, SpectrumTxType};
+use spectrum_chain_connector::{ChainTxEvent, InboundValue, SpectrumTx, SpectrumTxType, VaultBalance};
 use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_ledger::cell::AnyCell::Term;
 use spectrum_ledger::cell::Owner;
@@ -23,6 +24,9 @@ use spectrum_ledger::{
 use spectrum_move::SerializedValue;
 
 use crate::script::{ErgoInboundCell, ErgoTermCell};
+use crate::AncillaryVaultInfo;
+
+use super::vault_boxes::VaultUtxo;
 
 /// Store the entire history of `ErgoMovedValue`, allowing a new consensus-driver to sync with
 /// the ergo-connector.
@@ -46,18 +50,21 @@ pub enum ErgoTxType {
     Deposit {
         /// Value that is inbound to Spectrum-network
         imported_value: Vec<ErgoInboundCell>,
+        vault_info: (VaultUtxo, AncillaryVaultInfo),
     },
 
     /// Spectrum Network withdrawal transaction
     Withdrawal {
         /// Value that was successfully exported from Spectrum-network to some recipient on-chain.
         exported_value: Vec<ErgoTermCell>,
+        vault_info: (VaultUtxo, AncillaryVaultInfo),
     },
 
     NewUnprocessedDeposit(ErgoInboundCell),
+    RefundedDeposit(ErgoInboundCell),
 }
 
-impl From<SpectrumErgoTx> for SpectrumTx {
+impl From<SpectrumErgoTx> for SpectrumTx<BoxId, AncillaryVaultInfo> {
     fn from(value: SpectrumErgoTx) -> Self {
         let SpectrumErgoTx {
             progress_point,
@@ -69,31 +76,39 @@ impl From<SpectrumErgoTx> for SpectrumTx {
             point: Point::from(progress_point as u64),
         };
         match tx_type {
-            ErgoTxType::Deposit { imported_value } => {
-                let imported_value = imported_value
-                    .into_iter()
-                    .map(|c| {
-                        let value = SValue::from(&c.0);
-                        let Address::P2Pk(prove_dlog) = c.0.address else {
-                            panic!("Only P2Pk addresses supported");
-                        };
-                        let affine_point = ProjectivePoint::from(prove_dlog.h.as_ref().clone()).to_affine();
-                        let pk = k256::PublicKey::from_affine(affine_point).unwrap();
-                        let owner = Owner::ProveDlog(pk);
-                        InboundValue { value, owner }
-                    })
-                    .collect();
+            ErgoTxType::Deposit {
+                imported_value,
+                vault_info: (vault_utxo, ancillary_info),
+            } => {
+                let imported_value = imported_value.into_iter().map(InboundValue::from).collect();
 
+                let vault_balance = VaultBalance {
+                    value: SValue::from(&vault_utxo),
+                    on_chain_characteristics: ancillary_info,
+                };
                 SpectrumTx {
                     progress_point,
-                    tx_type: SpectrumTxType::Deposit { imported_value },
+                    tx_type: SpectrumTxType::Deposit {
+                        imported_value,
+                        vault_balance,
+                    },
                 }
             }
-            ErgoTxType::Withdrawal { exported_value } => {
+            ErgoTxType::Withdrawal {
+                exported_value,
+                vault_info: (vault_utxo, ancillary_info),
+            } => {
                 let exported_value = exported_value.into_iter().map(|c| TermCell::from(c)).collect();
+                let vault_balance = VaultBalance {
+                    value: SValue::from(&vault_utxo),
+                    on_chain_characteristics: ancillary_info,
+                };
                 SpectrumTx {
                     progress_point,
-                    tx_type: SpectrumTxType::Withdrawal { exported_value },
+                    tx_type: SpectrumTxType::Withdrawal {
+                        exported_value,
+                        vault_balance,
+                    },
                 }
             }
             ErgoTxType::NewUnprocessedDeposit(inbound_cell) => {
@@ -101,6 +116,14 @@ impl From<SpectrumErgoTx> for SpectrumTx {
                 SpectrumTx {
                     progress_point,
                     tx_type: SpectrumTxType::NewUnprocessedDeposit(inbound_value),
+                }
+            }
+
+            ErgoTxType::RefundedDeposit(inbound_cell) => {
+                let inbound_value = InboundValue::from(inbound_cell);
+                SpectrumTx {
+                    progress_point,
+                    tx_type: SpectrumTxType::RefundedDeposit(inbound_value),
                 }
             }
         }
@@ -123,7 +146,7 @@ impl ErgoTxEvent {
     }
 }
 
-impl From<ErgoTxEvent> for ChainTxEvent {
+impl From<ErgoTxEvent> for ChainTxEvent<BoxId, AncillaryVaultInfo> {
     fn from(value: ErgoTxEvent) -> Self {
         match value {
             ErgoTxEvent::Applied(tx) => ChainTxEvent::Applied(SpectrumTx::from(tx)),
@@ -246,13 +269,18 @@ mod tests {
         },
     };
     use rand::RngCore;
+    use sigma_test_util::force_any_val;
 
     use crate::{
-        rocksdb::moved_value_history::{InMemoryMovedValueHistory, MovedValueHistory},
+        rocksdb::{
+            moved_value_history::{InMemoryMovedValueHistory, MovedValueHistory},
+            vault_boxes::VaultUtxo,
+        },
         script::{ErgoCell, ErgoTermCell},
+        AncillaryVaultInfo,
     };
 
-    use super::{ErgoTxEvent, MovedValueHistoryRocksDB};
+    use super::{ErgoTxEvent, ErgoTxType, MovedValueHistoryRocksDB, SpectrumErgoTx};
 
     #[tokio::test]
     async fn test_rocksdb_single_insertion() {
@@ -321,9 +349,20 @@ mod tests {
             tokens: vec![],
         };
 
-        ErgoTxEvent::Applied(super::ErgoUserValue {
-            imported_value: vec![],
-            exported_value: vec![ErgoTermCell(ergo_cell)],
+        ErgoTxEvent::Applied(SpectrumErgoTx {
+            tx_type: ErgoTxType::Withdrawal {
+                exported_value: vec![ErgoTermCell(ergo_cell)],
+                vault_info: (
+                    VaultUtxo {
+                        value: force_any_val(),
+                        tokens: vec![],
+                    },
+                    AncillaryVaultInfo {
+                        box_id: force_any_val(),
+                        height: 1000,
+                    },
+                ),
+            },
             progress_point: height,
             tx_id: TxId::zero(),
         })

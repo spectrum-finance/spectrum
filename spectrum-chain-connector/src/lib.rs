@@ -27,53 +27,62 @@ pub struct DataBridgeComponents<T> {
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
+pub struct VaultBalance<T> {
+    pub value: SValue,
+    pub on_chain_characteristics: T,
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 /// Outbound message from a Vault manager to consensus driver
-pub enum VaultMsgOut<T> {
-    TxEvent(ChainTxEvent),
+pub enum VaultMsgOut<T, U, V> {
+    TxEvent(ChainTxEvent<U, V>),
     ProposedTxsToNotarize(T),
     GenesisVaultUtxo(SValue),
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub struct SpectrumTx {
+pub struct SpectrumTx<T, U> {
     pub progress_point: ProgressPoint,
-    pub tx_type: SpectrumTxType,
+    pub tx_type: SpectrumTxType<T, U>,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub enum SpectrumTxType {
+pub enum SpectrumTxType<T, U> {
     /// Spectrum Network deposit transaction
     Deposit {
         /// Value that is inbound to Spectrum-network
-        imported_value: Vec<InboundValue>,
+        imported_value: Vec<InboundValue<T>>,
+        vault_balance: VaultBalance<U>,
     },
 
     /// Spectrum Network withdrawal transaction
     Withdrawal {
         /// Value that was successfully exported from Spectrum-network to some recipient on-chain.
         exported_value: Vec<TermCell>,
+        vault_balance: VaultBalance<U>,
     },
 
-    NewUnprocessedDeposit(InboundValue),
+    NewUnprocessedDeposit(InboundValue<T>),
+    RefundedDeposit(InboundValue<T>),
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub enum ChainTxEvent {
+pub enum ChainTxEvent<T, U> {
     /// A new set of TXs are made on-chain for a given progress point.
-    Applied(SpectrumTx),
+    Applied(SpectrumTx<T, U>),
     /// When the chain experiences a rollback, movements of value must be unapplied.
-    Unapplied(SpectrumTx),
+    Unapplied(SpectrumTx<T, U>),
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct VaultResponse<S, T> {
-    pub status: VaultStatus<S>,
-    pub messages: Vec<VaultMsgOut<T>>,
+pub struct VaultResponse<S, T, U, V> {
+    pub status: VaultStatus<S, U>,
+    pub messages: Vec<VaultMsgOut<T, U, V>>,
 }
 
 /// Inbound message to a Vault manager from consensus driver
 #[derive(Deserialize, Serialize)]
-pub enum VaultRequest<T> {
+pub enum VaultRequest<T, U> {
     /// Indicate to the vault manager to start sync'ing from the given progress point. If no
     /// progress point was given, then begin sync'ing from the oldest point known to the vault
     /// manager.
@@ -85,9 +94,9 @@ pub enum VaultRequest<T> {
     /// Instruct the vault-manager to process deposits.
     ProcessDeposits,
     /// Acknowledge that TX was confirmed.
-    AcknowledgeConfirmedTx(PendingTxIdentifier<T>, ProgressPoint),
+    AcknowledgeConfirmedTx(PendingTxIdentifier<T, U>, ProgressPoint),
     /// Acknowledge that TX was aborted.
-    AcknowledgeAbortedTx(PendingTxIdentifier<T>, ProgressPoint),
+    AcknowledgeAbortedTx(PendingTxIdentifier<T, U>, ProgressPoint),
     /// Indicate to the vault manager to start rotating committee (WIP)
     RotateCommittee,
 }
@@ -105,23 +114,24 @@ pub struct NotarizedReportConstraints {
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub enum VaultStatus<T> {
+pub enum VaultStatus<T, U> {
     Synced {
         current_progress_point: ProgressPoint,
-        pending_tx_status: Option<PendingTxStatus<T>>,
+        pending_tx_status: Option<PendingTxStatus<T, U>>,
     },
     Syncing {
         current_progress_point: ProgressPoint,
         num_points_remaining: u32,
-        pending_tx_status: Option<PendingTxStatus<T>>,
+        pending_tx_status: Option<PendingTxStatus<T, U>>,
     },
 }
 
-impl<T> VaultStatus<T>
+impl<T, U> VaultStatus<T, U>
 where
     T: Clone,
+    U: Clone,
 {
-    pub fn get_pending_tx_status(&self) -> Option<PendingTxStatus<T>> {
+    pub fn get_pending_tx_status(&self) -> Option<PendingTxStatus<T, U>> {
         match self {
             VaultStatus::Synced {
                 pending_tx_status, ..
@@ -160,21 +170,21 @@ pub struct PendingExportStatus<T> {
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub struct PendingDepositStatus {
-    pub identifier: Vec<InboundValue>,
+pub struct PendingDepositStatus<T> {
+    pub identifier: Vec<InboundValue<T>>,
     pub status: TxStatus,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub enum PendingTxStatus<T> {
+pub enum PendingTxStatus<T, U> {
     Export(PendingExportStatus<T>),
-    Deposit(PendingDepositStatus),
+    Deposit(PendingDepositStatus<U>),
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub enum PendingTxIdentifier<T> {
+pub enum PendingTxIdentifier<T, U> {
     Export(Box<NotarizedReport<T>>),
-    Deposit(Vec<InboundValue>),
+    Deposit(Vec<InboundValue<U>>),
 }
 
 #[derive(Deserialize, Serialize)]
@@ -182,9 +192,10 @@ pub struct Kilobytes(pub f32);
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 /// Represents a value that is inbound to Spectrum-network on-chain.
-pub struct InboundValue {
+pub struct InboundValue<T> {
     pub value: SValue,
     pub owner: Owner,
+    pub on_chain_identifier: T,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
@@ -196,7 +207,7 @@ pub struct ConfirmedInboundValue {
 }
 
 impl ConfirmedInboundValue {
-    pub fn new(value: InboundValue, tx_id: TxId) -> Self {
+    pub fn new<U>(value: InboundValue<U>, tx_id: TxId) -> Self {
         Self {
             value: value.value,
             owner: value.owner,

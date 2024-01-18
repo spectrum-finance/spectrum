@@ -5,6 +5,7 @@ use crate::rocksdb::deposits::UnprocessedDeposit;
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use chrono::Utc;
+use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use ergo_lib::{chain::transaction::Input, ergotree_ir::chain::ergo_box::ErgoBox};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -241,7 +242,7 @@ impl From<Command<ExportInProgress>> for Option<PendingExportStatus<ExtraErgoDat
     }
 }
 
-impl From<Command<TxInProgress>> for Option<PendingTxStatus<ExtraErgoData>> {
+impl From<Command<TxInProgress>> for Option<PendingTxStatus<ExtraErgoData, BoxId>> {
     fn from(value: Command<TxInProgress>) -> Self {
         let status = match value {
             Command::ResubmitTx(_) | Command::Wait(_, _) => Some(TxStatus::WaitingForConfirmation),
@@ -328,14 +329,14 @@ pub struct DepositInProgress {
 //    }
 //}
 
-impl IdentifyBy<PendingTxIdentifier<ExtraErgoData>> for TxInProgress {
-    fn is_identified_by(&self, t: &PendingTxIdentifier<ExtraErgoData>) -> bool {
+impl IdentifyBy<PendingTxIdentifier<ExtraErgoData, BoxId>> for TxInProgress {
+    fn is_identified_by(&self, t: &PendingTxIdentifier<ExtraErgoData, BoxId>) -> bool {
         match (self, t) {
             (TxInProgress::Export(e), PendingTxIdentifier::Export(notarized_report)) => {
                 e.report == *notarized_report.as_ref()
             }
             (TxInProgress::Deposit(d), PendingTxIdentifier::Deposit(unprocessed_deposits)) => {
-                let inbound_values: Vec<InboundValue> = d
+                let inbound_values: Vec<InboundValue<BoxId>> = d
                     .unprocessed_deposits
                     .clone()
                     .into_iter()

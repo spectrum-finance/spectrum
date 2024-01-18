@@ -38,6 +38,7 @@ use spectrum_chain_connector::{
     TxEvent, VaultStatus,
 };
 use spectrum_crypto::digest::blake2b256_hash;
+use spectrum_ledger::cell::SValue;
 use spectrum_ledger::{cell::ProgressPoint, interop::Point, ChainId};
 use spectrum_offchain::{
     data::unique_entity::{Confirmed, Predicted},
@@ -49,6 +50,7 @@ use spectrum_offchain_lm::prover::SeedPhrase;
 
 use crate::rocksdb::moved_value_history::{ErgoTxType, SpectrumErgoTx};
 use crate::rocksdb::tx_retry_scheduler::{DepositInProgress, TxInProgress};
+use crate::AncillaryVaultInfo;
 use crate::{
     committee::{CommitteeData, FirstCommitteeBox, SubsequentCommitteeBox},
     rocksdb::{
@@ -85,7 +87,7 @@ pub struct VaultHandler<MVH, E> {
 impl<M, E> VaultHandler<M, E>
 where
     M: MovedValueHistory,
-    E: TxRetryScheduler<TxInProgress, PendingTxIdentifier<ExtraErgoData>>,
+    E: TxRetryScheduler<TxInProgress, PendingTxIdentifier<ExtraErgoData, BoxId>>,
 {
     pub fn new(
         vault_box_repo: VaultBoxRepoRocksDB,
@@ -158,10 +160,9 @@ where
                         self.vault_box_repo.spend_box(tx.inputs.first().box_id).await;
 
                         let vault_output = tx.outputs.first().clone();
-                        let as_box = AsBox(
-                            vault_output.clone(),
-                            VaultUtxo::try_from_box(vault_output, self.vault_utxo_token_id).unwrap(),
-                        );
+                        let vault_utxo =
+                            VaultUtxo::try_from_box(vault_output.clone(), self.vault_utxo_token_id).unwrap();
+                        let as_box = AsBox(vault_output.clone(), vault_utxo.clone());
                         self.vault_box_repo.put_confirmed(Confirmed(as_box)).await;
 
                         let mut exported_value = vec![];
@@ -191,25 +192,35 @@ where
                             _ => (),
                         }
 
+                        let vault_info = (
+                            vault_utxo,
+                            AncillaryVaultInfo {
+                                box_id: vault_output.box_id(),
+                                height,
+                            },
+                        );
+
                         let tx = SpectrumErgoTx {
                             progress_point: height,
                             tx_id: tx.id(),
-                            tx_type: ErgoTxType::Withdrawal { exported_value },
+                            tx_type: ErgoTxType::Withdrawal {
+                                exported_value,
+                                vault_info,
+                            },
                         };
                         let ergo_moved_value = moved_value_history::ErgoTxEvent::Applied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
 
                     Some(VaultTx::Deposits { deposits }) => {
-                        info!(target: "vault", "VAULT DEPOSIT TX {:?} FOUND", tx.id());
+                        info!(target: "vault", "VAULT DEPOSIT TX {:?} FOUND ({} deposits)", tx.id(), deposits.len());
                         // Spend input vault box
                         self.vault_box_repo.spend_box(tx.inputs.first().box_id).await;
 
                         let vault_output = tx.outputs.first().clone();
-                        let as_box = AsBox(
-                            vault_output.clone(),
-                            VaultUtxo::try_from_box(vault_output, self.vault_utxo_token_id).unwrap(),
-                        );
+                        let vault_utxo =
+                            VaultUtxo::try_from_box(vault_output.clone(), self.vault_utxo_token_id).unwrap();
+                        let as_box = AsBox(vault_output.clone(), vault_utxo.clone());
                         self.vault_box_repo.put_confirmed(Confirmed(as_box)).await;
 
                         let mut imported_value = vec![];
@@ -237,10 +248,21 @@ where
                             _ => (),
                         }
 
+                        let vault_info = (
+                            vault_utxo,
+                            AncillaryVaultInfo {
+                                box_id: vault_output.box_id(),
+                                height,
+                            },
+                        );
+
                         let tx = SpectrumErgoTx {
                             progress_point: height,
                             tx_id: tx.id(),
-                            tx_type: ErgoTxType::Deposit { imported_value },
+                            tx_type: ErgoTxType::Deposit {
+                                imported_value,
+                                vault_info,
+                            },
                         };
                         let ergo_moved_value = moved_value_history::ErgoTxEvent::Applied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
@@ -256,6 +278,13 @@ where
                                     &unprocessed_deposit.0 .1 .0.address,
                                 );
                                 info!("REFUNDING DEPOSIT FROM {:?} ", addr_str);
+                                self.moved_value_history
+                                    .append(ErgoTxEvent::Applied(SpectrumErgoTx {
+                                        progress_point: height,
+                                        tx_id: tx.id(),
+                                        tx_type: ErgoTxType::RefundedDeposit(unprocessed_deposit.0 .1),
+                                    }))
+                                    .await;
                             }
                         }
 
@@ -312,10 +341,25 @@ where
                             exported_value.push(term_cell);
                         }
 
+                        let vault_output = tx.outputs.first().clone();
+                        let vault_box_id = vault_output.box_id();
+                        let vault_utxo =
+                            VaultUtxo::try_from_box(vault_output, self.vault_utxo_token_id).unwrap();
+                        let vault_info = (
+                            vault_utxo,
+                            AncillaryVaultInfo {
+                                box_id: vault_box_id,
+                                height,
+                            },
+                        );
+
                         let tx = SpectrumErgoTx {
                             progress_point: height,
                             tx_id: tx.id(),
-                            tx_type: ErgoTxType::Withdrawal { exported_value },
+                            tx_type: ErgoTxType::Withdrawal {
+                                exported_value,
+                                vault_info,
+                            },
                         };
                         let ergo_moved_value = moved_value_history::ErgoTxEvent::Unapplied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
@@ -333,10 +377,25 @@ where
                             imported_value.push(inbound_cell);
                         }
 
+                        let vault_output = tx.outputs.first().clone();
+                        let vault_box_id = vault_output.box_id();
+                        let vault_utxo =
+                            VaultUtxo::try_from_box(vault_output, self.vault_utxo_token_id).unwrap();
+                        let vault_info = (
+                            vault_utxo,
+                            AncillaryVaultInfo {
+                                box_id: vault_box_id,
+                                height,
+                            },
+                        );
+
                         let tx = SpectrumErgoTx {
                             progress_point: height,
                             tx_id: tx.id(),
-                            tx_type: ErgoTxType::Deposit { imported_value },
+                            tx_type: ErgoTxType::Deposit {
+                                imported_value,
+                                vault_info,
+                            },
                         };
                         let ergo_moved_value = moved_value_history::ErgoTxEvent::Unapplied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
@@ -391,7 +450,7 @@ where
             .map(ErgoNotarizationBounds::from)
     }
 
-    pub async fn get_vault_status(&self, current_height: u32) -> VaultStatus<ExtraErgoData> {
+    pub async fn get_vault_status(&self, current_height: u32) -> VaultStatus<ExtraErgoData, BoxId> {
         let current_sync_height = self
             .synced_block_heights
             .back()
@@ -402,8 +461,9 @@ where
             point: Point::from(current_sync_height as u64),
         };
 
-        let pending_tx_status =
-            Option::<PendingTxStatus<ExtraErgoData>>::from(self.tx_retry_scheduler.next_command().await);
+        let pending_tx_status = Option::<PendingTxStatus<ExtraErgoData, BoxId>>::from(
+            self.tx_retry_scheduler.next_command().await,
+        );
 
         if current_height > current_sync_height {
             VaultStatus::Syncing {
@@ -513,9 +573,19 @@ where
             creation_height: current_height,
         };
         let outputs = TxIoVec::from_vec(vec![vault_output_box, miner_output]).unwrap();
+        let mut data_boxes = vec![self.committee_data.first_box.0.clone()];
+        if let Some(subsequent) = &self.committee_data.subsequent_boxes {
+            data_boxes.extend(subsequent.iter().map(|AsBox(bx, _)| bx.clone()));
+        }
+        let data_inputs: Vec<_> = data_boxes
+            .iter()
+            .map(|d| DataInput { box_id: d.box_id() })
+            .collect();
+        let data_inputs = Some(TxIoVec::from_vec(data_inputs).unwrap());
         let unsigned_tx =
-            UnsignedTransaction::new(TxIoVec::from_vec(unsigned_inputs).unwrap(), None, outputs).unwrap();
-        let tx_context = TransactionContext::new(unsigned_tx, boxes_to_spend, vec![]).unwrap();
+            UnsignedTransaction::new(TxIoVec::from_vec(unsigned_inputs).unwrap(), data_inputs, outputs)
+                .unwrap();
+        let tx_context = TransactionContext::new(unsigned_tx, boxes_to_spend, data_boxes).unwrap();
         let ergo_state_context = ergo_node.get_ergo_state_context().await.unwrap();
         let res = self
             .dummy_wallet
@@ -638,11 +708,11 @@ where
         }
     }
 
-    pub async fn acknowledge_confirmed_tx(&mut self, data: &PendingTxIdentifier<ExtraErgoData>) {
+    pub async fn acknowledge_confirmed_tx(&mut self, data: &PendingTxIdentifier<ExtraErgoData, BoxId>) {
         self.tx_retry_scheduler.clear_confirmed(data).await;
     }
 
-    pub async fn acknowledge_aborted_tx(&mut self, data: &PendingTxIdentifier<ExtraErgoData>) {
+    pub async fn acknowledge_aborted_tx(&mut self, data: &PendingTxIdentifier<ExtraErgoData, BoxId>) {
         self.tx_retry_scheduler.clear_aborted(data).await;
     }
 
@@ -664,7 +734,7 @@ where
                 } else if bx.0.value < vault_utxo.value {
                     // deposit
                     let mut deposits = vec![];
-                    for deposit_input in tx.inputs.iter().skip(1).take(tx.outputs.len() - 2) {
+                    for deposit_input in tx.inputs.iter().skip(1) {
                         let UnprocessedDeposit(AsBox(_bx, d)) = self
                             .deposit_repo
                             .get_unprocessed(deposit_input.box_id)
@@ -698,11 +768,14 @@ where
                     if let Ok(prove_dlog) = ProveDlog::try_from(r5.v) {
                         let address = Address::P2Pk(prove_dlog);
                         let tokens = bx.tokens.clone().map(|toks| toks.to_vec()).unwrap_or_default();
-                        let cell = ErgoInboundCell(ErgoCell {
-                            ergs: bx.value,
-                            address,
-                            tokens,
-                        });
+                        let cell = ErgoInboundCell(
+                            ErgoCell {
+                                ergs: bx.value,
+                                address,
+                                tokens,
+                            },
+                            bx.box_id(),
+                        );
                         return Some(UnprocessedDeposit(AsBox(bx.clone(), cell)));
                     }
                 }

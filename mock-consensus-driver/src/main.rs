@@ -1,4 +1,6 @@
 use clap::Parser;
+use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
+use spectrum_ergo_connector::AncillaryVaultInfo;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -78,12 +80,13 @@ async fn main() {
 }
 
 struct MockConsensusDriver {
-    vault_manager_status: Option<VaultStatus<ExtraErgoData>>,
-    pending_tx_status: Option<PendingTxStatus<ExtraErgoData>>,
-    unprocessed_deposits: Vec<InboundValue>,
+    vault_manager_status: Option<VaultStatus<ExtraErgoData, BoxId>>,
+    pending_tx_status: Option<PendingTxStatus<ExtraErgoData, BoxId>>,
     unix_socket_path: PathBuf,
     committee_secret_keys: Vec<SecretKey>,
-    frontend_tx: tokio::sync::mpsc::Sender<VaultResponse<ExtraErgoData, ErgoNotarizationBounds>>,
+    frontend_tx: tokio::sync::mpsc::Sender<
+        VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+    >,
     tick_delay_in_seconds: u64,
     user_wallets: Vec<(Wallet, Address)>,
     proposed_withdrawal_term_cells: Option<Vec<ProtoTermCell>>,
@@ -94,7 +97,9 @@ impl MockConsensusDriver {
         unix_socket_path: PathBuf,
         committee_secret_keys: Vec<SecretKey>,
         seed_phrases: Vec<SeedPhrase>,
-        frontend_tx: tokio::sync::mpsc::Sender<VaultResponse<ExtraErgoData, ErgoNotarizationBounds>>,
+        frontend_tx: tokio::sync::mpsc::Sender<
+            VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+        >,
         tick_delay_in_seconds: u64,
     ) -> Self {
         let user_wallets = seed_phrases
@@ -104,7 +109,6 @@ impl MockConsensusDriver {
         Self {
             vault_manager_status: None,
             pending_tx_status: None,
-            unprocessed_deposits: vec![],
             unix_socket_path,
             committee_secret_keys,
             frontend_tx,
@@ -115,13 +119,20 @@ impl MockConsensusDriver {
     }
 
     async fn run(&mut self) {
-        let receiver = Receiver::<(
-            Sender<VaultRequest<ExtraErgoData>>,
-            Receiver<VaultResponse<ExtraErgoData, ErgoNotarizationBounds>>,
-        )>::connect(self.unix_socket_path.clone())
-        .await
-        .unwrap();
-        let (unix_sock_tx, unix_sock_rx) = receiver.recv().await.unwrap();
+        // Keep trying to connect to the unix socket.
+        let (unix_sock_tx, unix_sock_rx) = loop {
+            if let Ok(receiver) = Receiver::<(
+                Sender<VaultRequest<ExtraErgoData, BoxId>>,
+                Receiver<VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>>,
+            )>::connect(self.unix_socket_path.clone())
+            .await
+            {
+                if let Ok(received) = receiver.recv().await {
+                    break received;
+                }
+            }
+            sleep(tokio::time::Duration::from_secs(self.tick_delay_in_seconds)).await;
+        };
 
         loop {
             sleep(tokio::time::Duration::from_secs(self.tick_delay_in_seconds)).await;
@@ -134,6 +145,11 @@ impl MockConsensusDriver {
                         ..
                     }) => {
                         // TODO: if received withdrawal or deposit action from frontend, put it through
+                        //unix_sock_tx.send(VaultRequest::ProcessDeposits).await.unwrap();
+                        unix_sock_tx
+                            .send(VaultRequest::SyncFrom(Some(current_progress_point.clone())))
+                            .await
+                            .unwrap();
                     }
                     Some(VaultStatus::Syncing {
                         current_progress_point,
@@ -250,21 +266,24 @@ impl MockConsensusDriver {
                             progress_point,
                             tx_type,
                         }) => match tx_type {
-                            SpectrumTxType::Deposit { imported_value } => {
-                                for inbound_value in imported_value {}
+                            SpectrumTxType::Deposit { .. } => {
+                                // TODO: to be processed by Spectrum Network L1
                             }
 
-                            SpectrumTxType::Withdrawal { exported_value } => {
-                                // TODO
+                            SpectrumTxType::Withdrawal { .. } => {
+                                // TODO: to be processed by Spectrum Network L1
                             }
 
-                            SpectrumTxType::NewUnprocessedDeposit(inbound_value) => {
-                                assert!(!self.unprocessed_deposits.contains(&inbound_value));
-                                self.unprocessed_deposits.push(inbound_value);
+                            SpectrumTxType::NewUnprocessedDeposit(_) => {
+                                // TODO: to be processed by Spectrum Network L1
+                            }
+
+                            SpectrumTxType::RefundedDeposit(_) => {
+                                // TODO: to be processed by Spectrum Network L1
                             }
                         },
                         ChainTxEvent::Unapplied(_) => {
-                            // TODO
+                            // TODO: to be processed by Spectrum Network L1
                         }
                     },
                     VaultMsgOut::ProposedTxsToNotarize(bounds) => {
@@ -328,190 +347,6 @@ impl MockConsensusDriver {
                     VaultMsgOut::GenesisVaultUtxo(value) => (),
                 }
             }
-        }
-    }
-}
-
-async fn mock_consensus_driver(
-    path: PathBuf,
-    participant_secret_keys: Vec<SecretKey>,
-    tx: tokio::sync::mpsc::Sender<VaultResponse<ExtraErgoData, ErgoNotarizationBounds>>,
-) {
-    let receiver = Receiver::<(
-        Sender<VaultRequest<ExtraErgoData>>,
-        Receiver<VaultResponse<ExtraErgoData, ErgoNotarizationBounds>>,
-    )>::connect(path)
-    .await
-    .unwrap();
-    let (cd_send, cd_recv) = receiver.recv().await.unwrap();
-
-    let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
-    let address = encoder
-        .parse_address_from_str("9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMg")
-        .unwrap();
-
-    let mut synced = false;
-    let mut current_progress_point = None;
-    let mut sent_tx_notarize_request = false;
-    let mut pending_export_status = None;
-    let max_miner_fee = 1000000;
-
-    const TERM_CELL_VALUE: u64 = 700000;
-
-    loop {
-        sleep(tokio::time::Duration::from_secs(1)).await;
-        if synced && !sent_tx_notarize_request && pending_export_status.is_none() {
-            let proto_term_cells = vec![ProtoTermCell::from(ErgoTermCell(ErgoCell {
-                ergs: BoxValue::try_from(TERM_CELL_VALUE).unwrap(),
-                address: address.clone(),
-                tokens: vec![],
-            }))];
-            let constraints = NotarizedReportConstraints {
-                term_cells: proto_term_cells,
-                last_progress_point: ProgressPoint {
-                    chain_id: ChainId::from(0),
-                    point: Point::from(100), // Dummy value, doesn't matter for this test
-                },
-                max_tx_size: Kilobytes(5.0),
-                estimated_number_of_byzantine_nodes: 0,
-            };
-
-            cd_send
-                .send(VaultRequest::RequestTxsToNotarize(constraints))
-                .await
-                .unwrap();
-            sent_tx_notarize_request = true;
-        } else {
-            match &pending_export_status {
-                Some(status) => match status {
-                    PendingTxStatus::Export(PendingExportStatus {
-                        identifier: data,
-                        status,
-                    }) => match status {
-                        TxStatus::Confirmed => {
-                            info!(target: "driver", "ACK CONFIRMED EXPORT TX");
-                            cd_send
-                                .send(VaultRequest::AcknowledgeConfirmedTx(
-                                    PendingTxIdentifier::Export(Box::new(data.clone())),
-                                    current_progress_point.clone().unwrap(),
-                                ))
-                                .await
-                                .unwrap();
-                        }
-                        TxStatus::Aborted => {
-                            info!(target: "driver", "ACK ABORTED EXPORT TX");
-                            cd_send
-                                .send(VaultRequest::AcknowledgeAbortedTx(
-                                    PendingTxIdentifier::Export(Box::new(data.clone())),
-                                    current_progress_point.clone().unwrap(),
-                                ))
-                                .await
-                                .unwrap();
-                        }
-                        TxStatus::WaitingForConfirmation => {
-                            cd_send
-                                .send(VaultRequest::SyncFrom(current_progress_point.clone()))
-                                .await
-                                .unwrap();
-                        }
-                    },
-                    PendingTxStatus::Deposit(PendingDepositStatus {
-                        identifier: data,
-                        status,
-                    }) => match status {
-                        TxStatus::WaitingForConfirmation => {}
-                        TxStatus::Confirmed => {}
-                        TxStatus::Aborted => {}
-                    },
-                },
-
-                None => {
-                    cd_send
-                        .send(VaultRequest::SyncFrom(current_progress_point.clone()))
-                        .await
-                        .unwrap();
-                }
-            }
-        }
-        let resp = cd_recv.recv().await.unwrap();
-        tx.send(resp.clone()).await.unwrap();
-        let VaultResponse { status, messages } = resp;
-
-        pending_export_status = status.get_pending_tx_status();
-
-        // `status` also describes the state of the export TX
-        info!(target: "driver", "status: {:?}", status);
-
-        for msg in messages {
-            match msg {
-                VaultMsgOut::TxEvent(mv) => match mv {
-                    ChainTxEvent::Applied(uv) => {
-                        current_progress_point = Some(uv.progress_point);
-                    }
-                    ChainTxEvent::Unapplied(uv) => {
-                        current_progress_point = Some(uv.progress_point);
-                    }
-                },
-                VaultMsgOut::ProposedTxsToNotarize(bounds) => {
-                    info!(target: "driver", "notarization bounds: {:?}", bounds);
-                    let vault_utxos: Vec<_> = bounds.vault_utxos.into();
-                    assert_eq!(bounds.terminal_cell_bound, 1);
-
-                    let value_to_export = vec![ErgoTermCell(ErgoCell {
-                        ergs: BoxValue::try_from(TERM_CELL_VALUE).unwrap(),
-                        address: address.clone(),
-                        tokens: vec![],
-                    })];
-
-                    let inputs = simulate_signature_aggregation_notarized_proofs(
-                        participant_secret_keys.clone(),
-                        value_to_export.clone(),
-                        0,
-                        Threshold { num: 4, denom: 4 },
-                        max_miner_fee,
-                    );
-
-                    let extra_ergo_data = ExtraErgoData {
-                        starting_avl_tree: inputs.starting_avl_tree,
-                        proof: inputs.proof,
-                        max_miner_fee,
-                        threshold: inputs.threshold,
-                        vault_utxos: vault_utxos.clone(),
-                    };
-
-                    let certificate = ReportCertificate::SchnorrK256(AggregateCertificate {
-                        message_digest: blake2b256_hash(&inputs.resulting_digest),
-                        aggregate_commitment: inputs.aggregate_commitment,
-                        aggregate_response: inputs.aggregate_response,
-                        exclusion_set: inputs.exclusion_set,
-                    });
-
-                    let value_to_export = value_to_export
-                        .into_iter()
-                        .take(bounds.terminal_cell_bound)
-                        .map(TermCell::from)
-                        .collect();
-                    let notarized_report = NotarizedReport {
-                        certificate,
-                        value_to_export,
-                        authenticated_digest: inputs.resulting_digest,
-                        additional_chain_data: extra_ergo_data,
-                    };
-
-                    // Note: by sending this message the driver is going to send 2 requests
-                    // before getting a response, which is not how the protocol is supposed
-                    // to work. We should be robust against this situation though.
-                    info!(target: "driver", "Sending request to export value");
-                    cd_send
-                        .send(VaultRequest::ExportValue(Box::new(notarized_report)))
-                        .await
-                        .unwrap();
-                }
-                VaultMsgOut::GenesisVaultUtxo(_) => (),
-            }
-        }
-        if let VaultStatus::Synced { .. } = status {
-            synced = true;
         }
     }
 }

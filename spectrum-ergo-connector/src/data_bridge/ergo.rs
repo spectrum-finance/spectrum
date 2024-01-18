@@ -83,10 +83,7 @@ async fn run_bridge(
     let mut tx_stream = Box::pin(event_source_ledger(chain_sync_stream(chain_sync)));
     while let Some(event) = tx_stream.next().await {
         let event = match event {
-            LedgerTxEvent::AppliedTx { tx, .. } => {
-                let height = greatest_height(&tx);
-                TxEvent::AppliedTx((tx, height))
-            }
+            LedgerTxEvent::AppliedTx { tx, height, .. } => TxEvent::AppliedTx((tx, height)),
             LedgerTxEvent::UnappliedTx(tx) => {
                 let height = greatest_height(&tx);
                 TxEvent::UnappliedTx((tx, height))

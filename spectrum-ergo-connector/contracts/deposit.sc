@@ -4,10 +4,12 @@
   // 2. Vault script is preserved
   // 3. Correct Ergs deposited
   // 4. Correct tokens deposited + all existing tokens preserved
-  // 5. Address bytes of depositor is present
-  
+  // 5. SigmaProp value that represents depositors public key is present
+
   val maxMinerFee = getVar[Long](8).get
   val expectedVaultTokenId = SELF.R4[Coll[Byte]].get
+
+  // Validate (5)
   val refundPk = SELF.R5[SigmaProp].get
 
   // Validate (1) (Note that validation of (4) ensures that the vault token is preserved)
@@ -33,7 +35,7 @@
 
   // This lambda attempts to find a token with specific token ID within 'tokens'. Returns
   // `(index, tokenQty)`, where if `tokenQty == 0`, the token ID we sought doesn't exist.
-  // Otherwise `index` represents the index within `tokens` containing the token we're 
+  // Otherwise `index` represents the index within `tokens` containing the token we're
   // looking for and `tokenQty` is the quantity of this token.
   //
   // Note: we can't return Option[(Int, Long)] since Ergoscript currently doesn't allow us
@@ -83,11 +85,11 @@
   //     containing a token with id `tokenId` and `updatedQuantity` is the resulting
   //     quantity of this token after all deposits of it have been made.
   //   - `new` is a collection of tokens to deposit which do not exist within the input
-  //      Vault UTxO.   
+  //      Vault UTxO.
   val tokenDiffs = deposits.fold(
     (Coll[(Int, (Coll[Byte], Long))](), Coll[(Coll[Byte], Long)]()),
     { (acc: (Coll[(Int, (Coll[Byte], Long))], Coll[(Coll[Byte], Long)]), input: Box) =>
-  
+
       input.tokens.fold(
         acc,
         {(accInner: (Coll[(Int, (Coll[Byte], Long))], Coll[(Coll[Byte], Long)]), token: (Coll[Byte], Long)) =>
@@ -97,8 +99,8 @@
           val searchResult = findTokenInExisting((existing, tokenId))
           val index = searchResult._1
           val qty = searchResult._2
-          
-          // If token already exists within the Vault UTxO and already has a deposit. 
+
+          // If token already exists within the Vault UTxO and already has a deposit.
           if (qty > 0L) {
             val vaultIndex = existing(index)._1
             val newElem = (vaultIndex, (tokenId, qty + token._2))
@@ -109,7 +111,7 @@
             val vaultIndex = searchVaultResult._1
             val vaultTokenId = INPUTS(0).tokens(vaultIndex)._1
             val vaultTokenQty = searchVaultResult._2
-            
+
             // Token already exists in the Vault UTxO and this is the first deposit of
             // such a token.
             if (vaultTokenQty > 0L) {
@@ -120,7 +122,7 @@
               val searchNewlyAddedResult = findToken((new, tokenId))
               val newlyAddedIndex = searchNewlyAddedResult._1
               val newlyAddedQty = searchNewlyAddedResult._2
-              
+
               // Token doesn't exist in the Vault UTxO but we've already seen a deposit of
               // this deposit already.
               if (newlyAddedQty > 0L) {
@@ -132,7 +134,7 @@
                 val updatedNew = new.append(Coll[(Coll[Byte], Long)]((tokenId, token._2)))
                 (existing, updatedNew)
               }
-            }    
+            }
           }
         }
       )
@@ -156,19 +158,14 @@
   )
 
   val vaultTokensAfterDeposits = updatedWithExisting.append(newTokens)
-  
+
   // Validate (4)
   val validTokenDeposits = vaultTokensAfterDeposits == OUTPUTS(0).tokens
 
-  // Validate (5)
-  val depositorAddressPresent = !(SELF.R5[Coll[Byte]].isEmpty)
 
-
-  
    refundPk || sigmaProp(validVaultUTxO &&
     scriptPreserved &&
     validMinerFee &&
     validErgDeposits &&
-    validTokenDeposits &&
-    depositorAddressPresent)
+    validTokenDeposits)
 }

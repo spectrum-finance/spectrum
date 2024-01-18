@@ -26,6 +26,7 @@ use spectrum_chain_connector::{
     VaultResponse,
 };
 use spectrum_deploy_lm_pool::Explorer;
+use spectrum_ergo_connector::AncillaryVaultInfo;
 use spectrum_ledger::cell::SValue;
 use spectrum_offchain::network::ErgoNetwork as EN;
 use std::io;
@@ -73,7 +74,7 @@ async fn main() {
 
     let ergo_bridge = ErgoDataBridge::new(ergo_bridge_config);
     let DataBridgeComponents {
-        receiver,
+        receiver: data_bridge_receiver,
         start_signal,
     } = ergo_bridge.get_components();
 
@@ -121,14 +122,15 @@ async fn main() {
     .unwrap();
 
     let bootstrapper = Bootstrapper::bind(config.unix_socket_path).unwrap();
-    let path = bootstrapper.path().to_owned();
-    let (msg_in_send, msg_in_recv) = symmetric_channel::<VaultRequest<ExtraErgoData>>().unwrap();
-    let (msg_out_send, msg_out_recv) =
-        symmetric_channel::<VaultResponse<ExtraErgoData, ErgoNotarizationBounds>>().unwrap();
+    let (msg_in_send, msg_in_recv) = symmetric_channel::<VaultRequest<ExtraErgoData, BoxId>>().unwrap();
+    let (msg_out_send, msg_out_recv) = symmetric_channel::<
+        VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+    >()
+    .unwrap();
 
     enum StreamValueFrom {
         Chain(TxEvent<(Transaction, u32)>),
-        Driver(io::Result<VaultRequest<ExtraErgoData>>),
+        Driver(io::Result<VaultRequest<ExtraErgoData, BoxId>>),
         ResubmitTx,
     }
 
@@ -150,7 +152,9 @@ async fn main() {
     };
 
     let streams: Vec<CombinedStream> = vec![
-        ReceiverStream::new(receiver).map(StreamValueFrom::Chain).boxed(),
+        ReceiverStream::new(data_bridge_receiver)
+            .map(StreamValueFrom::Chain)
+            .boxed(),
         consensus_driver_stream.map(StreamValueFrom::Driver).boxed(),
         resubmit_export_tx_stream
             .map(|_| StreamValueFrom::ResubmitTx)
@@ -159,21 +163,13 @@ async fn main() {
     let mut combined_stream = futures::stream::select_all(streams);
 
     let _ = start_signal.send(());
-    let mut send_comms_to_frontend = Some((msg_in_send, msg_out_recv));
-    let start_time = Instant::now();
+    bootstrapper.send((msg_in_send, msg_out_recv)).await.unwrap();
+    //let p = std::process::id();
 
     while let Some(m) = combined_stream.next().await {
         match m {
             StreamValueFrom::Chain(tx_event) => {
                 vault_handler.handle(tx_event).await;
-                if send_comms_to_frontend.is_some() {
-                    let now = Instant::now();
-                    if (now - start_time) > std::time::Duration::from_secs(10) {
-                        info!(target: "vault", "Sending comms to frontend");
-                        let t = send_comms_to_frontend.take().unwrap();
-                        bootstrapper.send(t).await.unwrap();
-                    }
-                }
             }
             StreamValueFrom::Driver(msg_in) => match msg_in {
                 Ok(request) => match request {

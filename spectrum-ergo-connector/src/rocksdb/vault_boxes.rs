@@ -14,6 +14,7 @@ use ergo_lib::{
         token::{Token, TokenAmount, TokenAmountError, TokenId},
     },
 };
+use log::info;
 use nonempty::NonEmpty;
 use num_bigint::BigUint;
 use rocksdb::{Direction, IteratorMode, ReadOptions};
@@ -390,7 +391,10 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
 
             while let Some(Ok((_, value_bytes))) = vault_iter.next() {
                 let value: AsBox<VaultUtxo> = rmp_serde::from_slice(&value_bytes).unwrap();
-                res.push(Confirmed(value));
+                let spent_key = prefixed_key(SPENT_PREFIX, &value.0.box_id());
+                if db.get(&spent_key).unwrap().is_none() {
+                    res.push(Confirmed(value));
+                }
             }
             res
         })
@@ -401,8 +405,8 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
         let db = Arc::clone(&self.db);
         let key = prefixed_key(SPENT_PREFIX, &box_id);
         spawn_blocking(move || {
-            let key = box_key(KEY_PREFIX, CONFIRMED_PRIORITY, &box_id);
-            assert!(db.get(&key).unwrap().is_some());
+            let value_key = box_key(KEY_PREFIX, CONFIRMED_PRIORITY, &box_id);
+            assert!(db.get(&value_key).unwrap().is_some());
             db.put(key, []).unwrap()
         })
         .await

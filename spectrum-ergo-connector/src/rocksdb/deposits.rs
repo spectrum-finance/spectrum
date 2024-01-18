@@ -16,7 +16,7 @@ pub struct ProcessedDeposit(pub AsBox<ErgoInboundCell>);
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct UnprocessedDeposit(pub AsBox<ErgoInboundCell>);
 
-impl From<UnprocessedDeposit> for InboundValue {
+impl From<UnprocessedDeposit> for InboundValue<BoxId> {
     fn from(value: UnprocessedDeposit) -> Self {
         InboundValue::from(value.0 .1)
     }
@@ -250,11 +250,14 @@ mod tests {
         let prove_dlog: ProveDlog = force_any_val();
         let address = Address::P2Pk(prove_dlog);
         let tokens = std::iter::repeat_with(|| gen_random_token(10)).take(10).collect();
-        ErgoInboundCell(ErgoCell {
-            ergs,
-            address,
-            tokens,
-        })
+        ErgoInboundCell(
+            ErgoCell {
+                ergs,
+                address,
+                tokens,
+            },
+            force_any_val::<BoxId>(),
+        )
     }
 
     pub fn gen_box_id() -> BoxId {

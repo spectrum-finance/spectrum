@@ -3,10 +3,11 @@ use crossterm::{
     event::{KeyCode, KeyEvent},
     style::Stylize,
 };
-use ergo_lib::ergo_chain_types::EcPoint;
 use ergo_lib::ergotree_ir::chain::address::{Address, AddressEncoder, NetworkPrefix};
 use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::ProveDlog;
+use ergo_lib::{ergo_chain_types::EcPoint, ergotree_ir::chain::ergo_box::BoxId};
 use k256::ProjectivePoint;
+use log::info;
 use rand::{distributions::Alphanumeric, rngs::OsRng, Rng};
 use ratatui::{
     prelude::*,
@@ -14,11 +15,12 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{
-    ChainTxEvent, InboundValue, SpectrumTx, SpectrumTxType, VaultMsgOut, VaultResponse, VaultStatus,
+    ChainTxEvent, ConfirmedInboundValue, InboundValue, SpectrumTx, SpectrumTxType, VaultMsgOut,
+    VaultResponse, VaultStatus,
 };
 use spectrum_ergo_connector::rocksdb::vault_boxes::ErgoNotarizationBounds;
 use spectrum_ergo_connector::script::ExtraErgoData;
-use spectrum_ledger::cell::{Owner, SValue};
+use spectrum_ledger::cell::{Owner, SValue, TermCell};
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -34,9 +36,16 @@ use crate::{
 pub struct Home {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
-    vault_manager_status: Option<VaultStatus<ExtraErgoData>>,
+    vault_manager_status: Option<VaultStatus<ExtraErgoData, BoxId>>,
     vault_utxo_details: Option<SValue>,
-    unprocessed_deposits: Vec<InboundValue>,
+    deposits: Vec<(InboundValue<BoxId>, DepositStatus)>,
+    exported_values: Vec<TermCell>,
+}
+
+enum DepositStatus {
+    Unprocessed,
+    Refunded,
+    Processed,
 }
 
 impl Home {
@@ -68,16 +77,66 @@ impl Component for Home {
                     self.vault_manager_status = Some(status);
                     for msg in messages {
                         match msg {
-                            VaultMsgOut::TxEvent(ChainTxEvent::Applied(SpectrumTx {
-                                tx_type: SpectrumTxType::NewUnprocessedDeposit(inbound_value),
-                                ..
-                            })) => {
-                                self.unprocessed_deposits.push(inbound_value);
+                            VaultMsgOut::TxEvent(ChainTxEvent::Applied(SpectrumTx { tx_type, .. })) => {
+                                match tx_type {
+                                    SpectrumTxType::Deposit {
+                                        imported_value,
+                                        vault_balance,
+                                    } => {
+                                        for value in imported_value {
+                                            let ix = self
+                                                .deposits
+                                                .iter()
+                                                .position(|i| {
+                                                    i.0.on_chain_identifier == value.on_chain_identifier
+                                                })
+                                                .unwrap();
+                                            self.deposits[ix].1 = DepositStatus::Processed;
+                                        }
+                                        self.vault_utxo_details = Some(vault_balance.value.clone());
+                                        info!(
+                                            target: "driver",
+                                            "DEPOSIT CONFIRMED. BALANCE: {:?}, vault_utxo_details: {:?}",
+                                            vault_balance,
+                                            self.vault_utxo_details
+                                        );
+                                    }
+                                    SpectrumTxType::Withdrawal {
+                                        exported_value,
+                                        vault_balance,
+                                    } => {
+                                        self.exported_values.extend(exported_value);
+                                        self.vault_utxo_details = Some(vault_balance.value.clone());
+                                        info!(
+                                            target: "driver",
+                                            "WITHDRAWAL CONFIRMED. BALANCE: {:?}, vault_utxo_details: {:?}",
+                                            vault_balance,
+                                            self.vault_utxo_details
+                                        );
+                                    }
+                                    SpectrumTxType::NewUnprocessedDeposit(inbound_value) => {
+                                        if !self.deposits.iter().any(|d| {
+                                            d.0.on_chain_identifier == inbound_value.on_chain_identifier
+                                        }) {
+                                            self.deposits.push((inbound_value, DepositStatus::Unprocessed));
+                                        }
+                                    }
+                                    SpectrumTxType::RefundedDeposit(inbound_value) => {
+                                        let ix = self
+                                            .deposits
+                                            .iter()
+                                            .position(|i| {
+                                                i.0.on_chain_identifier == inbound_value.on_chain_identifier
+                                            })
+                                            .unwrap();
+                                        self.deposits[ix].1 = DepositStatus::Refunded;
+                                    }
+                                }
                             }
                             VaultMsgOut::TxEvent(_) => (),
                             VaultMsgOut::ProposedTxsToNotarize(_) => {}
                             VaultMsgOut::GenesisVaultUtxo(s) => {
-                                self.vault_utxo_details = Some(s);
+                                //self.vault_utxo_details = Some(s);
                             }
                         }
                     }
@@ -107,6 +166,7 @@ impl Component for Home {
             ])
             .split(f.size());
 
+        info!(target: "driver", "HOME DRAW: vault details: {:?}", self.vault_utxo_details);
         let mut vault_lines = render_vault_utxo_details(&self.vault_utxo_details);
         let status_line = render_status_line(&self.vault_manager_status);
         vault_lines.push(status_line);
@@ -125,11 +185,7 @@ impl Component for Home {
 
         let second_row = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(50),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-            ])
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(rows[1]);
 
         let mut tx_rows = vec![Row::new(vec![
@@ -181,75 +237,45 @@ impl Component for Home {
             second_row[0],
         );
 
-        let active_cell_rows = [
-            Row::new(vec![
-                Cell::from("0B4F3..."),
-                Cell::from("34.4"),
-                Cell::from("..."),
-            ]),
-            Row::new(vec![
-                Cell::from("6C78D..."),
-                Cell::from("16.143"),
-                Cell::from("..."),
-            ]),
-        ];
-
         let widths = [
+            Constraint::Length(40),
             Constraint::Length(10),
-            Constraint::Length(15),
-            Constraint::Length(10),
-        ];
-
-        let active_cell_table = Table::new(gen_cells(), &widths)
-            .column_spacing(1)
-            .header(
-                Row::new(vec!["Owner", "Native value", "Assets"])
-                    .style(Style::default().add_modifier(Modifier::BOLD)),
-            )
-            .highlight_symbol(">");
-
-        f.render_widget(
-            active_cell_table.block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(Title::from(" Active cells "))
-                    .border_type(BorderType::Rounded)
-                    .padding(Padding::uniform(1)),
-            ),
-            second_row[1],
-        );
-
-        let widths = [
-            Constraint::Length(10),
-            Constraint::Length(15),
-            Constraint::Length(10),
+            Constraint::Length(20),
         ];
 
         let deposit_rows: Vec<_> = self
-            .unprocessed_deposits
+            .deposits
             .iter()
-            .map(|inbound_value| {
+            .map(|(inbound_value, status)| {
                 let Owner::ProveDlog(pk) = inbound_value.owner else {
                     panic!("Script Hash owners of deposits not supported");
                 };
 
-                let projective_point = ProjectivePoint::from(pk.as_affine().clone());
+                let projective_point = ProjectivePoint::from(pk.as_affine());
                 let prove_dlog = ProveDlog::from(EcPoint::from(projective_point));
                 let owner_str = AddressEncoder::encode_address_as_string(
                     NetworkPrefix::Mainnet,
                     &Address::P2Pk(prove_dlog),
                 );
+                let status_cell = Cell::from(match status {
+                    DepositStatus::Unprocessed => "UNPROCESSED",
+                    DepositStatus::Refunded => "REFUNDED",
+                    DepositStatus::Processed => "PROCESSED",
+                });
                 Row::new(vec![
-                    Cell::from(format!("{}", owner_str)),
-                    Cell::from(format!("{:?}", inbound_value.value.native)),
-                    Cell::from("..."),
+                    Cell::from(owner_str.to_string()),
+                    Cell::from(format!(
+                        "{:?}",
+                        (u64::from(inbound_value.value.native) as f64 / 1000000000.0)
+                    )),
+                    status_cell,
                 ])
             })
             .collect();
-        let deposit_cell_table = Table::new(deposit_rows, &widths)
+        let deposit_cell_table = Table::new(deposit_rows, widths)
             .column_spacing(1)
             .header(
-                Row::new(vec!["From", "Value", "Tokens"])
+                Row::new(vec!["From", "Value", "Status"])
                     .style(Style::default().add_modifier(Modifier::BOLD)),
             )
             .highlight_symbol(">");
@@ -258,11 +284,11 @@ impl Component for Home {
             deposit_cell_table.block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(Title::from(" Unprocessed Deposits "))
+                    .title(Title::from(" Deposits "))
                     .border_type(BorderType::Rounded)
                     .padding(Padding::uniform(1)),
             ),
-            second_row[2],
+            second_row[1],
         );
 
         let main_row = Layout::default()
@@ -308,7 +334,7 @@ impl Component for Home {
     }
 }
 
-fn render_status_line(vault_manager_status: &Option<VaultStatus<ExtraErgoData>>) -> Line {
+fn render_status_line(vault_manager_status: &Option<VaultStatus<ExtraErgoData, BoxId>>) -> Line {
     let mut spans = vec![Span::styled(
         "Connector status: ",
         Style::default().add_modifier(Modifier::BOLD),

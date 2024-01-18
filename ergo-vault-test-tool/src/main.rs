@@ -580,10 +580,10 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
 
     let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
     let addr_0 = encoder
-        .parse_address_from_str("9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMg")
+        .parse_address_from_str("9etVzf2G2FtYsnKT187ZYe8HFKkMmVqrNByAAk3ofhm58BswBc5")
         .unwrap();
 
-    let size = 466160; //46869640; //(383979280 - 2_000_000 - 250000) / 2;
+    let size = 8335800; //46869640; //(383979280 - 2_000_000 - 250000) / 2;
     let term_cells = vec![proto_term_cell(size, vec![], addr_0.content_bytes())]
         .into_iter()
         .map(|cell| ErgoTermCell::try_from(cell).unwrap())

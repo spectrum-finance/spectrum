@@ -14,10 +14,10 @@ bincode = "1.3"
 bytes = "1.0.1"
 clap = { version = "4.4", features = ["derive"] }
 derive_more = "0.99"
-ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
-spectrum-deploy-lm-pool = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
-spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
-spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
+ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
+spectrum-deploy-lm-pool = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
+spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
+spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
 spectrum-chain-connector = { version = "0.1.0", path = "../spectrum-chain-connector" }
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
 spectrum-move = { version = "0.1.0", path = "../spectrum-move" }

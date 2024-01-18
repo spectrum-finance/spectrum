@@ -20,7 +20,7 @@ k256 = { version = "0.13.*", features = ["serde", "arithmetic", "expose-field", 
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
 spectrum-ergo-connector = { version = "0.1.0", path = "../spectrum-ergo-connector" }
 spectrum-handel = { version = "0.1.0", path = "../spectrum-handel" }
-spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
+spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
 spectrum-ledger = {version = "0.1.0", path = "../spectrum-ledger"}
 spectrum-sigma = { version = "0.1.0", path = "../spectrum-sigma" }
 json5 = "0.4.1"

@@ -1,10 +1,12 @@
 use color_eyre::eyre::Result;
 use crossterm::event::KeyEvent;
+use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use ratatui::prelude::Rect;
 use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{InboundValue, VaultResponse};
 use spectrum_ergo_connector::rocksdb::vault_boxes::ErgoNotarizationBounds;
 use spectrum_ergo_connector::script::ExtraErgoData;
+use spectrum_ergo_connector::AncillaryVaultInfo;
 use tokio::sync::mpsc;
 
 use crate::components::{home::Home, Component};
@@ -40,7 +42,9 @@ impl App {
 
     pub async fn run(
         &mut self,
-        mut rx: tokio::sync::mpsc::Receiver<VaultResponse<ExtraErgoData, ErgoNotarizationBounds>>,
+        mut rx: tokio::sync::mpsc::Receiver<
+            VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+        >,
     ) -> Result<()> {
         let (action_tx, mut action_rx) = mpsc::unbounded_channel();
 
@@ -169,6 +173,6 @@ impl App {
 }
 
 pub enum MsgFromDriver {
-    NewDeposits(Vec<InboundValue>),
+    NewDeposits(Vec<InboundValue<BoxId>>),
     UpdatedVaultUtxo,
 }
