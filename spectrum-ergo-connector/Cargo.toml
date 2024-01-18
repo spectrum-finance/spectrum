@@ -31,7 +31,7 @@ nonempty = "0.8.1"
 futures = "0.3.28"
 rocksdb = "0.21"
 tokio = { version = "1.27.0", features = ["full"] }
-tokio-unix-ipc = { git = "https://github.com/mitsuhiko/tokio-unix-ipc", branch = "main", features = ["bootstrap", "serde"] }
+tokio-unix-ipc = { git = "https://github.com/conorbros/tokio-unix-ipc", branch = "main", features = ["bootstrap", "serde"] }
 ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", features = ["arbitrary", "json"], rev = "a360b255f8780d3ae9e6da44266c774e6e4055c5" }
 sigma-ser = "0.13.1" 
 elliptic-curve = "0.13.5"

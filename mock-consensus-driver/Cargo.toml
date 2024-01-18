@@ -13,7 +13,7 @@ derive_deref = "1.1.1"
 crossterm = { version = "0.27.0", features = ["serde", "event-stream"] }
 ratatui = { version = "0.25.0", features = ["serde", "macros"] }
 tokio = { version = "1.27.0", features = ["full"] }
-tokio-unix-ipc = { git = "https://github.com/mitsuhiko/tokio-unix-ipc", branch = "main", features = ["bootstrap", "serde"] }
+tokio-unix-ipc = { git = "https://github.com/conorbros/tokio-unix-ipc", branch = "main", features = ["bootstrap", "serde"] }
 ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", features = ["arbitrary", "json"], rev = "a360b255f8780d3ae9e6da44266c774e6e4055c5" }
 spectrum-chain-connector = { version = "0.1.0", path = "../spectrum-chain-connector" }
 k256 = { version = "0.13.*", features = ["serde", "arithmetic", "expose-field", "hash2curve"] }

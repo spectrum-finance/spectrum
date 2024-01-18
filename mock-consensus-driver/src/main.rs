@@ -32,7 +32,7 @@ use spectrum_ledger::{
 use spectrum_offchain_lm::prover::{SeedPhrase, Wallet};
 use spectrum_sigma::sigma_aggregation::AggregateCertificate;
 use tokio::sync::mpsc::channel;
-use tokio::sync::Mutex;
+use tokio::sync::{oneshot, Mutex};
 use tokio::time::sleep;
 use tokio_unix_ipc::{Receiver, Sender};
 
@@ -43,6 +43,11 @@ mod config;
 mod event;
 mod mode;
 mod tui;
+
+#[derive(Debug)]
+pub enum FrontEndCommand {
+    Quit(oneshot::Sender<()>),
+}
 
 #[tokio::main]
 async fn main() {
@@ -56,7 +61,8 @@ async fn main() {
     } else {
         log4rs::init_file(config.log4rs_yaml_path, Default::default()).unwrap();
     }
-    let (tx, rx) = channel(50);
+    let (response_tx, response_rx) = channel(50);
+    let (frontend_command_tx, frontend_command_rx) = channel(50);
     let mut app = App::new(2.0, 4.0).unwrap();
 
     let seed_phrases = config
@@ -69,14 +75,15 @@ async fn main() {
         config.unix_socket_path.into(),
         config.committee_secret_keys,
         seed_phrases,
-        tx,
+        response_tx,
+        frontend_command_rx,
         1,
     );
 
     let wrapped = Arc::new(Mutex::new(driver));
     let cloned = wrapped.clone();
     tokio::spawn(async move { cloned.lock().await.run().await });
-    app.run(rx).await.unwrap();
+    app.run(response_rx, frontend_command_tx).await.unwrap();
 }
 
 struct MockConsensusDriver {
@@ -87,6 +94,7 @@ struct MockConsensusDriver {
     frontend_tx: tokio::sync::mpsc::Sender<
         VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
     >,
+    frontend_command_rx: tokio::sync::mpsc::Receiver<FrontEndCommand>,
     tick_delay_in_seconds: u64,
     user_wallets: Vec<(Wallet, Address)>,
     proposed_withdrawal_term_cells: Option<Vec<ProtoTermCell>>,
@@ -100,6 +108,7 @@ impl MockConsensusDriver {
         frontend_tx: tokio::sync::mpsc::Sender<
             VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
         >,
+        frontend_command_rx: tokio::sync::mpsc::Receiver<FrontEndCommand>,
         tick_delay_in_seconds: u64,
     ) -> Self {
         let user_wallets = seed_phrases
@@ -112,6 +121,7 @@ impl MockConsensusDriver {
             unix_socket_path,
             committee_secret_keys,
             frontend_tx,
+            frontend_command_rx,
             tick_delay_in_seconds,
             user_wallets,
             proposed_withdrawal_term_cells: None,
@@ -136,6 +146,11 @@ impl MockConsensusDriver {
 
         loop {
             sleep(tokio::time::Duration::from_secs(self.tick_delay_in_seconds)).await;
+
+            if let Ok(FrontEndCommand::Quit(notify)) = self.frontend_command_rx.try_recv() {
+                unix_sock_tx.send(VaultRequest::Disconnect).await.unwrap();
+                notify.send(()).unwrap();
+            }
 
             // Send a request to the vault-manager
             match &self.pending_tx_status {

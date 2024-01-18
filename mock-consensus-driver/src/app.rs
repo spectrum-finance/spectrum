@@ -2,14 +2,14 @@ use color_eyre::eyre::Result;
 use crossterm::event::KeyEvent;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use ratatui::prelude::Rect;
-use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{InboundValue, VaultResponse};
 use spectrum_ergo_connector::rocksdb::vault_boxes::ErgoNotarizationBounds;
 use spectrum_ergo_connector::script::ExtraErgoData;
 use spectrum_ergo_connector::AncillaryVaultInfo;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::components::{home::Home, Component};
+use crate::FrontEndCommand;
 use crate::{action::Action, config::Config, event, mode::Mode, tui};
 
 pub struct App {
@@ -45,6 +45,7 @@ impl App {
         mut rx: tokio::sync::mpsc::Receiver<
             VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
         >,
+        command_tx: tokio::sync::mpsc::Sender<FrontEndCommand>,
     ) -> Result<()> {
         let (action_tx, mut action_rx) = mpsc::unbounded_channel();
 
@@ -163,6 +164,9 @@ impl App {
                 // tui.mouse(true);
                 tui.enter()?;
             } else if self.should_quit {
+                let (notify, confirm) = oneshot::channel();
+                command_tx.send(FrontEndCommand::Quit(notify)).await.unwrap();
+                confirm.await.unwrap();
                 tui.stop()?;
                 break;
             }

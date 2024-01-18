@@ -102,6 +102,104 @@ async fn main() {
     let vault_box_repo = VaultBoxRepoRocksDB::new(&config.vault_boxes_store_db_path);
     let deposit_repo = DepositRepoRocksDB::new(&config.deposits_store_db_path);
 
+    let unix_socket_path = config.unix_socket_path.clone();
+
+    let (vm_response_tx, vm_response_rx) = tokio::sync::mpsc::channel::<
+        VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+    >(10);
+
+    let (req_to_vm_tx, mut req_to_vm_rx) =
+        tokio::sync::mpsc::channel::<VaultRequest<ExtraErgoData, BoxId>>(10);
+
+    // Spawn tasks:
+    // 1. Contains bootstrapper and routes messages between driver and vault-handler. Also manages
+    //    unix socket senders/receivers when driver disconnects
+    tokio::spawn(async move {
+        let (driver_req_tx, mut driver_req_rx) =
+            tokio::sync::mpsc::channel::<VaultRequest<ExtraErgoData, BoxId>>(10);
+
+        // For every session that a driver connects, we clone `vm_req_tx`
+
+        // This long-running task will stay to forward requests from the driver to the vault manager
+        tokio::spawn(async move {
+            while let Some(req) = driver_req_rx.recv().await {
+                // pass on this request to vault handler
+                req_to_vm_tx.send(req).await.unwrap();
+            }
+        });
+
+        let (response_sender_tx, response_sender_rx) = tokio::sync::mpsc::channel::<
+            tokio_unix_ipc::Sender<
+                VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+            >,
+        >(10);
+
+        // merged stream
+        enum MergedStream {
+            NewUnixSender(
+                tokio_unix_ipc::Sender<
+                    VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+                >,
+            ),
+            VaultManagerResponse(
+                Box<VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>>,
+            ),
+        }
+
+        type CombinedStream = std::pin::Pin<Box<dyn futures::stream::Stream<Item = MergedStream> + Send>>;
+
+        let streams: Vec<CombinedStream> = vec![
+            ReceiverStream::new(response_sender_rx)
+                .map(MergedStream::NewUnixSender)
+                .boxed(),
+            ReceiverStream::new(vm_response_rx)
+                .map(|r| MergedStream::VaultManagerResponse(Box::new(r)))
+                .boxed(),
+        ];
+        let mut combined_stream = futures::stream::select_all(streams);
+
+        // This long-running task will stay to manage responses from the vault-manager to any connected driver.
+        tokio::spawn(async move {
+            let mut current_tx = None;
+            while let Some(m) = combined_stream.next().await {
+                match m {
+                    MergedStream::NewUnixSender(new_tx) => current_tx = Some(new_tx),
+                    MergedStream::VaultManagerResponse(response) => {
+                        if let Some(ref tx) = current_tx {
+                            tx.send(*response).await.unwrap();
+                        }
+                    }
+                }
+            }
+        });
+
+        loop {
+            let (msg_in_send, msg_in_recv) =
+                symmetric_channel::<VaultRequest<ExtraErgoData, BoxId>>().unwrap();
+            let (msg_out_send, msg_out_recv) = symmetric_channel::<
+                VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+            >()
+            .unwrap();
+            let bootstrapper = Bootstrapper::bind(unix_socket_path.clone()).unwrap();
+            bootstrapper.send((msg_in_send, msg_out_recv)).await.unwrap();
+
+            response_sender_tx.send(msg_out_send).await.unwrap();
+            let driver_req_tx = driver_req_tx.clone();
+
+            while let Ok(req) = msg_in_recv.recv().await {
+                match req {
+                    VaultRequest::Disconnect => {
+                        break;
+                    }
+                    e => {
+                        // pass off to task above, which forwards to vault manager
+                        let _ = driver_req_tx.send(e).await;
+                    }
+                }
+            }
+        }
+    });
+
     let mut vault_handler = VaultHandler::new(
         vault_box_repo,
         withdrawal_repo,
@@ -121,16 +219,9 @@ async fn main() {
     )
     .unwrap();
 
-    let bootstrapper = Bootstrapper::bind(config.unix_socket_path).unwrap();
-    let (msg_in_send, msg_in_recv) = symmetric_channel::<VaultRequest<ExtraErgoData, BoxId>>().unwrap();
-    let (msg_out_send, msg_out_recv) = symmetric_channel::<
-        VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
-    >()
-    .unwrap();
-
     enum StreamValueFrom {
         Chain(TxEvent<(Transaction, u32)>),
-        Driver(io::Result<VaultRequest<ExtraErgoData, BoxId>>),
+        Driver(Option<VaultRequest<ExtraErgoData, BoxId>>),
         ResubmitTx,
     }
 
@@ -139,7 +230,7 @@ async fn main() {
     // Convert the tokio_unix_ipc Receiver into a stream.
     let consensus_driver_stream = stream! {
         loop {
-            yield msg_in_recv.recv().await;
+            yield req_to_vm_rx.recv().await;
         }
     };
 
@@ -163,124 +254,129 @@ async fn main() {
     let mut combined_stream = futures::stream::select_all(streams);
 
     let _ = start_signal.send(());
-    bootstrapper.send((msg_in_send, msg_out_recv)).await.unwrap();
-    //let p = std::process::id();
 
     while let Some(m) = combined_stream.next().await {
         match m {
             StreamValueFrom::Chain(tx_event) => {
                 vault_handler.handle(tx_event).await;
             }
-            StreamValueFrom::Driver(msg_in) => match msg_in {
-                Ok(request) => match request {
-                    VaultRequest::ExportValue(report) => {
-                        let current_height = node.get_height().await;
-                        let vault_utxo = explorer
-                            .get_box(*report.additional_chain_data.vault_utxos.first().unwrap())
-                            .await
-                            .unwrap();
-                        vault_handler
-                            .export_value(*report.clone(), false, vault_utxo, &node)
-                            .await;
-
-                        let status = vault_handler.get_vault_status(current_height).await;
-
-                        let messages = vec![];
-                        msg_out_send
-                            .send(VaultResponse { status, messages })
-                            .await
-                            .unwrap();
-                    }
-
-                    VaultRequest::ProcessDeposits => {
-                        let current_height = node.get_height().await;
-                        vault_handler.process_deposits(false, &node).await;
-                        let status = vault_handler.get_vault_status(current_height).await;
-
-                        let messages = vec![];
-                        msg_out_send
-                            .send(VaultResponse { status, messages })
-                            .await
-                            .unwrap();
-                    }
-
-                    VaultRequest::RequestTxsToNotarize(constraints) => {
-                        let res = vault_handler.select_txs_to_notarize(constraints).await;
-
-                        if let Ok(bounds) = res {
+            StreamValueFrom::Driver(msg_in) => {
+                if let Some(request) = msg_in {
+                    match request {
+                        VaultRequest::ExportValue(report) => {
                             let current_height = node.get_height().await;
-                            let status = vault_handler.get_vault_status(current_height).await;
-                            let messages = vec![VaultMsgOut::ProposedTxsToNotarize(bounds)];
-                            info!(target: "vault", "Responding to RequestTxsToNotarize. status: {:?}, messages: {:?}", status, messages);
+                            let vault_utxo = explorer
+                                .get_box(*report.additional_chain_data.vault_utxos.first().unwrap())
+                                .await
+                                .unwrap();
+                            vault_handler
+                                .export_value(*report.clone(), false, vault_utxo, &node)
+                                .await;
 
-                            msg_out_send
+                            let status = vault_handler.get_vault_status(current_height).await;
+
+                            let messages = vec![];
+                            vm_response_tx
                                 .send(VaultResponse { status, messages })
                                 .await
                                 .unwrap();
                         }
-                    }
 
-                    VaultRequest::SyncFrom(point) => {
-                        let mut messages: Vec<_> = vault_handler
-                            .sync_consensus_driver(point.as_ref().map(|p| u64::from(p.point) as u32))
-                            .await
-                            .into_iter()
-                            .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
-                            .collect();
-                        if let Some(genesis_vault_utxo) = vault_handler.get_genesis_vault_utxo() {
-                            messages.push(VaultMsgOut::GenesisVaultUtxo(SValue::from(&genesis_vault_utxo)));
+                        VaultRequest::ProcessDeposits => {
+                            let current_height = node.get_height().await;
+                            vault_handler.process_deposits(false, &node).await;
+                            let status = vault_handler.get_vault_status(current_height).await;
+
+                            let messages = vec![];
+                            vm_response_tx
+                                .send(VaultResponse { status, messages })
+                                .await
+                                .unwrap();
                         }
-                        let current_height = node.get_height().await;
-                        let status = vault_handler.get_vault_status(current_height).await;
-                        info!(
+
+                        VaultRequest::RequestTxsToNotarize(constraints) => {
+                            let res = vault_handler.select_txs_to_notarize(constraints).await;
+
+                            if let Ok(bounds) = res {
+                                let current_height = node.get_height().await;
+                                let status = vault_handler.get_vault_status(current_height).await;
+                                let messages = vec![VaultMsgOut::ProposedTxsToNotarize(bounds)];
+                                info!(target: "vault", "Responding to RequestTxsToNotarize. status: {:?}, messages: {:?}", status, messages);
+
+                                vm_response_tx
+                                    .send(VaultResponse { status, messages })
+                                    .await
+                                    .unwrap();
+                            }
+                        }
+
+                        VaultRequest::SyncFrom(point) => {
+                            let mut messages: Vec<_> = vault_handler
+                                .sync_consensus_driver(point.as_ref().map(|p| u64::from(p.point) as u32))
+                                .await
+                                .into_iter()
+                                .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
+                                .collect();
+                            if let Some(genesis_vault_utxo) = vault_handler.get_genesis_vault_utxo() {
+                                messages
+                                    .push(VaultMsgOut::GenesisVaultUtxo(SValue::from(&genesis_vault_utxo)));
+                            }
+                            let current_height = node.get_height().await;
+                            let status = vault_handler.get_vault_status(current_height).await;
+                            info!(
                             target: "vault",
                             "respond to SyncFrom({:?}). Current height: {} status: {:?}, messages: {:?}",
                             point, current_height, status, messages
-                        );
-                        msg_out_send
-                            .send(VaultResponse { status, messages })
-                            .await
-                            .unwrap();
-                    }
+                            );
+                            vm_response_tx
+                                .send(VaultResponse { status, messages })
+                                .await
+                                .unwrap();
+                        }
 
-                    VaultRequest::AcknowledgeConfirmedTx(identifier, point) => {
-                        vault_handler.acknowledge_confirmed_tx(&identifier).await;
-                        let messages: Vec<_> = vault_handler
-                            .sync_consensus_driver(Some(u64::from(point.point) as u32))
-                            .await
-                            .into_iter()
-                            .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
-                            .collect();
-                        let current_height = node.get_height().await;
-                        let status = vault_handler.get_vault_status(current_height).await;
-                        info!(target: "vault", "respond to AcknowledgeConfirmedExportTx. status: {:?}, messages: {:?}", status, messages);
-                        msg_out_send
-                            .send(VaultResponse { status, messages })
-                            .await
-                            .unwrap();
-                    }
+                        VaultRequest::AcknowledgeConfirmedTx(identifier, point) => {
+                            vault_handler.acknowledge_confirmed_tx(&identifier).await;
+                            let messages: Vec<_> = vault_handler
+                                .sync_consensus_driver(Some(u64::from(point.point) as u32))
+                                .await
+                                .into_iter()
+                                .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
+                                .collect();
+                            let current_height = node.get_height().await;
+                            let status = vault_handler.get_vault_status(current_height).await;
+                            info!(target: "vault", "respond to AcknowledgeConfirmedExportTx. status: {:?}, messages: {:?}", status, messages);
+                            vm_response_tx
+                                .send(VaultResponse { status, messages })
+                                .await
+                                .unwrap();
+                        }
 
-                    VaultRequest::AcknowledgeAbortedTx(identifier, point) => {
-                        vault_handler.acknowledge_aborted_tx(&identifier).await;
-                        let messages: Vec<_> = vault_handler
-                            .sync_consensus_driver(Some(u64::from(point.point) as u32))
-                            .await
-                            .into_iter()
-                            .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
-                            .collect();
-                        let current_height = node.get_height().await;
-                        let status = vault_handler.get_vault_status(current_height).await;
-                        info!(target: "vault", "respond to AcknowledgeAbortedExportTx. status: {:?}, messages: {:?}", status, messages);
-                        msg_out_send
-                            .send(VaultResponse { status, messages })
-                            .await
-                            .unwrap();
-                    }
+                        VaultRequest::AcknowledgeAbortedTx(identifier, point) => {
+                            vault_handler.acknowledge_aborted_tx(&identifier).await;
+                            let messages: Vec<_> = vault_handler
+                                .sync_consensus_driver(Some(u64::from(point.point) as u32))
+                                .await
+                                .into_iter()
+                                .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
+                                .collect();
+                            let current_height = node.get_height().await;
+                            let status = vault_handler.get_vault_status(current_height).await;
+                            info!(target: "vault", "respond to AcknowledgeAbortedExportTx. status: {:?}, messages: {:?}", status, messages);
+                            vm_response_tx
+                                .send(VaultResponse { status, messages })
+                                .await
+                                .unwrap();
+                        }
 
-                    VaultRequest::RotateCommittee => todo!(),
-                },
-                Err(e) => error!(target: "vault", "Error from frontend: {:?}",e),
-            },
+                        VaultRequest::Disconnect => {
+                            unreachable!("");
+                        }
+
+                        VaultRequest::RotateCommittee => todo!(),
+                    }
+                }
+            }
+
             StreamValueFrom::ResubmitTx => {
                 vault_handler.handle_tx_resubmission(&node).await;
             }

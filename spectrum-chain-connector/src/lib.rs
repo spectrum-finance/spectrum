@@ -81,7 +81,7 @@ pub struct VaultResponse<S, T, U, V> {
 }
 
 /// Inbound message to a Vault manager from consensus driver
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub enum VaultRequest<T, U> {
     /// Indicate to the vault manager to start sync'ing from the given progress point. If no
     /// progress point was given, then begin sync'ing from the oldest point known to the vault
@@ -99,9 +99,11 @@ pub enum VaultRequest<T, U> {
     AcknowledgeAbortedTx(PendingTxIdentifier<T, U>, ProgressPoint),
     /// Indicate to the vault manager to start rotating committee (WIP)
     RotateCommittee,
+    /// Indicate to vault manager that driver is disconnecting.
+    Disconnect,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct NotarizedReportConstraints {
     /// A collection of all pending outbound TXs.
     pub term_cells: Vec<ProtoTermCell>,
@@ -187,7 +189,7 @@ pub enum PendingTxIdentifier<T, U> {
     Deposit(Vec<InboundValue<U>>),
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct Kilobytes(pub f32);
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
