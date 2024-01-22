@@ -5,6 +5,7 @@ use crate::rocksdb::deposits::UnprocessedDeposit;
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use chrono::Utc;
+use derivative::Derivative;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use ergo_lib::{chain::transaction::Input, ergotree_ir::chain::ergo_box::ErgoBox};
 use serde::de::DeserializeOwned;
@@ -157,14 +158,21 @@ where
             assert_eq!(value, cloned);
             let count_bytes = db.get(COUNT_KEY.as_bytes()).unwrap().unwrap();
             let count = u32::from_be_bytes(count_bytes.try_into().unwrap());
-            db.put(COUNT_KEY.as_bytes(), (count + 1).to_be_bytes()).unwrap();
+
+            // We need to overwrite the mapped value with the newer one because we need the latest
+            // timestamp.
+            let updated_bytes = rmp_serde::to_vec_named(&cloned).unwrap();
+            let tx = db.transaction();
+            tx.put(EXPORT_KEY.as_bytes(), updated_bytes).unwrap();
+            tx.put(COUNT_KEY.as_bytes(), (count + 1).to_be_bytes()).unwrap();
             if count + 1 == max_retries {
-                db.put(
+                tx.put(
                     STATUS_KEY.as_bytes(),
                     rmp_serde::to_vec_named(&Status::Aborted).unwrap(),
                 )
                 .unwrap();
             }
+            tx.commit().unwrap()
         })
         .await
     }
@@ -278,19 +286,23 @@ pub enum TxInProgress {
     Deposit(DepositInProgress),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Derivative)]
+#[derivative(PartialEq, Eq)]
 pub struct ExportInProgress {
     pub report: NotarizedReport<ExtraErgoData>,
     pub vault_utxo_signed_input: Input,
     pub vault_utxo: ErgoBox,
+    #[derivative(PartialEq = "ignore")]
     pub timestamp: i64,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Derivative)]
+#[derivative(PartialEq, Eq)]
 pub struct DepositInProgress {
     pub unprocessed_deposits: Vec<UnprocessedDeposit>,
     pub vault_utxo_signed_input: Input,
     pub vault_utxo: ErgoBox,
+    #[derivative(PartialEq = "ignore")]
     pub timestamp: i64,
 }
 

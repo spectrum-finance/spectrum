@@ -22,6 +22,7 @@ spectrum-ergo-connector = { version = "0.1.0", path = "../spectrum-ergo-connecto
 spectrum-handel = { version = "0.1.0", path = "../spectrum-handel" }
 spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
 spectrum-ledger = {version = "0.1.0", path = "../spectrum-ledger"}
+spectrum-move = { version = "0.1.0", path = "../spectrum-move" }
 spectrum-sigma = { version = "0.1.0", path = "../spectrum-sigma" }
 json5 = "0.4.1"
 log = "0.4.17"

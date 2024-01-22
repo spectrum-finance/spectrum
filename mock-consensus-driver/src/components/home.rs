@@ -3,11 +3,14 @@ use crossterm::{
     event::{KeyCode, KeyEvent},
     style::Stylize,
 };
-use ergo_lib::ergotree_ir::chain::address::{Address, AddressEncoder, NetworkPrefix};
+use ergo_lib::ergotree_ir::chain::{
+    address::{Address, AddressEncoder, NetworkPrefix},
+    token::Token,
+};
 use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::ProveDlog;
 use ergo_lib::{ergo_chain_types::EcPoint, ergotree_ir::chain::ergo_box::BoxId};
 use k256::ProjectivePoint;
-use log::info;
+use log::{error, info};
 use rand::{distributions::Alphanumeric, rngs::OsRng, Rng};
 use ratatui::{
     prelude::*,
@@ -15,13 +18,18 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{
-    ChainTxEvent, ConfirmedInboundValue, InboundValue, PendingDepositStatus, PendingTxStatus, SpectrumTx,
-    SpectrumTxType, VaultBalance, VaultMsgOut, VaultResponse, VaultStatus,
+    ChainTxEvent, ConfirmedInboundValue, InboundValue, PendingDepositStatus, PendingExportStatus,
+    PendingTxStatus, ProtoTermCell, SpectrumTx, SpectrumTxType, VaultBalance, VaultMsgOut, VaultResponse,
+    VaultStatus,
 };
 use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_ergo_connector::script::ExtraErgoData;
 use spectrum_ergo_connector::{rocksdb::vault_boxes::ErgoNotarizationBounds, AncillaryVaultInfo};
-use spectrum_ledger::cell::{Owner, PolicyId, SValue, TermCell};
+use spectrum_ledger::{
+    cell::{AssetId, BoxDestination, CustomAsset, NativeCoin, Owner, PolicyId, SValue, TermCell},
+    ChainId,
+};
+use spectrum_move::SerializedValue;
 use std::{collections::HashMap, rc::Rc, time::Duration};
 use tokio::sync::mpsc::UnboundedSender;
 use tui_textarea::TextArea;
@@ -47,6 +55,8 @@ pub struct Home<'a> {
     tx_table_state: TableState,
     active_block: ActiveBlock,
     deposit_textarea: TextArea<'a>,
+    withdrawal_textarea: TextArea<'a>,
+    allowed_withdrawal_destinations: Vec<SerializedValue>,
 }
 
 enum DepositStatus {
@@ -244,6 +254,10 @@ impl<'a> Component for Home<'a> {
                                         // Pass through to text-area
                                         self.deposit_textarea.input(e);
                                     }
+                                    ActiveBlock::MakeWithdrawals => {
+                                        // Pass through to text-area
+                                        self.withdrawal_textarea.input(e);
+                                    }
                                     _ => (),
                                 }
                             }
@@ -265,39 +279,70 @@ impl<'a> Component for Home<'a> {
                                         // Pass through to text-area
                                         self.deposit_textarea.input(e);
                                     }
+                                    ActiveBlock::MakeWithdrawals => {
+                                        // Pass through to text-area
+                                        self.withdrawal_textarea.input(e);
+                                    }
                                     _ => (),
                                 }
                             }
                             'q' => {
-                                if !matches!(self.active_block, ActiveBlock::MakeDeposits) {
+                                if !matches!(
+                                    self.active_block,
+                                    ActiveBlock::MakeDeposits | ActiveBlock::MakeWithdrawals
+                                ) {
                                     return Ok(Some(Action::Quit));
                                 } else {
                                     // Pass through to text-area in MakeDeposits
                                     self.deposit_textarea.input(e);
                                 }
                             }
-                            _ => {
-                                if matches!(self.active_block, ActiveBlock::MakeDeposits) {
+                            _ => match self.active_block {
+                                ActiveBlock::MakeDeposits => {
                                     self.deposit_textarea.input(e);
                                 }
-                            }
+                                ActiveBlock::MakeWithdrawals => {
+                                    self.withdrawal_textarea.input(e);
+                                }
+                                _ => (),
+                            },
                         }
                     }
-                    KeyCode::Backspace => {
-                        if matches!(self.active_block, ActiveBlock::MakeDeposits) {
+                    KeyCode::Backspace => match self.active_block {
+                        ActiveBlock::MakeDeposits => {
                             self.deposit_textarea
                                 .input(tui_textarea::Input::from(KeyEvent::from(KeyCode::Backspace)));
                         }
-                    }
-                    KeyCode::Enter => {
-                        if matches!(self.active_block, ActiveBlock::MakeDeposits) {
+                        ActiveBlock::MakeWithdrawals => {
+                            self.withdrawal_textarea
+                                .input(tui_textarea::Input::from(KeyEvent::from(KeyCode::Backspace)));
+                        }
+                        _ => (),
+                    },
+                    KeyCode::Enter => match self.active_block {
+                        ActiveBlock::MakeDeposits => {
                             if let Some(s) = self.deposit_textarea.lines().first() {
                                 if s.trim() == "deposit" {
                                     return Ok(Some(Action::RequestDepositProcessing));
                                 }
                             }
                         }
-                    }
+                        ActiveBlock::MakeWithdrawals => {
+                            if let Some(s) = self.withdrawal_textarea.lines().first() {
+                                if s.trim() == "withdrawal" {
+                                    let nano_ergs =
+                                        u64::from(self.vault_utxo_details.last().unwrap().value.native) / 100;
+                                    let term_cells = self
+                                        .allowed_withdrawal_destinations
+                                        .iter()
+                                        .map(|addr| proto_term_cell(nano_ergs, vec![], addr.clone()))
+                                        .collect();
+                                    return Ok(Some(Action::RequestWithdrawal(term_cells)));
+                                }
+                            }
+                        }
+                        _ => (),
+                    },
                     _ => {}
                 }
             }
@@ -333,26 +378,17 @@ impl<'a> Component for Home<'a> {
             .split(rows[2]);
 
         self.render_make_deposits_block(f, main_row[0]);
-
-        f.render_widget(
-            Paragraph::new("Select").style(Style::reset()).block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(Title::from(" Make Withdrawals "))
-                    .style(self.block_border_style(ActiveBlock::MakeWithdrawals))
-                    .border_type(BorderType::Rounded)
-                    .padding(Padding::uniform(1)),
-            ),
-            main_row[1],
-        );
+        self.render_make_withdrawals_block(f, main_row[1]);
 
         Ok(())
     }
 }
 
 impl<'a> Home<'a> {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(allowed_withdrawal_destinations: Vec<SerializedValue>) -> Self {
+        let mut s = Self::default();
+        s.allowed_withdrawal_destinations = allowed_withdrawal_destinations;
+        s
     }
 
     fn block_border_style(&self, block: ActiveBlock) -> Style {
@@ -438,7 +474,20 @@ impl<'a> Home<'a> {
                         Cell::from(u64::from(current_progress_point.point).to_string()).style(Style::reset());
                     let tx_id_cell = Cell::from("...".to_string()).style(Style::reset());
                     match tx_status {
-                        PendingTxStatus::Export(e) => todo!(),
+                        PendingTxStatus::Export(e) => {
+                            let PendingExportStatus { identifier, status } = e;
+                            let ValueSummary { ergs, .. } = summarise_term_cells(&identifier.value_to_export);
+                            let status_cell = Cell::from("PENDING").style(Style::reset().fg(DARK_ORANGE));
+                            let tx_type = Cell::from("WITHDRAWAL").style(Style::reset());
+
+                            tx_rows.push(Row::new(vec![
+                                tx_type,
+                                tx_id_cell,
+                                ergs,
+                                height_cell,
+                                status_cell,
+                            ]));
+                        }
                         PendingTxStatus::Deposit(d) => {
                             let PendingDepositStatus { identifier, status } = d;
                             let ValueSummary { ergs, .. } = summarise_inbound_value(identifier);
@@ -595,6 +644,50 @@ impl<'a> Home<'a> {
         f.render_widget(self.deposit_textarea.widget(), rows[1]);
     }
 
+    fn render_make_withdrawals_block(&mut self, f: &mut Frame<'_>, rect: Rect) {
+        let outer_block = Block::new()
+            .borders(Borders::ALL)
+            .title(Title::from(" Make withdrawals  "))
+            .border_type(BorderType::Rounded)
+            .style(self.block_border_style(ActiveBlock::MakeWithdrawals))
+            .padding(Padding::uniform(1));
+
+        let inner = outer_block.inner(rect);
+
+        f.render_widget(outer_block, rect);
+
+        let rows = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+            .split(inner);
+
+        f.render_widget(
+            Paragraph::new("Type 'withdrawal' then press ENTER to initiate Spectrum-Network withdrawal TX (1% of vault value to each white listed address)")
+                .style(Style::reset())
+                .wrap(Wrap { trim: true }),
+            rows[0],
+        );
+
+        let textarea_border_style = if let Some(s) = self.withdrawal_textarea.lines().first() {
+            if s.trim() == "withdrawal" {
+                Style::reset().fg(GREEN)
+            } else {
+                Style::reset()
+            }
+        } else {
+            Style::reset()
+        };
+
+        self.withdrawal_textarea.set_style(Style::reset());
+        self.withdrawal_textarea.set_block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(textarea_border_style),
+        );
+
+        f.render_widget(self.withdrawal_textarea.widget(), rows[1]);
+    }
+
     fn num_deposits_and_withdrawals(&self) -> usize {
         self.confirmed_transactions
             .iter()
@@ -671,6 +764,31 @@ fn render_vault_utxo_details(value: Option<&VaultBalance<AncillaryVaultInfo>>) -
     let value_line = Line::from(spans);
 
     vec![vault_heading, value_line]
+}
+
+pub fn proto_term_cell(nano_ergs: u64, tokens: Vec<Token>, address: SerializedValue) -> ProtoTermCell {
+    let dst = BoxDestination {
+        target: ChainId::from(0),
+        address,
+        inputs: None,
+    };
+    let mut assets = HashMap::new();
+    let asset_map: HashMap<AssetId, CustomAsset> = tokens
+        .into_iter()
+        .map(|t| {
+            let asset_id = AssetId::from(Blake2bDigest256::try_from(<Vec<u8>>::from(t.token_id)).unwrap());
+            let custom_asset = CustomAsset::from(*t.amount.as_u64());
+            (asset_id, custom_asset)
+        })
+        .collect();
+    assets.insert(PolicyId::from(Blake2bDigest256::zero()), asset_map);
+    ProtoTermCell {
+        value: SValue {
+            native: NativeCoin::from(nano_ergs),
+            assets,
+        },
+        dst,
+    }
 }
 
 fn to_key_input(e: KeyEvent) -> tui_textarea::Input {

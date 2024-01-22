@@ -13,6 +13,7 @@ base64 = "0.21.3"
 bincode = "1.3"
 bytes = "1.0.1"
 clap = { version = "4.4", features = ["derive"] }
+derivative = "2.2.0"
 derive_more = "0.99"
 ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
 spectrum-deploy-lm-pool = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }

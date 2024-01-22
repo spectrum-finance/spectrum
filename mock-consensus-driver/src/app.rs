@@ -7,6 +7,7 @@ use spectrum_chain_connector::{InboundValue, VaultResponse};
 use spectrum_ergo_connector::rocksdb::vault_boxes::ErgoNotarizationBounds;
 use spectrum_ergo_connector::script::ExtraErgoData;
 use spectrum_ergo_connector::AncillaryVaultInfo;
+use spectrum_move::SerializedValue;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::components::{home::Home, Component};
@@ -25,8 +26,12 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(tick_rate: f64, frame_rate: f64) -> Result<Self> {
-        let home = Home::new();
+    pub fn new(
+        tick_rate: f64,
+        frame_rate: f64,
+        allowed_withdrawal_destinations: Vec<SerializedValue>,
+    ) -> Result<Self> {
+        let home = Home::new(allowed_withdrawal_destinations);
         let config = Config::new("".into(), "".into())?;
         let mode = Mode::Home;
         Ok(Self {
@@ -116,7 +121,7 @@ impl App {
                 if action != Action::Tick && action != Action::Render {
                     log::debug!("{action:?}");
                 }
-                match action {
+                match &action {
                     Action::Tick => {
                         self.last_tick_key_events.drain(..);
                     }
@@ -124,7 +129,7 @@ impl App {
                     Action::Suspend => self.should_suspend = true,
                     Action::Resume => self.should_suspend = false,
                     Action::Resize(w, h) => {
-                        tui.resize(Rect::new(0, 0, w, h))?;
+                        tui.resize(Rect::new(0, 0, *w, *h))?;
                         tui.draw(|f| {
                             for component in self.components.iter_mut() {
                                 let r = component.draw(f, f.size());
@@ -151,6 +156,12 @@ impl App {
                     Action::RequestDepositProcessing => {
                         command_tx
                             .send(FrontEndCommand::RequestDepositProcessing)
+                            .await
+                            .unwrap();
+                    }
+                    Action::RequestWithdrawal(term_cells) => {
+                        command_tx
+                            .send(FrontEndCommand::RequestWithdrawal(term_cells.clone()))
                             .await
                             .unwrap();
                     }

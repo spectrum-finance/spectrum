@@ -1,5 +1,6 @@
 use crossterm::event::KeyEvent;
 use serde::{Deserialize, Serialize};
+use spectrum_chain_connector::ProtoTermCell;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
@@ -15,4 +16,5 @@ pub enum Action {
     NextBlock,
     EnterKey(KeyEvent),
     RequestDepositProcessing,
+    RequestWithdrawal(Vec<ProtoTermCell>),
 }

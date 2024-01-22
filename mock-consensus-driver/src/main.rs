@@ -1,6 +1,10 @@
 use clap::Parser;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
+use ergo_lib::ergotree_ir::chain::token::Token;
 use spectrum_ergo_connector::AncillaryVaultInfo;
+use spectrum_ledger::cell::{AssetId, BoxDestination, CustomAsset, NativeCoin, PolicyId, SValue};
+use spectrum_move::SerializedValue;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -18,7 +22,7 @@ use spectrum_chain_connector::{
     PendingExportStatus, PendingTxIdentifier, PendingTxStatus, ProtoTermCell, SpectrumTx, SpectrumTxType,
     TxStatus, VaultMsgOut, VaultRequest, VaultResponse, VaultStatus,
 };
-use spectrum_crypto::digest::blake2b256_hash;
+use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_ergo_connector::{
     rocksdb::vault_boxes::ErgoNotarizationBounds,
     script::{simulate_signature_aggregation_notarized_proofs, ErgoCell, ErgoTermCell, ExtraErgoData},
@@ -49,6 +53,7 @@ mod tui;
 pub enum FrontEndCommand {
     Quit(oneshot::Sender<()>),
     RequestDepositProcessing,
+    RequestWithdrawal(Vec<ProtoTermCell>),
 }
 
 #[tokio::main]
@@ -65,18 +70,16 @@ async fn main() {
     }
     let (response_tx, response_rx) = channel(50);
     let (frontend_command_tx, frontend_command_rx) = channel(50);
-    let mut app = App::new(2.0, 4.0).unwrap();
-
-    let seed_phrases = config
-        .wallet_seed_phrases
-        .into_iter()
-        .map(SeedPhrase::from)
+    let allowed_withdrawal_addresses = config
+        .allowed_destination_addresses
+        .iter()
+        .map(|addr| SerializedValue::from(addr.content_bytes()))
         .collect();
+    let mut app = App::new(2.0, 4.0, allowed_withdrawal_addresses).unwrap();
 
-    let mut driver = MockConsensusDriver::new(
+    let driver = MockConsensusDriver::new(
         config.unix_socket_path.into(),
         config.committee_secret_keys,
-        seed_phrases,
         response_tx,
         frontend_command_rx,
         1,
@@ -98,25 +101,20 @@ struct MockConsensusDriver {
     >,
     frontend_command_rx: tokio::sync::mpsc::Receiver<FrontEndCommand>,
     tick_delay_in_seconds: u64,
-    user_wallets: Vec<(Wallet, Address)>,
     proposed_withdrawal_term_cells: Option<Vec<ProtoTermCell>>,
+    notarized_report_to_send: Option<NotarizedReport<ExtraErgoData>>,
 }
 
 impl MockConsensusDriver {
     fn new(
         unix_socket_path: PathBuf,
         committee_secret_keys: Vec<SecretKey>,
-        seed_phrases: Vec<SeedPhrase>,
         frontend_tx: tokio::sync::mpsc::Sender<
             VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
         >,
         frontend_command_rx: tokio::sync::mpsc::Receiver<FrontEndCommand>,
         tick_delay_in_seconds: u64,
     ) -> Self {
-        let user_wallets = seed_phrases
-            .into_iter()
-            .map(|phrase| Wallet::try_from_seed(phrase).unwrap())
-            .collect();
         Self {
             vault_manager_status: None,
             pending_tx_status: None,
@@ -125,8 +123,8 @@ impl MockConsensusDriver {
             frontend_tx,
             frontend_command_rx,
             tick_delay_in_seconds,
-            user_wallets,
             proposed_withdrawal_term_cells: None,
+            notarized_report_to_send: None,
         }
     }
 
@@ -159,6 +157,9 @@ impl MockConsensusDriver {
                 Ok(FrontEndCommand::RequestDepositProcessing) => {
                     next_frontend_command = Some(FrontEndCommand::RequestDepositProcessing);
                 }
+                Ok(FrontEndCommand::RequestWithdrawal(term_cells)) => {
+                    next_frontend_command = Some(FrontEndCommand::RequestWithdrawal(term_cells));
+                }
 
                 Err(_) => {}
             }
@@ -176,15 +177,42 @@ impl MockConsensusDriver {
                                 FrontEndCommand::RequestDepositProcessing => {
                                     unix_sock_tx.send(VaultRequest::ProcessDeposits).await.unwrap();
                                 }
+                                FrontEndCommand::RequestWithdrawal(term_cells) => {
+                                    self.proposed_withdrawal_term_cells = Some(term_cells.clone());
+                                    let constraints = NotarizedReportConstraints {
+                                        term_cells,
+                                        last_progress_point: ProgressPoint {
+                                            chain_id: ChainId::from(0),
+                                            point: Point::from(100), // Dummy value, doesn't matter for this test
+                                        },
+                                        max_tx_size: Kilobytes(5.0),
+                                        estimated_number_of_byzantine_nodes: 0,
+                                    };
+
+                                    unix_sock_tx
+                                        .send(VaultRequest::RequestTxsToNotarize(constraints))
+                                        .await
+                                        .unwrap();
+                                }
                                 FrontEndCommand::Quit(_) => {
+                                    // We handle quit command above.
                                     unreachable!()
                                 }
                             }
                         } else {
-                            unix_sock_tx
-                                .send(VaultRequest::SyncFrom(Some(current_progress_point.clone())))
-                                .await
-                                .unwrap();
+                            // Check for pending NotarizedReport
+                            if let Some(notarized_report) = self.notarized_report_to_send.take() {
+                                info!(target: "driver", "Sending request to export value");
+                                unix_sock_tx
+                                    .send(VaultRequest::ExportValue(Box::new(notarized_report)))
+                                    .await
+                                    .unwrap();
+                            } else {
+                                unix_sock_tx
+                                    .send(VaultRequest::SyncFrom(Some(current_progress_point.clone())))
+                                    .await
+                                    .unwrap();
+                            }
                         }
                     }
                     Some(VaultStatus::Syncing {
@@ -326,7 +354,6 @@ impl MockConsensusDriver {
                         info!(target: "driver", "notarization bounds: {:?}", bounds);
                         let vault_utxos: Vec<_> = bounds.vault_utxos.into();
                         let term_cells = self.proposed_withdrawal_term_cells.take().unwrap();
-                        assert_eq!(bounds.terminal_cell_bound, 1);
 
                         let value_to_export: Vec<ErgoTermCell> = term_cells
                             .iter()
@@ -370,14 +397,7 @@ impl MockConsensusDriver {
                             additional_chain_data: extra_ergo_data,
                         };
 
-                        // Note: by sending this message the driver is going to send 2 requests
-                        // before getting a response, which is not how the protocol is supposed
-                        // to work. We should be robust against this situation though.
-                        info!(target: "driver", "Sending request to export value");
-                        unix_sock_tx
-                            .send(VaultRequest::ExportValue(Box::new(notarized_report)))
-                            .await
-                            .unwrap();
+                        self.notarized_report_to_send = Some(notarized_report);
                     }
 
                     VaultMsgOut::GenesisVaultUtxo(value) => {
@@ -394,6 +414,7 @@ struct AppConfig {
     committee_secret_keys: Vec<k256::SecretKey>,
     log4rs_yaml_path: String,
     wallet_seed_phrases: Vec<String>,
+    allowed_destination_addresses: Vec<Address>,
 }
 #[derive(Deserialize)]
 struct AppConfigProto {
@@ -401,6 +422,8 @@ struct AppConfigProto {
     committee_secret_keys: Vec<String>,
     log4rs_yaml_path: String,
     wallet_seed_phrases: Vec<String>,
+    /// Base 58 encoded addresses
+    allowed_destination_addresses: Vec<String>,
 }
 
 impl From<AppConfigProto> for AppConfig {
@@ -413,11 +436,20 @@ impl From<AppConfigProto> for AppConfig {
                 k256::SecretKey::from_slice(&bytes).unwrap()
             })
             .collect();
+
+        let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
+        let mut allowed_destination_addresses = vec![];
+        for addr_str in value.allowed_destination_addresses {
+            let address = encoder.parse_address_from_str(&addr_str).unwrap();
+            allowed_destination_addresses.push(address);
+        }
+
         Self {
             unix_socket_path: value.unix_socket_path,
             committee_secret_keys,
             log4rs_yaml_path: value.log4rs_yaml_path,
             wallet_seed_phrases: value.wallet_seed_phrases,
+            allowed_destination_addresses,
         }
     }
 }
