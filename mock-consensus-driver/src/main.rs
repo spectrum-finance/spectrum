@@ -160,9 +160,7 @@ impl MockConsensusDriver {
                     next_frontend_command = Some(FrontEndCommand::RequestDepositProcessing);
                 }
 
-                Err(e) => {
-                    error!(target: "driver", "Frontend error: {:?}", e);
-                }
+                Err(_) => {}
             }
 
             // Send a request to the vault-manager
@@ -382,7 +380,9 @@ impl MockConsensusDriver {
                             .unwrap();
                     }
 
-                    VaultMsgOut::GenesisVaultUtxo(value) => (),
+                    VaultMsgOut::GenesisVaultUtxo(value) => {
+                        error!(target: "driver", "GOT GENESIS VAULT UTXO: {:?}", value);
+                    }
                 }
             }
         }

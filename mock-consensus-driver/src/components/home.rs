@@ -40,7 +40,7 @@ pub struct Home<'a> {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
     vault_manager_status: Option<VaultStatus<ExtraErgoData, BoxId>>,
-    vault_utxo_details: Option<VaultBalance<AncillaryVaultInfo>>,
+    vault_utxo_details: Vec<VaultBalance<AncillaryVaultInfo>>,
     deposits: Vec<(InboundValue<BoxId>, DepositStatus)>,
     confirmed_transactions: Vec<SpectrumTx<BoxId, AncillaryVaultInfo>>,
     exported_values: Vec<TermCell>,
@@ -97,7 +97,7 @@ impl<'a> Component for Home<'a> {
                                                 .unwrap();
                                             self.deposits[ix].1 = DepositStatus::Processed;
                                         }
-                                        self.vault_utxo_details = Some(vault_balance.clone());
+                                        self.vault_utxo_details.push(vault_balance.clone());
                                         info!(
                                             target: "driver",
                                             "DEPOSIT CONFIRMED. BALANCE: {:?}, vault_utxo_details: {:?}",
@@ -110,7 +110,7 @@ impl<'a> Component for Home<'a> {
                                         vault_balance,
                                     } => {
                                         self.exported_values.extend(exported_value.iter().cloned());
-                                        self.vault_utxo_details = Some(vault_balance.clone());
+                                        self.vault_utxo_details.push(vault_balance.clone());
                                         info!(
                                             target: "driver",
                                             "WITHDRAWAL CONFIRMED. BALANCE: {:?}, vault_utxo_details: {:?}",
@@ -138,7 +138,71 @@ impl<'a> Component for Home<'a> {
                                     }
                                 }
                             }
-                            VaultMsgOut::TxEvent(_) => (),
+                            VaultMsgOut::TxEvent(ChainTxEvent::Unapplied(ref tx)) => {
+                                // Note: it's assumed that TXs are unapplied in reverse chronological order.
+                                let removed_tx = self.confirmed_transactions.pop().unwrap();
+                                assert_eq!(removed_tx, *tx);
+                                match removed_tx.tx_type {
+                                    SpectrumTxType::Deposit {
+                                        imported_value,
+                                        vault_balance,
+                                    } => {
+                                        for value in imported_value {
+                                            let ix = self
+                                                .deposits
+                                                .iter()
+                                                .position(|i| {
+                                                    i.0.on_chain_identifier == value.on_chain_identifier
+                                                })
+                                                .unwrap();
+                                            self.deposits[ix].1 = DepositStatus::Unprocessed;
+
+                                            // Rollback vault UTxO
+                                            let removed = self.vault_utxo_details.pop().unwrap();
+                                            assert_eq!(removed, vault_balance);
+                                        }
+                                    }
+                                    SpectrumTxType::Withdrawal {
+                                        exported_value,
+                                        vault_balance,
+                                    } => {
+                                        for value in exported_value {
+                                            let ix = self
+                                                .exported_values
+                                                .iter()
+                                                .position(|term_cell| value == *term_cell)
+                                                .unwrap();
+                                            let removed = self.exported_values.swap_remove(ix);
+                                            assert_eq!(value, removed);
+                                        }
+
+                                        // Rollback vault UTxO
+                                        let removed = self.vault_utxo_details.pop().unwrap();
+                                        assert_eq!(removed, vault_balance);
+                                    }
+                                    SpectrumTxType::NewUnprocessedDeposit(inbound_value) => {
+                                        let ix = self
+                                            .deposits
+                                            .iter()
+                                            .position(|i| {
+                                                i.0.on_chain_identifier == inbound_value.on_chain_identifier
+                                            })
+                                            .unwrap();
+                                        self.deposits.swap_remove(ix);
+                                    }
+                                    SpectrumTxType::RefundedDeposit(inbound_value) => {
+                                        // If we rollback a deposit refund, it becomes unprocessed again.
+                                        let ix = self
+                                            .deposits
+                                            .iter()
+                                            .position(|i| {
+                                                i.0.on_chain_identifier == inbound_value.on_chain_identifier
+                                            })
+                                            .unwrap();
+                                        self.deposits[ix].1 = DepositStatus::Unprocessed;
+                                    }
+                                }
+                            }
                             VaultMsgOut::ProposedTxsToNotarize(_) => {}
                             VaultMsgOut::GenesisVaultUtxo(s) => {
                                 //self.vault_utxo_details = Some(s);
@@ -300,7 +364,7 @@ impl<'a> Home<'a> {
     }
 
     fn render_main_block(&mut self, f: &mut Frame<'_>, row: Rect) {
-        let mut vault_lines = render_vault_utxo_details(&self.vault_utxo_details);
+        let mut vault_lines = render_vault_utxo_details(self.vault_utxo_details.last());
         let status_line = render_status_line(&self.vault_manager_status);
         vault_lines.push(status_line);
 
@@ -586,7 +650,7 @@ fn render_status_line(vault_manager_status: &Option<VaultStatus<ExtraErgoData, B
     Line::from(spans)
 }
 
-fn render_vault_utxo_details(value: &Option<VaultBalance<AncillaryVaultInfo>>) -> Vec<Line> {
+fn render_vault_utxo_details(value: Option<&VaultBalance<AncillaryVaultInfo>>) -> Vec<Line> {
     let spans = vec![Span::styled(
         "Vault UTxO: ",
         Style::reset().add_modifier(Modifier::BOLD),

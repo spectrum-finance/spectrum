@@ -318,8 +318,12 @@ async fn main() {
                                 .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
                                 .collect();
                             if let Some(genesis_vault_utxo) = vault_handler.get_genesis_vault_utxo() {
-                                messages
-                                    .push(VaultMsgOut::GenesisVaultUtxo(SValue::from(&genesis_vault_utxo)));
+                                if point.is_none() {
+                                    info!(target: "vault", "PUSHING OUT GENESIS VAULT UTXO");
+                                    messages.push(VaultMsgOut::GenesisVaultUtxo(SValue::from(
+                                        &genesis_vault_utxo,
+                                    )));
+                                }
                             }
                             let current_height = node.get_height().await;
                             let status = vault_handler.get_vault_status(current_height).await;
