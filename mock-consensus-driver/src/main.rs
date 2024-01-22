@@ -11,7 +11,7 @@ use ergo_lib::ergotree_ir::chain::{
     ergo_box::box_value::BoxValue,
 };
 use k256::SecretKey;
-use log::info;
+use log::{error, info};
 use serde::Deserialize;
 use spectrum_chain_connector::{
     ChainTxEvent, InboundValue, Kilobytes, NotarizedReport, NotarizedReportConstraints, PendingDepositStatus,
@@ -38,6 +38,7 @@ use tokio_unix_ipc::{Receiver, Sender};
 
 mod action;
 mod app;
+mod color_scheme;
 mod components;
 mod config;
 mod event;
@@ -47,6 +48,7 @@ mod tui;
 #[derive(Debug)]
 pub enum FrontEndCommand {
     Quit(oneshot::Sender<()>),
+    RequestDepositProcessing,
 }
 
 #[tokio::main]
@@ -144,12 +146,23 @@ impl MockConsensusDriver {
             sleep(tokio::time::Duration::from_secs(self.tick_delay_in_seconds)).await;
         };
 
+        let mut next_frontend_command = None;
+
         loop {
             sleep(tokio::time::Duration::from_secs(self.tick_delay_in_seconds)).await;
 
-            if let Ok(FrontEndCommand::Quit(notify)) = self.frontend_command_rx.try_recv() {
-                unix_sock_tx.send(VaultRequest::Disconnect).await.unwrap();
-                notify.send(()).unwrap();
+            match self.frontend_command_rx.try_recv() {
+                Ok(FrontEndCommand::Quit(notify)) => {
+                    unix_sock_tx.send(VaultRequest::Disconnect).await.unwrap();
+                    notify.send(()).unwrap();
+                }
+                Ok(FrontEndCommand::RequestDepositProcessing) => {
+                    next_frontend_command = Some(FrontEndCommand::RequestDepositProcessing);
+                }
+
+                Err(e) => {
+                    error!(target: "driver", "Frontend error: {:?}", e);
+                }
             }
 
             // Send a request to the vault-manager
@@ -159,12 +172,22 @@ impl MockConsensusDriver {
                         current_progress_point,
                         ..
                     }) => {
-                        // TODO: if received withdrawal or deposit action from frontend, put it through
-                        //unix_sock_tx.send(VaultRequest::ProcessDeposits).await.unwrap();
-                        unix_sock_tx
-                            .send(VaultRequest::SyncFrom(Some(current_progress_point.clone())))
-                            .await
-                            .unwrap();
+                        let next_command = next_frontend_command.take();
+                        if let Some(command) = next_command {
+                            match command {
+                                FrontEndCommand::RequestDepositProcessing => {
+                                    unix_sock_tx.send(VaultRequest::ProcessDeposits).await.unwrap();
+                                }
+                                FrontEndCommand::Quit(_) => {
+                                    unreachable!()
+                                }
+                            }
+                        } else {
+                            unix_sock_tx
+                                .send(VaultRequest::SyncFrom(Some(current_progress_point.clone())))
+                                .await
+                                .unwrap();
+                        }
                     }
                     Some(VaultStatus::Syncing {
                         current_progress_point,

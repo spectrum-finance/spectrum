@@ -5,9 +5,11 @@ use ergo_chain_sync::client::{
     node::{ErgoNetwork as _, ErgoNodeHttpClient},
     types::{InvalidUrl, Url},
 };
-use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
 use ergo_lib::chain::transaction::UnsignedInput;
 use ergo_lib::wallet::signing::TransactionContext;
+use ergo_lib::{
+    chain::transaction::unsigned::UnsignedTransaction, wallet::mnemonic_generator::MnemonicGenerator,
+};
 use ergo_lib::{
     chain::{ergo_box::box_builder::ErgoBoxCandidateBuilder, transaction::TxIoVec},
     ergo_chain_types::EcPoint,
@@ -179,6 +181,10 @@ async fn main() {
             let box_id = BoxId::try_from(box_id).unwrap();
 
             make_refund_deposit_tx(box_id, &mut config).await;
+        }
+
+        Command::GenerateWallet => {
+            gen_mnemonic();
         }
     }
 }
@@ -805,6 +811,18 @@ async fn make_refund_deposit_tx(deposit_box_id: BoxId, config: &mut AppConfigWit
     }
 }
 
+fn gen_mnemonic() {
+    let gen = MnemonicGenerator::new(ergo_lib::wallet::mnemonic_generator::Language::English, 256);
+    let mnemonic = gen.generate().unwrap();
+    let seed = SeedPhrase::from(mnemonic.clone());
+    let (_, wallet_addr) = Wallet::try_from_seed(seed).expect("Invalid wallet seed");
+    println!(
+        "WALLET ADDR: {:?}",
+        AddressEncoder::new(NetworkPrefix::Mainnet).address_to_str(&wallet_addr)
+    );
+    println!("MNEMONIC: {}", mnemonic);
+}
+
 pub fn proto_term_cell(nano_ergs: u64, tokens: Vec<Token>, address_bytes: Vec<u8>) -> ProtoTermCell {
     let dst = BoxDestination {
         target: ChainId::from(0),
@@ -1072,4 +1090,6 @@ enum Command {
         /// Path to the YAML configuration file.
         config_path: String,
     },
+
+    GenerateWallet,
 }

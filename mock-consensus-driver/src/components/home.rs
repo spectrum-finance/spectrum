@@ -15,31 +15,38 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{
-    ChainTxEvent, ConfirmedInboundValue, InboundValue, SpectrumTx, SpectrumTxType, VaultMsgOut,
-    VaultResponse, VaultStatus,
+    ChainTxEvent, ConfirmedInboundValue, InboundValue, PendingDepositStatus, PendingTxStatus, SpectrumTx,
+    SpectrumTxType, VaultBalance, VaultMsgOut, VaultResponse, VaultStatus,
 };
-use spectrum_ergo_connector::rocksdb::vault_boxes::ErgoNotarizationBounds;
+use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_ergo_connector::script::ExtraErgoData;
-use spectrum_ledger::cell::{Owner, SValue, TermCell};
-use std::{collections::HashMap, time::Duration};
+use spectrum_ergo_connector::{rocksdb::vault_boxes::ErgoNotarizationBounds, AncillaryVaultInfo};
+use spectrum_ledger::cell::{Owner, PolicyId, SValue, TermCell};
+use std::{collections::HashMap, rc::Rc, time::Duration};
 use tokio::sync::mpsc::UnboundedSender;
+use tui_textarea::TextArea;
 
 use super::{Component, Frame};
-use crate::event::Event;
 use crate::{
     action::Action,
+    color_scheme::{BLUE, DARK_ORANGE, GREEN},
     config::{Config, KeyBindings},
     tui,
 };
+use crate::{color_scheme::PURPLE, event::Event};
 
 #[derive(Default)]
-pub struct Home {
+pub struct Home<'a> {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
     vault_manager_status: Option<VaultStatus<ExtraErgoData, BoxId>>,
-    vault_utxo_details: Option<SValue>,
+    vault_utxo_details: Option<VaultBalance<AncillaryVaultInfo>>,
     deposits: Vec<(InboundValue<BoxId>, DepositStatus)>,
+    confirmed_transactions: Vec<SpectrumTx<BoxId, AncillaryVaultInfo>>,
     exported_values: Vec<TermCell>,
+    tx_table_state: TableState,
+    active_block: ActiveBlock,
+    deposit_textarea: TextArea<'a>,
 }
 
 enum DepositStatus {
@@ -48,13 +55,7 @@ enum DepositStatus {
     Processed,
 }
 
-impl Home {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-impl Component for Home {
+impl<'a> Component for Home<'a> {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
         self.command_tx = Some(tx);
         Ok(())
@@ -77,7 +78,10 @@ impl Component for Home {
                     self.vault_manager_status = Some(status);
                     for msg in messages {
                         match msg {
-                            VaultMsgOut::TxEvent(ChainTxEvent::Applied(SpectrumTx { tx_type, .. })) => {
+                            VaultMsgOut::TxEvent(ChainTxEvent::Applied(
+                                ref tx @ SpectrumTx { ref tx_type, .. },
+                            )) => {
+                                self.confirmed_transactions.push(tx.clone());
                                 match tx_type {
                                     SpectrumTxType::Deposit {
                                         imported_value,
@@ -93,7 +97,7 @@ impl Component for Home {
                                                 .unwrap();
                                             self.deposits[ix].1 = DepositStatus::Processed;
                                         }
-                                        self.vault_utxo_details = Some(vault_balance.value.clone());
+                                        self.vault_utxo_details = Some(vault_balance.clone());
                                         info!(
                                             target: "driver",
                                             "DEPOSIT CONFIRMED. BALANCE: {:?}, vault_utxo_details: {:?}",
@@ -105,8 +109,8 @@ impl Component for Home {
                                         exported_value,
                                         vault_balance,
                                     } => {
-                                        self.exported_values.extend(exported_value);
-                                        self.vault_utxo_details = Some(vault_balance.value.clone());
+                                        self.exported_values.extend(exported_value.iter().cloned());
+                                        self.vault_utxo_details = Some(vault_balance.clone());
                                         info!(
                                             target: "driver",
                                             "WITHDRAWAL CONFIRMED. BALANCE: {:?}, vault_utxo_details: {:?}",
@@ -118,7 +122,8 @@ impl Component for Home {
                                         if !self.deposits.iter().any(|d| {
                                             d.0.on_chain_identifier == inbound_value.on_chain_identifier
                                         }) {
-                                            self.deposits.push((inbound_value, DepositStatus::Unprocessed));
+                                            self.deposits
+                                                .push((inbound_value.clone(), DepositStatus::Unprocessed));
                                         }
                                     }
                                     SpectrumTxType::RefundedDeposit(inbound_value) => {
@@ -150,7 +155,88 @@ impl Component for Home {
 
     fn update(&mut self, action: Action) -> Result<Option<Action>> {
         match action {
-            Action::Tick => {}
+            Action::NextBlock => {
+                self.active_block = self.active_block.next();
+            }
+            Action::EnterKey(e) => {
+                match e.code {
+                    KeyCode::Char(c) => {
+                        match c {
+                            'k' => {
+                                match self.active_block {
+                                    ActiveBlock::Transactions => {
+                                        let num_table_txs = self.num_deposits_and_withdrawals();
+                                        if let Some(ix) = self.tx_table_state.selected() {
+                                            if ix == 0 {
+                                                self.tx_table_state.select(Some(num_table_txs - 1));
+                                            } else {
+                                                self.tx_table_state.select(Some(ix - 1));
+                                            }
+                                        } else {
+                                            self.tx_table_state.select(Some(0));
+                                        }
+                                    }
+                                    ActiveBlock::MakeDeposits => {
+                                        // Pass through to text-area
+                                        self.deposit_textarea.input(e);
+                                    }
+                                    _ => (),
+                                }
+                            }
+                            'j' => {
+                                match self.active_block {
+                                    ActiveBlock::Transactions => {
+                                        let num_table_txs = self.num_deposits_and_withdrawals();
+                                        if let Some(ix) = self.tx_table_state.selected() {
+                                            if ix == num_table_txs - 1 {
+                                                self.tx_table_state.select(Some(0));
+                                            } else {
+                                                self.tx_table_state.select(Some(ix + 1));
+                                            }
+                                        } else {
+                                            self.tx_table_state.select(Some(0));
+                                        }
+                                    }
+                                    ActiveBlock::MakeDeposits => {
+                                        // Pass through to text-area
+                                        self.deposit_textarea.input(e);
+                                    }
+                                    _ => (),
+                                }
+                            }
+                            'q' => {
+                                if !matches!(self.active_block, ActiveBlock::MakeDeposits) {
+                                    return Ok(Some(Action::Quit));
+                                } else {
+                                    // Pass through to text-area in MakeDeposits
+                                    self.deposit_textarea.input(e);
+                                }
+                            }
+                            _ => {
+                                if matches!(self.active_block, ActiveBlock::MakeDeposits) {
+                                    self.deposit_textarea.input(e);
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        if matches!(self.active_block, ActiveBlock::MakeDeposits) {
+                            self.deposit_textarea
+                                .input(tui_textarea::Input::from(KeyEvent::from(KeyCode::Backspace)));
+                        }
+                    }
+                    KeyCode::Enter => {
+                        if matches!(self.active_block, ActiveBlock::MakeDeposits) {
+                            if let Some(s) = self.deposit_textarea.lines().first() {
+                                if s.trim() == "deposit" {
+                                    return Ok(Some(Action::RequestDepositProcessing));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
         Ok(None)
@@ -166,7 +252,54 @@ impl Component for Home {
             ])
             .split(f.size());
 
-        info!(target: "driver", "HOME DRAW: vault details: {:?}", self.vault_utxo_details);
+        self.render_main_block(f, rows[0]);
+
+        // This row will contain the 'Transactions' and 'Desposits' blocks.
+        let second_row = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[1]);
+
+        self.render_tx_block(f, second_row[0]);
+        self.render_deposits_block(f, second_row[1]);
+
+        let main_row = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[2]);
+
+        self.render_make_deposits_block(f, main_row[0]);
+
+        f.render_widget(
+            Paragraph::new("Select").style(Style::reset()).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(Title::from(" Make Withdrawals "))
+                    .style(self.block_border_style(ActiveBlock::MakeWithdrawals))
+                    .border_type(BorderType::Rounded)
+                    .padding(Padding::uniform(1)),
+            ),
+            main_row[1],
+        );
+
+        Ok(())
+    }
+}
+
+impl<'a> Home<'a> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn block_border_style(&self, block: ActiveBlock) -> Style {
+        if self.active_block == block {
+            Style::default().fg(PURPLE).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().add_modifier(Modifier::BOLD)
+        }
+    }
+
+    fn render_main_block(&mut self, f: &mut Frame<'_>, row: Rect) {
         let mut vault_lines = render_vault_utxo_details(&self.vault_utxo_details);
         let status_line = render_status_line(&self.vault_manager_status);
         vault_lines.push(status_line);
@@ -176,71 +309,130 @@ impl Component for Home {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(Title::from(" Spectrum Network Vault "))
-                    .style(Style::default().fg(Color::Indexed(57)))
+                    .style(self.block_border_style(ActiveBlock::Main))
                     .border_type(BorderType::Rounded)
                     .padding(Padding::uniform(1)),
             ),
-            rows[0],
+            row,
         );
+    }
 
-        let second_row = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(rows[1]);
+    fn render_tx_block(&mut self, f: &mut Frame<'_>, rect: Rect) {
+        let mut tx_rows: Vec<_> = self
+            .confirmed_transactions
+            .iter()
+            .filter_map(|t| {
+                let tx_type = match t.tx_type {
+                    SpectrumTxType::Deposit { .. } => Cell::from("DEPOSIT").style(Style::reset()),
+                    SpectrumTxType::Withdrawal { .. } => Cell::from("WITHDRAWAL").style(Style::reset()),
+                    _ => return None,
+                };
 
-        let mut tx_rows = vec![Row::new(vec![
-            Cell::from("WITHDRAWAL"),
-            Cell::from("0E2DC..."),
-            Cell::from("20.3567"),
-            Cell::from("10"),
-            Cell::from("400"),
-            Cell::from("1158866"),
-            Cell::from("PENDING").style(Style::default().fg(Color::Yellow)),
-        ])];
+                let mut cells = vec![tx_type];
+                let height_cell =
+                    Cell::from(u64::from(t.progress_point.point).to_string()).style(Style::reset());
+                let status_cell = Cell::from("CONFIRMED").style(Style::reset().fg(GREEN));
 
-        tx_rows.extend(gen_tx_rows());
+                match &t.tx_type {
+                    SpectrumTxType::Deposit {
+                        imported_value,
+                        vault_balance,
+                    } => {
+                        let ValueSummary { ergs, .. } = summarise_inbound_value(imported_value);
+                        let tx_id_cell = Cell::from(vault_balance.on_chain_characteristics.tx_id.to_string())
+                            .style(Style::reset());
+                        cells.extend([tx_id_cell, ergs, height_cell, status_cell]);
+                    }
+                    SpectrumTxType::Withdrawal {
+                        exported_value,
+                        vault_balance,
+                    } => {
+                        let ValueSummary { ergs, .. } = summarise_term_cells(exported_value);
+                        let tx_id_cell = Cell::from(vault_balance.on_chain_characteristics.tx_id.to_string())
+                            .style(Style::reset());
+                        cells.extend([tx_id_cell, ergs, height_cell, status_cell]);
+                    }
+                    _ => return None,
+                }
+                Some(Row::new(cells))
+            })
+            .collect();
+
+        // Check if there's a pending TX
+        if let Some(status) = &self.vault_manager_status {
+            match status {
+                VaultStatus::Synced {
+                    current_progress_point,
+                    pending_tx_status: Some(tx_status),
+                }
+                | VaultStatus::Syncing {
+                    current_progress_point,
+                    pending_tx_status: Some(tx_status),
+                    ..
+                } => {
+                    let height_cell =
+                        Cell::from(u64::from(current_progress_point.point).to_string()).style(Style::reset());
+                    let tx_id_cell = Cell::from("...".to_string()).style(Style::reset());
+                    match tx_status {
+                        PendingTxStatus::Export(e) => todo!(),
+                        PendingTxStatus::Deposit(d) => {
+                            let PendingDepositStatus { identifier, status } = d;
+                            let ValueSummary { ergs, .. } = summarise_inbound_value(identifier);
+                            let status_cell = Cell::from("PENDING").style(Style::reset().fg(DARK_ORANGE));
+                            let tx_type = Cell::from("DEPOSIT").style(Style::reset());
+
+                            tx_rows.push(Row::new(vec![
+                                tx_type,
+                                tx_id_cell,
+                                ergs,
+                                height_cell,
+                                status_cell,
+                            ]));
+                        }
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        tx_rows.reverse();
 
         let widths = [
-            Constraint::Length(15),
             Constraint::Length(10),
-            Constraint::Length(10),
-            Constraint::Length(13),
-            Constraint::Length(13),
-            Constraint::Length(10),
-            Constraint::Length(10),
+            Constraint::Min(10),
+            Constraint::Length(7),
+            Constraint::Length(9),
+            Constraint::Length(9),
         ];
 
-        let table = Table::new(tx_rows, &widths)
-            .column_spacing(1)
+        let table = Table::new(tx_rows, widths)
+            .column_spacing(2)
             .header(
-                Row::new(vec![
-                    "Type",
-                    "TX ID",
-                    "Ergs",
-                    "# Token IDs",
-                    "Qty tokens",
-                    "Height",
-                    "Status",
-                ])
-                .style(Style::default().add_modifier(Modifier::BOLD)),
+                Row::new(vec!["Type", "TX ID", "Ergs", "Height ▼", "Status"])
+                    .style(Style::reset().add_modifier(Modifier::BOLD)),
             )
-            .highlight_symbol(">");
+            .highlight_style(Style::reset().bg(PURPLE))
+            .highlight_symbol("> ");
 
-        f.render_widget(
+        f.render_stateful_widget(
             table.block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title(Title::from(" Transactions "))
+                    .style(self.block_border_style(ActiveBlock::Transactions))
                     .border_type(BorderType::Rounded)
                     .padding(Padding::uniform(1)),
             ),
-            second_row[0],
+            rect,
+            &mut self.tx_table_state,
         );
+    }
 
+    fn render_deposits_block(&mut self, f: &mut Frame<'_>, rect: Rect) {
         let widths = [
-            Constraint::Length(40),
             Constraint::Length(10),
-            Constraint::Length(20),
+            Constraint::Length(9),
+            Constraint::Length(13),
         ];
 
         let deposit_rows: Vec<_> = self
@@ -257,26 +449,28 @@ impl Component for Home {
                     NetworkPrefix::Mainnet,
                     &Address::P2Pk(prove_dlog),
                 );
-                let status_cell = Cell::from(match status {
-                    DepositStatus::Unprocessed => "UNPROCESSED",
-                    DepositStatus::Refunded => "REFUNDED",
-                    DepositStatus::Processed => "PROCESSED",
-                });
+                let status_cell = match status {
+                    DepositStatus::Unprocessed => {
+                        Cell::from("UNPROCESSED").style(Style::reset().fg(DARK_ORANGE))
+                    }
+                    DepositStatus::Refunded => Cell::from("REFUNDED").style(Style::reset().fg(BLUE)),
+                    DepositStatus::Processed => Cell::from("PROCESSED").style(Style::reset().fg(GREEN)),
+                };
                 Row::new(vec![
-                    Cell::from(owner_str.to_string()),
+                    Cell::from(owner_str.to_string()).style(Style::reset()),
                     Cell::from(format!(
                         "{:?}",
                         (u64::from(inbound_value.value.native) as f64 / 1000000000.0)
-                    )),
+                    ))
+                    .style(Style::reset()),
                     status_cell,
                 ])
             })
             .collect();
         let deposit_cell_table = Table::new(deposit_rows, widths)
-            .column_spacing(1)
+            .column_spacing(2)
             .header(
-                Row::new(vec!["From", "Value", "Status"])
-                    .style(Style::default().add_modifier(Modifier::BOLD)),
+                Row::new(vec!["From", "Ergs", "Status"]).style(Style::reset().add_modifier(Modifier::BOLD)),
             )
             .highlight_symbol(">");
 
@@ -285,98 +479,114 @@ impl Component for Home {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(Title::from(" Deposits "))
+                    .style(self.block_border_style(ActiveBlock::Deposits))
                     .border_type(BorderType::Rounded)
                     .padding(Padding::uniform(1)),
             ),
-            second_row[1],
+            rect,
         );
+    }
 
-        let main_row = Layout::default()
+    fn render_make_deposits_block(&mut self, f: &mut Frame<'_>, rect: Rect) {
+        let outer_block = Block::new()
+            .borders(Borders::ALL)
+            .title(Title::from(" Process deposits "))
+            .border_type(BorderType::Rounded)
+            .style(self.block_border_style(ActiveBlock::MakeDeposits))
+            .padding(Padding::uniform(1));
+
+        let inner = outer_block.inner(rect);
+
+        f.render_widget(outer_block, rect);
+
+        let rows = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(rows[2]);
+            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+            .split(inner);
 
         f.render_widget(
-            Paragraph::new(
-                r#"STRATEGY
-  - Sequential deposits
-  - 'n' deposits at a time 
-            "#,
-            )
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(Title::from(" Make Deposits "))
-                    .border_type(BorderType::Rounded)
-                    .padding(Padding::uniform(1)),
-            ),
-            main_row[0],
+            Paragraph::new("Type 'deposit' then press ENTER to initiate Spectrum-Network deposit TX")
+                .style(Style::reset())
+                .wrap(Wrap { trim: true }),
+            rows[0],
         );
 
-        f.render_widget(
-            Paragraph::new(
-                r#" SELECT RECIPIENTS
-  1. 9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMF
-  2. 9etVzf2G2FtYsnKT187ZYe8HFKkMmVqrNByAAk3ofhm58BswBc3
-            "#,
-            )
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(Title::from(" Make Withdrawals "))
-                    .border_type(BorderType::Rounded)
-                    .padding(Padding::uniform(1)),
-            ),
-            main_row[1],
+        let textarea_border_style = if let Some(s) = self.deposit_textarea.lines().first() {
+            if s.trim() == "deposit" {
+                Style::reset().fg(GREEN)
+            } else {
+                Style::reset()
+            }
+        } else {
+            Style::reset()
+        };
+
+        self.deposit_textarea.set_style(Style::reset());
+        self.deposit_textarea.set_block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(textarea_border_style),
         );
 
-        Ok(())
+        f.render_widget(self.deposit_textarea.widget(), rows[1]);
+    }
+
+    fn num_deposits_and_withdrawals(&self) -> usize {
+        self.confirmed_transactions
+            .iter()
+            .filter(|t| {
+                matches!(
+                    t.tx_type,
+                    SpectrumTxType::Deposit { .. } | SpectrumTxType::Withdrawal { .. }
+                )
+            })
+            .count()
     }
 }
 
 fn render_status_line(vault_manager_status: &Option<VaultStatus<ExtraErgoData, BoxId>>) -> Line {
     let mut spans = vec![Span::styled(
         "Connector status: ",
-        Style::default().add_modifier(Modifier::BOLD),
+        Style::reset().add_modifier(Modifier::BOLD),
     )];
 
     match vault_manager_status {
         Some(VaultStatus::Synced {
             current_progress_point,
-            pending_tx_status: pending_export_status,
+            ..
         }) => {
-            spans.push(Span::styled("Sync'ed", Style::default().fg(Color::Green)));
+            spans.push(Span::styled("Sync'ed", Style::reset().fg(GREEN)));
             spans.push(Span::styled(
                 format!(", @ block height: {}", u64::from(current_progress_point.point)),
-                Style::default(),
+                Style::reset(),
             ));
         }
         Some(VaultStatus::Syncing {
             current_progress_point,
             num_points_remaining,
-            pending_tx_status: pending_export_status,
+            ..
         }) => {
             let extra_spans = vec![
-                Span::styled("Syncing", Style::default().fg(Color::Yellow)),
+                Span::styled("Syncing", Style::reset().fg(DARK_ORANGE)),
                 Span::styled(
                     format!(", @ block height: {}", u64::from(current_progress_point.point)),
-                    Style::default(),
+                    Style::reset(),
                 ),
                 Span::styled(
                     format!(", # blocks remaining: {}", num_points_remaining),
-                    Style::default(),
+                    Style::reset(),
                 ),
             ];
             spans.extend(extra_spans);
         }
         None => {
-            spans.push(Span::styled("Unknown", Style::default()));
+            spans.push(Span::styled("Unknown", Style::reset()));
         }
     };
     Line::from(spans)
 }
 
-fn render_vault_utxo_details(value: &Option<SValue>) -> Vec<Line> {
+fn render_vault_utxo_details(value: &Option<VaultBalance<AncillaryVaultInfo>>) -> Vec<Line> {
     let spans = vec![Span::styled(
         "Vault UTxO: ",
         Style::reset().add_modifier(Modifier::BOLD),
@@ -385,7 +595,10 @@ fn render_vault_utxo_details(value: &Option<SValue>) -> Vec<Line> {
     let vault_heading = Line::from(spans);
 
     let content = if let Some(value) = value {
-        format!("  Value: {:?}", value.native)
+        format!(
+            "  Value: {} ergs",
+            (u64::from(value.value.native) as f64 / 1000000000.0)
+        )
     } else {
         String::from("  UNKNOWN")
     };
@@ -396,56 +609,86 @@ fn render_vault_utxo_details(value: &Option<SValue>) -> Vec<Line> {
     vec![vault_heading, value_line]
 }
 
-fn gen_tx_rows<'a>() -> Vec<Row<'a>> {
-    let mut rng = OsRng;
-    let n = rng.gen_range(10..30);
-    let tx_type = ["DEPOSIT", "WITHDRAWAL"];
-    let mut res = vec![];
-
-    let mut height = 1158826;
-
-    for _ in 0..30 {
-        res.push(Row::new(vec![
-            Cell::from(tx_type[rng.gen_range(0_usize..2)]),
-            Cell::from(generate_random_hex()),
-            Cell::from(format!("{:.4}", rng.gen_range(10.2..26.5))),
-            Cell::from(rng.gen_range(1..11).to_string()),
-            Cell::from(rng.gen_range(10..100000).to_string()),
-            Cell::from(height.to_string()),
-            Cell::from("CONFIRMED").style(Style::default().fg(Color::Green)),
-        ]));
-
-        height -= rng.gen_range(20..40);
-    }
-    res
+fn to_key_input(e: KeyEvent) -> tui_textarea::Input {
+    tui_textarea::Input::from(e)
 }
 
-fn gen_cells<'a>() -> Vec<Row<'a>> {
-    let mut rng = OsRng;
-    let n = rng.gen_range(10..30);
-    let mut res = vec![];
-
-    let mut height = 1158826;
-
-    for _ in 0..30 {
-        res.push(Row::new(vec![
-            Cell::from(generate_random_hex()),
-            Cell::from(format!("{:.4}", rng.gen_range(10.2..26.5))),
-            Cell::from("..."),
-        ]));
-
-        height -= rng.gen_range(20..40);
-    }
-    res
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveBlock {
+    Main,
+    Transactions,
+    Deposits,
+    MakeWithdrawals,
+    MakeDeposits,
 }
 
-fn generate_random_hex() -> String {
-    let hex_chars: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .filter(|c| c.is_ascii_hexdigit())
-        .take(5)
-        .map(char::from)
-        .collect();
+impl ActiveBlock {
+    fn next(self) -> Self {
+        match self {
+            ActiveBlock::Main => ActiveBlock::Transactions,
+            ActiveBlock::Transactions => ActiveBlock::Deposits,
+            ActiveBlock::Deposits => ActiveBlock::MakeDeposits,
+            ActiveBlock::MakeDeposits => ActiveBlock::MakeWithdrawals,
+            ActiveBlock::MakeWithdrawals => ActiveBlock::Main,
+        }
+    }
+}
 
-    format!("{}...", hex_chars)
+impl Default for ActiveBlock {
+    fn default() -> Self {
+        ActiveBlock::Main
+    }
+}
+
+fn summarise_inbound_value(values: &Vec<InboundValue<BoxId>>) -> ValueSummary {
+    let mut ergs = 0.0;
+    let mut total_num_tokens = 0;
+    let mut token_qty = 0;
+    let policy_id = PolicyId::from(Blake2bDigest256::zero());
+    for inbound_value in values {
+        ergs += u64::from(inbound_value.value.native) as f64 / 1000000000.0;
+        if let Some(tokens) = inbound_value.value.assets.get(&policy_id) {
+            total_num_tokens += tokens.len();
+            token_qty += tokens.values().fold(0, |acc, t| acc + u64::from(*t));
+        }
+    }
+    let total_num_tokens = Cell::from(total_num_tokens.to_string()).style(Style::reset());
+    let total_qty_tokens = Cell::from(token_qty.to_string()).style(Style::reset());
+    let ergs = Cell::from(format!("{:.5}", ergs)).style(Style::reset());
+
+    ValueSummary {
+        ergs,
+        total_num_tokens,
+        total_qty_tokens,
+    }
+}
+
+fn summarise_term_cells(values: &Vec<TermCell>) -> ValueSummary {
+    let mut ergs = 0.0;
+    let mut total_num_tokens = 0;
+    let mut token_qty = 0;
+    let policy_id = PolicyId::from(Blake2bDigest256::zero());
+
+    for cell in values {
+        ergs += u64::from(cell.value.native) as f64 / 1000000000.0;
+        if let Some(tokens) = cell.value.assets.get(&policy_id) {
+            total_num_tokens += tokens.len();
+            token_qty += tokens.values().fold(0, |acc, t| acc + u64::from(*t));
+        }
+    }
+    let total_num_tokens = Cell::from(total_num_tokens.to_string()).style(Style::reset());
+    let total_qty_tokens = Cell::from(token_qty.to_string()).style(Style::reset());
+    let ergs = Cell::from(format!("{:.5}", ergs)).style(Style::reset());
+
+    ValueSummary {
+        ergs,
+        total_num_tokens,
+        total_qty_tokens,
+    }
+}
+
+struct ValueSummary<'a> {
+    ergs: Cell<'a>,
+    total_num_tokens: Cell<'a>,
+    total_qty_tokens: Cell<'a>,
 }

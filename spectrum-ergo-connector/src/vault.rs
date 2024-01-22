@@ -197,6 +197,7 @@ where
                             AncillaryVaultInfo {
                                 box_id: vault_output.box_id(),
                                 height,
+                                tx_id: tx.id(),
                             },
                         );
 
@@ -253,6 +254,7 @@ where
                             AncillaryVaultInfo {
                                 box_id: vault_output.box_id(),
                                 height,
+                                tx_id: tx.id(),
                             },
                         );
 
@@ -285,6 +287,7 @@ where
                                         tx_type: ErgoTxType::RefundedDeposit(unprocessed_deposit.0 .1),
                                     }))
                                     .await;
+                                self.deposit_repo.remove_unprocessed(input.box_id).await;
                             }
                         }
 
@@ -350,6 +353,7 @@ where
                             AncillaryVaultInfo {
                                 box_id: vault_box_id,
                                 height,
+                                tx_id: tx.id(),
                             },
                         );
 
@@ -386,6 +390,7 @@ where
                             AncillaryVaultInfo {
                                 box_id: vault_box_id,
                                 height,
+                                tx_id: tx.id(),
                             },
                         );
 

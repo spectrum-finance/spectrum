@@ -1,6 +1,7 @@
 use color_eyre::eyre::Result;
 use crossterm::event::KeyEvent;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
+use log::{error, info};
 use ratatui::prelude::Rect;
 use spectrum_chain_connector::{InboundValue, VaultResponse};
 use spectrum_ergo_connector::rocksdb::vault_boxes::ErgoNotarizationBounds;
@@ -147,11 +148,19 @@ impl App {
                             }
                         })?;
                     }
+                    Action::RequestDepositProcessing => {
+                        command_tx
+                            .send(FrontEndCommand::RequestDepositProcessing)
+                            .await
+                            .unwrap();
+                    }
                     _ => {}
                 }
                 for component in self.components.iter_mut() {
                     if let Some(action) = component.update(action.clone())? {
-                        action_tx.send(action)?
+                        if let Err(e) = action_tx.send(action) {
+                            error!(target: "driver", "Error sending Action {:?}", e);
+                        }
                     };
                 }
             }

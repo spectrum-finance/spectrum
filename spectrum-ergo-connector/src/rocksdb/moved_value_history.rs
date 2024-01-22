@@ -360,6 +360,7 @@ mod tests {
                     AncillaryVaultInfo {
                         box_id: force_any_val(),
                         height: 1000,
+                        tx_id: force_any_val(),
                     },
                 ),
             },

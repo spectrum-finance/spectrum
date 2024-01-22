@@ -1,3 +1,4 @@
+use crossterm::event::KeyEvent;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -11,4 +12,7 @@ pub enum Action {
     Refresh,
     Error(String),
     Help,
+    NextBlock,
+    EnterKey(KeyEvent),
+    RequestDepositProcessing,
 }

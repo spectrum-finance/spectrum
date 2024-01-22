@@ -91,7 +91,38 @@ impl<'de> Deserialize<'de> for KeyBindings {
     where
         D: Deserializer<'de>,
     {
-        let parsed_map = HashMap::<Mode, HashMap<String, Action>>::deserialize(deserializer)?;
+        let mut parsed_map = HashMap::<Mode, HashMap<String, Action>>::deserialize(deserializer)?;
+
+        let keys_by_mode = parsed_map
+            .iter()
+            .map(|(mode, map)| (*mode, map.keys().cloned().collect::<Vec<_>>()))
+            .collect::<HashMap<Mode, Vec<_>>>();
+
+        let chars = ('a'..='z').chain('0'..='9').chain(std::iter::once('.'));
+
+        for c in chars {
+            let c_str = format!("<{}>", c);
+            for (mode, map) in parsed_map.iter_mut() {
+                if !keys_by_mode.get(mode).unwrap().contains(&c_str) {
+                    map.insert(c_str.clone(), Action::EnterKey(KeyEvent::from(KeyCode::Char(c))));
+
+                    let mut event_with_shift = KeyEvent::from(KeyCode::Char(c));
+                    event_with_shift.modifiers = KeyModifiers::SHIFT;
+                    map.insert(format!("<shift-{}>", c), Action::EnterKey(event_with_shift));
+                }
+            }
+        }
+
+        for map in parsed_map.values_mut() {
+            map.insert(
+                "<backspace>".to_string(),
+                Action::EnterKey(KeyEvent::from(KeyCode::Backspace)),
+            );
+            map.insert(
+                "<enter>".to_string(),
+                Action::EnterKey(KeyEvent::from(KeyCode::Enter)),
+            );
+        }
 
         let keybindings = parsed_map
             .into_iter()
