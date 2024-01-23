@@ -22,7 +22,7 @@ use super::vault_boxes::VaultUtxo;
 /// Store the entire history of `ErgoTxEvents`, allowing a new consensus-driver to sync with
 /// the ergo-connector.
 #[async_trait(?Send)]
-pub trait MovedValueHistory {
+pub trait ErgoTxEventHistory {
     async fn append(&mut self, moved_value: ErgoTxEvent);
     /// Returns `ErgoTxEvent` that is closest and >= `height`.
     async fn get(&self, height: u32) -> Option<(ErgoTxEvent, u32)>;
@@ -146,11 +146,11 @@ impl From<ErgoTxEvent> for ChainTxEvent<BoxId, AncillaryVaultInfo> {
     }
 }
 
-pub struct MovedValueHistoryRocksDB {
+pub struct ErgoTxEventHistoryRocksDB {
     db: Arc<rocksdb::OptimisticTransactionDB>,
 }
 
-impl MovedValueHistoryRocksDB {
+impl ErgoTxEventHistoryRocksDB {
     pub fn new(db_path: &str) -> Self {
         Self {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(db_path).unwrap()),
@@ -159,7 +159,7 @@ impl MovedValueHistoryRocksDB {
 }
 
 #[async_trait(?Send)]
-impl MovedValueHistory for MovedValueHistoryRocksDB {
+impl ErgoTxEventHistory for ErgoTxEventHistoryRocksDB {
     async fn append(&mut self, moved_value: ErgoTxEvent) {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || {
@@ -216,7 +216,7 @@ pub struct InMemoryMovedValueHistory {
 }
 
 #[async_trait(?Send)]
-impl MovedValueHistory for InMemoryMovedValueHistory {
+impl ErgoTxEventHistory for InMemoryMovedValueHistory {
     async fn append(&mut self, moved_value: ErgoTxEvent) {
         self.history.push(moved_value);
     }
@@ -259,14 +259,14 @@ mod tests {
 
     use crate::{
         rocksdb::{
-            moved_value_history::{InMemoryMovedValueHistory, MovedValueHistory},
+            ergo_tx_event_history::{ErgoTxEventHistory, InMemoryMovedValueHistory},
             vault_boxes::VaultUtxo,
         },
         script::{ErgoCell, ErgoTermCell},
         AncillaryVaultInfo,
     };
 
-    use super::{ErgoTxEvent, ErgoTxType, MovedValueHistoryRocksDB, SpectrumErgoTx};
+    use super::{ErgoTxEvent, ErgoTxEventHistoryRocksDB, ErgoTxType, SpectrumErgoTx};
 
     #[tokio::test]
     async fn test_rocksdb_single_insertion() {
@@ -280,7 +280,7 @@ mod tests {
         single_insertion(history).await;
     }
 
-    async fn single_insertion<M: MovedValueHistory>(mut history: M) {
+    async fn single_insertion<M: ErgoTxEventHistory>(mut history: M) {
         let height = 1234;
         let mv = gen_moved_value(height);
         history.append(mv.clone()).await;
@@ -306,7 +306,7 @@ mod tests {
         two_insertions(history).await;
     }
 
-    async fn two_insertions<M: MovedValueHistory>(mut history: M) {
+    async fn two_insertions<M: ErgoTxEventHistory>(mut history: M) {
         let height = 1234;
         let mv_0 = gen_moved_value(height);
         let mv_1 = gen_moved_value(height + 10);
@@ -355,9 +355,9 @@ mod tests {
         })
     }
 
-    fn rocks_db_client() -> MovedValueHistoryRocksDB {
+    fn rocks_db_client() -> ErgoTxEventHistoryRocksDB {
         let rnd = rand::thread_rng().next_u32();
-        MovedValueHistoryRocksDB {
+        ErgoTxEventHistoryRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
         }
     }

@@ -34,7 +34,7 @@ use vault::VaultHandler;
 
 use crate::{
     rocksdb::{
-        deposits::DepositRepoRocksDB, moved_value_history::MovedValueHistoryRocksDB,
+        deposits::DepositRepoRocksDB, ergo_tx_event_history::ErgoTxEventHistoryRocksDB,
         tx_retry_scheduler::TxRetrySchedulerRocksDB, vault_boxes::ErgoNotarizationBounds,
     },
     script::ExtraErgoData,
@@ -206,7 +206,7 @@ async fn main() {
         config.vault_utxo_token_id,
         TxIoVec::try_from(data_inputs).unwrap(),
         config.chain_sync_starting_height,
-        MovedValueHistoryRocksDB::new(&config.moved_value_history_db_path),
+        ErgoTxEventHistoryRocksDB::new(&config.moved_value_history_db_path),
         TxRetrySchedulerRocksDB::new(
             &config.tx_retry_db_path,
             config.tx_retry_config.retry_delay_duration.num_seconds(),

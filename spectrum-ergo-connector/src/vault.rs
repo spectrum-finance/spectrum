@@ -45,14 +45,14 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_lm::data::AsBox;
 
-use crate::rocksdb::moved_value_history::{ErgoTxType, SpectrumErgoTx};
+use crate::rocksdb::ergo_tx_event_history::{ErgoTxType, SpectrumErgoTx};
 use crate::rocksdb::tx_retry_scheduler::{DepositInProgress, TxInProgress};
 use crate::AncillaryVaultInfo;
 use crate::{
     committee::{CommitteeData, FirstCommitteeBox, SubsequentCommitteeBox},
     rocksdb::{
         deposits::{DepositRepo, DepositRepoRocksDB, UnprocessedDeposit},
-        moved_value_history::{self, ErgoTxEvent, MovedValueHistory},
+        ergo_tx_event_history::{self, ErgoTxEvent, ErgoTxEventHistory},
         tx_retry_scheduler::{Command, ExportInProgress, TxRetryScheduler},
         vault_boxes::{ErgoNotarizationBounds, VaultBoxRepo, VaultBoxRepoRocksDB, VaultUtxo},
         withdrawals::{WithdrawalRepo, WithdrawalRepoRocksDB},
@@ -82,7 +82,7 @@ pub struct VaultHandler<MVH, E> {
 
 impl<M, E> VaultHandler<M, E>
 where
-    M: MovedValueHistory,
+    M: ErgoTxEventHistory,
     E: TxRetryScheduler<TxInProgress, PendingTxIdentifier<ExtraErgoData, BoxId>>,
 {
     pub fn new(
@@ -204,7 +204,7 @@ where
                                 vault_info,
                             },
                         };
-                        let ergo_moved_value = moved_value_history::ErgoTxEvent::Applied(tx);
+                        let ergo_moved_value = ergo_tx_event_history::ErgoTxEvent::Applied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
 
@@ -261,7 +261,7 @@ where
                                 vault_info,
                             },
                         };
-                        let ergo_moved_value = moved_value_history::ErgoTxEvent::Applied(tx);
+                        let ergo_moved_value = ergo_tx_event_history::ErgoTxEvent::Applied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
                     None => {
@@ -360,7 +360,7 @@ where
                                 vault_info,
                             },
                         };
-                        let ergo_moved_value = moved_value_history::ErgoTxEvent::Unapplied(tx);
+                        let ergo_moved_value = ergo_tx_event_history::ErgoTxEvent::Unapplied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
                     Some(VaultTx::Deposits { deposits }) => {
@@ -397,7 +397,7 @@ where
                                 vault_info,
                             },
                         };
-                        let ergo_moved_value = moved_value_history::ErgoTxEvent::Unapplied(tx);
+                        let ergo_moved_value = ergo_tx_event_history::ErgoTxEvent::Unapplied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
                     None => {
