@@ -28,6 +28,17 @@ responds. The requests that the consensus-driver can make are:
  4. Request the connector to process deposit UTxOs into the Spectrum-Network Vault.
  5. Request to effect a rotation of the consensus commmittee.
 
+```mermaid
+flowchart TD
+A(On-chain)
+B(Consensus-driver)
+D[Connector]
+A -- TxEvent --> D
+B -- ConnectorRequest --> D
+D -- ConnectorResponse --> B
+D -- Submit export report and proof --> A
+```
+
 ### Rust API
 
 Values of the following enum are sent by the consensus-driver.
@@ -135,13 +146,23 @@ pub enum SpectrumTxType<T, U> {
 ```
 
 
-```mermaid
-flowchart TD
-A(On-chain)
-B(Consensus-driver)
-D[Connector]
-A -- TxEvent --> D
-B -- ConnectorRequest --> D
-D -- ConnectorResponse --> B
-D -- Submit export report and proof --> A
-```
+### Message flow with UNIX sockets
+
+There are extra complications when using UNIX sockets for IPC communication in the presence of
+repeated connections and disconnections. A common pattern in async Rust applications is to use
+message-passing with channels (involving a Sender and Receiver), and such a pattern is used
+with UNIX socket communications.
+
+The problem we have here is that the Senders and Receivers associated with a UNIX socket cannot
+be reused across multiple openings/closings. Referring to the diagram below, the Senders and
+Receivers in dashed-outline only last as long as a given socket is open. Once a driver disconnects,
+they can no longer be used. 
+
+We can isolate management of these channels to a separate async task (coloured blue in the diagram)
+and an implementer of a connector and consensus-driver need only to create channels
+`(connector_response_tx, connector_response_rx)` and `(request_to_connector_tx, request_to_connector_rx)`
+on startup of the connector binary.
+
+![Alt text](./assets/SpectrumNetworkUnixSocketsConnector.svg)
+
+

@@ -105,11 +105,11 @@ async fn main() {
 
     let unix_socket_path = config.unix_socket_path.clone();
 
-    let (vm_response_tx, vm_response_rx) = tokio::sync::mpsc::channel::<
+    let (connector_response_tx, connector_response_rx) = tokio::sync::mpsc::channel::<
         ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
     >(10);
 
-    let (req_to_vm_tx, mut req_to_vm_rx) =
+    let (request_to_connector_tx, mut request_to_connector_rx) =
         tokio::sync::mpsc::channel::<ConnectorRequest<ExtraErgoData, BoxId>>(10);
 
     // Spawn tasks:
@@ -125,7 +125,7 @@ async fn main() {
         tokio::spawn(async move {
             while let Some(req) = driver_req_rx.recv().await {
                 // Pass on this request to the Connector
-                req_to_vm_tx.send(req).await.unwrap();
+                request_to_connector_tx.send(req).await.unwrap();
             }
         });
 
@@ -153,7 +153,7 @@ async fn main() {
             ReceiverStream::new(response_sender_rx)
                 .map(MergedStream::NewUnixSender)
                 .boxed(),
-            ReceiverStream::new(vm_response_rx)
+            ReceiverStream::new(connector_response_rx)
                 .map(|r| MergedStream::VaultManagerResponse(Box::new(r)))
                 .boxed(),
         ];
@@ -231,7 +231,7 @@ async fn main() {
     // Convert the tokio_unix_ipc Receiver into a stream.
     let consensus_driver_stream = stream! {
         loop {
-            yield req_to_vm_rx.recv().await;
+            yield request_to_connector_rx.recv().await;
         }
     };
 
@@ -277,7 +277,7 @@ async fn main() {
                             let status = ergo_connector.get_connector_status(current_height).await;
 
                             let messages = vec![];
-                            vm_response_tx
+                            connector_response_tx
                                 .send(ConnectorResponse { status, messages })
                                 .await
                                 .unwrap();
@@ -289,7 +289,7 @@ async fn main() {
                             let status = ergo_connector.get_connector_status(current_height).await;
 
                             let messages = vec![];
-                            vm_response_tx
+                            connector_response_tx
                                 .send(ConnectorResponse { status, messages })
                                 .await
                                 .unwrap();
@@ -304,7 +304,7 @@ async fn main() {
                                 let messages = vec![ConnectorMsgOut::ProposedTxsToNotarize(bounds)];
                                 info!(target: "vault", "Responding to RequestTxsToNotarize. status: {:?}, messages: {:?}", status, messages);
 
-                                vm_response_tx
+                                connector_response_tx
                                     .send(ConnectorResponse { status, messages })
                                     .await
                                     .unwrap();
@@ -333,7 +333,7 @@ async fn main() {
                             "respond to SyncFrom({:?}). Current height: {} status: {:?}, messages: {:?}",
                             point, current_height, status, messages
                             );
-                            vm_response_tx
+                            connector_response_tx
                                 .send(ConnectorResponse { status, messages })
                                 .await
                                 .unwrap();
@@ -350,7 +350,7 @@ async fn main() {
                             let current_height = node.get_height().await;
                             let status = ergo_connector.get_connector_status(current_height).await;
                             info!(target: "vault", "respond to AcknowledgeConfirmedExportTx. status: {:?}, messages: {:?}", status, messages);
-                            vm_response_tx
+                            connector_response_tx
                                 .send(ConnectorResponse { status, messages })
                                 .await
                                 .unwrap();
@@ -367,7 +367,7 @@ async fn main() {
                             let current_height = node.get_height().await;
                             let status = ergo_connector.get_connector_status(current_height).await;
                             info!(target: "vault", "respond to AcknowledgeAbortedExportTx. status: {:?}, messages: {:?}", status, messages);
-                            vm_response_tx
+                            connector_response_tx
                                 .send(ConnectorResponse { status, messages })
                                 .await
                                 .unwrap();
