@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 
 pub mod committee;
 pub mod deposit;
+pub mod ergo_connector;
 pub mod rocksdb;
 pub mod script;
 pub mod tx_event;
 pub mod tx_in_progress;
-pub mod vault_handler;
 pub mod vault_utxo;
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]

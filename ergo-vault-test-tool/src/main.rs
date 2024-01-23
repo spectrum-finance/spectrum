@@ -610,7 +610,7 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
     config.operator_funding_secret = seed;
     let wallet = ergo_lib::wallet::Wallet::from_mnemonic(&secret_str, "").unwrap();
 
-    let signed_tx = spectrum_ergo_connector::vault_handler::verify_vault_contract_ergoscript_with_sigma_rust(
+    let signed_tx = spectrum_ergo_connector::ergo_connector::verify_vault_contract_ergoscript_with_sigma_rust(
         inputs,
         config.committee_public_keys.len() as u32,
         ergo_state_context,

@@ -34,7 +34,8 @@ use k256::ProjectivePoint;
 use log::info;
 use num_bigint::{BigUint, Sign};
 use spectrum_chain_connector::{
-    NotarizedReport, NotarizedReportConstraints, PendingTxIdentifier, PendingTxStatus, TxEvent, VaultStatus,
+    ConnectorStatus, NotarizedReport, NotarizedReportConstraints, PendingTxIdentifier, PendingTxStatus,
+    TxEvent,
 };
 use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_ledger::{cell::ProgressPoint, interop::Point, ChainId};
@@ -68,7 +69,7 @@ use crate::{
 const MAX_SYNCED_BLOCK_HEIGHTS: usize = 100;
 const MAX_MOVED_VALUES_PER_RESPONSE: usize = 100;
 
-pub struct VaultHandler<MVH, E> {
+pub struct ErgoConnector<MVH, E> {
     vault_box_repo: VaultUtxoRepoRocksDB,
     withdrawal_repo: WithdrawalRepoRocksDB,
     deposit_repo: DepositRepoRocksDB,
@@ -82,7 +83,7 @@ pub struct VaultHandler<MVH, E> {
     genesis_vault_utxo_box_id: Option<VaultUtxo>,
 }
 
-impl<M, E> VaultHandler<M, E>
+impl<M, E> ErgoConnector<M, E>
 where
     M: ErgoTxEventHistory,
     E: TxRetryScheduler<TxInProgress, PendingTxIdentifier<ExtraErgoData, BoxId>>,
@@ -452,7 +453,7 @@ where
             .map(ErgoNotarizationBounds::from)
     }
 
-    pub async fn get_vault_status(&self, current_height: u32) -> VaultStatus<ExtraErgoData, BoxId> {
+    pub async fn get_connector_status(&self, current_height: u32) -> ConnectorStatus<ExtraErgoData, BoxId> {
         let current_sync_height = self
             .synced_block_heights
             .back()
@@ -468,13 +469,13 @@ where
         );
 
         if current_height > current_sync_height {
-            VaultStatus::Syncing {
+            ConnectorStatus::Syncing {
                 current_progress_point,
                 num_points_remaining: current_height - current_sync_height,
                 pending_tx_status,
             }
         } else {
-            VaultStatus::Synced {
+            ConnectorStatus::Synced {
                 current_progress_point,
                 pending_tx_status,
             }
@@ -497,7 +498,7 @@ where
 
     pub async fn process_deposits(&mut self, is_resubmission: bool, ergo_node: &ErgoNodeHttpClient) -> bool {
         let current_height = ergo_node.get_height().await;
-        if let VaultStatus::Syncing { .. } = self.get_vault_status(current_height).await {
+        if let ConnectorStatus::Syncing { .. } = self.get_connector_status(current_height).await {
             info!(target: "vault", "CHAIN TIP NOT REACHED");
             return false;
         }
@@ -643,7 +644,7 @@ where
         ergo_node: &ErgoNodeHttpClient,
     ) -> bool {
         let current_height = ergo_node.get_height().await;
-        if let VaultStatus::Syncing { .. } = self.get_vault_status(current_height).await {
+        if let ConnectorStatus::Syncing { .. } = self.get_connector_status(current_height).await {
             info!(target: "vault", "CHAIN TIP NOT REACHED");
             return false;
         }

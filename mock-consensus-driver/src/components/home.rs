@@ -13,8 +13,8 @@ use ratatui::{
     widgets::{block::*, *},
 };
 use spectrum_chain_connector::{
-    ChainTxEvent, InboundValue, PendingDepositStatus, PendingExportStatus, PendingTxStatus, ProtoTermCell,
-    SpectrumTx, SpectrumTxType, VaultBalance, VaultMsgOut, VaultResponse, VaultStatus,
+    ChainTxEvent, ConnectorMsgOut, ConnectorResponse, ConnectorStatus, InboundValue, PendingDepositStatus,
+    PendingExportStatus, PendingTxStatus, ProtoTermCell, SpectrumTx, SpectrumTxType, VaultBalance,
 };
 use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_ergo_connector::script::ExtraErgoData;
@@ -41,7 +41,7 @@ use crate::{color_scheme::PURPLE, event::Event};
 pub struct Home<'a> {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
-    vault_manager_status: Option<VaultStatus<ExtraErgoData, BoxId>>,
+    connector_status: Option<ConnectorStatus<ExtraErgoData, BoxId>>,
     vault_utxo_details: Vec<VaultBalance<AncillaryVaultInfo>>,
     deposits: Vec<(InboundValue<BoxId>, DepositStatus)>,
     confirmed_transactions: Vec<SpectrumTx<BoxId, AncillaryVaultInfo>>,
@@ -78,11 +78,11 @@ impl<'a> Component for Home<'a> {
                     tui::Event::Mouse(mouse_event) => self.handle_mouse_events(mouse_event)?,
                     _ => None,
                 },
-                Event::VaultManager(VaultResponse { status, messages }) => {
-                    self.vault_manager_status = Some(status);
+                Event::Connector(ConnectorResponse { status, messages }) => {
+                    self.connector_status = Some(status);
                     for msg in messages {
                         match msg {
-                            VaultMsgOut::TxEvent(ChainTxEvent::Applied(
+                            ConnectorMsgOut::TxEvent(ChainTxEvent::Applied(
                                 ref tx @ SpectrumTx { ref tx_type, .. },
                             )) => {
                                 self.confirmed_transactions.push(tx.clone());
@@ -142,7 +142,7 @@ impl<'a> Component for Home<'a> {
                                     }
                                 }
                             }
-                            VaultMsgOut::TxEvent(ChainTxEvent::Unapplied(ref tx)) => {
+                            ConnectorMsgOut::TxEvent(ChainTxEvent::Unapplied(ref tx)) => {
                                 // Note: it's assumed that TXs are unapplied in reverse chronological order.
                                 let removed_tx = self.confirmed_transactions.pop().unwrap();
                                 assert_eq!(removed_tx, *tx);
@@ -207,8 +207,8 @@ impl<'a> Component for Home<'a> {
                                     }
                                 }
                             }
-                            VaultMsgOut::ProposedTxsToNotarize(_) => {}
-                            VaultMsgOut::GenesisVaultUtxo(s) => {
+                            ConnectorMsgOut::ProposedTxsToNotarize(_) => {}
+                            ConnectorMsgOut::GenesisVaultUtxo(s) => {
                                 //self.vault_utxo_details = Some(s);
                             }
                         }
@@ -396,14 +396,14 @@ impl<'a> Home<'a> {
 
     fn render_main_block(&mut self, f: &mut Frame<'_>, row: Rect) {
         let mut vault_lines = render_vault_utxo_details(self.vault_utxo_details.last());
-        let status_line = render_status_line(&self.vault_manager_status);
+        let status_line = render_status_line(&self.connector_status);
         vault_lines.push(status_line);
 
         f.render_widget(
             Paragraph::new(vault_lines).block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(Title::from(" Spectrum Network Vault "))
+                    .title(Title::from(" Spectrum Network Ergo Vault "))
                     .style(self.block_border_style(ActiveBlock::Main))
                     .border_type(BorderType::Rounded)
                     .padding(Padding::uniform(1)),
@@ -454,13 +454,13 @@ impl<'a> Home<'a> {
             .collect();
 
         // Check if there's a pending TX
-        if let Some(status) = &self.vault_manager_status {
+        if let Some(status) = &self.connector_status {
             match status {
-                VaultStatus::Synced {
+                ConnectorStatus::Synced {
                     current_progress_point,
                     pending_tx_status: Some(tx_status),
                 }
-                | VaultStatus::Syncing {
+                | ConnectorStatus::Syncing {
                     current_progress_point,
                     pending_tx_status: Some(tx_status),
                     ..
@@ -696,14 +696,14 @@ impl<'a> Home<'a> {
     }
 }
 
-fn render_status_line(vault_manager_status: &Option<VaultStatus<ExtraErgoData, BoxId>>) -> Line {
+fn render_status_line(vault_manager_status: &Option<ConnectorStatus<ExtraErgoData, BoxId>>) -> Line {
     let mut spans = vec![Span::styled(
         "Connector status: ",
         Style::reset().add_modifier(Modifier::BOLD),
     )];
 
     match vault_manager_status {
-        Some(VaultStatus::Synced {
+        Some(ConnectorStatus::Synced {
             current_progress_point,
             ..
         }) => {
@@ -713,7 +713,7 @@ fn render_status_line(vault_manager_status: &Option<VaultStatus<ExtraErgoData, B
                 Style::reset(),
             ));
         }
-        Some(VaultStatus::Syncing {
+        Some(ConnectorStatus::Syncing {
             current_progress_point,
             num_points_remaining,
             ..

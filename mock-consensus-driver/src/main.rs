@@ -12,9 +12,9 @@ use k256::SecretKey;
 use log::{error, info};
 use serde::Deserialize;
 use spectrum_chain_connector::{
-    ChainTxEvent, Kilobytes, NotarizedReport, NotarizedReportConstraints, PendingDepositStatus,
-    PendingExportStatus, PendingTxIdentifier, PendingTxStatus, ProtoTermCell, SpectrumTx, SpectrumTxType,
-    TxStatus, VaultMsgOut, VaultRequest, VaultResponse, VaultStatus,
+    ChainTxEvent, ConnectorMsgOut, ConnectorRequest, ConnectorResponse, ConnectorStatus, Kilobytes,
+    NotarizedReport, NotarizedReportConstraints, PendingDepositStatus, PendingExportStatus,
+    PendingTxIdentifier, PendingTxStatus, ProtoTermCell, SpectrumTx, SpectrumTxType, TxStatus,
 };
 use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_ergo_connector::{
@@ -85,12 +85,12 @@ async fn main() {
 }
 
 struct MockConsensusDriver {
-    vault_manager_status: Option<VaultStatus<ExtraErgoData, BoxId>>,
+    connector_status: Option<ConnectorStatus<ExtraErgoData, BoxId>>,
     pending_tx_status: Option<PendingTxStatus<ExtraErgoData, BoxId>>,
     unix_socket_path: PathBuf,
     committee_secret_keys: Vec<SecretKey>,
     frontend_tx: tokio::sync::mpsc::Sender<
-        VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+        ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
     >,
     frontend_command_rx: tokio::sync::mpsc::Receiver<FrontEndCommand>,
     tick_delay_in_seconds: u64,
@@ -103,13 +103,13 @@ impl MockConsensusDriver {
         unix_socket_path: PathBuf,
         committee_secret_keys: Vec<SecretKey>,
         frontend_tx: tokio::sync::mpsc::Sender<
-            VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+            ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
         >,
         frontend_command_rx: tokio::sync::mpsc::Receiver<FrontEndCommand>,
         tick_delay_in_seconds: u64,
     ) -> Self {
         Self {
-            vault_manager_status: None,
+            connector_status: None,
             pending_tx_status: None,
             unix_socket_path,
             committee_secret_keys,
@@ -125,8 +125,8 @@ impl MockConsensusDriver {
         // Keep trying to connect to the unix socket.
         let (unix_sock_tx, unix_sock_rx) = loop {
             if let Ok(receiver) = Receiver::<(
-                Sender<VaultRequest<ExtraErgoData, BoxId>>,
-                Receiver<VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>>,
+                Sender<ConnectorRequest<ExtraErgoData, BoxId>>,
+                Receiver<ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>>,
             )>::connect(self.unix_socket_path.clone())
             .await
             {
@@ -144,7 +144,7 @@ impl MockConsensusDriver {
 
             match self.frontend_command_rx.try_recv() {
                 Ok(FrontEndCommand::Quit(notify)) => {
-                    unix_sock_tx.send(VaultRequest::Disconnect).await.unwrap();
+                    unix_sock_tx.send(ConnectorRequest::Disconnect).await.unwrap();
                     notify.send(()).unwrap();
                 }
                 Ok(FrontEndCommand::RequestDepositProcessing) => {
@@ -159,8 +159,8 @@ impl MockConsensusDriver {
 
             // Send a request to the vault-manager
             match &self.pending_tx_status {
-                None => match &self.vault_manager_status {
-                    Some(VaultStatus::Synced {
+                None => match &self.connector_status {
+                    Some(ConnectorStatus::Synced {
                         current_progress_point,
                         ..
                     }) => {
@@ -168,7 +168,10 @@ impl MockConsensusDriver {
                         if let Some(command) = next_command {
                             match command {
                                 FrontEndCommand::RequestDepositProcessing => {
-                                    unix_sock_tx.send(VaultRequest::ProcessDeposits).await.unwrap();
+                                    unix_sock_tx
+                                        .send(ConnectorRequest::ProcessDeposits)
+                                        .await
+                                        .unwrap();
                                 }
                                 FrontEndCommand::RequestWithdrawal(term_cells) => {
                                     self.proposed_withdrawal_term_cells = Some(term_cells.clone());
@@ -183,7 +186,7 @@ impl MockConsensusDriver {
                                     };
 
                                     unix_sock_tx
-                                        .send(VaultRequest::RequestTxsToNotarize(constraints))
+                                        .send(ConnectorRequest::RequestTxsToNotarize(constraints))
                                         .await
                                         .unwrap();
                                 }
@@ -197,28 +200,28 @@ impl MockConsensusDriver {
                             if let Some(notarized_report) = self.notarized_report_to_send.take() {
                                 info!(target: "driver", "Sending request to export value");
                                 unix_sock_tx
-                                    .send(VaultRequest::ExportValue(Box::new(notarized_report)))
+                                    .send(ConnectorRequest::ExportValue(Box::new(notarized_report)))
                                     .await
                                     .unwrap();
                             } else {
                                 unix_sock_tx
-                                    .send(VaultRequest::SyncFrom(Some(current_progress_point.clone())))
+                                    .send(ConnectorRequest::SyncFrom(Some(current_progress_point.clone())))
                                     .await
                                     .unwrap();
                             }
                         }
                     }
-                    Some(VaultStatus::Syncing {
+                    Some(ConnectorStatus::Syncing {
                         current_progress_point,
                         ..
                     }) => {
                         unix_sock_tx
-                            .send(VaultRequest::SyncFrom(Some(current_progress_point.clone())))
+                            .send(ConnectorRequest::SyncFrom(Some(current_progress_point.clone())))
                             .await
                             .unwrap();
                     }
                     None => {
-                        unix_sock_tx.send(VaultRequest::SyncFrom(None)).await.unwrap();
+                        unix_sock_tx.send(ConnectorRequest::SyncFrom(None)).await.unwrap();
                     }
                 },
 
@@ -230,9 +233,9 @@ impl MockConsensusDriver {
                         TxStatus::Confirmed => {
                             info!(target: "driver", "ACK CONFIRMED EXPORT TX");
                             unix_sock_tx
-                                .send(VaultRequest::AcknowledgeConfirmedTx(
+                                .send(ConnectorRequest::AcknowledgeConfirmedTx(
                                     PendingTxIdentifier::Export(Box::new(data.clone())),
-                                    self.vault_manager_status
+                                    self.connector_status
                                         .clone()
                                         .map(|status| status.get_current_progress_point())
                                         .unwrap(),
@@ -243,9 +246,9 @@ impl MockConsensusDriver {
                         TxStatus::Aborted => {
                             info!(target: "driver", "ACK ABORTED EXPORT TX");
                             unix_sock_tx
-                                .send(VaultRequest::AcknowledgeAbortedTx(
+                                .send(ConnectorRequest::AcknowledgeAbortedTx(
                                     PendingTxIdentifier::Export(Box::new(data.clone())),
-                                    self.vault_manager_status
+                                    self.connector_status
                                         .clone()
                                         .map(|status| status.get_current_progress_point())
                                         .unwrap(),
@@ -255,8 +258,8 @@ impl MockConsensusDriver {
                         }
                         TxStatus::WaitingForConfirmation => {
                             unix_sock_tx
-                                .send(VaultRequest::SyncFrom(
-                                    self.vault_manager_status
+                                .send(ConnectorRequest::SyncFrom(
+                                    self.connector_status
                                         .clone()
                                         .map(|status| status.get_current_progress_point()),
                                 ))
@@ -270,8 +273,8 @@ impl MockConsensusDriver {
                     }) => match status {
                         TxStatus::WaitingForConfirmation => {
                             unix_sock_tx
-                                .send(VaultRequest::SyncFrom(
-                                    self.vault_manager_status
+                                .send(ConnectorRequest::SyncFrom(
+                                    self.connector_status
                                         .clone()
                                         .map(|status| status.get_current_progress_point()),
                                 ))
@@ -281,9 +284,9 @@ impl MockConsensusDriver {
                         TxStatus::Confirmed => {
                             info!(target: "driver", "ACK CONFIRMED DEPOSIT TX");
                             unix_sock_tx
-                                .send(VaultRequest::AcknowledgeConfirmedTx(
+                                .send(ConnectorRequest::AcknowledgeConfirmedTx(
                                     PendingTxIdentifier::Deposit(data.clone()),
-                                    self.vault_manager_status
+                                    self.connector_status
                                         .clone()
                                         .map(|status| status.get_current_progress_point())
                                         .unwrap(),
@@ -294,9 +297,9 @@ impl MockConsensusDriver {
                         TxStatus::Aborted => {
                             info!(target: "driver", "ACK ABORTED DEPOSIT TX");
                             unix_sock_tx
-                                .send(VaultRequest::AcknowledgeAbortedTx(
+                                .send(ConnectorRequest::AcknowledgeAbortedTx(
                                     PendingTxIdentifier::Deposit(data.clone()),
-                                    self.vault_manager_status
+                                    self.connector_status
                                         .clone()
                                         .map(|status| status.get_current_progress_point())
                                         .unwrap(),
@@ -311,14 +314,14 @@ impl MockConsensusDriver {
             // Get response from vault manager.
             let resp = unix_sock_rx.recv().await.unwrap();
             self.frontend_tx.send(resp.clone()).await.unwrap();
-            let VaultResponse { status, messages } = resp;
+            let ConnectorResponse { status, messages } = resp;
 
             self.pending_tx_status = status.get_pending_tx_status();
-            self.vault_manager_status = Some(status);
+            self.connector_status = Some(status);
 
             for msg in messages {
                 match msg {
-                    VaultMsgOut::TxEvent(mv) => match mv {
+                    ConnectorMsgOut::TxEvent(mv) => match mv {
                         ChainTxEvent::Applied(SpectrumTx { tx_type, .. }) => match tx_type {
                             SpectrumTxType::Deposit { .. } => {
                                 // TODO: to be processed by Spectrum Network L1
@@ -340,7 +343,7 @@ impl MockConsensusDriver {
                             // TODO: to be processed by Spectrum Network L1
                         }
                     },
-                    VaultMsgOut::ProposedTxsToNotarize(bounds) => {
+                    ConnectorMsgOut::ProposedTxsToNotarize(bounds) => {
                         info!(target: "driver", "notarization bounds: {:?}", bounds);
                         let vault_utxos: Vec<_> = bounds.vault_utxos.into();
                         let term_cells = self.proposed_withdrawal_term_cells.take().unwrap();
@@ -390,7 +393,7 @@ impl MockConsensusDriver {
                         self.notarized_report_to_send = Some(notarized_report);
                     }
 
-                    VaultMsgOut::GenesisVaultUtxo(value) => {
+                    ConnectorMsgOut::GenesisVaultUtxo(value) => {
                         error!(target: "driver", "GOT GENESIS VAULT UTXO: {:?}", value);
                     }
                 }

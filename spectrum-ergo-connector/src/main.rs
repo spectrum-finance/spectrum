@@ -3,6 +3,7 @@ use chrono::Duration;
 use clap::{arg, command, Parser};
 use data_bridge::{ErgoDataBridge, ErgoDataBridgeConfig};
 use ergo_chain_sync::client::{node::ErgoNodeHttpClient, types::Url};
+use ergo_connector::ErgoConnector;
 use ergo_lib::{
     chain::transaction::{Transaction, TxIoVec},
     ergo_chain_types::EcPoint,
@@ -22,7 +23,8 @@ use rocksdb::{vault_boxes::VaultUtxoRepoRocksDB, withdrawals::WithdrawalRepoRock
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use spectrum_chain_connector::{
-    ChainTxEvent, DataBridge, DataBridgeComponents, TxEvent, VaultMsgOut, VaultRequest, VaultResponse,
+    ChainTxEvent, ConnectorMsgOut, ConnectorRequest, ConnectorResponse, DataBridge, DataBridgeComponents,
+    TxEvent,
 };
 use spectrum_deploy_lm_pool::Explorer;
 use spectrum_ergo_connector::AncillaryVaultInfo;
@@ -30,7 +32,6 @@ use spectrum_ledger::cell::SValue;
 use spectrum_offchain::network::ErgoNetwork as EN;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_unix_ipc::{symmetric_channel, Bootstrapper};
-use vault_handler::VaultHandler;
 
 use crate::{
     rocksdb::{
@@ -43,11 +44,11 @@ use crate::{
 mod committee;
 mod data_bridge;
 mod deposit;
+mod ergo_connector;
 mod rocksdb;
 mod script;
 mod tx_event;
 mod tx_in_progress;
-mod vault_handler;
 mod vault_utxo;
 
 #[tokio::main]
@@ -105,32 +106,32 @@ async fn main() {
     let unix_socket_path = config.unix_socket_path.clone();
 
     let (vm_response_tx, vm_response_rx) = tokio::sync::mpsc::channel::<
-        VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+        ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
     >(10);
 
     let (req_to_vm_tx, mut req_to_vm_rx) =
-        tokio::sync::mpsc::channel::<VaultRequest<ExtraErgoData, BoxId>>(10);
+        tokio::sync::mpsc::channel::<ConnectorRequest<ExtraErgoData, BoxId>>(10);
 
     // Spawn tasks:
     // 1. Contains bootstrapper and routes messages between driver and vault-handler. Also manages
     //    unix socket senders/receivers when driver disconnects
     tokio::spawn(async move {
         let (driver_req_tx, mut driver_req_rx) =
-            tokio::sync::mpsc::channel::<VaultRequest<ExtraErgoData, BoxId>>(10);
+            tokio::sync::mpsc::channel::<ConnectorRequest<ExtraErgoData, BoxId>>(10);
 
         // For every session that a driver connects, we clone `vm_req_tx`
 
         // This long-running task will stay to forward requests from the driver to the vault manager
         tokio::spawn(async move {
             while let Some(req) = driver_req_rx.recv().await {
-                // pass on this request to vault handler
+                // Pass on this request to the Connector
                 req_to_vm_tx.send(req).await.unwrap();
             }
         });
 
         let (response_sender_tx, response_sender_rx) = tokio::sync::mpsc::channel::<
             tokio_unix_ipc::Sender<
-                VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+                ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
             >,
         >(10);
 
@@ -138,11 +139,11 @@ async fn main() {
         enum MergedStream {
             NewUnixSender(
                 tokio_unix_ipc::Sender<
-                    VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+                    ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
                 >,
             ),
             VaultManagerResponse(
-                Box<VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>>,
+                Box<ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>>,
             ),
         }
 
@@ -175,9 +176,9 @@ async fn main() {
 
         loop {
             let (msg_in_send, msg_in_recv) =
-                symmetric_channel::<VaultRequest<ExtraErgoData, BoxId>>().unwrap();
+                symmetric_channel::<ConnectorRequest<ExtraErgoData, BoxId>>().unwrap();
             let (msg_out_send, msg_out_recv) = symmetric_channel::<
-                VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+                ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
             >()
             .unwrap();
             let bootstrapper = Bootstrapper::bind(unix_socket_path.clone()).unwrap();
@@ -188,11 +189,11 @@ async fn main() {
 
             while let Ok(req) = msg_in_recv.recv().await {
                 match req {
-                    VaultRequest::Disconnect => {
+                    ConnectorRequest::Disconnect => {
                         break;
                     }
                     e => {
-                        // pass off to task above, which forwards to vault manager
+                        // Pass off to task above, which forwards to the Connector
                         let _ = driver_req_tx.send(e).await;
                     }
                 }
@@ -200,7 +201,7 @@ async fn main() {
         }
     });
 
-    let mut vault_handler = VaultHandler::new(
+    let mut ergo_connector = ErgoConnector::new(
         vault_box_repo,
         withdrawal_repo,
         deposit_repo,
@@ -221,7 +222,7 @@ async fn main() {
 
     enum StreamValueFrom {
         Chain(TxEvent<(Transaction, u32)>),
-        Driver(Option<VaultRequest<ExtraErgoData, BoxId>>),
+        Driver(Option<ConnectorRequest<ExtraErgoData, BoxId>>),
         ResubmitTx,
     }
 
@@ -258,131 +259,131 @@ async fn main() {
     while let Some(m) = combined_stream.next().await {
         match m {
             StreamValueFrom::Chain(tx_event) => {
-                vault_handler.handle(tx_event).await;
+                ergo_connector.handle(tx_event).await;
             }
             StreamValueFrom::Driver(msg_in) => {
                 if let Some(request) = msg_in {
                     match request {
-                        VaultRequest::ExportValue(report) => {
+                        ConnectorRequest::ExportValue(report) => {
                             let current_height = node.get_height().await;
                             let vault_utxo = explorer
                                 .get_box(*report.additional_chain_data.vault_utxos.first().unwrap())
                                 .await
                                 .unwrap();
-                            vault_handler
+                            ergo_connector
                                 .export_value(*report.clone(), false, vault_utxo, &node)
                                 .await;
 
-                            let status = vault_handler.get_vault_status(current_height).await;
+                            let status = ergo_connector.get_connector_status(current_height).await;
 
                             let messages = vec![];
                             vm_response_tx
-                                .send(VaultResponse { status, messages })
+                                .send(ConnectorResponse { status, messages })
                                 .await
                                 .unwrap();
                         }
 
-                        VaultRequest::ProcessDeposits => {
+                        ConnectorRequest::ProcessDeposits => {
                             let current_height = node.get_height().await;
-                            vault_handler.process_deposits(false, &node).await;
-                            let status = vault_handler.get_vault_status(current_height).await;
+                            ergo_connector.process_deposits(false, &node).await;
+                            let status = ergo_connector.get_connector_status(current_height).await;
 
                             let messages = vec![];
                             vm_response_tx
-                                .send(VaultResponse { status, messages })
+                                .send(ConnectorResponse { status, messages })
                                 .await
                                 .unwrap();
                         }
 
-                        VaultRequest::RequestTxsToNotarize(constraints) => {
-                            let res = vault_handler.select_txs_to_notarize(constraints).await;
+                        ConnectorRequest::RequestTxsToNotarize(constraints) => {
+                            let res = ergo_connector.select_txs_to_notarize(constraints).await;
 
                             if let Ok(bounds) = res {
                                 let current_height = node.get_height().await;
-                                let status = vault_handler.get_vault_status(current_height).await;
-                                let messages = vec![VaultMsgOut::ProposedTxsToNotarize(bounds)];
+                                let status = ergo_connector.get_connector_status(current_height).await;
+                                let messages = vec![ConnectorMsgOut::ProposedTxsToNotarize(bounds)];
                                 info!(target: "vault", "Responding to RequestTxsToNotarize. status: {:?}, messages: {:?}", status, messages);
 
                                 vm_response_tx
-                                    .send(VaultResponse { status, messages })
+                                    .send(ConnectorResponse { status, messages })
                                     .await
                                     .unwrap();
                             }
                         }
 
-                        VaultRequest::SyncFrom(point) => {
-                            let mut messages: Vec<_> = vault_handler
+                        ConnectorRequest::SyncFrom(point) => {
+                            let mut messages: Vec<_> = ergo_connector
                                 .sync_consensus_driver(point.as_ref().map(|p| u64::from(p.point) as u32))
                                 .await
                                 .into_iter()
-                                .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
+                                .map(|ergo_mv| ConnectorMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
                                 .collect();
-                            if let Some(genesis_vault_utxo) = vault_handler.get_genesis_vault_utxo() {
+                            if let Some(genesis_vault_utxo) = ergo_connector.get_genesis_vault_utxo() {
                                 if point.is_none() {
                                     info!(target: "vault", "PUSHING OUT GENESIS VAULT UTXO");
-                                    messages.push(VaultMsgOut::GenesisVaultUtxo(SValue::from(
+                                    messages.push(ConnectorMsgOut::GenesisVaultUtxo(SValue::from(
                                         &genesis_vault_utxo,
                                     )));
                                 }
                             }
                             let current_height = node.get_height().await;
-                            let status = vault_handler.get_vault_status(current_height).await;
+                            let status = ergo_connector.get_connector_status(current_height).await;
                             info!(
                             target: "vault",
                             "respond to SyncFrom({:?}). Current height: {} status: {:?}, messages: {:?}",
                             point, current_height, status, messages
                             );
                             vm_response_tx
-                                .send(VaultResponse { status, messages })
+                                .send(ConnectorResponse { status, messages })
                                 .await
                                 .unwrap();
                         }
 
-                        VaultRequest::AcknowledgeConfirmedTx(identifier, point) => {
-                            vault_handler.acknowledge_confirmed_tx(&identifier).await;
-                            let messages: Vec<_> = vault_handler
+                        ConnectorRequest::AcknowledgeConfirmedTx(identifier, point) => {
+                            ergo_connector.acknowledge_confirmed_tx(&identifier).await;
+                            let messages: Vec<_> = ergo_connector
                                 .sync_consensus_driver(Some(u64::from(point.point) as u32))
                                 .await
                                 .into_iter()
-                                .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
+                                .map(|ergo_mv| ConnectorMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
                                 .collect();
                             let current_height = node.get_height().await;
-                            let status = vault_handler.get_vault_status(current_height).await;
+                            let status = ergo_connector.get_connector_status(current_height).await;
                             info!(target: "vault", "respond to AcknowledgeConfirmedExportTx. status: {:?}, messages: {:?}", status, messages);
                             vm_response_tx
-                                .send(VaultResponse { status, messages })
+                                .send(ConnectorResponse { status, messages })
                                 .await
                                 .unwrap();
                         }
 
-                        VaultRequest::AcknowledgeAbortedTx(identifier, point) => {
-                            vault_handler.acknowledge_aborted_tx(&identifier).await;
-                            let messages: Vec<_> = vault_handler
+                        ConnectorRequest::AcknowledgeAbortedTx(identifier, point) => {
+                            ergo_connector.acknowledge_aborted_tx(&identifier).await;
+                            let messages: Vec<_> = ergo_connector
                                 .sync_consensus_driver(Some(u64::from(point.point) as u32))
                                 .await
                                 .into_iter()
-                                .map(|ergo_mv| VaultMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
+                                .map(|ergo_mv| ConnectorMsgOut::TxEvent(ChainTxEvent::from(ergo_mv)))
                                 .collect();
                             let current_height = node.get_height().await;
-                            let status = vault_handler.get_vault_status(current_height).await;
+                            let status = ergo_connector.get_connector_status(current_height).await;
                             info!(target: "vault", "respond to AcknowledgeAbortedExportTx. status: {:?}, messages: {:?}", status, messages);
                             vm_response_tx
-                                .send(VaultResponse { status, messages })
+                                .send(ConnectorResponse { status, messages })
                                 .await
                                 .unwrap();
                         }
 
-                        VaultRequest::Disconnect => {
+                        ConnectorRequest::Disconnect => {
                             unreachable!("");
                         }
 
-                        VaultRequest::RotateCommittee => todo!(),
+                        ConnectorRequest::RotateCommittee => todo!(),
                     }
                 }
             }
 
             StreamValueFrom::ResubmitTx => {
-                vault_handler.handle_tx_resubmission(&node).await;
+                ergo_connector.handle_tx_resubmission(&node).await;
             }
         }
     }

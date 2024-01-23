@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use spectrum_ledger::cell::{ActiveCell, Serial};
-use spectrum_ledger::transaction::TxId;
 use spectrum_ledger::{
     cell::{BoxDestination, Owner, ProgressPoint, SValue, TermCell},
     interop::ReportCertificate,
@@ -27,14 +26,15 @@ pub struct DataBridgeComponents<T> {
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
+/// Balance of the SN Vault on-chain.
 pub struct VaultBalance<T> {
     pub value: SValue,
     pub on_chain_characteristics: T,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-/// Outbound message from a Vault manager to consensus driver
-pub enum VaultMsgOut<T, U, V> {
+/// Outbound message from the Connector to consensus driver
+pub enum ConnectorMsgOut<T, U, V> {
     TxEvent(ChainTxEvent<U, V>),
     ProposedTxsToNotarize(T),
     GenesisVaultUtxo(SValue),
@@ -48,7 +48,8 @@ pub struct SpectrumTx<T, U> {
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 pub enum SpectrumTxType<T, U> {
-    /// Spectrum Network deposit transaction
+    /// Spectrum Network deposit transaction that spends deposit UTxOs and transfers its value into
+    /// the SN Vault UTxO.
     Deposit {
         /// Value that is inbound to Spectrum-network
         imported_value: Vec<InboundValue<T>>,
@@ -75,31 +76,37 @@ pub enum ChainTxEvent<T, U> {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct VaultResponse<S, T, U, V> {
-    pub status: VaultStatus<S, U>,
-    pub messages: Vec<VaultMsgOut<T, U, V>>,
+/// A response from the Connector to the consensus-driver that is sent after a `ConnectorRequest`
+/// is received by the Connector.
+pub struct ConnectorResponse<S, T, U, V> {
+    pub status: ConnectorStatus<S, U>,
+    pub messages: Vec<ConnectorMsgOut<T, U, V>>,
 }
 
-/// Inbound message to a Vault manager from consensus driver
+/// Inbound message to Connector from consensus driver. The type parameter `T` represents
+/// chain-specific information within the `NotarizedReport`, which is used to validate the
+/// withdrawal TX in SN. The parameter `U` represents chain-specific information relating to
+/// inbound deposits to SN.
 #[derive(Deserialize, Serialize, Debug)]
-pub enum VaultRequest<T, U> {
-    /// Indicate to the vault manager to start sync'ing from the given progress point. If no
+pub enum ConnectorRequest<T, U> {
+    /// Indicate to the Connector to start sync'ing from the given progress point. If no
     /// progress point was given, then begin sync'ing from the oldest point known to the vault
     /// manager.
     SyncFrom(Option<ProgressPoint>),
-    /// Request the vault manager to find a set of TXs to notarize, subject to various constraints.
+    /// Request the Connector to find a set of TXs to notarize, subject to various constraints.
     RequestTxsToNotarize(NotarizedReportConstraints),
-    /// Initiate transaction to settle exported value that's specified in the notarized report.
+    /// Request the connector to validate the given notarized report and if successful, form and
+    /// submit a transaction to export value that's specified in the notarized report.
     ExportValue(Box<NotarizedReport<T>>),
-    /// Instruct the vault-manager to process deposits.
+    /// Instruct the Connector form a TX to process outstanding deposits into SN.
     ProcessDeposits,
     /// Acknowledge that TX was confirmed.
     AcknowledgeConfirmedTx(PendingTxIdentifier<T, U>, ProgressPoint),
     /// Acknowledge that TX was aborted.
     AcknowledgeAbortedTx(PendingTxIdentifier<T, U>, ProgressPoint),
-    /// Indicate to the vault manager to start rotating committee (WIP)
+    /// Indicate to the Connector to start rotating committee (WIP)
     RotateCommittee,
-    /// Indicate to vault manager that driver is disconnecting.
+    /// Indicate to Connector that consensus-driver is disconnecting.
     Disconnect,
 }
 
@@ -116,29 +123,38 @@ pub struct NotarizedReportConstraints {
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub enum VaultStatus<T, U> {
+pub enum ConnectorStatus<T, U> {
+    /// Indicates that the Connector is sync'ed (up to date) with its associated chain.
     Synced {
+        /// The current progress point that the Connector is up to. It represents the
+        /// tip of the chain at the time the struct is created.
         current_progress_point: ProgressPoint,
+        /// Contains information on a pending TX (withdrawal or deposit), if it currently exists.
         pending_tx_status: Option<PendingTxStatus<T, U>>,
     },
+
+    /// Indicates that the Connector has yet to complete sync'ing with its associated chain.
     Syncing {
+        /// The current progress point that the Connector is up to.
         current_progress_point: ProgressPoint,
+        /// The number of progress points remaining for the Connector to process to be in sync.
         num_points_remaining: u32,
+        /// Contains information on a pending TX (withdrawal or deposit), if it currently exists.
         pending_tx_status: Option<PendingTxStatus<T, U>>,
     },
 }
 
-impl<T, U> VaultStatus<T, U>
+impl<T, U> ConnectorStatus<T, U>
 where
     T: Clone,
     U: Clone,
 {
     pub fn get_pending_tx_status(&self) -> Option<PendingTxStatus<T, U>> {
         match self {
-            VaultStatus::Synced {
+            ConnectorStatus::Synced {
                 pending_tx_status, ..
             }
-            | VaultStatus::Syncing {
+            | ConnectorStatus::Syncing {
                 pending_tx_status, ..
             } => pending_tx_status.clone(),
         }
@@ -146,11 +162,11 @@ where
 
     pub fn get_current_progress_point(&self) -> ProgressPoint {
         match self {
-            VaultStatus::Synced {
+            ConnectorStatus::Synced {
                 current_progress_point,
                 ..
             }
-            | VaultStatus::Syncing {
+            | ConnectorStatus::Syncing {
                 current_progress_point,
                 ..
             } => current_progress_point.clone(),
@@ -201,15 +217,15 @@ pub struct InboundValue<T> {
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-/// Represents a value that is inbound to Spectrum-network on-chain.
+/// Represents a confirmed inbound-value to Spectrum-network.
 pub struct ConfirmedInboundValue {
     pub value: SValue,
     pub owner: Owner,
-    pub tx_id: TxId,
+    pub tx_id: spectrum_ledger::transaction::TxId,
 }
 
 impl ConfirmedInboundValue {
-    pub fn new<U>(value: InboundValue<U>, tx_id: TxId) -> Self {
+    pub fn new<U>(value: InboundValue<U>, tx_id: spectrum_ledger::transaction::TxId) -> Self {
         Self {
             value: value.value,
             owner: value.owner,
@@ -234,7 +250,7 @@ impl From<ConfirmedInboundValue> for ActiveCell {
     }
 }
 
-/// Represents an intention by Spectrum-network to create a `TermCell`.
+/// Represents an intention by Spectrum-Network to create a `TermCell`.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ProtoTermCell {
     pub value: SValue,

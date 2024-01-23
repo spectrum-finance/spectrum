@@ -3,7 +3,7 @@ use crossterm::event::KeyEvent;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use log::error;
 use ratatui::prelude::Rect;
-use spectrum_chain_connector::{InboundValue, VaultResponse};
+use spectrum_chain_connector::{ConnectorResponse, InboundValue};
 use spectrum_ergo_connector::rocksdb::vault_boxes::ErgoNotarizationBounds;
 use spectrum_ergo_connector::script::ExtraErgoData;
 use spectrum_ergo_connector::AncillaryVaultInfo;
@@ -49,7 +49,7 @@ impl App {
     pub async fn run(
         &mut self,
         mut rx: tokio::sync::mpsc::Receiver<
-            VaultResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
+            ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
         >,
         command_tx: tokio::sync::mpsc::Sender<FrontEndCommand>,
     ) -> Result<()> {
@@ -110,7 +110,7 @@ impl App {
             if let Ok(response) = rx.try_recv() {
                 for component in self.components.iter_mut() {
                     if let Some(action) =
-                        component.handle_events(Some(event::Event::VaultManager(response.clone())))?
+                        component.handle_events(Some(event::Event::Connector(response.clone())))?
                     {
                         action_tx.send(action)?;
                     }
