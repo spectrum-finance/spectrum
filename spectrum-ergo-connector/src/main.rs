@@ -112,16 +112,12 @@ async fn main() {
     let (request_to_connector_tx, mut request_to_connector_rx) =
         tokio::sync::mpsc::channel::<ConnectorRequest<ExtraErgoData, BoxId>>(10);
 
-    // Spawn tasks:
-    // 1. Contains bootstrapper and routes messages between driver and vault-handler. Also manages
-    //    unix socket senders/receivers when driver disconnects
+    // This is the blue coloured task pictured in the Connector documentation.
     tokio::spawn(async move {
         let (driver_req_tx, mut driver_req_rx) =
             tokio::sync::mpsc::channel::<ConnectorRequest<ExtraErgoData, BoxId>>(10);
 
-        // For every session that a driver connects, we clone `vm_req_tx`
-
-        // This long-running task will stay to forward requests from the driver to the vault manager
+        // The request-forwarder task. It forwards requests from the driver to the Connector.
         tokio::spawn(async move {
             while let Some(req) = driver_req_rx.recv().await {
                 // Pass on this request to the Connector
@@ -159,7 +155,7 @@ async fn main() {
         ];
         let mut combined_stream = futures::stream::select_all(streams);
 
-        // This long-running task will stay to manage responses from the vault-manager to any connected driver.
+        // The response-forwarder task. It forwards responses from the Connector to a connected driver.
         tokio::spawn(async move {
             let mut current_tx = None;
             while let Some(m) = combined_stream.next().await {
@@ -175,19 +171,18 @@ async fn main() {
         });
 
         loop {
-            let (msg_in_send, msg_in_recv) =
-                symmetric_channel::<ConnectorRequest<ExtraErgoData, BoxId>>().unwrap();
-            let (msg_out_send, msg_out_recv) = symmetric_channel::<
+            let (req_tx, req_rx) = symmetric_channel::<ConnectorRequest<ExtraErgoData, BoxId>>().unwrap();
+            let (resp_tx, resp_rx) = symmetric_channel::<
                 ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
             >()
             .unwrap();
             let bootstrapper = Bootstrapper::bind(unix_socket_path.clone()).unwrap();
-            bootstrapper.send((msg_in_send, msg_out_recv)).await.unwrap();
+            bootstrapper.send((req_tx, resp_rx)).await.unwrap();
 
-            response_sender_tx.send(msg_out_send).await.unwrap();
+            response_sender_tx.send(resp_tx).await.unwrap();
             let driver_req_tx = driver_req_tx.clone();
 
-            while let Ok(req) = msg_in_recv.recv().await {
+            while let Ok(req) = req_rx.recv().await {
                 match req {
                     ConnectorRequest::Disconnect => {
                         break;
