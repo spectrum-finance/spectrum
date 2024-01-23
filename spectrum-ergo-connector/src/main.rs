@@ -1,7 +1,7 @@
 use async_stream::stream;
 use chrono::Duration;
 use clap::{arg, command, Parser};
-use data_bridge::ergo::{ErgoDataBridge, ErgoDataBridgeConfig};
+use data_bridge::{ErgoDataBridge, ErgoDataBridgeConfig};
 use ergo_chain_sync::client::{node::ErgoNodeHttpClient, types::Url};
 use ergo_lib::{
     chain::transaction::{Transaction, TxIoVec},
@@ -18,7 +18,7 @@ use ergo_lib::{
 use futures::StreamExt;
 use isahc::{config::Configurable, HttpClient};
 use log::info;
-use rocksdb::{vault_boxes::VaultBoxRepoRocksDB, withdrawals::WithdrawalRepoRocksDB};
+use rocksdb::{vault_boxes::VaultUtxoRepoRocksDB, withdrawals::WithdrawalRepoRocksDB};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use spectrum_chain_connector::{
@@ -30,11 +30,11 @@ use spectrum_ledger::cell::SValue;
 use spectrum_offchain::network::ErgoNetwork as EN;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_unix_ipc::{symmetric_channel, Bootstrapper};
-use vault::VaultHandler;
+use vault_handler::VaultHandler;
 
 use crate::{
     rocksdb::{
-        deposits::DepositRepoRocksDB, ergo_tx_event_history::ErgoTxEventHistoryRocksDB,
+        deposit::DepositRepoRocksDB, ergo_tx_event_history::ErgoTxEventHistoryRocksDB,
         tx_retry_scheduler::TxRetrySchedulerRocksDB, vault_boxes::ErgoNotarizationBounds,
     },
     script::ExtraErgoData,
@@ -45,7 +45,10 @@ mod data_bridge;
 mod deposit;
 mod rocksdb;
 mod script;
-mod vault;
+mod tx_event;
+mod tx_in_progress;
+mod vault_handler;
+mod vault_utxo;
 
 #[tokio::main]
 async fn main() {
@@ -96,7 +99,7 @@ async fn main() {
     }
 
     let withdrawal_repo = WithdrawalRepoRocksDB::new(&config.withdrawals_store_db_path);
-    let vault_box_repo = VaultBoxRepoRocksDB::new(&config.vault_boxes_store_db_path);
+    let vault_box_repo = VaultUtxoRepoRocksDB::new(&config.vault_boxes_store_db_path);
     let deposit_repo = DepositRepoRocksDB::new(&config.deposits_store_db_path);
 
     let unix_socket_path = config.unix_socket_path.clone();

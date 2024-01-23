@@ -1,21 +1,18 @@
 use std::fmt::Debug;
 use std::{sync::Arc, time::Duration};
 
-use crate::rocksdb::deposits::UnprocessedDeposit;
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use chrono::Utc;
-use derivative::Derivative;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
-use ergo_lib::{chain::transaction::Input, ergotree_ir::chain::ergo_box::ErgoBox};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{
-    InboundValue, NotarizedReport, PendingDepositStatus, PendingExportStatus, PendingTxIdentifier,
-    PendingTxStatus, TxStatus,
+    InboundValue, PendingDepositStatus, PendingExportStatus, PendingTxStatus, TxStatus,
 };
 
 use crate::script::ExtraErgoData;
+use crate::tx_in_progress::{ExportInProgress, IdentifyBy, Timestamped, TxInProgress};
 
 /// Handle resubmission of Spectrum Network TXs.
 #[async_trait(?Send)]
@@ -31,14 +28,6 @@ where
     async fn notify_failed(&mut self, export: &T);
     async fn clear_confirmed(&mut self, element: &U);
     async fn clear_aborted(&mut self, element: &U);
-}
-
-pub trait IdentifyBy<T> {
-    fn is_identified_by(&self, t: &T) -> bool;
-}
-
-trait Timestamped {
-    fn get_timestamp(&self) -> i64;
 }
 
 pub struct TxRetrySchedulerRocksDB {
@@ -276,96 +265,6 @@ impl From<Command<TxInProgress>> for Option<PendingTxStatus<ExtraErgoData, BoxId
                 }
             }
             Command::Idle => None,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
-pub enum TxInProgress {
-    Export(ExportInProgress),
-    Deposit(DepositInProgress),
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Derivative)]
-#[derivative(PartialEq, Eq)]
-pub struct ExportInProgress {
-    pub report: NotarizedReport<ExtraErgoData>,
-    pub vault_utxo_signed_input: Input,
-    pub vault_utxo: ErgoBox,
-    #[derivative(PartialEq = "ignore")]
-    pub timestamp: i64,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Derivative)]
-#[derivative(PartialEq, Eq)]
-pub struct DepositInProgress {
-    pub unprocessed_deposits: Vec<UnprocessedDeposit>,
-    pub vault_utxo_signed_input: Input,
-    pub vault_utxo: ErgoBox,
-    #[derivative(PartialEq = "ignore")]
-    pub timestamp: i64,
-}
-
-//#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
-//pub enum TxIdentifier {
-//    Deposit(Vec<InboundValue>),
-//    Export(Box<NotarizedReport<ExtraErgoData>>),
-//}
-//
-//impl From<PendingTxIdentifier<ExtraErgoData>> for TxIdentifier {
-//    fn from(value: PendingTxIdentifier<ExtraErgoData>) -> Self {
-//        match value {
-//            PendingTxIdentifier::Export(e) => TxIdentifier::Export(e),
-//            PendingTxIdentifier::Deposit(d) => TxIdentifier::Deposit(d),
-//        }
-//    }
-//}
-//
-//impl IdentifyBy<TxIdentifier> for TxInProgress {
-//    fn is_identified_by(&self, t: &TxIdentifier) -> bool {
-//        match (self, t) {
-//            (TxInProgress::Export(e), TxIdentifier::Export(notarized_report)) => {
-//                e.report == *notarized_report.as_ref()
-//            }
-//            (TxInProgress::Deposit(d), TxIdentifier::Deposit(unprocessed_deposits)) => {
-//                let inbound_values: Vec<InboundValue> = d
-//                    .unprocessed_deposits
-//                    .clone()
-//                    .into_iter()
-//                    .map(InboundValue::from)
-//                    .collect();
-//                inbound_values == *unprocessed_deposits
-//            }
-//            _ => false,
-//        }
-//    }
-//}
-
-impl IdentifyBy<PendingTxIdentifier<ExtraErgoData, BoxId>> for TxInProgress {
-    fn is_identified_by(&self, t: &PendingTxIdentifier<ExtraErgoData, BoxId>) -> bool {
-        match (self, t) {
-            (TxInProgress::Export(e), PendingTxIdentifier::Export(notarized_report)) => {
-                e.report == *notarized_report.as_ref()
-            }
-            (TxInProgress::Deposit(d), PendingTxIdentifier::Deposit(unprocessed_deposits)) => {
-                let inbound_values: Vec<InboundValue<BoxId>> = d
-                    .unprocessed_deposits
-                    .clone()
-                    .into_iter()
-                    .map(InboundValue::from)
-                    .collect();
-                inbound_values == *unprocessed_deposits
-            }
-            _ => false,
-        }
-    }
-}
-
-impl Timestamped for TxInProgress {
-    fn get_timestamp(&self) -> i64 {
-        match self {
-            TxInProgress::Deposit(d) => d.timestamp,
-            TxInProgress::Export(report) => report.timestamp,
         }
     }
 }

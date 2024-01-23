@@ -45,16 +45,18 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_lm::data::AsBox;
 
-use crate::rocksdb::ergo_tx_event_history::{ErgoTxType, SpectrumErgoTx};
-use crate::rocksdb::tx_retry_scheduler::{DepositInProgress, TxInProgress};
+use crate::tx_event::{ErgoTxEvent, ErgoTxType, SpectrumErgoTx};
+use crate::tx_in_progress::{DepositInProgress, ExportInProgress, TxInProgress};
+use crate::vault_utxo::VaultUtxo;
 use crate::AncillaryVaultInfo;
 use crate::{
     committee::{CommitteeData, FirstCommitteeBox, SubsequentCommitteeBox},
+    deposit::UnprocessedDeposit,
     rocksdb::{
-        deposits::{DepositRepo, DepositRepoRocksDB, UnprocessedDeposit},
-        ergo_tx_event_history::{self, ErgoTxEvent, ErgoTxEventHistory},
-        tx_retry_scheduler::{Command, ExportInProgress, TxRetryScheduler},
-        vault_boxes::{ErgoNotarizationBounds, VaultBoxRepo, VaultBoxRepoRocksDB, VaultUtxo},
+        deposit::{DepositRepo, DepositRepoRocksDB},
+        ergo_tx_event_history::ErgoTxEventHistory,
+        tx_retry_scheduler::{Command, TxRetryScheduler},
+        vault_boxes::{ErgoNotarizationBounds, VaultUtxoRepo, VaultUtxoRepoRocksDB},
         withdrawals::{WithdrawalRepo, WithdrawalRepoRocksDB},
     },
     script::{
@@ -67,7 +69,7 @@ const MAX_SYNCED_BLOCK_HEIGHTS: usize = 100;
 const MAX_MOVED_VALUES_PER_RESPONSE: usize = 100;
 
 pub struct VaultHandler<MVH, E> {
-    vault_box_repo: VaultBoxRepoRocksDB,
+    vault_box_repo: VaultUtxoRepoRocksDB,
     withdrawal_repo: WithdrawalRepoRocksDB,
     deposit_repo: DepositRepoRocksDB,
     committee_data: CommitteeData,
@@ -86,7 +88,7 @@ where
     E: TxRetryScheduler<TxInProgress, PendingTxIdentifier<ExtraErgoData, BoxId>>,
 {
     pub fn new(
-        vault_box_repo: VaultBoxRepoRocksDB,
+        vault_box_repo: VaultUtxoRepoRocksDB,
         withdrawal_repo: WithdrawalRepoRocksDB,
         deposit_repo: DepositRepoRocksDB,
         committee_guarding_script: ErgoTree,
@@ -204,7 +206,7 @@ where
                                 vault_info,
                             },
                         };
-                        let ergo_moved_value = ergo_tx_event_history::ErgoTxEvent::Applied(tx);
+                        let ergo_moved_value = ErgoTxEvent::Applied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
 
@@ -261,7 +263,7 @@ where
                                 vault_info,
                             },
                         };
-                        let ergo_moved_value = ergo_tx_event_history::ErgoTxEvent::Applied(tx);
+                        let ergo_moved_value = ErgoTxEvent::Applied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
                     None => {
@@ -360,7 +362,7 @@ where
                                 vault_info,
                             },
                         };
-                        let ergo_moved_value = ergo_tx_event_history::ErgoTxEvent::Unapplied(tx);
+                        let ergo_moved_value = ErgoTxEvent::Unapplied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
                     Some(VaultTx::Deposits { deposits }) => {
@@ -397,7 +399,7 @@ where
                                 vault_info,
                             },
                         };
-                        let ergo_moved_value = ergo_tx_event_history::ErgoTxEvent::Unapplied(tx);
+                        let ergo_moved_value = ErgoTxEvent::Unapplied(tx);
                         self.moved_value_history.append(ergo_moved_value).await;
                     }
                     None => {

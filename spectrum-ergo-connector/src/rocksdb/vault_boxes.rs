@@ -6,7 +6,6 @@ use std::{
 
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
-use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
 use ergo_lib::{
     ergo_chain_types::Digest32,
     ergotree_ir::chain::{
@@ -18,22 +17,20 @@ use nonempty::NonEmpty;
 use num_bigint::BigUint;
 use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::{Deserialize, Serialize};
-use sigma_test_util::force_any_val;
 use spectrum_chain_connector::{Kilobytes, NotarizedReportConstraints, ProtoTermCell};
 use spectrum_crypto::digest::Blake2bDigest256;
-use spectrum_ledger::cell::{AssetId, CustomAsset, SValue};
-use spectrum_offchain::event_sink::handlers::types::TryFromBoxCtx;
+use spectrum_ledger::cell::{AssetId, CustomAsset};
 use spectrum_offchain::{
     binary::prefixed_key,
     data::unique_entity::{Confirmed, Predicted},
 };
 use spectrum_offchain_lm::data::AsBox;
 
-use crate::script::{estimate_tx_size_in_kb, ErgoCell, VAULT_CONTRACT};
+use crate::{script::estimate_tx_size_in_kb, vault_utxo::VaultUtxo};
 
 /// Track changing state of Vault UTxOs.
 #[async_trait(?Send)]
-pub trait VaultBoxRepo {
+pub trait VaultUtxoRepo {
     /// Collect vault boxes that meet the specified `constraints`.
     async fn collect(
         &self,
@@ -75,11 +72,11 @@ impl From<ErgoNotarizationBoundsWithBoxes> for ErgoNotarizationBounds {
     }
 }
 
-pub struct VaultBoxRepoRocksDB {
+pub struct VaultUtxoRepoRocksDB {
     db: Arc<rocksdb::OptimisticTransactionDB>,
 }
 
-impl VaultBoxRepoRocksDB {
+impl VaultUtxoRepoRocksDB {
     pub fn new(db_path: &str) -> Self {
         Self {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(db_path).unwrap()),
@@ -88,7 +85,7 @@ impl VaultBoxRepoRocksDB {
 }
 
 #[async_trait(?Send)]
-impl VaultBoxRepo for VaultBoxRepoRocksDB {
+impl VaultUtxoRepo for VaultUtxoRepoRocksDB {
     async fn collect(
         &self,
         constraints: NotarizedReportConstraints,
@@ -437,45 +434,6 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct VaultUtxo {
-    pub value: BoxValue,
-    pub tokens: Vec<Token>,
-}
-
-impl TryFromBoxCtx<TokenId> for VaultUtxo {
-    fn try_from_box(bx: ErgoBox, ctx: TokenId) -> Option<Self> {
-        if is_vault_utxo(&bx, ctx) {
-            let value = bx.value;
-            let tokens = if let Some(box_tokens) = bx.tokens {
-                box_tokens.iter().skip(1).cloned().collect()
-            } else {
-                vec![]
-            };
-            Some(VaultUtxo { value, tokens })
-        } else {
-            None
-        }
-    }
-}
-
-impl From<&VaultUtxo> for SValue {
-    fn from(value: &VaultUtxo) -> Self {
-        let ergo_cell = ErgoCell {
-            ergs: value.value,
-            address: force_any_val(),
-            tokens: value.tokens.clone(),
-        };
-        SValue::from(&ergo_cell)
-    }
-}
-
-fn is_vault_utxo(bx: &ErgoBox, vault_utxo_token_id: TokenId) -> bool {
-    bx.ergo_tree == *VAULT_CONTRACT
-        && bx.tokens.is_some()
-        && bx.tokens.as_ref().unwrap().first().token_id == vault_utxo_token_id
-}
-
 fn compute_token_amounts(term_cells: &[ProtoTermCell]) -> HashMap<TokenId, BigUint> {
     let mut res = HashMap::new();
 
@@ -589,7 +547,7 @@ pub mod tests {
     use spectrum_offchain_lm::data::AsBox;
 
     use crate::{
-        rocksdb::vault_boxes::{ErgoNotarizationBoundsWithBoxes, VaultBoxRepo},
+        rocksdb::vault_boxes::{ErgoNotarizationBoundsWithBoxes, VaultUtxoRepo},
         script::{
             estimate_tx_size_in_kb,
             tests::{gen_random_token, gen_tx_id, generate_address},
@@ -597,7 +555,7 @@ pub mod tests {
         },
     };
 
-    use super::{VaultBoxRepoRocksDB, VaultUtxo};
+    use super::{VaultUtxo, VaultUtxoRepoRocksDB};
 
     #[tokio::test]
     async fn collect_simple() {
@@ -798,9 +756,9 @@ pub mod tests {
         assert_eq!(v, deserialized_v);
     }
 
-    fn rocks_db_client() -> VaultBoxRepoRocksDB {
+    fn rocks_db_client() -> VaultUtxoRepoRocksDB {
         let rnd = rand::thread_rng().next_u32();
-        VaultBoxRepoRocksDB {
+        VaultUtxoRepoRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
         }
     }

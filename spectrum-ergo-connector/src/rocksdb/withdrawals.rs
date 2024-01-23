@@ -122,11 +122,6 @@ impl RepoRocksDB {
     }
 }
 
-pub(crate) enum ErgoBoxType {
-    Confirmed,
-    Predicted,
-}
-
 const KEY_PREFIX: &str = "key";
 const KEY_INDEX_PREFIX: &str = "key_index";
 const CONFIRMED_PRIORITY: usize = 0;
