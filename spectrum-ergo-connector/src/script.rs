@@ -33,7 +33,7 @@ use ergo_lib::{
         },
     },
 };
-use k256::{AffinePoint, FieldElement, NonZeroScalar, ProjectivePoint, Scalar, SecretKey, U256};
+use k256::{FieldElement, NonZeroScalar, ProjectivePoint, Scalar, SecretKey, U256};
 use lazy_static::lazy_static;
 use num_bigint::{BigUint, Sign, ToBigUint};
 use rand::{rngs::OsRng, Rng};
@@ -136,7 +136,7 @@ impl From<&ProtoTermCell> for ErgoCell {
             let mut result = vec![];
             for (asset_id, value) in tokens {
                 let token_id = TokenId::from(ergo_lib::ergo_chain_types::Digest32::from(
-                    Blake2bDigest256::from(*asset_id).raw().clone(),
+                    *Blake2bDigest256::from(*asset_id).raw(),
                 ));
                 let amount = TokenAmount::try_from(u64::from(*value)).unwrap();
                 result.push(Token { token_id, amount });
@@ -322,10 +322,10 @@ pub struct SignatureAggregationWithNotarizationElements {
 impl From<NotarizedReport<ExtraErgoData>> for SignatureAggregationWithNotarizationElements {
     fn from(value: NotarizedReport<ExtraErgoData>) -> Self {
         let ReportCertificate::SchnorrK256(AggregateCertificate {
-            message_digest,
             aggregate_commitment,
             aggregate_response,
             exclusion_set,
+            ..
         }): ReportCertificate = value.certificate;
         let ExtraErgoData {
             starting_avl_tree,
@@ -348,7 +348,7 @@ impl From<NotarizedReport<ExtraErgoData>> for SignatureAggregationWithNotarizati
             starting_avl_tree,
             proof,
             max_miner_fee,
-            resulting_digest: value.authenticated_digest, //message_digest.as_ref().to_vec(),
+            resulting_digest: value.authenticated_digest,
             terminal_cells,
         }
     }
@@ -718,7 +718,7 @@ pub fn scalar_to_biguint(scalar: Scalar) -> BigUint {
 }
 
 pub fn dummy_resolver(digest: &scorex_crypto_avltree::operation::Digest32) -> Node {
-    Node::LabelOnly(NodeHeader::new(Some(digest.clone()), None))
+    Node::LabelOnly(NodeHeader::new(Some(*digest), None))
 }
 
 fn schnorr_signature_verification_ergoscript_type() -> SType {
@@ -913,9 +913,8 @@ pub mod tests {
     use ergo_lib::ergo_chain_types::{ec_point::generator, Digest, EcPoint};
     use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
     use ergo_lib::ergotree_ir::chain::address::Address;
-    use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, BoxTokens};
+    use ergo_lib::ergotree_ir::chain::ergo_box::BoxTokens;
     use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount};
-    use ergo_lib::ergotree_ir::mir::value::NativeColl;
     use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::ProveDlog;
     use ergo_lib::ergotree_ir::{
         base16_str::Base16Str,
@@ -1414,110 +1413,6 @@ pub mod tests {
         println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
     }
 
-    fn test_deposits_backup(initial_vault_tokens: Vec<Token>, deposit_tokens: Vec<Vec<Token>>) {
-        let vault_token = gen_random_token(100);
-        let initial_vault_balance = 2000000000_i64;
-
-        let current_height = 100000_u32;
-        const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
-        let seed = SeedPhrase::from(String::from(SEED_PHRASE));
-        let (_, wallet_addr) =
-            spectrum_offchain_lm::prover::Wallet::try_from_seed(seed).expect("Invalid wallet seed");
-        let guarding_script = wallet_addr.script().unwrap();
-
-        // Input vault UTxO
-        let mut vault_tokens = vec![vault_token.clone()];
-        vault_tokens.extend(initial_vault_tokens);
-        let tokens = BoxTokens::try_from(vault_tokens).unwrap();
-        let vault_input_box = ErgoBox::new(
-            BoxValue::try_from(initial_vault_balance).unwrap(),
-            guarding_script.clone(),
-            Some(tokens),
-            NonMandatoryRegisters::empty(),
-            current_height - 10,
-            TxId::zero(),
-            0,
-        )
-        .unwrap();
-
-        // Deposit box
-        let deposit_value = 10000000_i64;
-
-        // expected vault token id
-        let mut registers = HashMap::new();
-        registers.insert(NonMandatoryRegisterId::R4, Constant::from(vault_token.token_id));
-
-        for (ix, tokens) in deposit_tokens.into_iter().enumerate() {}
-
-        let deposit_box = ErgoBox::new(
-            BoxValue::try_from(deposit_value).unwrap(),
-            DEPOSIT_CONTRACT.clone(),
-            None,
-            NonMandatoryRegisters::new(registers).unwrap(),
-            current_height - 10,
-            TxId::zero(),
-            1,
-        )
-        .unwrap();
-
-        // Context extension for deposit box
-        let mut constants = IndexMap::new();
-        let max_miner_fee = 1_000_000_i64;
-        let change_for_miner = BoxValue::try_from(max_miner_fee).unwrap();
-        constants.insert(8_u8, Constant::from(max_miner_fee));
-
-        let unsigned_deposit_input =
-            UnsignedInput::new(deposit_box.box_id(), ContextExtension { values: constants });
-
-        let vault_output_box = ErgoBoxCandidate {
-            value: BoxValue::try_from(initial_vault_balance + deposit_value - change_for_miner.as_i64())
-                .unwrap(),
-            ergo_tree: guarding_script,
-            tokens: vault_input_box.tokens.clone(),
-            additional_registers: vault_input_box.additional_registers.clone(),
-            creation_height: current_height,
-        };
-
-        let miner_output = ErgoBoxCandidate {
-            value: change_for_miner,
-            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
-            tokens: None,
-            additional_registers: NonMandatoryRegisters::empty(),
-            creation_height: current_height,
-        };
-        let mut outputs_vec = vec![vault_output_box];
-        outputs_vec.push(miner_output);
-        let outputs = TxIoVec::from_vec(outputs_vec).unwrap();
-
-        let unsigned_vault_input = UnsignedInput::new(
-            vault_input_box.box_id(),
-            ContextExtension {
-                values: IndexMap::new(),
-            },
-        );
-        let unsigned_tx = UnsignedTransaction::new(
-            TxIoVec::from_vec(vec![unsigned_vault_input, unsigned_deposit_input]).unwrap(),
-            None,
-            outputs,
-        )
-        .unwrap();
-        let tx_context =
-            TransactionContext::new(unsigned_tx, vec![vault_input_box, deposit_box], vec![]).unwrap();
-        let wallet = get_wallet();
-        let mut ergo_state_context = force_any_val::<ErgoStateContext>();
-        // Set height in ergo context
-        ergo_state_context.pre_header.height = current_height;
-        for c in &mut ergo_state_context.headers {
-            c.height = current_height;
-        }
-        let now = Instant::now();
-        println!("Signing TX...");
-        let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
-        if res.is_err() {
-            panic!("{:?}", res);
-        }
-        println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
-    }
     #[test]
     fn verify_vault_contract_sigma_rust() {
         let mut rng = OsRng;

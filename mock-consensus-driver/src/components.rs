@@ -1,12 +1,11 @@
 use color_eyre::eyre::Result;
 use crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::layout::Rect;
-use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
 use crate::event::Event;
-use crate::{config::Config, tui, tui::Frame};
+use crate::{config::Config, tui::Frame};
 
 pub mod home;
 

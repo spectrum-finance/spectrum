@@ -34,19 +34,16 @@ use k256::ProjectivePoint;
 use log::info;
 use num_bigint::{BigUint, Sign};
 use spectrum_chain_connector::{
-    NotarizedReport, NotarizedReportConstraints, PendingExportStatus, PendingTxIdentifier, PendingTxStatus,
-    TxEvent, VaultStatus,
+    NotarizedReport, NotarizedReportConstraints, PendingTxIdentifier, PendingTxStatus, TxEvent, VaultStatus,
 };
 use spectrum_crypto::digest::blake2b256_hash;
-use spectrum_ledger::cell::SValue;
 use spectrum_ledger::{cell::ProgressPoint, interop::Point, ChainId};
 use spectrum_offchain::{
     data::unique_entity::{Confirmed, Predicted},
-    event_sink::handlers::types::{TryFromBox, TryFromBoxCtx},
+    event_sink::handlers::types::TryFromBoxCtx,
     network::ErgoNetwork as EN,
 };
 use spectrum_offchain_lm::data::AsBox;
-use spectrum_offchain_lm::prover::SeedPhrase;
 
 use crate::rocksdb::moved_value_history::{ErgoTxType, SpectrumErgoTx};
 use crate::rocksdb::tx_retry_scheduler::{DepositInProgress, TxInProgress};

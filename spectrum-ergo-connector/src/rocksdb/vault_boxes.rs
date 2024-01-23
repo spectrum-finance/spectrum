@@ -14,7 +14,6 @@ use ergo_lib::{
         token::{Token, TokenAmount, TokenAmountError, TokenId},
     },
 };
-use log::info;
 use nonempty::NonEmpty;
 use num_bigint::BigUint;
 use rocksdb::{Direction, IteratorMode, ReadOptions};
@@ -22,12 +21,11 @@ use serde::{Deserialize, Serialize};
 use sigma_test_util::force_any_val;
 use spectrum_chain_connector::{Kilobytes, NotarizedReportConstraints, ProtoTermCell};
 use spectrum_crypto::digest::Blake2bDigest256;
-use spectrum_ledger::cell::{AssetId, CustomAsset, NativeCoin, SValue};
+use spectrum_ledger::cell::{AssetId, CustomAsset, SValue};
 use spectrum_offchain::event_sink::handlers::types::TryFromBoxCtx;
 use spectrum_offchain::{
     binary::prefixed_key,
     data::unique_entity::{Confirmed, Predicted},
-    event_sink::handlers::types::TryFromBox,
 };
 use spectrum_offchain_lm::data::AsBox;
 
@@ -135,7 +133,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                     }
                 }
 
-                let AsBox(bx, vault_utxo): AsBox<VaultUtxo> = rmp_serde::from_slice(&value_bytes).unwrap();
+                let AsBox(bx, _): AsBox<VaultUtxo> = rmp_serde::from_slice(&value_bytes).unwrap();
                 let spent_key = prefixed_key(SPENT_PREFIX, &bx.box_id());
                 if db.get(&spent_key).unwrap().is_some() {
                     continue 'vault_iter;
@@ -233,7 +231,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                 }
 
                 if add_term_cells {
-                    while let Some(term_cell) = term_cell_iter.next() {
+                    for term_cell in term_cell_iter.by_ref() {
                         let num_new_tokens = number_new_token_ids(term_cell, &included_tokens);
                         let estimated_tx_size = estimate_tx_size_in_kb(
                             num_withdrawals + 1,
@@ -406,7 +404,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
         let key = prefixed_key(SPENT_PREFIX, &box_id);
         spawn_blocking(move || {
             let value_key = box_key(KEY_PREFIX, CONFIRMED_PRIORITY, &box_id);
-            assert!(db.get(&value_key).unwrap().is_some());
+            assert!(db.get(value_key).unwrap().is_some());
             db.put(key, []).unwrap()
         })
         .await
@@ -450,7 +448,7 @@ impl TryFromBoxCtx<TokenId> for VaultUtxo {
         if is_vault_utxo(&bx, ctx) {
             let value = bx.value;
             let tokens = if let Some(box_tokens) = bx.tokens {
-                box_tokens.iter().cloned().skip(1).collect()
+                box_tokens.iter().skip(1).cloned().collect()
             } else {
                 vec![]
             };
@@ -569,15 +567,10 @@ pub mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use ergo_lib::{
-        chain::transaction::TxId,
         ergo_chain_types::Digest32,
-        ergotree_ir::{
-            chain::{
-                ergo_box::{box_value::BoxValue, BoxTokens, ErgoBox, NonMandatoryRegisters},
-                token::{Token, TokenAmount, TokenId},
-            },
-            ergo_tree::ErgoTree,
-            mir::{constant::Constant, expr::Expr},
+        ergotree_ir::chain::{
+            ergo_box::{box_value::BoxValue, BoxTokens, ErgoBox, NonMandatoryRegisters},
+            token::{Token, TokenAmount, TokenId},
         },
     };
     use itertools::Itertools;
@@ -591,8 +584,8 @@ pub mod tests {
         ChainId,
     };
     use spectrum_move::SerializedValue;
+    use spectrum_offchain::data::unique_entity::Confirmed;
     use spectrum_offchain::event_sink::handlers::types::TryFromBoxCtx;
-    use spectrum_offchain::{data::unique_entity::Confirmed, event_sink::handlers::types::TryFromBox};
     use spectrum_offchain_lm::data::AsBox;
 
     use crate::{
@@ -883,10 +876,6 @@ pub mod tests {
         assert!(enough_tokens);
     }
 
-    fn trivial_prop() -> ErgoTree {
-        ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
-    }
-
     fn generate_tokenless_vault_utxos(erg_per_box: u64, num_boxes: u16) -> Vec<AsBox<VaultUtxo>> {
         let tx_id = gen_tx_id();
         let vault_token = gen_random_token(1);
@@ -1047,18 +1036,5 @@ pub mod tests {
         /// Each box will contain a random number of different tokens bounded by the given field
         /// value.
         RandomSubset(usize),
-    }
-
-    fn trivial_box(nano_ergs: u64) -> ErgoBox {
-        ErgoBox::new(
-            BoxValue::try_from(nano_ergs).unwrap(),
-            trivial_prop(),
-            None,
-            NonMandatoryRegisters::empty(),
-            0,
-            TxId::zero(),
-            0,
-        )
-        .unwrap()
     }
 }

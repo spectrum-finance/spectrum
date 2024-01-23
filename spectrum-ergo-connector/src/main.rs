@@ -17,20 +17,17 @@ use ergo_lib::{
 };
 use futures::StreamExt;
 use isahc::{config::Configurable, HttpClient};
-use log::{error, info};
+use log::info;
 use rocksdb::{vault_boxes::VaultBoxRepoRocksDB, withdrawals::WithdrawalRepoRocksDB};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use spectrum_chain_connector::{
-    ChainTxEvent, DataBridge, DataBridgeComponents, PendingTxIdentifier, TxEvent, VaultMsgOut, VaultRequest,
-    VaultResponse,
+    ChainTxEvent, DataBridge, DataBridgeComponents, TxEvent, VaultMsgOut, VaultRequest, VaultResponse,
 };
 use spectrum_deploy_lm_pool::Explorer;
 use spectrum_ergo_connector::AncillaryVaultInfo;
 use spectrum_ledger::cell::SValue;
 use spectrum_offchain::network::ErgoNetwork as EN;
-use std::io;
-use tokio::time::Instant;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_unix_ipc::{symmetric_channel, Bootstrapper};
 use vault::VaultHandler;

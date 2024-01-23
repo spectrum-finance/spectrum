@@ -33,7 +33,7 @@ where
     async fn clear_aborted(&mut self, element: &U);
 }
 
-trait IdentifyBy<T> {
+pub trait IdentifyBy<T> {
     fn is_identified_by(&self, t: &T) -> bool;
 }
 
@@ -442,7 +442,7 @@ mod tests {
         let mut client = rocks_db_client(1).await;
         let export = make_dummy_export();
         client.add(export.clone()).await;
-        let Command::Wait(d, exp): Command<TxInProgress> = client.next_command().await else {
+        let Command::Wait(d, _): Command<TxInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
         println!("Wait {:?}", d);

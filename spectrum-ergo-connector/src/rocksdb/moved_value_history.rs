@@ -2,38 +2,29 @@ use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
-use elliptic_curve::PublicKey;
 use ergo_lib::chain::transaction::TxId;
-use ergo_lib::ergotree_ir::chain::address::Address;
-use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
-use ergo_lib::ergotree_ir::chain::token::Token;
-use k256::ProjectivePoint;
 use log::info;
 use rocksdb::{Direction, IteratorMode};
 use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{ChainTxEvent, InboundValue, SpectrumTx, SpectrumTxType, VaultBalance};
-use spectrum_crypto::digest::Blake2bDigest256;
-use spectrum_ledger::cell::AnyCell::Term;
-use spectrum_ledger::cell::Owner;
 use spectrum_ledger::{
-    cell::{BoxDestination, ProgressPoint, SValue, TermCell},
+    cell::{ProgressPoint, SValue, TermCell},
     interop::Point,
     ChainId,
 };
-use spectrum_move::SerializedValue;
 
 use crate::script::{ErgoInboundCell, ErgoTermCell};
 use crate::AncillaryVaultInfo;
 
 use super::vault_boxes::VaultUtxo;
 
-/// Store the entire history of `ErgoMovedValue`, allowing a new consensus-driver to sync with
+/// Store the entire history of `ErgoTxEvents`, allowing a new consensus-driver to sync with
 /// the ergo-connector.
 #[async_trait(?Send)]
 pub trait MovedValueHistory {
     async fn append(&mut self, moved_value: ErgoTxEvent);
-    /// Returns ErgoMovedValue that is closest and >= `height`.
+    /// Returns `ErgoTxEvent` that is closest and >= `height`.
     async fn get(&self, height: u32) -> Option<(ErgoTxEvent, u32)>;
 }
 
@@ -98,7 +89,7 @@ impl From<SpectrumErgoTx> for SpectrumTx<BoxId, AncillaryVaultInfo> {
                 exported_value,
                 vault_info: (vault_utxo, ancillary_info),
             } => {
-                let exported_value = exported_value.into_iter().map(|c| TermCell::from(c)).collect();
+                let exported_value = exported_value.into_iter().map(TermCell::from).collect();
                 let vault_balance = VaultBalance {
                     value: SValue::from(&vault_utxo),
                     on_chain_characteristics: ancillary_info,
@@ -219,14 +210,9 @@ impl MovedValueHistory for MovedValueHistoryRocksDB {
     }
 }
 
+#[derive(Default)]
 pub struct InMemoryMovedValueHistory {
     history: Vec<ErgoTxEvent>,
-}
-
-impl InMemoryMovedValueHistory {
-    pub fn new() -> Self {
-        Self { history: vec![] }
-    }
 }
 
 #[async_trait(?Send)]
@@ -290,7 +276,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_in_memory_single_insertion() {
-        let history = InMemoryMovedValueHistory::new();
+        let history = InMemoryMovedValueHistory::default();
         single_insertion(history).await;
     }
 
@@ -310,7 +296,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_in_memory_2_insertions() {
-        let history = InMemoryMovedValueHistory::new();
+        let history = InMemoryMovedValueHistory::default();
         two_insertions(history).await;
     }
 

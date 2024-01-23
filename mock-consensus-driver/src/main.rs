@@ -1,28 +1,22 @@
 use clap::Parser;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
-use ergo_lib::ergotree_ir::chain::token::Token;
 use spectrum_ergo_connector::AncillaryVaultInfo;
-use spectrum_ledger::cell::{AssetId, BoxDestination, CustomAsset, NativeCoin, PolicyId, SValue};
 use spectrum_move::SerializedValue;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::app::App;
 use ergo_lib::ergotree_ir::chain::address::Address;
-use ergo_lib::ergotree_ir::chain::{
-    address::{AddressEncoder, NetworkPrefix},
-    ergo_box::box_value::BoxValue,
-};
+use ergo_lib::ergotree_ir::chain::address::{AddressEncoder, NetworkPrefix};
 use k256::SecretKey;
 use log::{error, info};
 use serde::Deserialize;
 use spectrum_chain_connector::{
-    ChainTxEvent, InboundValue, Kilobytes, NotarizedReport, NotarizedReportConstraints, PendingDepositStatus,
+    ChainTxEvent, Kilobytes, NotarizedReport, NotarizedReportConstraints, PendingDepositStatus,
     PendingExportStatus, PendingTxIdentifier, PendingTxStatus, ProtoTermCell, SpectrumTx, SpectrumTxType,
     TxStatus, VaultMsgOut, VaultRequest, VaultResponse, VaultStatus,
 };
-use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
+use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_ergo_connector::{
     rocksdb::vault_boxes::ErgoNotarizationBounds,
     script::{simulate_signature_aggregation_notarized_proofs, ErgoCell, ErgoTermCell, ExtraErgoData},
@@ -33,7 +27,6 @@ use spectrum_ledger::{
     interop::{Point, ReportCertificate},
     ChainId,
 };
-use spectrum_offchain_lm::prover::{SeedPhrase, Wallet};
 use spectrum_sigma::sigma_aggregation::AggregateCertificate;
 use tokio::sync::mpsc::channel;
 use tokio::sync::{oneshot, Mutex};
@@ -326,10 +319,7 @@ impl MockConsensusDriver {
             for msg in messages {
                 match msg {
                     VaultMsgOut::TxEvent(mv) => match mv {
-                        ChainTxEvent::Applied(SpectrumTx {
-                            progress_point,
-                            tx_type,
-                        }) => match tx_type {
+                        ChainTxEvent::Applied(SpectrumTx { tx_type, .. }) => match tx_type {
                             SpectrumTxType::Deposit { .. } => {
                                 // TODO: to be processed by Spectrum Network L1
                             }
@@ -413,7 +403,6 @@ struct AppConfig {
     unix_socket_path: String,
     committee_secret_keys: Vec<k256::SecretKey>,
     log4rs_yaml_path: String,
-    wallet_seed_phrases: Vec<String>,
     allowed_destination_addresses: Vec<Address>,
 }
 #[derive(Deserialize)]
@@ -421,7 +410,6 @@ struct AppConfigProto {
     unix_socket_path: String,
     committee_secret_keys: Vec<String>,
     log4rs_yaml_path: String,
-    wallet_seed_phrases: Vec<String>,
     /// Base 58 encoded addresses
     allowed_destination_addresses: Vec<String>,
 }
@@ -448,7 +436,6 @@ impl From<AppConfigProto> for AppConfig {
             unix_socket_path: value.unix_socket_path,
             committee_secret_keys,
             log4rs_yaml_path: value.log4rs_yaml_path,
-            wallet_seed_phrases: value.wallet_seed_phrases,
             allowed_destination_addresses,
         }
     }

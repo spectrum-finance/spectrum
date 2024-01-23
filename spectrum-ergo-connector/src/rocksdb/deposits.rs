@@ -131,8 +131,8 @@ impl DepositRepo for DepositRepoRocksDB {
             let mut res = vec![];
             let key_prefix = UNPROCESSED_PREFIX.as_bytes();
             let mut readopts = ReadOptions::default();
-            readopts.set_iterate_range(rocksdb::PrefixRange(key_prefix.clone()));
-            let mappings = db.iterator_opt(IteratorMode::From(&key_prefix, Direction::Forward), readopts);
+            readopts.set_iterate_range(rocksdb::PrefixRange(key_prefix));
+            let mappings = db.iterator_opt(IteratorMode::From(key_prefix, Direction::Forward), readopts);
 
             for (_, value_bytes) in mappings.flatten() {
                 let d: UnprocessedDeposit = rmp_serde::from_slice(&value_bytes).unwrap();
@@ -156,17 +156,14 @@ fn prefixed_key(prefix: &str, box_id: &BoxId) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use crate::rocksdb::deposits::{DepositRepo, DepositRepoRocksDB, ProcessedDeposit, UnprocessedDeposit};
-    use crate::rocksdb::moved_value_history::MovedValueHistoryRocksDB;
     use crate::script::tests::gen_random_token;
     use crate::script::{ErgoCell, ErgoInboundCell};
     use blake2::digest::crypto_common::rand_core::RngCore;
-    use ergo_lib::chain::transaction::TxId;
     use ergo_lib::ergotree_ir::chain::address::Address;
     use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
     use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, ErgoBox};
     use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::ProveDlog;
     use rand::prelude::SliceRandom;
-    use rand::Rng;
     use sigma_test_util::force_any_val;
     use spectrum_offchain_lm::data::AsBox;
     use std::sync::Arc;
@@ -197,7 +194,7 @@ mod tests {
         let num_deposits = 30;
 
         let mut rng = rand::thread_rng();
-        let mut indices: Vec<usize> = (0..num_deposits).into_iter().collect();
+        let mut indices: Vec<usize> = (0..num_deposits).collect();
         indices.shuffle(&mut rng);
 
         let to_process = &indices[..10];
@@ -206,7 +203,6 @@ mod tests {
         let mut expected = vec![];
         for i in 0..num_deposits {
             let dep = UnprocessedDeposit(AsBox(force_any_val::<ErgoBox>(), gen_ergo_cell()));
-            let box_id = dep.0.box_id();
             repo.put(dep.clone()).await;
 
             if !to_process.contains(&i) {
@@ -258,14 +254,6 @@ mod tests {
             },
             force_any_val::<BoxId>(),
         )
-    }
-
-    pub fn gen_box_id() -> BoxId {
-        let mut digest = ergo_lib::ergo_chain_types::Digest32::zero();
-
-        let mut rng = rand::thread_rng();
-        rng.fill(&mut digest.0);
-        BoxId::from(digest)
     }
 
     fn rocks_db_client() -> DepositRepoRocksDB {

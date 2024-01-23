@@ -1,8 +1,5 @@
-use color_eyre::{eyre::Result, owo_colors::OwoColorize};
-use crossterm::{
-    event::{KeyCode, KeyEvent},
-    style::Stylize,
-};
+use color_eyre::eyre::Result;
+use crossterm::event::{KeyCode, KeyEvent};
 use ergo_lib::ergotree_ir::chain::{
     address::{Address, AddressEncoder, NetworkPrefix},
     token::Token,
@@ -10,27 +7,24 @@ use ergo_lib::ergotree_ir::chain::{
 use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::ProveDlog;
 use ergo_lib::{ergo_chain_types::EcPoint, ergotree_ir::chain::ergo_box::BoxId};
 use k256::ProjectivePoint;
-use log::{error, info};
-use rand::{distributions::Alphanumeric, rngs::OsRng, Rng};
+use log::info;
 use ratatui::{
     prelude::*,
     widgets::{block::*, *},
 };
-use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{
-    ChainTxEvent, ConfirmedInboundValue, InboundValue, PendingDepositStatus, PendingExportStatus,
-    PendingTxStatus, ProtoTermCell, SpectrumTx, SpectrumTxType, VaultBalance, VaultMsgOut, VaultResponse,
-    VaultStatus,
+    ChainTxEvent, InboundValue, PendingDepositStatus, PendingExportStatus, PendingTxStatus, ProtoTermCell,
+    SpectrumTx, SpectrumTxType, VaultBalance, VaultMsgOut, VaultResponse, VaultStatus,
 };
 use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_ergo_connector::script::ExtraErgoData;
-use spectrum_ergo_connector::{rocksdb::vault_boxes::ErgoNotarizationBounds, AncillaryVaultInfo};
+use spectrum_ergo_connector::AncillaryVaultInfo;
 use spectrum_ledger::{
     cell::{AssetId, BoxDestination, CustomAsset, NativeCoin, Owner, PolicyId, SValue, TermCell},
     ChainId,
 };
 use spectrum_move::SerializedValue;
-use std::{collections::HashMap, rc::Rc, time::Duration};
+use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use tui_textarea::TextArea;
 
@@ -38,7 +32,7 @@ use super::{Component, Frame};
 use crate::{
     action::Action,
     color_scheme::{BLUE, DARK_ORANGE, GREEN},
-    config::{Config, KeyBindings},
+    config::Config,
     tui,
 };
 use crate::{color_scheme::PURPLE, event::Event};
@@ -351,7 +345,7 @@ impl<'a> Component for Home<'a> {
         Ok(None)
     }
 
-    fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()> {
+    fn draw(&mut self, f: &mut Frame<'_>, _area: Rect) -> Result<()> {
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -386,9 +380,10 @@ impl<'a> Component for Home<'a> {
 
 impl<'a> Home<'a> {
     pub fn new(allowed_withdrawal_destinations: Vec<SerializedValue>) -> Self {
-        let mut s = Self::default();
-        s.allowed_withdrawal_destinations = allowed_withdrawal_destinations;
-        s
+        Home {
+            allowed_withdrawal_destinations,
+            ..Default::default()
+        }
     }
 
     fn block_border_style(&self, block: ActiveBlock) -> Style {
@@ -475,7 +470,7 @@ impl<'a> Home<'a> {
                     let tx_id_cell = Cell::from("...".to_string()).style(Style::reset());
                     match tx_status {
                         PendingTxStatus::Export(e) => {
-                            let PendingExportStatus { identifier, status } = e;
+                            let PendingExportStatus { identifier, .. } = e;
                             let ValueSummary { ergs, .. } = summarise_term_cells(&identifier.value_to_export);
                             let status_cell = Cell::from("PENDING").style(Style::reset().fg(DARK_ORANGE));
                             let tx_type = Cell::from("WITHDRAWAL").style(Style::reset());
@@ -489,7 +484,7 @@ impl<'a> Home<'a> {
                             ]));
                         }
                         PendingTxStatus::Deposit(d) => {
-                            let PendingDepositStatus { identifier, status } = d;
+                            let PendingDepositStatus { identifier, .. } = d;
                             let ValueSummary { ergs, .. } = summarise_inbound_value(identifier);
                             let status_cell = Cell::from("PENDING").style(Style::reset().fg(DARK_ORANGE));
                             let tx_type = Cell::from("DEPOSIT").style(Style::reset());
@@ -791,12 +786,9 @@ pub fn proto_term_cell(nano_ergs: u64, tokens: Vec<Token>, address: SerializedVa
     }
 }
 
-fn to_key_input(e: KeyEvent) -> tui_textarea::Input {
-    tui_textarea::Input::from(e)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ActiveBlock {
+    #[default]
     Main,
     Transactions,
     Deposits,
@@ -813,12 +805,6 @@ impl ActiveBlock {
             ActiveBlock::MakeDeposits => ActiveBlock::MakeWithdrawals,
             ActiveBlock::MakeWithdrawals => ActiveBlock::Main,
         }
-    }
-}
-
-impl Default for ActiveBlock {
-    fn default() -> Self {
-        ActiveBlock::Main
     }
 }
 

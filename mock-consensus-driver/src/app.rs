@@ -1,7 +1,7 @@
 use color_eyre::eyre::Result;
 use crossterm::event::KeyEvent;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
-use log::{error, info};
+use log::error;
 use ratatui::prelude::Rect;
 use spectrum_chain_connector::{InboundValue, VaultResponse};
 use spectrum_ergo_connector::rocksdb::vault_boxes::ErgoNotarizationBounds;
@@ -194,9 +194,4 @@ impl App {
         tui.exit()?;
         Ok(())
     }
-}
-
-pub enum MsgFromDriver {
-    NewDeposits(Vec<InboundValue<BoxId>>),
-    UpdatedVaultUtxo,
 }
