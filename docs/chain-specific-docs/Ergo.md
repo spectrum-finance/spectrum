@@ -89,3 +89,9 @@ $$ X^a = X^{U*p + L} = (X^U)^pX^L$$
 Every exponentiation on the right-hand side can be computed in Ergoscript as
 long as $U$, $L$ and $p$ are represented as `BigInt`.
 
+
+### Contract diagrams
+
+![](../assets/SpectrumNetworkErgoVault.svg)
+
+![](../assets/SpectrumNetworkDeposit.svg)
