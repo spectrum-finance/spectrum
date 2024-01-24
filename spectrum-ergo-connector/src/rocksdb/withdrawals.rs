@@ -9,7 +9,7 @@ use spectrum_offchain::{
     data::unique_entity::{Confirmed, Predicted},
 };
 
-/// Tracks withdrawals to user addresses in export TXs.
+/// Tracks withdrawals to user addresses in withdrawal TXs.
 #[async_trait(?Send)]
 pub trait WithdrawalRepo {
     async fn get_confirmation_height(&self, box_id: BoxId) -> Option<u32>;

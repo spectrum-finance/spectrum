@@ -14,7 +14,7 @@ use ratatui::{
 };
 use spectrum_chain_connector::{
     ChainTxEvent, ConnectorMsgOut, ConnectorResponse, ConnectorStatus, InboundValue, PendingDepositStatus,
-    PendingExportStatus, PendingTxStatus, ProtoTermCell, SpectrumTx, SpectrumTxType, VaultBalance,
+    PendingTxStatus, PendingWithdrawalStatus, ProtoTermCell, SpectrumTx, SpectrumTxType, VaultBalance,
 };
 use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_ergo_connector::script::ExtraErgoData;
@@ -45,7 +45,7 @@ pub struct Home<'a> {
     vault_utxo_details: Vec<VaultBalance<AncillaryVaultInfo>>,
     deposits: Vec<(InboundValue<BoxId>, DepositStatus)>,
     confirmed_transactions: Vec<SpectrumTx<BoxId, AncillaryVaultInfo>>,
-    exported_values: Vec<TermCell>,
+    withdrawn_values: Vec<TermCell>,
     tx_table_state: TableState,
     active_block: ActiveBlock,
     deposit_textarea: TextArea<'a>,
@@ -110,10 +110,10 @@ impl<'a> Component for Home<'a> {
                                         );
                                     }
                                     SpectrumTxType::Withdrawal {
-                                        exported_value,
+                                        withdrawn_value,
                                         vault_balance,
                                     } => {
-                                        self.exported_values.extend(exported_value.iter().cloned());
+                                        self.withdrawn_values.extend(withdrawn_value.iter().cloned());
                                         self.vault_utxo_details.push(vault_balance.clone());
                                         info!(
                                             target: "driver",
@@ -167,16 +167,16 @@ impl<'a> Component for Home<'a> {
                                         }
                                     }
                                     SpectrumTxType::Withdrawal {
-                                        exported_value,
+                                        withdrawn_value,
                                         vault_balance,
                                     } => {
-                                        for value in exported_value {
+                                        for value in withdrawn_value {
                                             let ix = self
-                                                .exported_values
+                                                .withdrawn_values
                                                 .iter()
                                                 .position(|term_cell| value == *term_cell)
                                                 .unwrap();
-                                            let removed = self.exported_values.swap_remove(ix);
+                                            let removed = self.withdrawn_values.swap_remove(ix);
                                             assert_eq!(value, removed);
                                         }
 
@@ -439,10 +439,10 @@ impl<'a> Home<'a> {
                         cells.extend([tx_id_cell, ergs, height_cell, status_cell]);
                     }
                     SpectrumTxType::Withdrawal {
-                        exported_value,
+                        withdrawn_value,
                         vault_balance,
                     } => {
-                        let ValueSummary { ergs, .. } = summarise_term_cells(exported_value);
+                        let ValueSummary { ergs, .. } = summarise_term_cells(withdrawn_value);
                         let tx_id_cell = Cell::from(vault_balance.on_chain_characteristics.tx_id.to_string())
                             .style(Style::reset());
                         cells.extend([tx_id_cell, ergs, height_cell, status_cell]);
@@ -469,9 +469,10 @@ impl<'a> Home<'a> {
                         Cell::from(u64::from(current_progress_point.point).to_string()).style(Style::reset());
                     let tx_id_cell = Cell::from("...".to_string()).style(Style::reset());
                     match tx_status {
-                        PendingTxStatus::Export(e) => {
-                            let PendingExportStatus { identifier, .. } = e;
-                            let ValueSummary { ergs, .. } = summarise_term_cells(&identifier.value_to_export);
+                        PendingTxStatus::Withdrawal(e) => {
+                            let PendingWithdrawalStatus { identifier, .. } = e;
+                            let ValueSummary { ergs, .. } =
+                                summarise_term_cells(&identifier.value_to_withdraw);
                             let status_cell = Cell::from("PENDING").style(Style::reset().fg(DARK_ORANGE));
                             let tx_type = Cell::from("WITHDRAWAL").style(Style::reset());
 

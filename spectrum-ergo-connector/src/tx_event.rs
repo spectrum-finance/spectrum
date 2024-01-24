@@ -56,8 +56,8 @@ pub enum ErgoTxType {
 
     /// Spectrum Network withdrawal transaction
     Withdrawal {
-        /// Value that was successfully exported from Spectrum-network to some recipient on-chain.
-        exported_value: Vec<ErgoTermCell>,
+        /// Value that was successfully withdrawn from Spectrum-network to some recipient on-chain.
+        withdrawn_value: Vec<ErgoTermCell>,
         vault_info: (VaultUtxo, AncillaryVaultInfo),
     },
 
@@ -96,10 +96,10 @@ impl From<SpectrumErgoTx> for SpectrumTx<BoxId, AncillaryVaultInfo> {
                 }
             }
             ErgoTxType::Withdrawal {
-                exported_value,
+                withdrawn_value,
                 vault_info: (vault_utxo, ancillary_info),
             } => {
-                let exported_value = exported_value.into_iter().map(TermCell::from).collect();
+                let withdrawn_value = withdrawn_value.into_iter().map(TermCell::from).collect();
                 let vault_balance = VaultBalance {
                     value: SValue::from(&vault_utxo),
                     on_chain_characteristics: ancillary_info,
@@ -107,7 +107,7 @@ impl From<SpectrumErgoTx> for SpectrumTx<BoxId, AncillaryVaultInfo> {
                 SpectrumTx {
                     progress_point,
                     tx_type: SpectrumTxType::Withdrawal {
-                        exported_value,
+                        withdrawn_value,
                         vault_balance,
                     },
                 }

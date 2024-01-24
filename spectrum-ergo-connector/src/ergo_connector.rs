@@ -47,7 +47,7 @@ use spectrum_offchain::{
 use spectrum_offchain_lm::data::AsBox;
 
 use crate::tx_event::{ErgoTxEvent, ErgoTxType, SpectrumErgoTx};
-use crate::tx_in_progress::{DepositInProgress, ExportInProgress, TxInProgress};
+use crate::tx_in_progress::{DepositInProgress, TxInProgress, WithdrawalInProgress};
 use crate::vault_utxo::VaultUtxo;
 use crate::AncillaryVaultInfo;
 use crate::{
@@ -163,28 +163,28 @@ where
                         let as_box = AsBox(vault_output.clone(), vault_utxo.clone());
                         self.vault_box_repo.put_confirmed(Confirmed(as_box)).await;
 
-                        let mut exported_value = vec![];
+                        let mut withdrawn_value = vec![];
                         // Add withdrawals
                         for (term_cell, bx) in terminal_cells {
                             let box_id = bx.box_id();
                             self.withdrawal_repo.put_confirmed(Confirmed(bx)).await;
                             assert!(self.withdrawal_repo.may_exist(box_id).await);
-                            exported_value.push(term_cell);
+                            withdrawn_value.push(term_cell);
                         }
 
                         // If this Tx was in the mempool and tracked, we can confirm it now.
                         match self.tx_retry_scheduler.next_command().await {
                             Command::ResubmitTx(tx_in_progress) | Command::Wait(_, tx_in_progress) => {
                                 // If the signed-input of the vault UTXO coincides with the input tracked
-                                // by `export_tx_retry_scheduler`, we can be sure it is our Tx that has been
+                                // by `tx_retry_scheduler`, we can be sure it is our Tx that has been
                                 // confirmed.
-                                if let TxInProgress::Export(ref tracked_export) = tx_in_progress {
-                                    if tracked_export.vault_utxo_signed_input == *tx.inputs.first() {
+                                if let TxInProgress::Withdrawal(ref tracked_withdrawal) = tx_in_progress {
+                                    if tracked_withdrawal.vault_utxo_signed_input == *tx.inputs.first() {
                                         info!(target: "vault", "VAULT WITHDRAWAL TX {:?} CONFIRMED", tx.id());
                                         self.tx_retry_scheduler.notify_confirmed(&tx_in_progress).await;
                                     }
                                 } else {
-                                    panic!("Expecting export TX in progress, not deposits!");
+                                    panic!("Expecting withdrawal TX in progress, not deposits!");
                                 }
                             }
                             _ => (),
@@ -203,7 +203,7 @@ where
                             progress_point: height,
                             tx_id: tx.id(),
                             tx_type: ErgoTxType::Withdrawal {
-                                exported_value,
+                                withdrawn_value,
                                 vault_info,
                             },
                         };
@@ -241,7 +241,7 @@ where
                                         self.tx_retry_scheduler.notify_confirmed(&tx_in_progress).await;
                                     }
                                 } else {
-                                    panic!("Expecting deposit TX in progress, not export!");
+                                    panic!("Expecting deposit TX in progress, not withdrawal!");
                                 }
                             }
                             _ => (),
@@ -335,11 +335,11 @@ where
                         self.vault_box_repo.unspend_box(prev_vault_box_id).await;
                         self.vault_box_repo.remove(tx.outputs.first().box_id()).await;
 
-                        let mut exported_value = vec![];
+                        let mut withdrawn_value = vec![];
                         // Remove withdrawals
                         for (term_cell, bx) in terminal_cells {
                             self.withdrawal_repo.remove(bx.box_id()).await;
-                            exported_value.push(term_cell);
+                            withdrawn_value.push(term_cell);
                         }
 
                         let vault_output = tx.outputs.first().clone();
@@ -359,7 +359,7 @@ where
                             progress_point: height,
                             tx_id: tx.id(),
                             tx_type: ErgoTxType::Withdrawal {
-                                exported_value,
+                                withdrawn_value,
                                 vault_info,
                             },
                         };
@@ -428,12 +428,12 @@ where
     }
 
     pub async fn handle_tx_resubmission(&mut self, ergo_node: &ErgoNodeHttpClient) {
-        let export_command = self.tx_retry_scheduler.next_command().await;
-        if let Command::ResubmitTx(tx) = export_command {
+        let withdrawal_command = self.tx_retry_scheduler.next_command().await;
+        if let Command::ResubmitTx(tx) = withdrawal_command {
             match tx {
-                TxInProgress::Export(e) => {
-                    info!(target: "vault", "Resubmitting export tx");
-                    self.export_value(e.report, true, e.vault_utxo, ergo_node).await;
+                TxInProgress::Withdrawal(e) => {
+                    info!(target: "vault", "Resubmitting withdrawal tx");
+                    self.withdraw_value(e.report, true, e.vault_utxo, ergo_node).await;
                 }
                 TxInProgress::Deposit(d) => {
                     info!(target: "vault", "Resubmitting deposit tx");
@@ -636,7 +636,7 @@ where
         }
     }
 
-    pub async fn export_value(
+    pub async fn withdraw_value(
         &mut self,
         report: NotarizedReport<ExtraErgoData>,
         is_resubmission: bool,
@@ -676,7 +676,7 @@ where
             .into_iter()
             .skip(1)
             .take(num_outputs - 2);
-        let export = TxInProgress::Export(ExportInProgress {
+        let withdrawal = TxInProgress::Withdrawal(WithdrawalInProgress {
             report,
             vault_utxo_signed_input: signed_tx.inputs.first().clone(),
             vault_utxo,
@@ -685,7 +685,7 @@ where
         if let Err(e) = ergo_node.submit_tx(signed_tx).await {
             println!("ERGO NODE ERROR: {:?}", e);
             if is_resubmission {
-                self.tx_retry_scheduler.notify_failed(&export).await;
+                self.tx_retry_scheduler.notify_failed(&withdrawal).await;
             }
             false
         } else {
@@ -704,7 +704,7 @@ where
             }
 
             if !is_resubmission {
-                self.tx_retry_scheduler.add(export).await;
+                self.tx_retry_scheduler.add(withdrawal).await;
             }
 
             true

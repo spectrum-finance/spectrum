@@ -13,8 +13,8 @@ use log::{error, info};
 use serde::Deserialize;
 use spectrum_chain_connector::{
     ChainTxEvent, ConnectorMsgOut, ConnectorRequest, ConnectorResponse, ConnectorStatus, Kilobytes,
-    NotarizedReport, NotarizedReportConstraints, PendingDepositStatus, PendingExportStatus,
-    PendingTxIdentifier, PendingTxStatus, ProtoTermCell, SpectrumTx, SpectrumTxType, TxStatus,
+    NotarizedReport, NotarizedReportConstraints, PendingDepositStatus, PendingTxIdentifier, PendingTxStatus,
+    PendingWithdrawalStatus, ProtoTermCell, SpectrumTx, SpectrumTxType, TxStatus,
 };
 use spectrum_crypto::digest::blake2b256_hash;
 use spectrum_ergo_connector::{
@@ -198,9 +198,11 @@ impl MockConsensusDriver {
                         } else {
                             // Check for pending NotarizedReport
                             if let Some(notarized_report) = self.notarized_report_to_send.take() {
-                                info!(target: "driver", "Sending request to export value");
+                                info!(target: "driver", "Sending request for withdrawal TX");
                                 unix_sock_tx
-                                    .send(ConnectorRequest::ExportValue(Box::new(notarized_report)))
+                                    .send(ConnectorRequest::ValidateAndProcessWithdrawals(Box::new(
+                                        notarized_report,
+                                    )))
                                     .await
                                     .unwrap();
                             } else {
@@ -226,15 +228,15 @@ impl MockConsensusDriver {
                 },
 
                 Some(status) => match status {
-                    PendingTxStatus::Export(PendingExportStatus {
+                    PendingTxStatus::Withdrawal(PendingWithdrawalStatus {
                         identifier: data,
                         status,
                     }) => match status {
                         TxStatus::Confirmed => {
-                            info!(target: "driver", "ACK CONFIRMED EXPORT TX");
+                            info!(target: "driver", "ACK CONFIRMED WITHDRAWAL TX");
                             unix_sock_tx
                                 .send(ConnectorRequest::AcknowledgeConfirmedTx(
-                                    PendingTxIdentifier::Export(Box::new(data.clone())),
+                                    PendingTxIdentifier::Withdrawal(Box::new(data.clone())),
                                     self.connector_status
                                         .clone()
                                         .map(|status| status.get_current_progress_point())
@@ -244,10 +246,10 @@ impl MockConsensusDriver {
                                 .unwrap();
                         }
                         TxStatus::Aborted => {
-                            info!(target: "driver", "ACK ABORTED EXPORT TX");
+                            info!(target: "driver", "ACK ABORTED WITHDRAWAL TX");
                             unix_sock_tx
                                 .send(ConnectorRequest::AcknowledgeAbortedTx(
-                                    PendingTxIdentifier::Export(Box::new(data.clone())),
+                                    PendingTxIdentifier::Withdrawal(Box::new(data.clone())),
                                     self.connector_status
                                         .clone()
                                         .map(|status| status.get_current_progress_point())
@@ -348,7 +350,7 @@ impl MockConsensusDriver {
                         let vault_utxos: Vec<_> = bounds.vault_utxos.into();
                         let term_cells = self.proposed_withdrawal_term_cells.take().unwrap();
 
-                        let value_to_export: Vec<ErgoTermCell> = term_cells
+                        let value_to_withdraw: Vec<ErgoTermCell> = term_cells
                             .iter()
                             .map(|p| ErgoTermCell(ErgoCell::from(p)))
                             .collect();
@@ -357,7 +359,7 @@ impl MockConsensusDriver {
 
                         let inputs = simulate_signature_aggregation_notarized_proofs(
                             self.committee_secret_keys.clone(),
-                            value_to_export.clone(),
+                            value_to_withdraw.clone(),
                             0,
                             Threshold { num: 4, denom: 4 },
                             max_miner_fee,
@@ -378,14 +380,14 @@ impl MockConsensusDriver {
                             exclusion_set: inputs.exclusion_set,
                         });
 
-                        let value_to_export = value_to_export
+                        let value_to_withdraw = value_to_withdraw
                             .into_iter()
                             .take(bounds.terminal_cell_bound)
                             .map(TermCell::from)
                             .collect();
                         let notarized_report = NotarizedReport {
                             certificate,
-                            value_to_export,
+                            value_to_withdraw,
                             authenticated_digest: inputs.resulting_digest,
                             additional_chain_data: extra_ergo_data,
                         };

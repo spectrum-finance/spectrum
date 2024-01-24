@@ -18,13 +18,13 @@ pub trait Timestamped {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub enum TxInProgress {
-    Export(ExportInProgress),
+    Withdrawal(WithdrawalInProgress),
     Deposit(DepositInProgress),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Derivative)]
 #[derivative(PartialEq, Eq)]
-pub struct ExportInProgress {
+pub struct WithdrawalInProgress {
     pub report: NotarizedReport<ExtraErgoData>,
     pub vault_utxo_signed_input: Input,
     pub vault_utxo: ErgoBox,
@@ -45,7 +45,7 @@ pub struct DepositInProgress {
 impl IdentifyBy<PendingTxIdentifier<ExtraErgoData, BoxId>> for TxInProgress {
     fn is_identified_by(&self, t: &PendingTxIdentifier<ExtraErgoData, BoxId>) -> bool {
         match (self, t) {
-            (TxInProgress::Export(e), PendingTxIdentifier::Export(notarized_report)) => {
+            (TxInProgress::Withdrawal(e), PendingTxIdentifier::Withdrawal(notarized_report)) => {
                 e.report == *notarized_report.as_ref()
             }
             (TxInProgress::Deposit(d), PendingTxIdentifier::Deposit(unprocessed_deposits)) => {
@@ -66,7 +66,7 @@ impl Timestamped for TxInProgress {
     fn get_timestamp(&self) -> i64 {
         match self {
             TxInProgress::Deposit(d) => d.timestamp,
-            TxInProgress::Export(report) => report.timestamp,
+            TxInProgress::Withdrawal(report) => report.timestamp,
         }
     }
 }

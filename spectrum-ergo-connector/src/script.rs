@@ -336,7 +336,7 @@ impl From<NotarizedReport<ExtraErgoData>> for SignatureAggregationWithNotarizati
         } = value.additional_chain_data;
 
         let terminal_cells = value
-            .value_to_export
+            .value_to_withdraw
             .into_iter()
             .map(|tc| ErgoTermCell::try_from(tc).unwrap())
             .collect();

@@ -58,8 +58,8 @@ pub enum SpectrumTxType<T, U> {
 
     /// Spectrum Network withdrawal transaction
     Withdrawal {
-        /// Value that was successfully exported from Spectrum-network to some recipient on-chain.
-        exported_value: Vec<TermCell>,
+        /// Value that was successfully withdrawn from Spectrum-network to some recipient on-chain.
+        withdrawn_value: Vec<TermCell>,
         vault_balance: VaultBalance<U>,
     },
 
@@ -78,15 +78,24 @@ pub enum ChainTxEvent<T, U> {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 /// A response from the Connector to the consensus-driver that is sent after a `ConnectorRequest`
 /// is received by the Connector.
+///
+/// The type variables are used for represent chain-specific information for a pending SN TX.
+///  - Type variable `S` denotes chain-specific information associated with the notarized report
+///    of a withdrawal TX.
+///  - `T` denotes information relating to notarization bounds.
+///  - `U` denotes chain-specific information to identify an inbound deposit to SN.
+///  - `V` denotes chain-specific information relating to the SN Vault.
 pub struct ConnectorResponse<S, T, U, V> {
     pub status: ConnectorStatus<S, U>,
     pub messages: Vec<ConnectorMsgOut<T, U, V>>,
 }
 
-/// Inbound message to Connector from consensus driver. The type parameter `T` represents
-/// chain-specific information within the `NotarizedReport`, which is used to validate the
-/// withdrawal TX in SN. The parameter `U` represents chain-specific information relating to
-/// inbound deposits to SN.
+/// Inbound message to Connector from consensus-driver.
+///
+/// The type variables are used for represent chain-specific information for a pending SN TX.
+///  - Type variable `T` denotes chain-specific information associated with the notarized report
+///    of a withdrawal TX.
+///  - `U` denotes chain-specific information to identify an inbound deposit to SN.
 #[derive(Deserialize, Serialize, Debug)]
 pub enum ConnectorRequest<T, U> {
     /// Indicate to the Connector to start sync'ing from the given progress point. If no
@@ -96,8 +105,9 @@ pub enum ConnectorRequest<T, U> {
     /// Request the Connector to find a set of TXs to notarize, subject to various constraints.
     RequestTxsToNotarize(NotarizedReportConstraints),
     /// Request the connector to validate the given notarized report and if successful, form and
-    /// submit a transaction to export value that's specified in the notarized report.
-    ExportValue(Box<NotarizedReport<T>>),
+    /// submit a transaction to withdraw value to recipients that are specified in the notarized
+    /// report.
+    ValidateAndProcessWithdrawals(Box<NotarizedReport<T>>),
     /// Instruct the Connector form a TX to process outstanding deposits into SN.
     ProcessDeposits,
     /// Acknowledge that TX was confirmed.
@@ -123,6 +133,12 @@ pub struct NotarizedReportConstraints {
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
+/// Status of the Connector.
+///
+/// The type variables are used for represent chain-specific information for a pending SN TX.
+///  - Type variable `T` denotes chain-specific information associated with the notarized report
+///    of a withdrawal TX.
+///  - `U` denotes chain-specific information to identify an inbound deposit to SN.
 pub enum ConnectorStatus<T, U> {
     /// Indicates that the Connector is sync'ed (up to date) with its associated chain.
     Synced {
@@ -182,7 +198,7 @@ pub enum TxStatus {
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
-pub struct PendingExportStatus<T> {
+pub struct PendingWithdrawalStatus<T> {
     pub identifier: NotarizedReport<T>,
     pub status: TxStatus,
 }
@@ -194,14 +210,20 @@ pub struct PendingDepositStatus<T> {
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
+/// Represents the status of a pending SN TX.
+///
+/// Note on type variables:
+///  - Type variable `T` denotes chain-specific information associated with the notarized report
+///    of the withdrawal TX.
+///  - `U` denotes chain-specific information to identify an inbound deposit to SN.
 pub enum PendingTxStatus<T, U> {
-    Export(PendingExportStatus<T>),
+    Withdrawal(PendingWithdrawalStatus<T>),
     Deposit(PendingDepositStatus<U>),
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 pub enum PendingTxIdentifier<T, U> {
-    Export(Box<NotarizedReport<T>>),
+    Withdrawal(Box<NotarizedReport<T>>),
     Deposit(Vec<InboundValue<U>>),
 }
 
@@ -260,7 +282,7 @@ pub struct ProtoTermCell {
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct NotarizedReport<T> {
     pub certificate: ReportCertificate,
-    pub value_to_export: Vec<TermCell>,
+    pub value_to_withdraw: Vec<TermCell>,
     pub authenticated_digest: Vec<u8>,
     pub additional_chain_data: T,
 }

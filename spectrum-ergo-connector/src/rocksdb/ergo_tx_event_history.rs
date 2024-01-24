@@ -206,7 +206,7 @@ mod tests {
 
         ErgoTxEvent::Applied(SpectrumErgoTx {
             tx_type: ErgoTxType::Withdrawal {
-                exported_value: vec![ErgoTermCell(ergo_cell)],
+                withdrawn_value: vec![ErgoTermCell(ergo_cell)],
                 vault_info: (
                     VaultUtxo {
                         value: force_any_val(),

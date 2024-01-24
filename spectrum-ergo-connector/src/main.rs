@@ -20,7 +20,7 @@ use futures::StreamExt;
 use isahc::{config::Configurable, HttpClient};
 use log::info;
 use rocksdb::{vault_boxes::VaultUtxoRepoRocksDB, withdrawals::WithdrawalRepoRocksDB};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::serde_as;
 use spectrum_chain_connector::{
     ChainTxEvent, ConnectorMsgOut, ConnectorRequest, ConnectorResponse, DataBridge, DataBridgeComponents,
@@ -113,88 +113,11 @@ async fn main() {
         tokio::sync::mpsc::channel::<ConnectorRequest<ExtraErgoData, BoxId>>(10);
 
     // This is the blue coloured task pictured in the Connector documentation.
-    tokio::spawn(async move {
-        let (driver_req_tx, mut driver_req_rx) =
-            tokio::sync::mpsc::channel::<ConnectorRequest<ExtraErgoData, BoxId>>(10);
-
-        // The request-forwarder task. It forwards requests from the driver to the Connector.
-        tokio::spawn(async move {
-            while let Some(req) = driver_req_rx.recv().await {
-                // Pass on this request to the Connector
-                request_to_connector_tx.send(req).await.unwrap();
-            }
-        });
-
-        let (response_sender_tx, response_sender_rx) = tokio::sync::mpsc::channel::<
-            tokio_unix_ipc::Sender<
-                ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
-            >,
-        >(10);
-
-        // merged stream
-        enum MergedStream {
-            NewUnixSender(
-                tokio_unix_ipc::Sender<
-                    ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
-                >,
-            ),
-            VaultManagerResponse(
-                Box<ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>>,
-            ),
-        }
-
-        type CombinedStream = std::pin::Pin<Box<dyn futures::stream::Stream<Item = MergedStream> + Send>>;
-
-        let streams: Vec<CombinedStream> = vec![
-            ReceiverStream::new(response_sender_rx)
-                .map(MergedStream::NewUnixSender)
-                .boxed(),
-            ReceiverStream::new(connector_response_rx)
-                .map(|r| MergedStream::VaultManagerResponse(Box::new(r)))
-                .boxed(),
-        ];
-        let mut combined_stream = futures::stream::select_all(streams);
-
-        // The response-forwarder task. It forwards responses from the Connector to a connected driver.
-        tokio::spawn(async move {
-            let mut current_tx = None;
-            while let Some(m) = combined_stream.next().await {
-                match m {
-                    MergedStream::NewUnixSender(new_tx) => current_tx = Some(new_tx),
-                    MergedStream::VaultManagerResponse(response) => {
-                        if let Some(ref tx) = current_tx {
-                            tx.send(*response).await.unwrap();
-                        }
-                    }
-                }
-            }
-        });
-
-        loop {
-            let (req_tx, req_rx) = symmetric_channel::<ConnectorRequest<ExtraErgoData, BoxId>>().unwrap();
-            let (resp_tx, resp_rx) = symmetric_channel::<
-                ConnectorResponse<ExtraErgoData, ErgoNotarizationBounds, BoxId, AncillaryVaultInfo>,
-            >()
-            .unwrap();
-            let bootstrapper = Bootstrapper::bind(unix_socket_path.clone()).unwrap();
-            bootstrapper.send((req_tx, resp_rx)).await.unwrap();
-
-            response_sender_tx.send(resp_tx).await.unwrap();
-            let driver_req_tx = driver_req_tx.clone();
-
-            while let Ok(req) = req_rx.recv().await {
-                match req {
-                    ConnectorRequest::Disconnect => {
-                        break;
-                    }
-                    e => {
-                        // Pass off to task above, which forwards to the Connector
-                        let _ = driver_req_tx.send(e).await;
-                    }
-                }
-            }
-        }
-    });
+    tokio::spawn(manage_unix_socket_communications_task(
+        connector_response_rx,
+        request_to_connector_tx,
+        unix_socket_path,
+    ));
 
     let mut ergo_connector = ErgoConnector::new(
         vault_box_repo,
@@ -230,8 +153,8 @@ async fn main() {
         }
     };
 
-    // Every minute we check whether the export TX needs a resubmission.
-    let resubmit_export_tx_stream = stream! {
+    // Every minute we check whether a SN TX needs a resubmission.
+    let resubmit_tx_stream = stream! {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             yield ();
@@ -243,9 +166,7 @@ async fn main() {
             .map(StreamValueFrom::Chain)
             .boxed(),
         consensus_driver_stream.map(StreamValueFrom::Driver).boxed(),
-        resubmit_export_tx_stream
-            .map(|_| StreamValueFrom::ResubmitTx)
-            .boxed(),
+        resubmit_tx_stream.map(|_| StreamValueFrom::ResubmitTx).boxed(),
     ];
     let mut combined_stream = futures::stream::select_all(streams);
 
@@ -259,14 +180,14 @@ async fn main() {
             StreamValueFrom::Driver(msg_in) => {
                 if let Some(request) = msg_in {
                     match request {
-                        ConnectorRequest::ExportValue(report) => {
+                        ConnectorRequest::ValidateAndProcessWithdrawals(report) => {
                             let current_height = node.get_height().await;
                             let vault_utxo = explorer
                                 .get_box(*report.additional_chain_data.vault_utxos.first().unwrap())
                                 .await
                                 .unwrap();
                             ergo_connector
-                                .export_value(*report.clone(), false, vault_utxo, &node)
+                                .withdraw_value(*report.clone(), false, vault_utxo, &node)
                                 .await;
 
                             let status = ergo_connector.get_connector_status(current_height).await;
@@ -324,9 +245,9 @@ async fn main() {
                             let current_height = node.get_height().await;
                             let status = ergo_connector.get_connector_status(current_height).await;
                             info!(
-                            target: "vault",
-                            "respond to SyncFrom({:?}). Current height: {} status: {:?}, messages: {:?}",
-                            point, current_height, status, messages
+                                target: "vault",
+                                "respond to SyncFrom({:?}). Current height: {} status: {:?}, messages: {:?}",
+                                point, current_height, status, messages
                             );
                             connector_response_tx
                                 .send(ConnectorResponse { status, messages })
@@ -344,7 +265,7 @@ async fn main() {
                                 .collect();
                             let current_height = node.get_height().await;
                             let status = ergo_connector.get_connector_status(current_height).await;
-                            info!(target: "vault", "respond to AcknowledgeConfirmedExportTx. status: {:?}, messages: {:?}", status, messages);
+                            info!(target: "vault", "respond to AcknowledgeConfirmedTx. status: {:?}, messages: {:?}", status, messages);
                             connector_response_tx
                                 .send(ConnectorResponse { status, messages })
                                 .await
@@ -361,7 +282,7 @@ async fn main() {
                                 .collect();
                             let current_height = node.get_height().await;
                             let status = ergo_connector.get_connector_status(current_height).await;
-                            info!(target: "vault", "respond to AcknowledgeAbortedExportTx. status: {:?}, messages: {:?}", status, messages);
+                            info!(target: "vault", "respond to AcknowledgeAbortedTx. status: {:?}, messages: {:?}", status, messages);
                             connector_response_tx
                                 .send(ConnectorResponse { status, messages })
                                 .await
@@ -379,6 +300,86 @@ async fn main() {
 
             StreamValueFrom::ResubmitTx => {
                 ergo_connector.handle_tx_resubmission(&node).await;
+            }
+        }
+    }
+}
+
+async fn manage_unix_socket_communications_task<S, T, U, V>(
+    connector_response_rx: tokio::sync::mpsc::Receiver<ConnectorResponse<S, T, U, V>>,
+    request_to_connector_tx: tokio::sync::mpsc::Sender<ConnectorRequest<S, U>>,
+    unix_socket_path: String,
+) where
+    S: std::fmt::Debug + Send + Serialize + DeserializeOwned + 'static,
+    T: Send + Serialize + DeserializeOwned + 'static,
+    U: std::fmt::Debug + Send + Serialize + DeserializeOwned + 'static,
+    V: Send + Serialize + DeserializeOwned + 'static,
+{
+    let (driver_req_tx, mut driver_req_rx) = tokio::sync::mpsc::channel::<ConnectorRequest<S, U>>(10);
+
+    // The request-forwarder task. It forwards requests from the driver to the Connector.
+    tokio::spawn(async move {
+        while let Some(req) = driver_req_rx.recv().await {
+            // Pass on this request to the Connector
+            request_to_connector_tx.send(req).await.unwrap();
+        }
+    });
+
+    let (response_sender_tx, response_sender_rx) =
+        tokio::sync::mpsc::channel::<tokio_unix_ipc::Sender<ConnectorResponse<S, T, U, V>>>(10);
+
+    // Merged stream
+    enum MergedStream<S, T, U, V> {
+        NewUnixSender(tokio_unix_ipc::Sender<ConnectorResponse<S, T, U, V>>),
+        VaultManagerResponse(Box<ConnectorResponse<S, T, U, V>>),
+    }
+
+    type CombinedStream<S, T, U, V> =
+        std::pin::Pin<Box<dyn futures::stream::Stream<Item = MergedStream<S, T, U, V>> + Send>>;
+
+    let streams: Vec<CombinedStream<S, T, U, V>> = vec![
+        ReceiverStream::new(response_sender_rx)
+            .map(MergedStream::NewUnixSender)
+            .boxed(),
+        ReceiverStream::new(connector_response_rx)
+            .map(|r| MergedStream::VaultManagerResponse(Box::new(r)))
+            .boxed(),
+    ];
+    let mut combined_stream = futures::stream::select_all(streams);
+
+    // The response-forwarder task. It forwards responses from the Connector to a connected driver.
+    tokio::spawn(async move {
+        let mut current_tx = None;
+        while let Some(m) = combined_stream.next().await {
+            match m {
+                MergedStream::NewUnixSender(new_tx) => current_tx = Some(new_tx),
+                MergedStream::VaultManagerResponse(response) => {
+                    if let Some(ref tx) = current_tx {
+                        tx.send(*response).await.unwrap();
+                    }
+                }
+            }
+        }
+    });
+
+    loop {
+        let (req_tx, req_rx) = symmetric_channel::<ConnectorRequest<S, U>>().unwrap();
+        let (resp_tx, resp_rx) = symmetric_channel::<ConnectorResponse<S, T, U, V>>().unwrap();
+        let bootstrapper = Bootstrapper::bind(unix_socket_path.clone()).unwrap();
+        bootstrapper.send((req_tx, resp_rx)).await.unwrap();
+
+        response_sender_tx.send(resp_tx).await.unwrap();
+        let driver_req_tx = driver_req_tx.clone();
+
+        while let Ok(req) = req_rx.recv().await {
+            match req {
+                ConnectorRequest::Disconnect => {
+                    break;
+                }
+                e => {
+                    // Pass off to task above, which forwards to the Connector
+                    let _ = driver_req_tx.send(e).await;
+                }
             }
         }
     }

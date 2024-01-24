@@ -8,11 +8,11 @@ use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use spectrum_chain_connector::{
-    InboundValue, PendingDepositStatus, PendingExportStatus, PendingTxStatus, TxStatus,
+    InboundValue, PendingDepositStatus, PendingTxStatus, PendingWithdrawalStatus, TxStatus,
 };
 
 use crate::script::ExtraErgoData;
-use crate::tx_in_progress::{ExportInProgress, IdentifyBy, Timestamped, TxInProgress};
+use crate::tx_in_progress::{IdentifyBy, Timestamped, TxInProgress, WithdrawalInProgress};
 
 /// Handle resubmission of Spectrum Network TXs.
 #[async_trait(?Send)]
@@ -20,12 +20,12 @@ pub trait TxRetryScheduler<T, U>
 where
     T: IdentifyBy<U>,
 {
-    /// To be called when connector has submitted export TX to mempool.
+    /// To be called when connector has submitted a TX to mempool.
     async fn add(&mut self, data: T);
     /// Obtain next command from the scheduler
     async fn next_command(&self) -> Command<T>;
     async fn notify_confirmed(&mut self, data: &T);
-    async fn notify_failed(&mut self, export: &T);
+    async fn notify_failed(&mut self, data: &T);
     async fn clear_confirmed(&mut self, element: &U);
     async fn clear_aborted(&mut self, element: &U);
 }
@@ -74,7 +74,7 @@ where
         spawn_blocking(move || {
             let value_bytes = rmp_serde::to_vec_named(&data).unwrap();
             let tx = db.transaction();
-            tx.put(EXPORT_KEY.as_bytes(), value_bytes).unwrap();
+            tx.put(TX_KEY.as_bytes(), value_bytes).unwrap();
             tx.put(COUNT_KEY.as_bytes(), 0_u32.to_be_bytes()).unwrap();
             tx.put(
                 STATUS_KEY.as_bytes(),
@@ -93,24 +93,24 @@ where
 
     async fn next_command(&self) -> Command<T> {
         let db = Arc::clone(&self.db);
-        spawn_blocking(move || match db.get(EXPORT_KEY.as_bytes()).unwrap() {
+        spawn_blocking(move || match db.get(TX_KEY.as_bytes()).unwrap() {
             Some(value_bytes) => {
                 let status_bytes = db.get(STATUS_KEY.as_bytes()).unwrap().unwrap();
                 let status: Status = rmp_serde::from_slice(&status_bytes).unwrap();
-                let export: T = rmp_serde::from_slice(&value_bytes).unwrap();
+                let tx: T = rmp_serde::from_slice(&value_bytes).unwrap();
                 match status {
                     Status::InProgress => {
                         let ts_now = Utc::now().timestamp();
                         let timestamp_bytes = db.get(RETRY_TIMESTAMP_KEY.as_bytes()).unwrap().unwrap();
                         let next_timestamp = i64::from_be_bytes(timestamp_bytes.try_into().unwrap());
                         if ts_now >= next_timestamp {
-                            Command::ResubmitTx(export)
+                            Command::ResubmitTx(tx)
                         } else {
-                            Command::Wait(Duration::from_secs((next_timestamp - ts_now) as u64), export)
+                            Command::Wait(Duration::from_secs((next_timestamp - ts_now) as u64), tx)
                         }
                     }
-                    Status::Confirmed => Command::Confirmed(export),
-                    Status::Aborted => Command::Abort(export),
+                    Status::Confirmed => Command::Confirmed(tx),
+                    Status::Aborted => Command::Abort(tx),
                 }
             }
             None => Command::Idle,
@@ -118,11 +118,11 @@ where
         .await
     }
 
-    async fn notify_confirmed(&mut self, export: &T) {
+    async fn notify_confirmed(&mut self, data: &T) {
         let db = Arc::clone(&self.db);
-        let cloned = export.clone();
+        let cloned = data.clone();
         spawn_blocking(move || {
-            let value_bytes = db.get(EXPORT_KEY.as_bytes()).unwrap().unwrap();
+            let value_bytes = db.get(TX_KEY.as_bytes()).unwrap().unwrap();
             let value: T = rmp_serde::from_slice(&value_bytes).unwrap();
             assert_eq!(value, cloned);
             let tx = db.transaction();
@@ -142,7 +142,7 @@ where
         let cloned = data.clone();
         let max_retries = self.max_retries;
         spawn_blocking(move || {
-            let value_bytes = db.get(EXPORT_KEY.as_bytes()).unwrap().unwrap();
+            let value_bytes = db.get(TX_KEY.as_bytes()).unwrap().unwrap();
             let value: T = rmp_serde::from_slice(&value_bytes).unwrap();
             assert_eq!(value, cloned);
             let count_bytes = db.get(COUNT_KEY.as_bytes()).unwrap().unwrap();
@@ -152,7 +152,7 @@ where
             // timestamp.
             let updated_bytes = rmp_serde::to_vec_named(&cloned).unwrap();
             let tx = db.transaction();
-            tx.put(EXPORT_KEY.as_bytes(), updated_bytes).unwrap();
+            tx.put(TX_KEY.as_bytes(), updated_bytes).unwrap();
             tx.put(COUNT_KEY.as_bytes(), (count + 1).to_be_bytes()).unwrap();
             if count + 1 == max_retries {
                 tx.put(
@@ -170,13 +170,13 @@ where
         let db = Arc::clone(&self.db);
         let cloned = element.clone();
         spawn_blocking(move || {
-            if let Some(value_bytes) = db.get(EXPORT_KEY.as_bytes()).unwrap() {
+            if let Some(value_bytes) = db.get(TX_KEY.as_bytes()).unwrap() {
                 let value: T = rmp_serde::from_slice(&value_bytes).unwrap();
                 assert!(value.is_identified_by(&cloned));
                 let status_bytes = db.get(STATUS_KEY.as_bytes()).unwrap().unwrap();
                 let status: Status = rmp_serde::from_slice(&status_bytes).unwrap();
                 assert_eq!(status, Status::Confirmed);
-                db.delete(EXPORT_KEY.as_bytes()).unwrap();
+                db.delete(TX_KEY.as_bytes()).unwrap();
             }
         })
         .await
@@ -186,51 +186,51 @@ where
         let db = Arc::clone(&self.db);
         let cloned = element.clone();
         spawn_blocking(move || {
-            if let Some(value_bytes) = db.get(EXPORT_KEY.as_bytes()).unwrap() {
+            if let Some(value_bytes) = db.get(TX_KEY.as_bytes()).unwrap() {
                 let value: T = rmp_serde::from_slice(&value_bytes).unwrap();
                 assert!(value.is_identified_by(&cloned));
                 let status_bytes = db.get(STATUS_KEY.as_bytes()).unwrap().unwrap();
                 let status: Status = rmp_serde::from_slice(&status_bytes).unwrap();
                 assert_eq!(status, Status::Aborted);
-                db.delete(EXPORT_KEY.as_bytes()).unwrap();
+                db.delete(TX_KEY.as_bytes()).unwrap();
             }
         })
         .await
     }
 }
 
-const EXPORT_KEY: &str = "e:";
+const TX_KEY: &str = "e:";
 const COUNT_KEY: &str = "c:";
 const RETRY_TIMESTAMP_KEY: &str = "r:";
 const STATUS_KEY: &str = "s:";
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum Command<T> {
-    /// Resubmit the export Tx.
+    /// Resubmit the Tx.
     ResubmitTx(T),
     /// Give up trying to submit the Tx.
     Abort(T),
-    /// Wait for the specified duration to retry export Tx
+    /// Wait for the specified duration to retry Tx
     Wait(Duration, T),
-    /// Current export has been confirmed
+    /// Current TX has been confirmed
     Confirmed(T),
-    /// There's currently no export in progress
+    /// There's currently no TX in progress
     Idle,
 }
 
-impl From<Command<ExportInProgress>> for Option<PendingExportStatus<ExtraErgoData>> {
-    fn from(value: Command<ExportInProgress>) -> Self {
+impl From<Command<WithdrawalInProgress>> for Option<PendingWithdrawalStatus<ExtraErgoData>> {
+    fn from(value: Command<WithdrawalInProgress>) -> Self {
         match value {
-            Command::ResubmitTx(e) | Command::Wait(_, e) => Some(PendingExportStatus {
+            Command::ResubmitTx(e) | Command::Wait(_, e) => Some(PendingWithdrawalStatus {
                 identifier: e.report,
                 status: TxStatus::WaitingForConfirmation,
             }),
-            Command::Abort(e) => Some(PendingExportStatus {
+            Command::Abort(e) => Some(PendingWithdrawalStatus {
                 identifier: e.report,
                 status: TxStatus::Aborted,
             }),
 
-            Command::Confirmed(e) => Some(PendingExportStatus {
+            Command::Confirmed(e) => Some(PendingWithdrawalStatus {
                 identifier: e.report,
                 status: TxStatus::Confirmed,
             }),
@@ -250,10 +250,12 @@ impl From<Command<TxInProgress>> for Option<PendingTxStatus<ExtraErgoData, BoxId
         match value {
             Command::ResubmitTx(t) | Command::Wait(_, t) | Command::Abort(t) | Command::Confirmed(t) => {
                 match t {
-                    TxInProgress::Export(e) => Some(PendingTxStatus::Export(PendingExportStatus {
-                        identifier: e.report,
-                        status: status.unwrap(),
-                    })),
+                    TxInProgress::Withdrawal(e) => {
+                        Some(PendingTxStatus::Withdrawal(PendingWithdrawalStatus {
+                            identifier: e.report,
+                            status: status.unwrap(),
+                        }))
+                    }
                     TxInProgress::Deposit(d) => Some(PendingTxStatus::Deposit(PendingDepositStatus {
                         identifier: d
                             .unprocessed_deposits
@@ -301,15 +303,15 @@ mod tests {
         script::{dummy_resolver, ExtraErgoData},
     };
 
-    use super::{ExportInProgress, TxInProgress, TxRetrySchedulerRocksDB};
+    use super::{TxInProgress, TxRetrySchedulerRocksDB, WithdrawalInProgress};
 
     #[tokio::test]
-    async fn test_confirmed_export() {
+    async fn test_confirmed_withdrawal() {
         let mut client = rocks_db_client(10).await;
-        let export = make_dummy_export();
+        let tx = make_dummy_withdrawal();
         let idle: Command<TxInProgress> = Command::Idle;
         assert_eq!(idle, client.next_command().await);
-        client.add(export).await;
+        client.add(tx).await;
         let Command::Wait(_, exp): Command<TxInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
@@ -318,13 +320,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_failed_export() {
+    async fn test_failed_withdrawal() {
         let mut client = rocks_db_client(10).await;
-        let export = make_dummy_export();
+        let tx = make_dummy_withdrawal();
         let idle: Command<TxInProgress> = Command::Idle;
         assert_eq!(idle, client.next_command().await);
-        client.add(export.clone()).await;
-        client.notify_failed(&export).await;
+        client.add(tx.clone()).await;
+        client.notify_failed(&tx).await;
         let Command::Wait(_, exp): Command<TxInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
@@ -339,8 +341,8 @@ mod tests {
     #[tokio::test]
     async fn test_delays() {
         let mut client = rocks_db_client(1).await;
-        let export = make_dummy_export();
-        client.add(export.clone()).await;
+        let tx = make_dummy_withdrawal();
+        client.add(tx.clone()).await;
         let Command::Wait(d, _): Command<TxInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
@@ -349,10 +351,10 @@ mod tests {
         let Command::ResubmitTx(exp): Command<TxInProgress> = client.next_command().await else {
             panic!("Expected Command::Wait");
         };
-        assert_eq!(exp, export);
+        assert_eq!(exp, tx);
     }
 
-    fn make_dummy_export() -> TxInProgress {
+    fn make_dummy_withdrawal() -> TxInProgress {
         let empty_tree = AVLTree::new(dummy_resolver, 8, Some(32));
         let mut prover = BatchAVLProver::new(empty_tree.clone(), true);
         let initial_digest = prover.digest().unwrap().to_vec();
@@ -386,12 +388,12 @@ mod tests {
 
         let report = NotarizedReport {
             certificate: ReportCertificate::SchnorrK256(aggr_certificate),
-            value_to_export: vec![],
+            value_to_withdraw: vec![],
             authenticated_digest: vec![],
             additional_chain_data,
         };
 
-        TxInProgress::Export(ExportInProgress {
+        TxInProgress::Withdrawal(WithdrawalInProgress {
             report,
             vault_utxo_signed_input: force_any_val::<Input>(),
             vault_utxo: force_any_val(),

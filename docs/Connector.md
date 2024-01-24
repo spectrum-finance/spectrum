@@ -41,12 +41,20 @@ D -- Submit export report and proof --> A
 
 ### Rust API
 
-Values of the following enum are sent by the consensus-driver.
+In essence, the consensus-driver sends a `ConnectorRequest` and the Connector replies with a
+`ConnectorResponse`. Note that these messages are parametrized by a range of generic types that
+represent chain-specific information. Consult the `mock-consensus-driver` crate for an example
+implementation for the Ergo blockchain.
+
+For reference, the types used in the IPC API follow:
 ```rust
-/// Inbound message to Connector from consensus driver. The type parameter `T` represents
-/// chain-specific information within the `NotarizedReport`, which is used to validate the
-/// withdrawal TX in SN. The parameter `U` represents chain-specific information relating to
-/// inbound deposits to SN.
+/// Inbound message to Connector from consensus-driver.
+///
+/// The type variables are used for represent chain-specific information for a pending SN TX.
+///  - Type variable `T` denotes chain-specific information associated with the notarized report
+///    of a withdrawal TX.
+///  - `U` denotes chain-specific information to identify an inbound deposit to SN.
+#[derive(Deserialize, Serialize, Debug)]
 pub enum ConnectorRequest<T, U> {
     /// Indicate to the Connector to start sync'ing from the given progress point. If no
     /// progress point was given, then begin sync'ing from the oldest point known to the vault
@@ -55,8 +63,9 @@ pub enum ConnectorRequest<T, U> {
     /// Request the Connector to find a set of TXs to notarize, subject to various constraints.
     RequestTxsToNotarize(NotarizedReportConstraints),
     /// Request the connector to validate the given notarized report and if successful, form and
-    /// submit a transaction to export value that's specified in the notarized report.
-    ExportValue(Box<NotarizedReport<T>>),
+    /// submit a transaction to withdraw value to recipients that are specified in the notarized
+    /// report.
+    ValidateAndProcessWithdrawals(Box<NotarizedReport<T>>),
     /// Instruct the Connector form a TX to process outstanding deposits into SN.
     ProcessDeposits,
     /// Acknowledge that TX was confirmed.
@@ -75,6 +84,13 @@ The response of the Connector to an above request is an instance of:
 ```rust
 /// A response from the Connector to the consensus-driver that is sent after a `ConnectorRequest`
 /// is received by the Connector.
+///
+/// The type variables are used for represent chain-specific information for a pending SN TX.
+///  - Type variable `S` denotes chain-specific information associated with the notarized report
+///    of a withdrawal TX.
+///  - `T` denotes information relating to notarization bounds.
+///  - `U` denotes chain-specific information to identify an inbound deposit to SN.
+///  - `V` denotes chain-specific information relating to the SN Vault.
 pub struct ConnectorResponse<S, T, U, V> {
     pub status: ConnectorStatus<S, U>,
     pub messages: Vec<ConnectorMsgOut<T, U, V>>,
@@ -84,6 +100,12 @@ pub struct ConnectorResponse<S, T, U, V> {
 where
 
 ```rust
+/// Status of the Connector.
+///
+/// The type variables are used for represent chain-specific information for a pending SN TX.
+///  - Type variable `T` denotes chain-specific information associated with the notarized report
+///    of a withdrawal TX.
+///  - `U` denotes chain-specific information to identify an inbound deposit to SN.
 pub enum ConnectorStatus<T, U> {
     /// Indicates that the Connector is sync'ed (up to date) with its associated chain.
     Synced {
@@ -135,8 +157,8 @@ pub enum SpectrumTxType<T, U> {
 
     /// Spectrum Network withdrawal transaction
     Withdrawal {
-        /// Value that was successfully exported from Spectrum-network to some recipient on-chain.
-        exported_value: Vec<TermCell>,
+        /// Value that was successfully withdrawn from Spectrum-network to some recipient on-chain.
+        withdrawn_value: Vec<TermCell>,
         vault_balance: VaultBalance<U>,
     },
 
@@ -154,9 +176,10 @@ message-passing with channels (involving a Sender and Receiver), and such a patt
 with UNIX socket communications.
 
 The problem we have here is that the Senders and Receivers associated with a UNIX socket cannot
-be reused across multiple openings/closings. Referring to the diagram below, the Senders and
-Receivers in dashed-outline only last as long as a given socket is open. Once a driver disconnects,
-they can no longer be used. 
+be reused across multiple openings/closings. In the diagram below, `*_tx` and `*_rx` refer to Senders
+and Receivers, respectively ('tx' is common shorthand for 'transmitter', and 'rx' for receiver). The
+Senders and Receivers in dashed-outline only last as long as a given socket is open. Once a driver
+disconnects, they can no longer be used. 
 
 We can isolate management of these channels to a separate async task (coloured blue in the diagram)
 and an implementer of a connector and consensus-driver need only to create channels
