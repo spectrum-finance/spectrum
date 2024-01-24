@@ -1,4 +1,8 @@
-{
+{ // ===== Contract Information ===== //
+  // Name: Deposit
+  // Description: Validates a deposit into a Spectrum-Network Vault UTxO.
+
+
   // Validations
   // 1. Deposits are made to the correct Vault UTxO (by checking Vault token);
   // 2. Vault script is preserved
@@ -8,9 +12,6 @@
 
   val maxMinerFee = getVar[Long](8).get
   val expectedVaultTokenId = SELF.R4[Coll[Byte]].get
-
-  // Validate (5)
-  val refundPk = SELF.R5[SigmaProp].get
 
   // Validate (1) (Note that validation of (4) ensures that the vault token is preserved)
   val validVaultUTxO = INPUTS(0).tokens.size > 0 && expectedVaultTokenId == INPUTS(0).tokens(0)._1
@@ -124,13 +125,13 @@
               val newlyAddedQty = searchNewlyAddedResult._2
 
               // Token doesn't exist in the Vault UTxO but we've already seen a deposit of
-              // this deposit already.
+              // this token already.
               if (newlyAddedQty > 0L) {
                 val existingQty = new(newlyAddedIndex)._2
                 val updatedNew = new.updated(newlyAddedIndex, (tokenId, existingQty + token._2))
                 (existing, updatedNew)
               } else {
-                // Token doesn't belong int the Vault UTxO and this is the first deposit witnessed.
+                // Token doesn't belong in the Vault UTxO and this is the first deposit witnessed.
                 val updatedNew = new.append(Coll[(Coll[Byte], Long)]((tokenId, token._2)))
                 (existing, updatedNew)
               }
@@ -162,6 +163,8 @@
   // Validate (4)
   val validTokenDeposits = vaultTokensAfterDeposits == OUTPUTS(0).tokens
 
+  // Validate (5)
+  val refundPk = SELF.R5[SigmaProp].get
 
    refundPk || sigmaProp(validVaultUTxO &&
     scriptPreserved &&
