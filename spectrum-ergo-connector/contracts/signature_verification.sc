@@ -1,43 +1,43 @@
 { // ===== Contract Information ===== //
-  // Name: VaultSignatureVerification
-  // Description: Contract that validates the aggregated signature of a message digest 'm' and
-  // also verifies that all transactions in a given report were notarized by the current committee
-  // (validator set).
-  //
-  // This is how the overall process works:
-  //  1. The 'report' consists of a collection of 'terminal cells', which describes the value
-  //     (ERGs and tokens) that will be transferred to a particular address.
-  //  2. Each terminal cell is encoded as bytes which are used in an insertion operation of an AVL
-  //     tree.
-  //  3. The insertions are performed off-chain and the resulting AVL tree digest is hashed by
-  //     blake2b256; this value is the message digest 'm'.
-  //  4. The committee performs the signature aggregation process to sign 'm'.
-  //  5. This contract verifies that the committee signed 'm', encodes the terminal cells and
-  //     recreates the AVL tree proof, and checks that the hash of the resulting AVL digest is equal
-  //     to 'm'.
+  // Name: VaultWithdrawalAndDeposit
+  // Description: Contract that allows for withdrawals from and deposits into a Spectrum-Network
+  // Vault UTxO. For withdrawal, the contract validates the aggregated signature of a message digest
+  // 'm' and also verifies that all transactions in a given report were notarized by the current
+  // committee (validator set). For deposits, we only need to check that the input Vault UTxO has
+  // not lost any Ergs or tokens in this TX (the spending of each deposit UTxO is validated separately
+  // by its own guarding script. See deposit contract).
 
-  val withdrawalAction = INPUTS(0).value > OUTPUTS(0).value
-  val depositAction = INPUTS(0).value < OUTPUTS(0).value
-
-  val maxMinerFee = getVar[Long](8).get
-  val minerPropBytes = fromBase16("1005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a57304")
-  val validMinerFee = OUTPUTS
-    .map { (o: Box) =>
-      if (o.propositionBytes == minerPropBytes) o.value else 0L
-    }
-    .fold(0L, { (a: Long, b: Long) => a + b }) <= maxMinerFee
   
-  val scriptPreserved = OUTPUTS(0).propositionBytes == SELF.propositionBytes
+
+
+  // Validations common to both withdrawals and deposits:
+  //   1. Correct Vault token is present
+  //   2. Guarding script is preserved
+  //   3. Correct committee UTxOs are present in data inputs
+  //   4. TX is being made in the correct epoch.
+  //   5. Miner fee
+
+  val vaultIn = INPUTS(0)
+  val vaultOut = OUTPUTS(0)
+  val withdrawalAction = vaultIn.value > vaultOut.value
+
+  
 
   val expectedVaultTokenId = getVar[Coll[Byte]](4).get
+  // Validating (1)
   val validVaultToken =
-    INPUTS(0).tokens.size > 0 &&
-    INPUTS(0).tokens(0)._1 == expectedVaultTokenId &&
-    INPUTS(0).tokens(0)._2 == OUTPUTS(0).tokens(0)._2
+    vaultIn.tokens.size > 0 &&
+    vaultIn.tokens(0)._1 == expectedVaultTokenId &&
+    vaultIn.tokens(0)._2 == vaultOut.tokens(0)._2
+
+  // Validating (2)
+  val scriptPreserved = vaultOut.propositionBytes == SELF.propositionBytes
 
   // Vault UTxO registers
   //   R4[Coll[Coll[Byte]]]: The box IDs of UTxOs that contain the committee public keys
-  val committeeBoxIDs = INPUTS(0).R4[Coll[Coll[Byte]]].get
+  val committeeBoxIDs = vaultIn.R4[Coll[Coll[Byte]]].get
+  
+  // Validating (3)
   val verifyCommitteeBoxes = CONTEXT.dataInputs.zip(committeeBoxIDs).forall { (tup: (Box, Coll[Byte])) =>
     val dataInput = tup._1
     val expectedBoxID = tup._2
@@ -49,14 +49,22 @@
   val currentEpoch = vaultParameters(1)
   val epochLength = vaultParameters(2)
   val vaultStart = vaultParameters(3)
-
-  // Verify epoch
   val epochEnd   = vaultStart + currentEpoch * epochLength
   val epochStart = vaultStart + (currentEpoch - 1) * epochLength
+
+  val maxMinerFee = getVar[Long](8).get
+  val minerPropBytes = fromBase16("1005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a57304")
+  // Validating (4)
+  val validMinerFee = OUTPUTS
+    .map { (o: Box) =>
+      if (o.propositionBytes == minerPropBytes) o.value else 0L
+    }
+    .fold(0L, { (a: Long, b: Long) => a + b }) <= maxMinerFee
+
+  // Validating (5)
   val verifyEpoch = HEIGHT >= epochStart && HEIGHT < epochEnd
 
   val validAction = if (withdrawalAction) {
-
 
     // ===== Data inputs =====
     // Registers of dataInput(0), ..., dataInput(D):
@@ -72,9 +80,6 @@
     //   R7[GroupElement]: Generator of the secp256k1 curve.
     //   R8[GroupElement]: Identity element of secp256k1.
     //   R9[Coll[Byte]]: Byte representation of H(X_1, ..., X_n)
-    //
-
-
 
     val groupGenerator       = CONTEXT.dataInputs(0).R7[GroupElement].get
     val groupElementIdentity = CONTEXT.dataInputs(0).R8[GroupElement].get
@@ -307,6 +312,19 @@
 
     val verifyAtLeastOneWithdrawal = terminalCells.size > 0
 
+    // Next we recreate the AVL tree proof and validate the message digest. Here we reiterate the
+    // overall process:
+    //  1. The 'report' consists of a collection of 'terminal cells', which describes the value
+    //     (ERGs and tokens) that will be transferred to a particular address.
+    //  2. Each terminal cell is encoded as bytes which are used in an insertion operation of an AVL
+    //     tree.
+    //  3. The insertions are performed off-chain and the resulting AVL tree digest is hashed by
+    //     blake2b256; this value is the message digest 'm'.
+    //  4. The committee performs the signature aggregation process to sign 'm'.
+    //  5. This contract verifies that the committee signed 'm', encodes the terminal cells and
+    //     recreates the AVL tree proof, and checks that the hash of the resulting AVL digest is equal
+    //     to 'm'.
+
     // Encode each terminal cell into a key-value pair for an AVL insertion operation.  
     val operations = terminalCells.zip(terminalCells.indices).map {
       (e: ((Long, (Coll[Byte], Coll[(Coll[Byte], Long)])), Int) ) =>
@@ -334,10 +352,10 @@
     verifySignaturesInExclusionSet &&
     verifyThreshold &&
     verifyTxOutputs
-
-  
   } else {
-
+    
+    // On this conditional branch, we've ensured that the original Vault UTxO has not lost any Erg.
+    
     val noTokensLost = INPUTS(0).tokens.zip(OUTPUTS(0).tokens).forall { (tup: ((Coll[Byte], Long), (Coll[Byte], Long))) =>
       val inputTokenID = tup._1._1
       val inputTokenQty = tup._1._2
