@@ -3,28 +3,23 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nonempty::NonEmpty;
 
-use spectrum_ledger::block::{
-    BlockBody, BlockHeader, BlockId, BlockSection, BlockSectionId, BlockSectionType, RecoverableSection,
-    ValidSection,
-};
-use spectrum_ledger::{ModifierId, ModifierRecord, SerializedModifier};
+use spectrum_ledger::block::{BlockBody, BlockHeader, BlockId, BlockSectionType};
+use spectrum_ledger::{ModifierId, ModifierRecord, SerializedModifier, SlotNo};
+use spectrum_validation::validation::ValidModifier;
 
 use crate::chain::HeaderLike;
 
 /// Sync API to ledger history.
 pub trait LedgerHistoryWrite {
     /// Apply block header.
-    fn apply_header(&self, hdr: ValidSection<BlockHeader>);
-    /// Save block header.
-    fn save_header(&self, hdr: RecoverableSection<BlockHeader>);
+    fn apply_header(&self, hdr: ValidModifier<BlockHeader>);
     /// Apply block body.
-    fn apply_body(&self, body: ValidSection<BlockBody>);
-    /// Save block body.
-    fn save_body(&self, body: RecoverableSection<BlockBody>);
+    fn apply_body(&self, body: ValidModifier<BlockBody>);
 }
 
 pub trait LedgerHistoryReadSync {
-    fn get_section(&self, id: &BlockSectionId) -> Option<BlockSection>;
+    fn get_header(&self, id: &BlockId) -> Option<BlockHeader>;
+    fn get_header_at(&self, slot: SlotNo) -> Option<BlockHeader>;
 }
 
 /// Read-only async API to ledger history.

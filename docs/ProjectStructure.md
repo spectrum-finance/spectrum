@@ -12,6 +12,7 @@
 * `spectrum-vfr` - VRF impl
 * `spectrum-kes` - KES impl
 * `spectrum-sigma` - Impl of Sigma Aggregation protocol
+* `spectrum-validation` - Consensus validation framework
 * `spectrum-view` - View of the ledger state
 * `spectrum-consensus` - Consensus rules
 * `spectrum-node` - Wired Node App
@@ -26,6 +27,7 @@ flowchart TD
     SH[spectrum-handel]
     SD[spectrum-diffusion]
     SC[spectrum-crypto]
+    SVL[spectrum-validation]
     SL[spectrum-ledger]
     SV[spectrum-vfr]
     SK[spectrum-kes]
@@ -47,6 +49,7 @@ flowchart TD
     SM --> SC
     SH --> SC
     SVI --> SL
+    SVI --> SVL
     SI --> SD
     SD --> SVI
     SCS --> SVI

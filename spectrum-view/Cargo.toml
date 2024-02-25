@@ -8,6 +8,7 @@ rust-version = "1.71.0"
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
 spectrum-move = { version = "0.1.0", path = "../spectrum-move" }
 spectrum-ledger = { version = "0.1.0", path = "../spectrum-ledger" }
+spectrum-validation = { version = "0.1.0", path = "../spectrum-validation" }
 futures = "0.3.21"
 async-trait = "0.1.68"
 async-std = { version = "1.10.0", features = ["attributes"] }

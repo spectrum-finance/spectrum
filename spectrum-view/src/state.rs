@@ -1,9 +1,9 @@
 use spectrum_crypto::digest::Blake2bDigest256;
 use spectrum_ledger::cell::{AnyCell, CellMeta, CellPtr, DatumRef, NativeCoin, ScriptRef};
-use spectrum_ledger::consensus::{AnyRuleId, RuleId};
+use spectrum_ledger::consensus::AnyRuleId;
 use spectrum_ledger::interop::{Effect, Point};
 use spectrum_ledger::transaction::{EvaluatedTransaction, ValidTx};
-use spectrum_ledger::ChainId;
+use spectrum_ledger::{ChainId, EpochNo, VRFProof};
 use spectrum_ledger::{DomainVKey, KESVKey, StakePoolId};
 use spectrum_move::{SerializedModule, SerializedValue};
 
@@ -47,9 +47,16 @@ pub trait ValidatorCredentials {
 pub trait StakeDistribution {
     /// Query current stake managed by the given pool.
     fn get_stake(&self, pool_id: StakePoolId) -> NativeCoin;
+    /// Query total stake allocated in the system.
+    fn get_total_stake(&self) -> NativeCoin;
 }
 
 /// Disabled consensus rules.
 pub trait ConsensusRules {
     fn get_disabled_rules(&self) -> Vec<AnyRuleId>;
+}
+
+/// Hot stuff for consensus.
+pub trait ConsensusIndexes {
+    fn get_epoch_rand_proof(&self, epoch: EpochNo) -> Option<VRFProof>;
 }

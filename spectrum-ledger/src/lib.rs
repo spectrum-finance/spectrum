@@ -54,6 +54,7 @@ impl BlockNo {
     derive_more::Sub,
     derive_more::From,
     derive_more::Into,
+    derive_more::Display,
     serde::Serialize,
     serde::Deserialize,
     Debug,
@@ -62,6 +63,14 @@ pub struct SlotNo(u64);
 
 impl SlotNo {
     pub const ORIGIN: SlotNo = SlotNo(0);
+
+    pub const UNIT: SlotNo = SlotNo(1);
+
+    pub const SLOTS_PER_EPOCH: u64 = 1000;
+
+    pub fn epoch_num(self) -> EpochNo {
+        EpochNo::from(self.0 / Self::SLOTS_PER_EPOCH)
+    }
 }
 
 #[derive(
@@ -76,6 +85,7 @@ impl SlotNo {
     derive_more::Sub,
     derive_more::From,
     derive_more::Into,
+    derive_more::Display,
     serde::Serialize,
     serde::Deserialize,
     Debug,
@@ -195,12 +205,20 @@ impl<T: DigestViaEncoder> SystemDigest for T {
 pub struct SerializedModifier(pub Vec<u8>);
 
 #[derive(
-    Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
+    Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
 )]
 pub struct KESVKey(PublicKey);
 
 #[derive(
-    Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, derive_more::From, derive_more::Into,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    derive_more::From,
+    derive_more::Into,
 )]
 pub struct VRFVKey(PublicKey);
 

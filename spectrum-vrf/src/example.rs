@@ -5,7 +5,7 @@ mod tests {
         use sha2::Sha256;
         use spectrum_crypto::digest::{sha256_hash, Sha2Digest256};
 
-        use crate::lottery::{get_lottery_threshold, proof_to_random_number};
+        use crate::lottery::{lottery_threshold, proof_to_random_number};
         use crate::{vrf_gen, vrf_prove, vrf_verify};
 
         //Config the VRF:
@@ -29,19 +29,17 @@ mod tests {
         let (vrf_sk, vrf_pk) = vrf_gen::<Secp256k1>().unwrap();
 
         //Get your lottery threshold:
-        let thr_lead = get_lottery_threshold(
+        let thr_lead = lottery_threshold(
             vrf_range.clone(),
             stake,
             total_stake,
-            leader_selection_fraction_num,
-            selection_fraction_denom,
+            (leader_selection_fraction_num, selection_fraction_denom),
         );
-        let thr_sync = get_lottery_threshold(
+        let thr_sync = lottery_threshold(
             vrf_range.clone(),
             stake,
             total_stake,
-            sync_selection_fraction_num,
-            selection_fraction_denom,
+            (sync_selection_fraction_num, selection_fraction_denom),
         );
         //Generate VRF proof:
         let proof = vrf_prove::<Sha256, Secp256k1>(vrf_sk, m_hash.clone()).unwrap();

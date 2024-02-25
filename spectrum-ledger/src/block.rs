@@ -3,7 +3,7 @@ use spectrum_crypto::pubkey::PublicKey;
 
 use crate::interop::{ReportBody, ReportCertificate};
 use crate::transaction::{TransactionBody, Witness};
-use crate::{BlockNo, KESSignature, SlotNo, SystemDigest, VRFProof};
+use crate::{BlockNo, KESSignature, ModifierId, ModifierType, SlotNo, SystemDigest, VRFProof, VRFVKey};
 
 #[derive(
     Copy,
@@ -16,6 +16,7 @@ use crate::{BlockNo, KESSignature, SlotNo, SystemDigest, VRFProof};
     serde::Deserialize,
     derive_more::From,
     derive_more::Into,
+    derive_more::Display,
 )]
 pub struct BlockId(Blake2bDigest256);
 
@@ -33,6 +34,11 @@ impl ProtocolVer {
     pub const INITIAL: ProtocolVer = ProtocolVer(1);
 }
 
+pub trait Modifier {
+    fn id(&self) -> ModifierId;
+    fn tpe() -> ModifierType;
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum BlockSectionId {
     Header(BlockId),
@@ -44,7 +50,7 @@ pub struct HeaderBody {
     pub prev_id: BlockId,
     pub block_num: BlockNo,
     pub slot_num: SlotNo,
-    pub vrf_pk: PublicKey,
+    pub vrf_vk: VRFVKey,
     /// VRF proof for seed and leadership.
     pub vrf_proof: VRFProof,
     /// Merkle Tree root hash of the block body.
@@ -66,6 +72,15 @@ pub struct BlockHeader {
     pub body_signature: KESSignature,
 }
 
+impl Modifier for BlockHeader {
+    fn id(&self) -> ModifierId {
+        self.body.digest().into()
+    }
+    fn tpe() -> ModifierType {
+        ModifierType::BlockHeader
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BlockBody {
     pub reports: Vec<ReportBody>,
@@ -80,24 +95,8 @@ impl SystemDigest for BlockBody {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize, derive_more::From)]
-pub enum BlockSection {
-    Header(BlockHeader),
-    Body(BlockBody),
-}
-
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum BlockSectionType {
     Header,
     Body,
 }
-
-/// A proof that the given block section is valid
-#[repr(transparent)]
-#[derive(Clone, Debug)]
-pub struct ValidSection<T>(T);
-
-/// A block section which is not valid at the moment but can be potentially applied later.
-#[repr(transparent)]
-#[derive(Clone, Debug)]
-pub struct RecoverableSection<T>(T);

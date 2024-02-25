@@ -1,13 +1,13 @@
 use bigint::{U256, U512};
 use ecdsa::signature::digest::{FixedOutput, HashMarker, Update};
+use elliptic_curve::{CurveArithmetic, FieldBytes};
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
-use elliptic_curve::{CurveArithmetic, FieldBytes};
 
 use spectrum_crypto::digest::hash;
 
-use crate::utils::projective_point_to_bytes;
 use crate::ECVRFProof;
+use crate::utils::projective_point_to_bytes;
 
 pub fn proof_to_random_number<HF, TCurve>(
     proof: &ECVRFProof<TCurve>,
@@ -33,27 +33,26 @@ where
     .concat();
     let random_hash = hash::<HF>(&random_bytes);
     let random_num = U512::from(U256::from(random_hash.as_ref()));
-    let mult = U512::from(U256::from(2).pow(U256::from(vrf_range)));
+    let mul = U512::from(U256::from(2).pow(U256::from(vrf_range)));
 
-    U256::from(random_num * mult / U512::from(U256::MAX))
+    U256::from(random_num * mul / U512::from(U256::MAX))
 }
 
-pub fn get_lottery_threshold(
+pub fn lottery_threshold(
     vrf_range: u32,
     stake: u64,
     total_stake: u64,
-    selection_fraction_num: u32,
-    selection_fraction_denom: u32,
+    (selection_frac_num, selection_frac_den): (u32, u32),
 ) -> U256 {
-    let selection_fraction = selection_fraction_num as f64 / selection_fraction_denom as f64;
+    let selection_fraction = selection_frac_num as f64 / selection_frac_den as f64;
     let relative_stake = stake as f64 / total_stake as f64;
 
     let phi_value = 1_f64 - (1_f64 - selection_fraction).powf(relative_stake);
     let (phi_num, phi_denom) = to_rational(phi_value);
 
-    let mult = U512::from(U256::from(2).pow(U256::from(vrf_range)));
+    let mul = U512::from(U256::from(2).pow(U256::from(vrf_range)));
 
-    U256::from((U512::from(phi_num) * mult) / U512::from(phi_denom))
+    U256::from((U512::from(phi_num) * mul) / U512::from(phi_denom))
 }
 
 fn gcd(mut x: u64, mut y: u64) -> u64 {
@@ -72,7 +71,7 @@ fn to_rational(x: f64) -> (u64, u64) {
     } else {
         let num: u64 = (x / f64::EPSILON) as _;
         let denom: u64 = (1.0 / f64::EPSILON) as _;
-        let gcd = gcd(num as u64, denom);
-        (num / gcd as u64, denom / gcd)
+        let gcd = gcd(num, denom);
+        (num / gcd, denom / gcd)
     }
 }

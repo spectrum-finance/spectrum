@@ -5,6 +5,7 @@ members = [
     "spectrum-network",
     "spectrum-view",
     "spectrum-ledger",
+    "spectrum-validation",
     "spectrum-crypto",
     "spectrum-vrf",
     "spectrum-kes",

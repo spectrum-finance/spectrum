@@ -13,7 +13,9 @@ async-std = { version = "1.10.0", features = ["attributes"] }
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
 spectrum-network = { version = "0.1.0", path = "../spectrum-network" }
 spectrum-ledger = { version = "0.1.0", path = "../spectrum-ledger" }
+spectrum-validation = { version = "0.1.0", path = "../spectrum-validation" }
 spectrum-view = { version = "0.1.0", path = "../spectrum-view" }
+spectrum-vrf = { version = "0.1.0", path = "../spectrum-vrf" }
 rand = "0.8.5"
 log = "0.4.17"
 log4rs = "1.2.0"
@@ -25,3 +27,4 @@ tokio = { version = "1.28.*", features = ["rt", "rt-multi-thread"] }
 thiserror = "1.0.34"
 async-trait = "0.1.68"
 nonempty = "0.8.1"
+derive_more = "0.99.17"
