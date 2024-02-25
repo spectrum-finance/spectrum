@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 
 pub mod digest;
-mod hash;
 pub mod pubkey;
 pub mod signature;
 

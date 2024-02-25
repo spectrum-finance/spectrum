@@ -64,7 +64,10 @@ pub struct ProtocolUpgradeIn {
 }
 
 impl ProtocolUpgradeIn {
-    pub fn new(protocol_id: ProtocolId, supported_versions: Vec<(ProtocolVer, StatefulProtocolSpec)>) -> Self {
+    pub fn new(
+        protocol_id: ProtocolId,
+        supported_versions: Vec<(ProtocolVer, StatefulProtocolSpec)>,
+    ) -> Self {
         let supported_versions = BTreeMap::from_iter(
             supported_versions
                 .into_iter()

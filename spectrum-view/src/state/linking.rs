@@ -1,10 +1,10 @@
 use spectrum_ledger::cell::{AnyCell, CellMeta, CellPtr, DatumRef, Owner, ScriptRef};
 use spectrum_ledger::transaction::{
-    DatumWitness, LinkedScriptInv, LinkedTransaction, ScriptInv, ScriptWitness, Transaction,
+    DatumWitness, LinkedScriptInv, LinkedTransaction, ScriptInv, ScriptWitness, Transaction, TransactionBody,
 };
 use spectrum_ledger::SystemDigest;
 
-use crate::state::CellPool;
+use crate::state::Cells;
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum LinkingError {
@@ -29,20 +29,23 @@ pub struct LedgerTxLinker<P> {
 
 impl<P> TxLinker for LedgerTxLinker<P>
 where
-    P: CellPool,
+    P: Cells,
 {
     fn link_transaction(&self, tx: Transaction) -> Result<LinkedTransaction, LinkingError> {
         let digest = tx.digest();
         let Transaction {
-            inputs,
-            reference_inputs,
-            invokations,
-            evaluated_outputs,
+            body:
+                TransactionBody {
+                    inputs,
+                    reference_inputs,
+                    invocations: invokations,
+                    evaluated_outputs,
+                },
             witness,
         } = tx;
         let mut linked_inputs = vec![];
         for (ix, (pt, maybe_sig_ix)) in inputs.into_iter().enumerate() {
-            if let Some(cell) = self.pool.get(pt) {
+            if let Some(cell) = self.pool.get_cell(pt) {
                 if let CellMeta {
                     cell: AnyCell::Mut(active_cell),
                     ancors,
@@ -80,7 +83,7 @@ where
         }
         let mut linked_ref_inputs = vec![];
         for pt in reference_inputs {
-            if let Some(mcell) = self.pool.get(pt) {
+            if let Some(mcell) = self.pool.get_cell(pt) {
                 linked_ref_inputs.push(mcell.cell);
             } else {
                 return Err(LinkingError::MissingRefInput(pt));

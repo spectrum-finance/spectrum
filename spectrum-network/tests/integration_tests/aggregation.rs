@@ -14,7 +14,7 @@ use log::trace;
 use std::io::Write;
 
 use serde::{Deserialize, Serialize};
-use spectrum_crypto::digest::Blake2b;
+use spectrum_crypto::digest::Blake2b256;
 use spectrum_crypto::pubkey::PublicKey;
 use spectrum_network::network_controller::{NetworkController, NetworkControllerIn, NetworkMailbox};
 use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
@@ -108,7 +108,7 @@ pub fn setup_nodes<'de>(
             redundancy_factor: 5,
             seed: 42,
         };
-        let (aggr_handler_snd, aggr_handler_inbox) = mpsc::channel::<AggregationAction<Blake2b>>(100);
+        let (aggr_handler_snd, aggr_handler_inbox) = mpsc::channel::<AggregationAction<Blake2b256>>(100);
         let overlay_builder = RedundancyDagOverlayBuilder {
             redundancy_factor: multicasting_conf.redundancy_factor,
             seed: multicasting_conf.seed,
@@ -132,7 +132,7 @@ pub fn setup_nodes<'de>(
         let (aggr_handler, aggr_mailbox): (
             ProtocolHandler<
                 SigmaAggregation<
-                    Blake2b,
+                    Blake2b256,
                     MakeBinomialPeerPartitions<PseudoRandomGenPerm>,
                     RedundancyDagOverlayBuilder,
                 >,
@@ -173,11 +173,11 @@ pub struct Peer<'de> {
     pub peer_addr: Multiaddr,
     pub peer_pk: k256::PublicKey,
     pub peer_sk: SecretKey,
-    pub aggr_handler_mailbox: Sender<AggregationAction<Blake2b>>,
+    pub aggr_handler_mailbox: Sender<AggregationAction<Blake2b256>>,
     pub aggr_handler: ProtocolHandler<
         SigmaAggregation<
             'de,
-            Blake2b,
+            Blake2b256,
             MakeBinomialPeerPartitions<PseudoRandomGenPerm>,
             RedundancyDagOverlayBuilder,
         >,

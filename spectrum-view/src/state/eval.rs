@@ -9,7 +9,7 @@ use spectrum_ledger::transaction::{EvaluatedTransaction, LinkedTransaction};
 use spectrum_ledger::ChainId;
 use spectrum_move::{GasUnits, SerializedModule};
 
-use crate::state::CellPool;
+use crate::state::Cells;
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub struct EvaluationError {
@@ -45,7 +45,7 @@ pub struct ProgrammableTxEvaluator<P> {
 
 impl<P> TxEvaluator for ProgrammableTxEvaluator<P>
 where
-    P: CellPool,
+    P: Cells,
 {
     fn evaluate_transaction(
         &self,

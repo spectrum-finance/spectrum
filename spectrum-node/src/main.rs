@@ -15,13 +15,16 @@ use spectrum_network::peer_conn_handler::PeerConnHandlerConf;
 use spectrum_network::peer_manager::data::PeerDestination;
 use spectrum_network::peer_manager::peers_state::PeerRepo;
 use spectrum_network::peer_manager::{NetworkingConfig, PeerManager, PeerManagerConfig};
-use spectrum_network::protocol::{DIFFUSION_PROTOCOL_ID, ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec};
-use spectrum_network::protocol_handler::discovery::message::{
-    DiscoveryMessage, DiscoveryMessageV1, DiscoverySpec,
+use spectrum_network::protocol::{
+    ProtocolConfig, StatefulProtocolConfig, StatefulProtocolSpec, DIFFUSION_PROTOCOL_ID,
 };
+use spectrum_network::protocol_handler::discovery::message::DiscoverySpec;
 use spectrum_network::protocol_handler::discovery::{DiscoveryBehaviour, NodeStatus};
 use spectrum_network::protocol_handler::ProtocolHandler;
 use spectrum_network::types::Reputation;
+
+mod consensus;
+mod node_view;
 
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -98,8 +101,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         mailbox_snd: requests_snd,
     };
     const PH_MSG_BUFFER_SIZE: usize = 10;
-    let (mut sync_handler, sync_mailbox) =
-        ProtocolHandler::new(sync_behaviour, network_api, DIFFUSION_PROTOCOL_ID, PH_MSG_BUFFER_SIZE);
+    let (mut sync_handler, sync_mailbox) = ProtocolHandler::new(
+        sync_behaviour,
+        network_api,
+        DIFFUSION_PROTOCOL_ID,
+        PH_MSG_BUFFER_SIZE,
+    );
     let nc = NetworkController::new(
         peer_conn_handler_conf,
         HashMap::from([(

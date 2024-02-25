@@ -1,98 +1,93 @@
-use elliptic_curve::{CurveArithmetic, NonZeroScalar, ProjectivePoint, PublicKey,
-                     Scalar, ScalarPrimitive};
+use ecdsa::signature::digest::{FixedOutput, HashMarker};
 use elliptic_curve::generic_array::GenericArray;
 use elliptic_curve::group::Curve;
 use elliptic_curve::point::PointCompression;
 use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
+use elliptic_curve::{
+    CurveArithmetic, NonZeroScalar, ProjectivePoint, PublicKey, Scalar, ScalarPrimitive, SecretKey,
+};
 
-use spectrum_crypto::digest::Sha2Digest256;
+use spectrum_crypto::digest::Digest;
 
-pub fn hash_to_projective_point<TCurve: CurveArithmetic>(hash: Sha2Digest256)
-                                                         -> ProjectivePoint<TCurve>
+pub fn key_pair_gen<H: HashMarker + FixedOutput, TCurve: CurveArithmetic>(
+    seed: &Digest<H>,
+) -> (SecretKey<TCurve>, PublicKey<TCurve>) {
+    let sk: SecretKey<TCurve> = SecretKey::<TCurve>::from_slice(seed.as_ref()).unwrap();
+    let pk = PublicKey::<TCurve>::from_secret_scalar(&sk.to_nonzero_scalar());
+    (sk, pk)
+}
+
+pub fn projective_point_to_bytes<TCurve: CurveArithmetic + PointCompression>(
+    point: &ProjectivePoint<TCurve>,
+) -> Vec<u8>
+where
+    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
+    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
+    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>,
 {
-    let hash_bytes: [u8; 32] = hash.into();
-    let scalar: Scalar<TCurve> = ScalarPrimitive::<TCurve>::from_bytes(
-        GenericArray::from_slice(&hash_bytes)).unwrap().into();
-    let non_zero_scalar = NonZeroScalar::<TCurve>::new(
-        scalar).unwrap();
+    PublicKey::<TCurve>::from_affine((*point).to_affine())
+        .unwrap()
+        .to_sec1_bytes()
+        .to_vec()
+}
+
+pub fn hash_to_projective_point<H: HashMarker + FixedOutput, TCurve: CurveArithmetic>(
+    hash: &Digest<H>,
+) -> ProjectivePoint<TCurve> {
+    let scalar: Scalar<TCurve> =
+        ScalarPrimitive::<TCurve>::from_bytes(GenericArray::from_slice(hash.as_ref()))
+            .unwrap()
+            .into();
+    let non_zero_scalar = NonZeroScalar::<TCurve>::new(scalar).unwrap();
 
     PublicKey::<TCurve>::from_secret_scalar(&non_zero_scalar).to_projective()
 }
 
-pub fn projective_point_to_bytes<TCurve: CurveArithmetic + PointCompression>
-(point: ProjectivePoint<TCurve>) -> Vec<u8> where
-    <TCurve as CurveArithmetic>::AffinePoint: FromEncodedPoint<TCurve>,
-    <TCurve as elliptic_curve::Curve>::FieldBytesSize: ModulusSize,
-    <TCurve as CurveArithmetic>::AffinePoint: ToEncodedPoint<TCurve>
-{
-    PublicKey::<TCurve>::from_affine(
-        (point).to_affine()).unwrap().to_sec1_bytes().to_vec()
+pub fn hash_to_public_key<H: HashMarker + FixedOutput, TCurve: CurveArithmetic>(
+    hash: Digest<H>,
+) -> PublicKey<TCurve> {
+    let scalar: Scalar<TCurve> =
+        ScalarPrimitive::<TCurve>::from_bytes(GenericArray::from_slice(hash.as_ref()))
+            .unwrap()
+            .into();
+    let non_zero_scalar = NonZeroScalar::<TCurve>::new(scalar).unwrap();
+
+    PublicKey::<TCurve>::from_secret_scalar(&non_zero_scalar)
 }
 
 #[cfg(test)]
 mod test {
     use elliptic_curve::generic_array::GenericArray;
     use elliptic_curve::group::GroupEncoding;
-    use k256::{ProjectivePoint, Secp256k1};
+    use elliptic_curve::rand_core::{OsRng, RngCore};
+    use elliptic_curve::ProjectivePoint;
+    use k256::Secp256k1;
+    use sha2::Sha256;
 
     use spectrum_crypto::digest::sha256_hash;
-    use spectrum_crypto::digest::Sha2Digest256;
+
+    use crate::utils::key_pair_gen;
 
     #[test]
-    fn hash_to_projective_point_test() {
-        let m_hash_0: Sha2Digest256 = sha256_hash("Alice_tx".as_bytes());
-        let point_0 = super::hash_to_projective_point::<Secp256k1>(m_hash_0);
-
-        let m_hash_1: Sha2Digest256 = sha256_hash("Bob_tx".as_bytes());
-        let point_1 = super::hash_to_projective_point::<Secp256k1>(m_hash_1);
-
-        assert_ne!(point_0.to_bytes(), point_1.to_bytes());
+    fn test_key_gen() {
+        let seed_0 = sha256_hash(OsRng.next_u64().to_string().as_bytes());
+        let seed_1 = sha256_hash(OsRng.next_u64().to_string().as_bytes());
+        let (sk_0, pk_0) = key_pair_gen::<Sha256, Secp256k1>(&seed_0);
+        let (sk_1, pk_1) = key_pair_gen::<Sha256, Secp256k1>(&seed_1);
+        assert_ne!(sk_0, sk_1);
+        assert_ne!(pk_0, pk_1);
     }
 
     #[test]
-    fn projective_point_to_bytes_test() {
-        let m_hash_0: Sha2Digest256 = sha256_hash("Alice_tx".as_bytes());
-        let point_0 = super::hash_to_projective_point::<Secp256k1>(m_hash_0);
-
-        let m_hash_1: Sha2Digest256 = sha256_hash("Bob_tx".as_bytes());
-        let point_1 = super::hash_to_projective_point::<Secp256k1>(m_hash_1);
-
-        let point_0_hash = sha256_hash(point_0.to_bytes().as_slice());
-        let point_1_hash = sha256_hash(point_1.to_bytes().as_slice());
-
-        let bytes_0 = super::projective_point_to_bytes::<Secp256k1>(point_0);
-        let bytes_1 = super::projective_point_to_bytes::<Secp256k1>(point_1);
-
-        assert_eq!(point_0_hash, sha256_hash(bytes_0.as_slice()));
-        assert_eq!(point_1_hash, sha256_hash(bytes_1.as_slice()));
-        assert_ne!(bytes_0, bytes_1)
-    }
-
-    #[test]
-    fn vice_versa_test() {
-        let m_hash: Sha2Digest256 = sha256_hash("Test_tx".as_bytes());
-        let point = super::hash_to_projective_point::<Secp256k1>(m_hash);
+    fn point_compression_test() {
+        let m_hash = sha256_hash("Hi".as_bytes());
+        let point = super::hash_to_projective_point::<Sha256, Secp256k1>(&m_hash);
 
         let point_hash = sha256_hash(point.to_bytes().as_slice());
 
-        let bytes = super::projective_point_to_bytes::<Secp256k1>(point);
-        let point_decompressed = ProjectivePoint::from_bytes(
-            GenericArray::from_slice(&bytes)).unwrap();
-
-        assert_eq!(point, point_decompressed);
-        assert_ne!(m_hash, point_hash);
-    }
-
-    #[test]
-    fn vice_versa_hash_to_projective_point_projective_point_to_bytes_test() {
-        let m_hash: Sha2Digest256 = sha256_hash("Test_tx".as_bytes());
-        let point = super::hash_to_projective_point::<Secp256k1>(m_hash);
-
-        let point_hash = sha256_hash(point.to_bytes().as_slice());
-
-        let bytes = super::projective_point_to_bytes::<Secp256k1>(point);
-        let point_decompressed = ProjectivePoint::from_bytes(
-            GenericArray::from_slice(&bytes)).unwrap();
+        let bytes = super::projective_point_to_bytes::<Secp256k1>(&point);
+        let point_decompressed =
+            ProjectivePoint::<Secp256k1>::from_bytes(GenericArray::from_slice(&bytes)).unwrap();
 
         assert_eq!(point, point_decompressed);
         assert_ne!(m_hash, point_hash);

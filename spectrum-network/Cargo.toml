@@ -2,7 +2,7 @@
 name = "spectrum-network"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.65.0"
+rust-version = "1.71.0"
 
 [features]
 test_peer_punish_too_slow = []
@@ -11,9 +11,6 @@ integration_tests = []
 [dependencies]
 algebra-core = { version = "0.1.0", path = "../algebra-core" }
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
-spectrum-kes = { version = "0.1.0", path = "../spectrum-kes" }
-spectrum-ledger = { version = "0.1.0", path = "../spectrum-ledger" }
-spectrum-view = { version = "0.1.0", path = "../spectrum-view" }
 libp2p = { version = "0.52.0", features = ["noise", "yamux", "secp256k1", "serde"] }
 libp2p-identity = "0.2.*"
 futures = "0.3.21"
@@ -33,6 +30,7 @@ ciborium = "0.2.1"
 smallvec = "1.10.0"
 derive_more = "0.99.17"
 either = { version = "1.8.1", features = ["serde"] }
+digest = "0.10.6"
 sha2 = "0.10.6"
 blake2 = "0.10.6"
 elliptic-curve = { version = "0.13.*", features = ["serde", "arithmetic"] }

@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
+use derive_more::{From, Into};
 use k256::PublicKey;
-
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_move::{SerializedModule, SerializedValue};
 
 use crate::interop::Point;
-use crate::transaction::TxId;
+use crate::transaction::{TxId, Witness};
 use crate::{ChainId, DigestViaEncoder, SystemDigest};
 
 /// Stable cell identifier.
@@ -32,8 +32,10 @@ impl Serial {
     pub const INITIAL: Serial = Serial(0);
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub struct CellRef(pub CellId, pub Serial);
+#[derive(
+    Eq, PartialEq, Ord, PartialOrd, Copy, Clone, From, Into, Hash, Debug, serde::Serialize, serde::Deserialize,
+)]
+pub struct CellRef(CellId, Serial);
 
 /// Pointer to a cell.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
@@ -45,16 +47,20 @@ pub enum CellPtr {
     Ref(CellRef),
 }
 
-#[derive(Eq, PartialEq, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Eq, PartialEq, Copy, From, Into, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NativeCoin(u64);
 
-#[derive(Eq, PartialEq, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Eq, PartialEq, Copy, Clone, From, Into, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CustomAsset(u64);
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, From, Into, serde::Serialize, serde::Deserialize,
+)]
 pub struct PolicyId(Blake2bDigest256);
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Eq, PartialEq, Ord, PartialOrd, Copy, Clone, From, Into, Hash, Debug, serde::Serialize, serde::Deserialize,
+)]
 pub struct AssetId(Blake2bDigest256);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -94,12 +100,13 @@ pub struct DatumHash(Blake2bDigest256);
 
 /// Additional data for bridge (e.g. validator to be used on the dst chain).
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct BridgeInputs();
+pub struct BridgeInputs(Witness);
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BoxDestination {
-    target: ChainId,
-    inputs: Option<BridgeInputs>,
+    pub target: ChainId,
+    pub address: SerializedValue,
+    pub inputs: Option<BridgeInputs>,
 }
 
 /// Progress point on external chain.

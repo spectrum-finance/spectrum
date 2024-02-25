@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "spectrum-node",
+    "spectrum-consensus",
     "spectrum-network",
     "spectrum-view",
     "spectrum-ledger",
@@ -8,12 +9,18 @@ members = [
     "spectrum-vrf",
     "spectrum-kes",
     "spectrum-move",
+    "spectrum-handel",
+    "spectrum-diffusion",
+    "spectrum-mcast",
+    "spectrum-sigma",
     "spectrum-sigma-aggregation",
     "spectrum-ergo-connector",
     "spectrum-cardano-connector",
     "spectrum-chain-connector",
     "algebra-core",
-    "futures-util"
+    "futures-util",
+    "ergo-vault-test-tool",
+    "mock-consensus-driver"
 ]
 
 exclude = [

@@ -1,9 +1,9 @@
 use std::{iter, vec};
 
-use nonempty::NonEmpty;
-
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::TypeTag;
+use nonempty::NonEmpty;
+
 use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_crypto::signature::Signature;
 use spectrum_move::{SerializedModule, SerializedValue};
@@ -71,55 +71,32 @@ impl From<TxInputs> for NonEmpty<(CellPtr, Option<u16>)> {
 /// This is the only form of transaction that travels over the wire and goes on-chain,
 /// that's why the size of this representation is optimized.
 #[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct TransactionBody {
+    /// Consumed boxes.
+    pub inputs: TxInputs,
+    /// Read-only inputs.
+    pub reference_inputs: Vec<CellPtr>,
+    /// Script invocations.
+    pub invocations: Vec<ScriptInv>,
+    /// Statically evaluated outputs.
+    pub evaluated_outputs: Vec<AnyCell>,
+}
+
+/// Unverified transaction possibly containing yet unresolved inputs.
+/// This is the only form of transaction that travels over the wire and goes on-chain,
+/// that's why the size of this representation is optimized.
+#[derive(Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Transaction {
     /// Consumed boxes.
-    pub inputs: TxInputs,
-    /// Read-only inputs.
-    pub reference_inputs: Vec<CellPtr>,
-    /// Script invokations.
-    pub invokations: Vec<ScriptInv>,
-    /// Statically evaluated outputs.
-    pub evaluated_outputs: Vec<AnyCell>,
-    /// Aux data requred for transaction execution (e.g. scripts, data ..).
+    pub body: TransactionBody,
+    /// Aux data required for transaction execution (e.g. scripts, data ..).
     pub witness: Witness,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct TransactionWithoutWitness {
-    /// Consumed boxes.
-    pub inputs: TxInputs,
-    /// Read-only inputs.
-    pub reference_inputs: Vec<CellPtr>,
-    /// Script invokations.
-    pub invokations: Vec<ScriptInv>,
-    /// Statically evaluated outputs.
-    pub evaluated_outputs: Vec<AnyCell>,
-}
-
-impl From<Transaction> for TransactionWithoutWitness {
-    fn from(
-        Transaction {
-            inputs,
-            reference_inputs,
-            invokations,
-            evaluated_outputs,
-            ..
-        }: Transaction,
-    ) -> Self {
-        Self {
-            inputs,
-            reference_inputs,
-            invokations,
-            evaluated_outputs,
-        }
-    }
 }
 
 impl Transaction {
     fn bytes_without_witness(&self) -> Vec<u8> {
-        let tx = TransactionWithoutWitness::from(self.clone());
         let mut encoded = Vec::new();
-        ciborium::ser::into_writer(&tx, &mut encoded).unwrap();
+        ciborium::ser::into_writer(&self.body, &mut encoded).unwrap();
         encoded
     }
 }
@@ -186,7 +163,7 @@ pub struct Witness {
     pub signatures: Vec<Signature>,
 }
 
-/// Invokation of the owning script.
+/// Invocation of the owning script.
 #[derive(Eq, PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ScriptInv {
     /// Index of the script in the witness.
@@ -211,3 +188,8 @@ pub struct LinkedScriptInv {
     pub args: Vec<SerializedValue>,
     pub targs: Vec<TypeTag>,
 }
+
+/// A proof that the given Tx is valid
+#[repr(transparent)]
+#[derive(Clone, Debug)]
+pub struct ValidTx<T>(T);

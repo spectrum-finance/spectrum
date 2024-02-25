@@ -1,13 +1,13 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::channel::mpsc::{Receiver, Sender};
-use futures::{SinkExt, Stream, StreamExt};
+use futures::channel::mpsc::Receiver;
+use futures::{Stream, StreamExt};
 
 use spectrum_ledger::Modifier;
 
-use crate::history::{InvalidBlockSection, LedgerHistory};
-use crate::state::{CellPool, LedgerStateWrite};
+use crate::history::LedgerHistoryWrite;
+use crate::state::{Cells, LedgerStateWrite};
 
 #[derive(Clone, Debug)]
 pub enum NodeViewIn {
@@ -21,7 +21,7 @@ pub trait ErrorHandler {
 #[derive(Eq, PartialEq, Debug, thiserror::Error)]
 pub enum InvalidModifier {
     #[error("Modifier is invalid")]
-    InvalidSection(InvalidBlockSection),
+    InvalidSection(),
 }
 
 pub struct NodeView<TState, THistory, TMempool, TErrh> {
@@ -34,8 +34,8 @@ pub struct NodeView<TState, THistory, TMempool, TErrh> {
 
 impl<TState, THistory, TMempool, TErrh> NodeView<TState, THistory, TMempool, TErrh>
 where
-    TState: CellPool + LedgerStateWrite,
-    THistory: LedgerHistory,
+    TState: Cells + LedgerStateWrite,
+    THistory: LedgerHistoryWrite,
     TErrh: ErrorHandler,
 {
     fn on_event(&self, event: NodeViewIn) {
@@ -49,19 +49,13 @@ where
 
     fn apply_modifier(&self, modifier: &Modifier) -> Result<(), InvalidModifier> {
         match modifier {
-            Modifier::BlockHeader(hd) => self
-                .history
-                .apply_header(hd)
-                .map_err(|err| InvalidModifier::InvalidSection(InvalidBlockSection::InvalidHeader(err))),
-            Modifier::BlockBody(blk) => self
-                .history
-                .apply_body(blk)
-                .map_err(|err| InvalidModifier::InvalidSection(InvalidBlockSection::InvalidBody(err)))
-                .and_then(|_| {
-                    self.state.apply_block(&blk).map_err(|err| {
-                        InvalidModifier::InvalidSection(InvalidBlockSection::InvalidBlock(err))
-                    })
-                }),
+            Modifier::BlockHeader(hd) => {
+                // validate(hd) -> VR<Valid<HD>, RuleViol>
+                todo!()
+            }
+            Modifier::BlockBody(blk) => {
+                todo!()
+            }
             Modifier::Transaction(_) => {
                 todo!()
             }
@@ -71,8 +65,8 @@ where
 
 impl<TState, THistory, TMempool, TErrh> Stream for NodeView<TState, THistory, TMempool, TErrh>
 where
-    TState: CellPool + LedgerStateWrite + Unpin,
-    THistory: LedgerHistory + Unpin,
+    TState: Cells + LedgerStateWrite + Unpin,
+    THistory: LedgerHistoryWrite + Unpin,
     TMempool: Unpin,
     TErrh: ErrorHandler + Unpin,
 {
@@ -96,25 +90,4 @@ where
 #[async_trait::async_trait]
 pub trait NodeViewWriteAsync: Send + Sync + Clone {
     async fn apply_modifier(&mut self, modifier: Modifier);
-}
-
-#[derive(Clone)]
-pub struct NodeViewMailbox {
-    inner: Sender<NodeViewIn>,
-}
-
-impl NodeViewMailbox {
-    pub fn new(inner: Sender<NodeViewIn>) -> Self {
-        Self { inner }
-    }
-}
-
-#[async_trait::async_trait]
-impl NodeViewWriteAsync for NodeViewMailbox {
-    async fn apply_modifier(&mut self, modifier: Modifier) {
-        self.inner
-            .send(NodeViewIn::ApplyModifier(modifier))
-            .await
-            .unwrap();
-    }
 }

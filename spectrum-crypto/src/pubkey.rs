@@ -8,6 +8,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct PublicKey(k256::PublicKey);
 
+impl<'a> From<&'a PublicKey> for &'a k256::PublicKey {
+    fn from(value: &'a PublicKey) -> Self {
+        &value.0
+    }
+}
+
 impl Hash for PublicKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(self.0.to_encoded_point(true).as_bytes());

@@ -2,7 +2,7 @@
 name = "spectrum-node"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.65.0"
+rust-version = "1.71.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,6 +12,8 @@ libp2p = { version = "0.52.0", features = ["websocket", "noise", "yamux", "ping"
 async-std = { version = "1.10.0", features = ["attributes"] }
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
 spectrum-network = { version = "0.1.0", path = "../spectrum-network" }
+spectrum-ledger = { version = "0.1.0", path = "../spectrum-ledger" }
+spectrum-view = { version = "0.1.0", path = "../spectrum-view" }
 rand = "0.8.5"
 log = "0.4.17"
 log4rs = "1.2.0"
@@ -19,4 +21,6 @@ k256 = { version = "0.13.*", features = ["serde", "arithmetic"] }
 serde = { version = "1.0.147", features = ["derive"] }
 base16 = "0.2.1"
 serde_yaml = "0.9.21"
-tokio = { version = "1.28.*", features = ["rt-multi-thread"] }
+tokio = { version = "1.28.*", features = ["rt", "rt-multi-thread"] }
+thiserror = "1.0.34"
+async-trait = "0.1.68"
