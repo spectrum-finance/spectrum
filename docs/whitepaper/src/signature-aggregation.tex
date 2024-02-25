@@ -1,5 +1,3 @@
-\subsubsection{Problem Statement and Review}
-
 In this section we describe our approach to the following problem.
 The naive approach to writing the consensus values on\
 the blockchain in a verifiable way would be simply write the resulting values together with the signatures from every\
@@ -92,10 +90,10 @@ The takeaways from this setting, which are important for the understanding of ou
 Here we list the overall structure of aggregation to give a grasp on the overall process.
 The detailed explanation is presented below:
 \begin{itemize}
-    \item [] \textbf{Round 1.} Collect Commitments for Schnorr commitments.
+    \item [] \textbf{Round 1: Pre-Commitment.} Collect Commitments for Schnorr commitments.
     Structure: list of hashes of elliptic curve points.
     Distribute all the hashes after the aggregation.
-    \item [] \textbf{Round 2.} Collect and aggregate Schnorr commitments.
+    \item [] \textbf{Round 2: Commitment.} Collect and aggregate Schnorr commitments.
     Structures: list of signatures (proofs of discrete\
     logarithms for the commitments) together with Schnorr commitments.
     Distribute among all the nodes.
@@ -104,7 +102,7 @@ The detailed explanation is presented below:
     The commitments with the checks passed are aggregated to get the overall commitment.
     It is used to compute the challenge and the individual responses in
     the sigma--protocol.
-    \item [] \textbf{Round 3.} Collect and aggregate the responses.
+    \item [] \textbf{Round 3: Response.} Collect and aggregate the responses.
     Structure: list of individual responses.
     Upon receiving every individual response is verified.
     The responses which passed the verification are added together.
@@ -121,7 +119,7 @@ The detailed explanation is presented below:
 \subsubsection{Signature Generation}
 The signature generation algorithm is as follows:
 \begin{enumerate}
-    \item Each signer computes ${a_i\leftarrow(X_1,X_2,\dots,X_n;X_i)}$ and the aggregate\
+    \item Each signer computes ${a_i \leftarrow H(H(X_1,X_2,\dots,X_n);X_i)}$ and the aggregate\
     public key ${\tilde{X}\leftarrow\prod_i X_i^{a_i}}$.
     \item Each signer generates a pair $Y_i=g^{y_i}$ to commit to, commitment ${t_i\leftarrow H(Y_i)}$\
     and the signature $\sigma_i$ of some predefined message with secret key $y_i$.
@@ -155,13 +153,17 @@ The signature verification is carried out as follows:
     \item Compare ${(n-k)}$ (where $k$ is the size of $R$) with the required threshold value.
 \end{enumerate}
 
-\subsection{Instantiation of Signature Aggregation}\label{subsec:instantiation-of-signature-aggregation}
+\subsubsection{Instantiation of Signature Aggregation}\label{subsubsec:instantiation-of-signature-aggregation}
 
-We instantitate our signature aggregation protocol on top of Handel~\cite{bégassat2019handel}, a Byzantine-tolerant aggregation protocol that allows for the quick aggregation of cryptographic signatures over a WAN\@.
+We instantiate our signature aggregation protocol on top of Handel~\cite{bégassat2019handel},\
+a Byzantine-tolerant aggregation protocol that allows for the quick aggregation of cryptographic\
+signatures over a WAN\@.
 Handel has polylogarithmic time, communication and processing complexity.
 
 Our signature aggregation protocol involves aggregation of three lists: $L1$, $L2$ and $L3$.
-As long as Handel requires that the partial aggregation function satisfies both \empth{commutativity} and \empth{associativity} conditions we have to replace \empth{lists} with \empth{sets}.
+As long as Handel requires that the partial aggregation function satisfies both \empth{commutativity}\
+and \empth{associativity} conditions we have to replace \empth{lists} with \empth{sets}.
 We instantiate each of three aggregation rounds on top of Handel round.
-Because of parallel nature of Handel we have to run multicasting between chained rounds of aggregation in order to consistently aggregate.
+Because of parallel nature of Handel we have to run multicasting between chained rounds of aggregation in\
+order to consistently aggregate.
 The resulted construction consists of three Handel rounds and two multicasting rounds in between.

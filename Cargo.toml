@@ -19,7 +19,9 @@ members = [
     "spectrum-cardano-connector",
     "spectrum-chain-connector",
     "algebra-core",
-    "futures-util"
+    "futures-util",
+    "ergo-vault-test-tool",
+    "mock-consensus-driver"
 ]
 
 exclude = [
