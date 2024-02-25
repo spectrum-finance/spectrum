@@ -82,8 +82,23 @@ impl SlotNo {
 )]
 pub struct EpochNo(u64);
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Copy,
+    Clone,
+    Hash,
+    Debug,
+    derive_more::From,
+    derive_more::Into,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct ChainId(u16);
+
+pub const ERGO_CHAIN_ID: ChainId = ChainId(0);
 
 #[derive(
     Copy,

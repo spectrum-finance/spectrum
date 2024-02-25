@@ -10,5 +10,10 @@ log/
 .local
 .vscode
 **/auxil/
+**/.bloop
+**/.metals
+**/metals.sbt
 **/out/
 *.log
+/*.yaml
+/*.yml

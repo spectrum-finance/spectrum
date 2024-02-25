@@ -1,0 +1,37 @@
+[package]
+name = "ergo-vault-test-tool"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+base16 = "0.2"
+clap = { version = "4.4", features = ["derive"] }
+k256 = { version = "0.13.*", features = ["serde", "arithmetic", "expose-field", "hash2curve"] }
+ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", features = ["arbitrary", "json", "mnemonic_gen"], rev = "a360b255f8780d3ae9e6da44266c774e6e4055c5" }
+isahc = { version = "1.7.2", features = ["json"] }
+lazy_static = "1.4.0"
+spectrum-deploy-lm-pool = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
+spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
+spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
+spectrum-chain-connector = { version = "0.1.0", path = "../spectrum-chain-connector" }
+spectrum-ergo-connector = { version = "0.1.0", path = "../spectrum-ergo-connector" }
+spectrum-ledger = { version = "0.1.0", path = "../spectrum-ledger" }
+spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
+spectrum-move = { version = "0.1.0", path = "../spectrum-move" }
+spectrum-handel = { version = "0.1.0", path = "../spectrum-handel" }
+spectrum-sigma = { version = "0.1.0", path = "../spectrum-sigma" }
+tokio = { version = "1.27.0", features = ["full"] }
+scorex_crypto_avltree = "0.1.0"
+rand = "0.8.5"
+num-bigint = "0.4"
+blake2 = "0.10.6"
+indexmap = "1.9.2"
+bytes = "1.0.1"
+elliptic-curve = "0.13.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+derive_more = "0.99"
+itertools = "0.11"

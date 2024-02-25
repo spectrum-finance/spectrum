@@ -363,10 +363,10 @@ struct AggregateResponses<'a, H: FixedOutput, PP> {
 
 impl<'a, H: HashMarker + FixedOutput, PP> AggregateResponses<'a, H, PP> {
     fn complete(self, responses: Responses) -> AggregateCertificate<H> {
-        let mut exclusion_set = HashMap::new();
+        let mut exclusion_set = vec![];
         for (pix, (yi, sig)) in self.commitments_with_proofs.entries() {
             if responses.get(&pix).is_none() {
-                exclusion_set.insert(yi, sig);
+                exclusion_set.push((pix.unwrap(), Some((yi, sig))));
             }
         }
         let aggr_resp = aggregate_response(responses.values().into_iter().collect());
@@ -387,7 +387,7 @@ pub struct AggregateCertificate<H: FixedOutput> {
     pub message_digest: Digest<H>,
     pub aggregate_commitment: AggregateCommitment,
     pub aggregate_response: Scalar,
-    pub exclusion_set: HashMap<Commitment, Signature>,
+    pub exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
 }
 
 enum AggregationState<'a, H: FixedOutput, PP> {

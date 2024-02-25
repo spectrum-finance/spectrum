@@ -19,10 +19,13 @@ where
 {
     use digest::Digest;
     let mut hasher = H::new();
+    let mut inner_hasher = H::new();
     for pk in committee {
         let bytes = k256::PublicKey::from(pk).to_encoded_point(true).to_bytes();
-        hasher.update(&*bytes);
+        inner_hasher.update(&*bytes);
     }
+    let o = inner_hasher.finalize_fixed();
+    hasher.update(o.as_slice());
     let pki_bytes = k256::PublicKey::from(pki).to_encoded_point(true).to_bytes();
     hasher.update(&*pki_bytes);
     ScalarPrimitive::from_bytes(&hasher.finalize_fixed())
