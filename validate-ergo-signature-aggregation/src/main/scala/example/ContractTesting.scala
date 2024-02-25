@@ -67,6 +67,7 @@ import org.ergoplatform.sdk.wallet.secrets.SecretKey
 import sigmastate.serialization.DataSerializer
 import org.ergoplatform.sdk.ErgoId
 import scorex.crypto.authds.ADDigest
+import sigmastate.eval.Colls
 
 object ContractTesting extends IOApp {
   case class SignatureValidationInput(
@@ -87,6 +88,7 @@ object ContractTesting extends IOApp {
       terminalCells: String,
       startingAvlTree: String,
       avlProof: String,
+      vaultTokenId: String,
       epochLength: Int,
       currentEpoch: Int
   )
@@ -170,6 +172,7 @@ object ContractTesting extends IOApp {
       terminalCellsBytes <- Base16.decode(input.terminalCells)
       startingAvlTreeBytes <- Base16.decode(input.startingAvlTree)
       avlProofBytes <- Base16.decode(input.avlProof)
+      vaultTokenIdBytes <- Base16.decode(input.vaultTokenId)
 
     } yield {
       (
@@ -185,7 +188,8 @@ object ContractTesting extends IOApp {
         hashBytes,
         terminalCellsBytes,
         startingAvlTreeBytes,
-        avlProofBytes
+        avlProofBytes,
+        vaultTokenIdBytes
       )
     }
 
@@ -204,7 +208,8 @@ object ContractTesting extends IOApp {
               hashBytes,
               terminalCellsBytes,
               startingAvlTreeBytes,
-              avlProofBytes
+              avlProofBytes,
+              vaultTokenIdBytes
             )
           ) => {
         val validationContract = ctx.newContract(address.script)
@@ -417,6 +422,11 @@ object ContractTesting extends IOApp {
             .deserialize(SigmaSerializer.startReader(avlProofBytes))
             .asInstanceOf[Values.Constant[SCollection[SByte.type]]]
 
+        val vaultTokenId =
+          ConstantSerializer(DeserializationSigmaBuilder)
+            .deserialize(SigmaSerializer.startReader(vaultTokenIdBytes))
+            .asInstanceOf[Values.Constant[SCollection[SByte.type]]]
+
         val dummyErgoContract = new ErgoTreeContract(
           Address.create("4MQyML64GnzMxZgm").getErgoAddress.script,
           NetworkType.MAINNET
@@ -484,47 +494,9 @@ object ContractTesting extends IOApp {
 
         val changeForMiner = 1000000.toLong
 
-        val userOutBox = tb
-          .outBoxBuilder()
-          .contract(validationContract)
-          .value(INITIAL_VAULT_NANOERG_BALANCE - changeForMiner)
-          .build()
-
-        val outputs = outBoxes :+ userOutBox
-
         println(exclusionSet)
 
         val committeeArray: Array[GroupElement] = committee.value.toArray;
-
-        val inputBox = inputBoxBuilder
-          .build()
-          .convertToInputWith(
-            "ce552663312afc2379a91f803c93e2b10b424f176fbc930055c10def2fd88a5d",
-            0
-          )
-          .withContextVars(
-            ContextVar.of(0.toByte, eSet),
-            ContextVar
-              .of(
-                1.toByte,
-                ErgoValue.pairOf(
-                  ErgoValue.of(aggrResponse._1.toArray),
-                  ErgoValue.of(aggrResponse._2)
-                )
-              ),
-            ContextVar.of(2.toByte, ErgoValue.of(aggregateCommitment.value)),
-            ContextVar.of(3.toByte, ErgoValue.of(md.value.toArray)),
-            ContextVar.of(4.toByte, ErgoValue.of(threshold.value)),
-            ContextVar.of(5.toByte, termCells),
-            ContextVar.of(6.toByte, ErgoValue.of(avlTreeData)),
-            ContextVar.of(7.toByte, ErgoValue.of(avlProof.value.toArray)),
-            ContextVar.of(8.toByte, ErgoValue.of(changeForMiner))
-          )
-
-        val bytesInContextExtension =
-          (exclusionSetBytes.length + aggregateResponseBytes.length
-            + aggregateCommitmentBytes.length + mdBytes.length + thresholdBytes.length + terminalCellsBytes.length
-            + startingAvlTreeBytes.length + avlProofBytes.length).toDouble / 1024.0
 
         val MAX_COMMITTEE_IN_BOX = 118
         val NUM_COMMITTEE_ELEMENTS_IN_FIRST_BOX = 115
@@ -576,6 +548,60 @@ object ContractTesting extends IOApp {
 
             }
           })
+          .toArray
+
+        val dataInputBoxIds = dataInputs
+          .map(_.getId().getBytes)
+
+        val dataInputBoxIdsAsColl =
+          Colls.fromArray(dataInputBoxIds.map(Colls.fromArray(_)))
+        val asErgoValue = ErgoValueBuilder.buildFor(dataInputBoxIdsAsColl)
+
+        val vaultTokenIdByteArray = vaultTokenId.value.toArray
+
+        val inputBox = inputBoxBuilder
+          .registers(
+            asErgoValue
+          )
+          .tokens(ErgoToken(new ErgoId(vaultTokenIdByteArray), 1000L))
+          .build()
+          .convertToInputWith(
+            "ce552663312afc2379a91f803c93e2b10b424f176fbc930055c10def2fd88a5d",
+            0
+          )
+          .withContextVars(
+            ContextVar.of(0.toByte, eSet),
+            ContextVar
+              .of(
+                5.toByte,
+                ErgoValue.pairOf(
+                  ErgoValue.of(aggrResponse._1.toArray),
+                  ErgoValue.of(aggrResponse._2)
+                )
+              ),
+            ContextVar.of(1.toByte, ErgoValue.of(aggregateCommitment.value)),
+            ContextVar.of(6.toByte, ErgoValue.of(md.value.toArray)),
+            ContextVar.of(9.toByte, ErgoValue.of(threshold.value)),
+            ContextVar.of(2.toByte, termCells),
+            ContextVar.of(7.toByte, ErgoValue.of(avlTreeData)),
+            ContextVar.of(3.toByte, ErgoValue.of(avlProof.value.toArray)),
+            ContextVar.of(8.toByte, ErgoValue.of(changeForMiner)),
+            ContextVar.of(4.toByte, ErgoValue.of(vaultTokenIdByteArray))
+          )
+
+        val userOutBox = tb
+          .outBoxBuilder()
+          .tokens(ErgoToken(new ErgoId(vaultTokenIdByteArray), 1000L))
+          .contract(validationContract)
+          .value(INITIAL_VAULT_NANOERG_BALANCE - changeForMiner)
+          .build()
+
+        val outputs = userOutBox +: outBoxes
+
+        val bytesInContextExtension =
+          (exclusionSetBytes.length + aggregateResponseBytes.length
+            + aggregateCommitmentBytes.length + mdBytes.length + thresholdBytes.length + terminalCellsBytes.length
+            + startingAvlTreeBytes.length + avlProofBytes.length).toDouble / 1024.0
 
         val tx = tb
           .boxesToSpend(Seq(inputBox).asJava)

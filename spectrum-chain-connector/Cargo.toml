@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 spectrum-ledger = { version = "0.1.0", path = "../spectrum-ledger" }
 tokio = { version = "1", features = ["sync"] }
+serde = { version = "1.0.124", features = ["derive"] }
 async-trait = "0.1"

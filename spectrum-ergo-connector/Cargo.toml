@@ -13,11 +13,12 @@ base64 = "0.21.3"
 bincode = "1.3"
 bytes = "1.0.1"
 clap = { version = "4.4", features = ["derive"] }
+derivative = "2.2.0"
 derive_more = "0.99"
-ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
-spectrum-deploy-lm-pool = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
-spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
-spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "update_rocksdb" }
+ergo-chain-sync = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
+spectrum-deploy-lm-pool = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
+spectrum-offchain = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
+spectrum-offchain-lm = { git = "https://github.com/spectrum-finance/spectrum-offchain-ergo", branch = "include_block_height_in_applied_tx" }
 spectrum-chain-connector = { version = "0.1.0", path = "../spectrum-chain-connector" }
 spectrum-crypto = { version = "0.1.0", path = "../spectrum-crypto" }
 spectrum-move = { version = "0.1.0", path = "../spectrum-move" }
@@ -31,8 +32,8 @@ nonempty = "0.8.1"
 futures = "0.3.28"
 rocksdb = "0.21"
 tokio = { version = "1.27.0", features = ["full"] }
-tokio-unix-ipc = { git = "https://github.com/mitsuhiko/tokio-unix-ipc", branch = "main", features = ["bootstrap", "serde"] }
-ergo-lib = { version = "0.26", features = ["arbitrary", "json"] }
+tokio-unix-ipc = { git = "https://github.com/conorbros/tokio-unix-ipc", branch = "main", features = ["bootstrap", "serde"] }
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", features = ["arbitrary", "json"], rev = "a360b255f8780d3ae9e6da44266c774e6e4055c5" }
 sigma-ser = "0.13.1" 
 elliptic-curve = "0.13.5"
 sha2 = "0.10.7"
@@ -54,10 +55,12 @@ chrono = "0.4.23"
 serde_yaml = "0.9"
 tokio-stream = "0.1.14"
 rand = "0.8.5"
+async-stream = "0.3.5"
+rmp-serde = "1.1.2"
+sigma-test-util = "0.3"
 
 [dev-dependencies]
-reqwest = "0.11"
-sigma-test-util = "0.3"
+reqwest = { version = "0.11", features = ["json"]}
 
 [profile.test]
 opt-level = 3

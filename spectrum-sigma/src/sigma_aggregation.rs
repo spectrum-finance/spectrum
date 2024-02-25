@@ -1,12 +1,12 @@
+use derivative::Derivative;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use derivative::Derivative;
 
-use digest::{FixedOutput, HashMarker, OutputSizeUser};
 use digest::generic_array::ArrayLength;
+use digest::{FixedOutput, HashMarker, OutputSizeUser};
 use either::Either;
 use elliptic_curve::Curve;
 use futures::channel::mpsc::Receiver;
@@ -19,24 +19,24 @@ use tracing::{info, trace, trace_span};
 
 use spectrum_crypto::digest::Digest;
 use spectrum_crypto::pubkey::PublicKey;
-use spectrum_handel::{Handel, HandelConfig, HandelRound};
 use spectrum_handel::partitioning::{MakePeerPartitions, PeerIx, PeerPartitions};
-use spectrum_mcast::behaviour::{DagMulticasting, Multicasting};
+use spectrum_handel::{Handel, HandelConfig, HandelRound};
 use spectrum_mcast::behaviour::DagMulticastingConfig;
+use spectrum_mcast::behaviour::{DagMulticasting, Multicasting};
 use spectrum_mcast::overlay::{DagOverlay, MakeDagOverlay};
-use spectrum_network::protocol_handler::{ProtocolBehaviour, TemporalProtocolStage};
-use spectrum_network::protocol_handler::ProtocolBehaviourOut;
 use spectrum_network::protocol_handler::void::VoidMessage;
+use spectrum_network::protocol_handler::ProtocolBehaviourOut;
+use spectrum_network::protocol_handler::{ProtocolBehaviour, TemporalProtocolStage};
 
-use crate::{
-    AggregateCommitment, Commitment, CommitmentSecret, CommitmentsVerifInput, CommitmentsWithProofs,
-    Contributions, PreCommitments, Responses, ResponsesVerifInput, Signature,
-};
 use crate::crypto::{
     aggregate_commitment, aggregate_pk, aggregate_response, challenge, exclusion_proof, individual_input,
     pre_commitment, response, schnorr_commitment_pair,
 };
 use crate::message::{SigmaAggrMessage, SigmaAggrMessageV1, SigmaAggrSpec};
+use crate::{
+    AggregateCommitment, Commitment, CommitmentSecret, CommitmentsVerifInput, CommitmentsWithProofs,
+    Contributions, PreCommitments, Responses, ResponsesVerifInput, Signature,
+};
 
 pub enum AggregationAction<H: HashMarker + FixedOutput> {
     /// Restart aggregation with new committee.
@@ -71,9 +71,9 @@ struct AggregatePreCommitments<'a, H: FixedOutput, PP> {
 }
 
 impl<'a, H, PP> AggregatePreCommitments<'a, H, PP>
-    where
-        H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
-        PP: PeerPartitions + Clone + Send + 'static,
+where
+    H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
+    PP: PeerPartitions + Clone + Send + 'static,
 {
     fn init<MPP: MakePeerPartitions<PP = PP>, OB: MakeDagOverlay>(
         host_sk: SecretKey,
@@ -188,8 +188,8 @@ struct BroadcastPreCommitments<H: FixedOutput, PP> {
 }
 
 impl<'a, H: HashMarker + FixedOutput, PP> BroadcastPreCommitments<H, PP>
-    where
-        PP: PeerPartitions + Send + Clone + 'a,
+where
+    PP: PeerPartitions + Send + Clone + 'a,
 {
     fn complete(
         self,
@@ -247,8 +247,8 @@ struct AggregateCommitments<'a, H: FixedOutput, PP> {
 }
 
 impl<'a, H: HashMarker + FixedOutput, PP> AggregateCommitments<'a, H, PP>
-    where
-        PP: PeerPartitions + Send + Clone + 'static,
+where
+    PP: PeerPartitions + Send + Clone + 'static,
 {
     fn complete(self, commitments_with_proofs: CommitmentsWithProofs) -> BroadcastCommitments<H, PP> {
         let handel_partitions = self.handel.narrow();
@@ -295,9 +295,9 @@ struct BroadcastCommitments<H: FixedOutput, PP> {
 }
 
 impl<'a, H, PP> BroadcastCommitments<H, PP>
-    where
-        H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
-        PP: PeerPartitions + Send + Clone + 'a,
+where
+    H: HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
+    PP: PeerPartitions + Send + Clone + 'a,
 {
     fn complete(
         self,
@@ -363,10 +363,10 @@ struct AggregateResponses<'a, H: FixedOutput, PP> {
 
 impl<'a, H: HashMarker + FixedOutput, PP> AggregateResponses<'a, H, PP> {
     fn complete(self, responses: Responses) -> AggregateCertificate<H> {
-        let mut exclusion_set = HashMap::new();
+        let mut exclusion_set = vec![];
         for (pix, (yi, sig)) in self.commitments_with_proofs.entries() {
             if responses.get(&pix).is_none() {
-                exclusion_set.insert(yi, sig);
+                exclusion_set.push((pix.unwrap(), Some((yi, sig))));
             }
         }
         let aggr_resp = aggregate_response(responses.values().into_iter().collect());
@@ -381,13 +381,13 @@ impl<'a, H: HashMarker + FixedOutput, PP> AggregateResponses<'a, H, PP> {
 
 /// Result of an aggregation.
 #[derive(Debug, Derivative, Clone, serde::Serialize, serde::Deserialize)]
-#[derivative(Eq(bound="H: FixedOutput"), PartialEq(bound="H: FixedOutput"))]
+#[derivative(Eq(bound = "H: FixedOutput"), PartialEq(bound = "H: FixedOutput"))]
 #[serde(bound = "H: Debug")]
 pub struct AggregateCertificate<H: FixedOutput> {
     pub message_digest: Digest<H>,
     pub aggregate_commitment: AggregateCommitment,
     pub aggregate_response: Scalar,
-    pub exclusion_set: HashMap<Commitment, Signature>,
+    pub exclusion_set: Vec<(usize, Option<(Commitment, Signature)>)>,
 }
 
 enum AggregationState<'a, H: FixedOutput, PP> {
@@ -460,9 +460,9 @@ impl MessageStash {
 }
 
 pub struct SigmaAggregation<'a, H, MPP, OB>
-    where
-        H: HashMarker + FixedOutput,
-        MPP: MakePeerPartitions,
+where
+    H: HashMarker + FixedOutput,
+    MPP: MakePeerPartitions,
 {
     host_sk: SecretKey,
     handel_conf: HandelConfig,
@@ -477,20 +477,20 @@ pub struct SigmaAggregation<'a, H, MPP, OB>
 
 trait AssertKinds: Unpin {}
 impl<'a, H, MPP, OB> AssertKinds for SigmaAggregation<'a, H, MPP, OB>
-    where
-        MPP: MakePeerPartitions + Unpin,
-        <MPP as MakePeerPartitions>::PP: Unpin,
-        OB: Unpin,
-        H: Unpin + HashMarker + FixedOutput,
-        <<H as OutputSizeUser>::OutputSize as ArrayLength<u8>>::ArrayType: Unpin,
+where
+    MPP: MakePeerPartitions + Unpin,
+    <MPP as MakePeerPartitions>::PP: Unpin,
+    OB: Unpin,
+    H: Unpin + HashMarker + FixedOutput,
+    <<H as OutputSizeUser>::OutputSize as ArrayLength<u8>>::ArrayType: Unpin,
 {
 }
 
 impl<'a, H, MPP, OB> SigmaAggregation<'a, H, MPP, OB>
-    where
-        H: HashMarker + FixedOutput,
-        MPP: MakePeerPartitions + Clone,
-        MPP::PP: Clone + 'static,
+where
+    H: HashMarker + FixedOutput,
+    MPP: MakePeerPartitions + Clone,
+    MPP::PP: Clone + 'static,
 {
     pub fn new(
         host_sk: SecretKey,
@@ -514,11 +514,11 @@ impl<'a, H, MPP, OB> SigmaAggregation<'a, H, MPP, OB>
     }
 
     fn unstash_stage(&mut self, stage: StageTag)
-        where
-            H: Debug + HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
-            MPP: MakePeerPartitions + Clone + Send,
-            MPP::PP: Send + 'a,
-            OB: MakeDagOverlay + Clone,
+    where
+        H: Debug + HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
+        MPP: MakePeerPartitions + Clone + Send,
+        MPP::PP: Send + 'a,
+        OB: MakeDagOverlay + Clone,
     {
         for (p, m) in self.stash.unstash(stage) {
             self.inject_message(p, SigmaAggrMessage::SigmaAggrMessageV1(m))
@@ -527,11 +527,11 @@ impl<'a, H, MPP, OB> SigmaAggregation<'a, H, MPP, OB>
 }
 
 impl<'a, H, MPP, OB> ProtocolBehaviour for SigmaAggregation<'a, H, MPP, OB>
-    where
-        H: Debug + HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
-        MPP: MakePeerPartitions + Clone + Send,
-        MPP::PP: Send + Clone + 'static,
-        OB: MakeDagOverlay + Clone,
+where
+    H: Debug + HashMarker + FixedOutput<OutputSize = <Secp256k1 as Curve>::FieldBytesSize> + Default,
+    MPP: MakePeerPartitions + Clone + Send,
+    MPP::PP: Send + Clone + 'static,
+    OB: MakeDagOverlay + Clone,
 {
     type TProto = SigmaAggrSpec;
 
@@ -543,9 +543,9 @@ impl<'a, H, MPP, OB> ProtocolBehaviour for SigmaAggregation<'a, H, MPP, OB>
     ) {
         match &mut self.task {
             Some(AggregationTask {
-                     state: AggregationState::AggregatePreCommitments(ref mut pre_commitment),
-                     ..
-                 }) => {
+                state: AggregationState::AggregatePreCommitments(ref mut pre_commitment),
+                ..
+            }) => {
                 let span = trace_span!("", host_ix = ?pre_commitment.host_ix, stage = ?StageTag::PreCommit);
                 let _enter = span.enter();
                 if let SigmaAggrMessageV1::PreCommitments(pre_commits) = msg {
@@ -560,9 +560,9 @@ impl<'a, H, MPP, OB> ProtocolBehaviour for SigmaAggregation<'a, H, MPP, OB>
                 }
             }
             Some(AggregationTask {
-                     state: AggregationState::BroadcastPreCommitments(ref mut bcast),
-                     ..
-                 }) => {
+                state: AggregationState::BroadcastPreCommitments(ref mut bcast),
+                ..
+            }) => {
                 let span =
                     trace_span!("", host_ix = ?bcast.host_ix, stage = ?StageTag::BroadcastPreCommitments);
                 let _enter = span.enter();
@@ -578,9 +578,9 @@ impl<'a, H, MPP, OB> ProtocolBehaviour for SigmaAggregation<'a, H, MPP, OB>
                 }
             }
             Some(AggregationTask {
-                     state: AggregationState::AggregateCommitments(ref mut commitment),
-                     ..
-                 }) => {
+                state: AggregationState::AggregateCommitments(ref mut commitment),
+                ..
+            }) => {
                 let span = trace_span!("", host_ix = ?commitment.host_ix, stage = ?StageTag::Commit);
                 let _enter = span.enter();
                 if let SigmaAggrMessageV1::Commitments(commits) = msg {
@@ -595,9 +595,9 @@ impl<'a, H, MPP, OB> ProtocolBehaviour for SigmaAggregation<'a, H, MPP, OB>
                 }
             }
             Some(AggregationTask {
-                     state: AggregationState::BroadcastCommitments(ref mut bcast),
-                     ..
-                 }) => {
+                state: AggregationState::BroadcastCommitments(ref mut bcast),
+                ..
+            }) => {
                 let span = trace_span!("", host_ix = ?bcast.host_ix, stage = ?StageTag::BroadcastCommitments);
                 let _enter = span.enter();
                 if let SigmaAggrMessageV1::BroadcastCommitments(commits) = msg {
@@ -612,9 +612,9 @@ impl<'a, H, MPP, OB> ProtocolBehaviour for SigmaAggregation<'a, H, MPP, OB>
                 }
             }
             Some(AggregationTask {
-                     state: AggregationState::AggregateResponses(ref mut response),
-                     ..
-                 }) => {
+                state: AggregationState::AggregateResponses(ref mut response),
+                ..
+            }) => {
                 let span = trace_span!("", host_ix = ?response.host_ix, stage = ?StageTag::Response);
                 let _enter = span.enter();
                 if let SigmaAggrMessageV1::Responses(resps) = msg {
