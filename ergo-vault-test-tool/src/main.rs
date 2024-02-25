@@ -5,21 +5,34 @@ use ergo_chain_sync::client::{
     node::{ErgoNetwork as _, ErgoNodeHttpClient},
     types::{InvalidUrl, Url},
 };
+use ergo_lib::chain::transaction::UnsignedInput;
+use ergo_lib::wallet::signing::TransactionContext;
+use ergo_lib::{
+    chain::transaction::unsigned::UnsignedTransaction, wallet::mnemonic_generator::MnemonicGenerator,
+};
 use ergo_lib::{
     chain::{ergo_box::box_builder::ErgoBoxCandidateBuilder, transaction::TxIoVec},
     ergo_chain_types::EcPoint,
     ergotree_interpreter::sigma_protocol::prover::ContextExtension,
     ergotree_ir::{
         chain::{
-            address::{AddressEncoder, NetworkPrefix},
-            ergo_box::{box_value::BoxValue, BoxId},
-            token::{Token, TokenId},
+            address::{Address, AddressEncoder, NetworkPrefix},
+            ergo_box::{
+                box_value::BoxValue, BoxId, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
+            },
+            token::{Token, TokenAmount, TokenId},
         },
         ergo_tree::ErgoTree,
+        mir::{
+            constant::{Constant, Literal},
+            value::CollKind,
+        },
         serialization::SigmaSerializable,
+        types::stype::SType,
     },
     wallet::box_selector::{BoxSelector, SimpleBoxSelector},
 };
+use indexmap::IndexMap;
 use isahc::{config::Configurable, HttpClient};
 use itertools::Itertools;
 use k256::{elliptic_curve::group::GroupEncoding, PublicKey, SecretKey};
@@ -30,7 +43,9 @@ use spectrum_crypto::digest::{blake2b256_hash, Blake2bDigest256};
 use spectrum_deploy_lm_pool::Explorer;
 use spectrum_ergo_connector::{
     committee::{FirstCommitteeBox, SubsequentCommitteeBox, VaultParameters},
-    script::{simulate_signature_aggregation_notarized_proofs, ErgoTermCell, VAULT_CONTRACT},
+    script::{
+        simulate_signature_aggregation_notarized_proofs, ErgoTermCell, DEPOSIT_CONTRACT, VAULT_CONTRACT,
+    },
 };
 use spectrum_handel::Threshold;
 use spectrum_ledger::{
@@ -72,6 +87,8 @@ async fn main() {
         Command::CreateVaultUtxo {
             config_path,
             nano_ergs,
+            minted_token_name,
+            minted_token_description,
         } => {
             let raw_config = tokio::fs::read_to_string(config_path.clone())
                 .await
@@ -79,7 +96,13 @@ async fn main() {
             let config_proto: AppConfigProto =
                 serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
             let config = AppConfig::try_from(config_proto).unwrap();
-            let vault_config = create_vault_utxo(NanoErg::from(nano_ergs), config).await;
+            let vault_config = create_vault_utxo(
+                NanoErg::from(nano_ergs),
+                minted_token_name,
+                minted_token_description,
+                config,
+            )
+            .await;
             tokio::fs::write(
                 config_path,
                 serde_yaml::to_string(&AppConfigWithVaultUtxoProto::from(vault_config)).unwrap(),
@@ -132,6 +155,36 @@ async fn main() {
 
             // Write the data to the file
             file.write_all(yaml_str.as_bytes()).await.unwrap();
+        }
+
+        Command::MakeDeposit {
+            nano_ergs,
+            config_path,
+        } => {
+            let raw_config = tokio::fs::read_to_string(config_path.clone())
+                .await
+                .expect("Cannot load configuration file");
+            let config_proto: AppConfigWithVaultUtxoProto =
+                serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
+            let mut config = AppConfigWithVaultUtxo::try_from(config_proto).unwrap();
+            make_deposit_tx(NanoErg::from(nano_ergs), &mut config).await;
+        }
+
+        Command::RefundDeposit { box_id, config_path } => {
+            let raw_config = tokio::fs::read_to_string(config_path.clone())
+                .await
+                .expect("Cannot load configuration file");
+            let config_proto: AppConfigWithVaultUtxoProto =
+                serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
+            let mut config = AppConfigWithVaultUtxo::try_from(config_proto).unwrap();
+
+            let box_id = BoxId::try_from(box_id).unwrap();
+
+            make_refund_deposit_tx(box_id, &mut config).await;
+        }
+
+        Command::GenerateWallet => {
+            gen_mnemonic();
         }
     }
 }
@@ -312,7 +365,12 @@ async fn create_committee_boxes(config: &mut AppConfig) {
     }
 }
 
-async fn create_vault_utxo(amt: NanoErg, mut config: AppConfig) -> AppConfigWithVaultUtxo {
+async fn create_vault_utxo(
+    amt: NanoErg,
+    token_name: String,
+    token_desc: String,
+    mut config: AppConfig,
+) -> AppConfigWithVaultUtxo {
     let client = HttpClient::builder()
         .timeout(std::time::Duration::from_secs(50))
         .build()
@@ -351,46 +409,120 @@ async fn create_vault_utxo(amt: NanoErg, mut config: AppConfig) -> AppConfigWith
         .collect();
     let height = node.get_height().await;
 
-    let target_balance = BoxValue::from(amt);
-    let mut miner_output = MinerOutput {
-        erg_value: DEFAULT_MINER_FEE,
-    };
-    let accumulated_cost = miner_output.erg_value + NanoErg::from(target_balance);
-    let selection_value = BoxValue::try_from(accumulated_cost).unwrap();
+    // To mint the initial Vault UTxO, we will require a chain TX with 2 legs:
+    //  1. First need a TX to mint the vault tokens (requires MIN_SAFE_BOX_VALUE + DEFAULT_MINER_FEE)
+    //  2. Create the initial Vault UTxO (requires another `amt - MIN_SAFE_BOX_VALUE + DEFAULT_MINER_FEE`,
+    //     since we will spend the box holding the tokens in the first tx).
+    let selection_value = BoxValue::from(amt + DEFAULT_MINER_FEE + DEFAULT_MINER_FEE);
     let box_selector = SimpleBoxSelector::new();
     let box_selection = box_selector.select(utxos, selection_value, &[]).unwrap();
-
-    let mut token_quantities: HashMap<TokenId, u64> = HashMap::new();
-
-    for ergobox in &box_selection.boxes {
-        for t in ergobox.tokens.iter().flatten() {
-            *token_quantities.entry(t.token_id).or_insert(0) += t.amount.as_u64();
-        }
-    }
-
-    // Vault UTxO
-    let guarding_script = VAULT_CONTRACT.clone();
-    let builder = ErgoBoxCandidateBuilder::new(target_balance, guarding_script, height);
+    let box_selection_total_value = BoxValue::try_from(
+        box_selection
+            .boxes
+            .iter()
+            .fold(0_u64, |acc, bx| acc + bx.value.as_u64()),
+    )
+    .unwrap();
+    let minted_token = Token {
+        token_id: box_selection.boxes.first().box_id().into(),
+        amount: TokenAmount::try_from(TokenAmount::MAX_RAW).unwrap(),
+    };
+    let guarding_script = wallet_addr.script().unwrap();
+    let mut builder = ErgoBoxCandidateBuilder::new(
+        BoxValue::from(MIN_SAFE_BOX_VALUE),
+        guarding_script.clone(),
+        height,
+    );
+    builder.mint_token(minted_token.clone(), token_name, token_desc, 0);
     let mut output_candidates = vec![builder.build().unwrap()];
 
-    let funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
-        acc + NanoErg::from(ergobox.value)
-    });
-    let funds_remain = funds_total.safe_sub(accumulated_cost);
-    if funds_remain >= MIN_SAFE_BOX_VALUE {
-        let to_ergo_tree = wallet_addr.script().unwrap();
-        let builder =
-            ErgoBoxCandidateBuilder::new(BoxValue::from(funds_remain), to_ergo_tree.clone(), height);
-        output_candidates.push(builder.build().unwrap());
-    } else {
-        miner_output.erg_value = miner_output.erg_value + funds_remain;
-    }
-    output_candidates.push(miner_output.into_candidate(height));
+    let miner_output = MinerOutput {
+        erg_value: DEFAULT_MINER_FEE,
+    };
+
+    let funds_for_next_tx = ErgoBoxCandidateBuilder::new(
+        BoxValue::from(amt + DEFAULT_MINER_FEE - MIN_SAFE_BOX_VALUE),
+        guarding_script.clone(),
+        height,
+    )
+    .build()
+    .unwrap();
+
+    let remaining_funds = ErgoBoxCandidateBuilder::new(
+        box_selection_total_value.checked_sub(&selection_value).unwrap(),
+        guarding_script.clone(),
+        height,
+    )
+    .build()
+    .unwrap();
+
+    output_candidates.extend(vec![
+        funds_for_next_tx,
+        remaining_funds,
+        miner_output.clone().into_candidate(height),
+    ]);
 
     let inputs = TxIoVec::from_vec(
         box_selection
             .boxes
-            .clone()
+            .into_iter()
+            .map(|bx| (bx, ContextExtension::empty()))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+
+    let output_candidates = TxIoVec::from_vec(output_candidates.clone()).unwrap();
+    let tx_candidate = TransactionCandidate {
+        inputs,
+        data_inputs: None,
+        output_candidates,
+    };
+    let signed_token_minting_tx = wallet.sign(tx_candidate).unwrap();
+    let tx_id = signed_token_minting_tx.id();
+
+    let inputs: Vec<_> = signed_token_minting_tx
+        .outputs
+        .clone()
+        .into_iter()
+        .take(2)
+        .collect();
+
+    if let Err(e) = node.submit_tx(signed_token_minting_tx).await {
+        println!("ERGO NODE ERROR: {:?}", e);
+    } else {
+        println!("Token minting TX {:?} successfully submitted!", tx_id);
+    }
+
+    // Vault UTxO.
+    let mut builder = ErgoBoxCandidateBuilder::new(BoxValue::from(amt), VAULT_CONTRACT.clone(), height);
+    builder.add_token(minted_token.clone());
+    let mut vault_output_box = builder.build().unwrap();
+
+    let items: Vec<_> = config
+        .committee_box_ids
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|input| Literal::from(input.sigma_serialize_bytes().unwrap()))
+        .collect();
+
+    let serialized_committee_box_ids = Constant {
+        tpe: SType::SColl(Box::new(SType::SColl(Box::new(SType::SByte)))),
+        v: Literal::Coll(CollKind::WrappedColl {
+            elem_tpe: SType::SColl(Box::new(SType::SByte)),
+            items,
+        }),
+    };
+
+    let mut registers = HashMap::new();
+    registers.insert(NonMandatoryRegisterId::R4, serialized_committee_box_ids);
+    vault_output_box.additional_registers = NonMandatoryRegisters::new(registers).unwrap();
+    let mut output_candidates = vec![vault_output_box];
+
+    output_candidates.push(miner_output.into_candidate(height));
+
+    let inputs = TxIoVec::from_vec(
+        inputs
             .into_iter()
             .map(|bx| (bx, ContextExtension::empty()))
             .collect::<Vec<_>>(),
@@ -410,7 +542,7 @@ async fn create_vault_utxo(amt: NanoErg, mut config: AppConfig) -> AppConfigWith
     if let Err(e) = node.submit_tx(signed_tx).await {
         println!("ERGO NODE ERROR: {:?}", e);
     } else {
-        println!("TX {:?} successfully submitted!", tx_id);
+        println!("Vault UTxO creation TX {:?} successfully submitted!", tx_id);
     }
     AppConfigWithVaultUtxo {
         node_addr: config.node_addr,
@@ -422,6 +554,7 @@ async fn create_vault_utxo(amt: NanoErg, mut config: AppConfig) -> AppConfigWith
         box_ids_to_ignore: config.box_ids_to_ignore,
         spent_vault_utxo_box_id: None,
         new_vault_utxo_box_id,
+        vault_utxo_token_id: minted_token.token_id,
     }
 }
 
@@ -453,27 +586,14 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
 
     let encoder = AddressEncoder::new(NetworkPrefix::Mainnet);
     let addr_0 = encoder
-        .parse_address_from_str("9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMg")
-        .unwrap();
-    let addr_1 = encoder
-        .parse_address_from_str("9hVmDmyrLoNAupFVoobZRCfbwDWnAvCmjT1KCS4yGy3XziaCyMg")
+        .parse_address_from_str("9etVzf2G2FtYsnKT187ZYe8HFKkMmVqrNByAAk3ofhm58BswBc5")
         .unwrap();
 
-    let size = 500000; //(383979280 - 2_000_000 - 250000) / 2;
-    let term_cells = vec![
-        proto_term_cell(size, vec![], addr_0.content_bytes()),
-        proto_term_cell(size, vec![], addr_0.content_bytes()),
-        proto_term_cell(size, vec![], addr_0.content_bytes()),
-        proto_term_cell(size, vec![], addr_0.content_bytes()),
-        proto_term_cell(size, vec![], addr_1.content_bytes()),
-        proto_term_cell(size, vec![], addr_1.content_bytes()),
-        proto_term_cell(size, vec![], addr_1.content_bytes()),
-        proto_term_cell(size, vec![], addr_1.content_bytes()),
-        proto_term_cell(size, vec![], addr_1.content_bytes()),
-    ]
-    .into_iter()
-    .map(|cell| ErgoTermCell::try_from(cell).unwrap())
-    .collect();
+    let size = 8335800; //46869640; //(383979280 - 2_000_000 - 250000) / 2;
+    let term_cells = vec![proto_term_cell(size, vec![], addr_0.content_bytes())]
+        .into_iter()
+        .map(|cell| ErgoTermCell::try_from(cell).unwrap())
+        .collect();
 
     let inputs = simulate_signature_aggregation_notarized_proofs(
         config.committee_secret_keys.clone(),
@@ -490,18 +610,19 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
     config.operator_funding_secret = seed;
     let wallet = ergo_lib::wallet::Wallet::from_mnemonic(&secret_str, "").unwrap();
 
-    let signed_tx = spectrum_ergo_connector::vault::verify_vault_contract_ergoscript_with_sigma_rust(
+    let signed_tx = spectrum_ergo_connector::ergo_connector::verify_vault_contract_ergoscript_with_sigma_rust(
         inputs,
         config.committee_public_keys.len() as u32,
         ergo_state_context,
         vault_utxo,
+        config.vault_utxo_token_id,
         data_boxes,
         &wallet,
         node.get_height().await,
     );
     let num_outputs = signed_tx.outputs.len();
     config.spent_vault_utxo_box_id = Some(vault_utxo_box_id);
-    config.new_vault_utxo_box_id = signed_tx.outputs.get(num_outputs - 2).unwrap().box_id();
+    config.new_vault_utxo_box_id = signed_tx.outputs.get(0).unwrap().box_id();
 
     let tx_id = signed_tx.id();
     if let Err(e) = node.submit_tx(signed_tx).await {
@@ -509,6 +630,197 @@ async fn make_vault_withdrawal_tx(max_miner_fee: i64, config: &mut AppConfigWith
     } else {
         println!("TX {:?} successfully submitted!", tx_id);
     }
+}
+
+async fn make_deposit_tx(deposit_amt: NanoErg, config: &mut AppConfigWithVaultUtxo) {
+    let client = HttpClient::builder()
+        .timeout(std::time::Duration::from_secs(50))
+        .build()
+        .unwrap();
+
+    let node_url = config.node_addr.clone();
+    let explorer_url = Url::try_from(String::from("https://api.ergoplatform.com")).unwrap();
+    let explorer = Explorer {
+        client: client.clone(),
+        base_url: explorer_url,
+    };
+    let node = ErgoNodeHttpClient::new(client, node_url);
+
+    let mut seed = SeedPhrase::from(String::from(""));
+    swap(&mut config.operator_funding_secret, &mut seed);
+    let secret_str = String::from(seed);
+    seed = SeedPhrase::from(secret_str.clone());
+    config.operator_funding_secret = SeedPhrase::from(secret_str);
+    let (wallet, wallet_addr) = Wallet::try_from_seed(seed).expect("Invalid wallet seed");
+    let guarding_script = wallet_addr.script().unwrap();
+    let Address::P2Pk(prove_dlog) = wallet_addr.clone() else {
+        panic!("EXPECT P2PK ADDRESS FOR WALLET");
+    };
+
+    let mut box_ids_to_ignore = if let Some(to_ignore) = &config.committee_box_ids {
+        to_ignore.clone()
+    } else {
+        vec![]
+    };
+    if let Some(to_ignore) = &config.box_ids_to_ignore {
+        box_ids_to_ignore.extend(to_ignore);
+    }
+    // Need to make sure we don't spent the committee box
+    let utxos = explorer
+        .get_utxos(&wallet_addr)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|bx| !box_ids_to_ignore.contains(&bx.box_id()))
+        .collect();
+    let current_height = node.get_height().await;
+    let mut miner_output = MinerOutput {
+        erg_value: DEFAULT_MINER_FEE,
+    };
+    let selection_value = BoxValue::from(deposit_amt + DEFAULT_MINER_FEE);
+
+    let mut registers = HashMap::new();
+    registers.insert(
+        NonMandatoryRegisterId::R4,
+        Constant::from(config.vault_utxo_token_id),
+    );
+    registers.insert(NonMandatoryRegisterId::R5, Constant::from(prove_dlog));
+    let deposit_box = ErgoBoxCandidate {
+        value: BoxValue::from(deposit_amt),
+        ergo_tree: DEPOSIT_CONTRACT.clone(),
+        tokens: None,
+        additional_registers: NonMandatoryRegisters::new(registers).unwrap(),
+        creation_height: current_height,
+    };
+
+    let mut output_candidates = vec![deposit_box];
+
+    let box_selector = SimpleBoxSelector::new();
+    let box_selection = box_selector.select(utxos, selection_value, &[]).unwrap();
+    let funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
+        acc + NanoErg::from(ergobox.value)
+    });
+    let funds_remain = funds_total.safe_sub(NanoErg::from(selection_value));
+    if funds_remain >= MIN_SAFE_BOX_VALUE {
+        let builder = ErgoBoxCandidateBuilder::new(
+            BoxValue::from(funds_remain),
+            guarding_script,
+            current_height as u32,
+        );
+        output_candidates.push(builder.build().unwrap());
+    } else {
+        miner_output.erg_value = miner_output.erg_value + funds_remain;
+    }
+    output_candidates.push(miner_output.into_candidate(current_height as u32));
+
+    let inputs = TxIoVec::from_vec(
+        box_selection
+            .boxes
+            .clone()
+            .into_iter()
+            .map(|bx| (bx, ContextExtension::empty()))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+
+    let tx_candidate = TransactionCandidate {
+        inputs,
+        data_inputs: None,
+        output_candidates: TxIoVec::from_vec(output_candidates).unwrap(),
+    };
+    let signed_tx = wallet.sign(tx_candidate).unwrap();
+    let tx_id = signed_tx.id();
+    if let Err(e) = node.submit_tx(signed_tx).await {
+        println!("ERGO NODE ERROR: {:?}", e);
+    } else {
+        println!("DEPOSIT TX {:?} successfully submitted!", tx_id);
+    }
+}
+
+async fn make_refund_deposit_tx(deposit_box_id: BoxId, config: &mut AppConfigWithVaultUtxo) {
+    let client = HttpClient::builder()
+        .timeout(std::time::Duration::from_secs(50))
+        .build()
+        .unwrap();
+
+    let explorer_url = Url::try_from(String::from("https://api.ergoplatform.com")).unwrap();
+    let explorer = Explorer {
+        client: client.clone(),
+        base_url: explorer_url,
+    };
+
+    let deposit_box = explorer.get_box(deposit_box_id).await.unwrap();
+    let deposit_amt = NanoErg::from(deposit_box.value);
+    if deposit_amt <= DEFAULT_MINER_FEE {
+        panic!("Deposit value is smaller than miner fee. Shouldn't happen");
+    }
+
+    let node_url = config.node_addr.clone();
+    let node = ErgoNodeHttpClient::new(client, node_url);
+
+    let mut seed = SeedPhrase::from(String::from(""));
+    swap(&mut config.operator_funding_secret, &mut seed);
+    let secret_str = String::from(seed);
+    seed = SeedPhrase::from(secret_str.clone());
+    config.operator_funding_secret = SeedPhrase::from(secret_str.clone());
+    let (wallet, wallet_addr) = Wallet::try_from_seed(seed).expect("Invalid wallet seed");
+    let guarding_script = wallet_addr.script().unwrap();
+    println!("WALLET ADDR: {:?}", wallet_addr);
+    let Address::P2Pk(prove_dlog) = wallet_addr.clone() else {
+        panic!("EXPECT P2PK ADDRESS FOR WALLET");
+    };
+
+    let current_height = node.get_height().await;
+    let mut miner_output = MinerOutput {
+        erg_value: DEFAULT_MINER_FEE,
+    };
+
+    let refund_output_box = ErgoBoxCandidate {
+        value: BoxValue::try_from(deposit_amt - DEFAULT_MINER_FEE).unwrap(),
+        ergo_tree: guarding_script,
+        tokens: deposit_box.tokens.clone(),
+        additional_registers: NonMandatoryRegisters::empty(),
+        creation_height: current_height,
+    };
+    let mut constants = IndexMap::new();
+    constants.insert(8_u8, Constant::from(BoxValue::from(DEFAULT_MINER_FEE)));
+    let inputs = TxIoVec::from_vec(vec![
+        (UnsignedInput::new(deposit_box.box_id(), ContextExtension { values: constants })),
+    ])
+    .unwrap();
+    //deposit_box.clone(),
+    let output_candidates = TxIoVec::from_vec(vec![
+        refund_output_box,
+        miner_output.into_candidate(current_height),
+    ])
+    .unwrap();
+    let unsigned_tx = UnsignedTransaction::new(inputs, None, output_candidates).unwrap();
+    let tx_context = TransactionContext::new(unsigned_tx, vec![deposit_box], vec![]).unwrap();
+
+    // Need Wallet instance from ergo-lib
+    let ergo_wallet = ergo_lib::wallet::Wallet::from_mnemonic(&secret_str, "").unwrap();
+    let ergo_state_context = node.get_ergo_state_context().await.unwrap();
+    let signed_tx = ergo_wallet
+        .sign_transaction(tx_context, &ergo_state_context, None)
+        .unwrap();
+    let tx_id = signed_tx.id();
+    if let Err(e) = node.submit_tx(signed_tx).await {
+        println!("ERGO NODE ERROR: {:?}", e);
+    } else {
+        println!("REFUND TX {:?} successfully submitted!", tx_id);
+    }
+}
+
+fn gen_mnemonic() {
+    let gen = MnemonicGenerator::new(ergo_lib::wallet::mnemonic_generator::Language::English, 256);
+    let mnemonic = gen.generate().unwrap();
+    let seed = SeedPhrase::from(mnemonic.clone());
+    let (_, wallet_addr) = Wallet::try_from_seed(seed).expect("Invalid wallet seed");
+    println!(
+        "WALLET ADDR: {:?}",
+        AddressEncoder::new(NetworkPrefix::Mainnet).address_to_str(&wallet_addr)
+    );
+    println!("MNEMONIC: {}", mnemonic);
 }
 
 pub fn proto_term_cell(nano_ergs: u64, tokens: Vec<Token>, address_bytes: Vec<u8>) -> ProtoTermCell {
@@ -547,6 +859,7 @@ struct AppConfigWithVaultUtxo {
     box_ids_to_ignore: Option<Vec<BoxId>>,
     spent_vault_utxo_box_id: Option<BoxId>,
     new_vault_utxo_box_id: BoxId,
+    vault_utxo_token_id: TokenId,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -560,6 +873,7 @@ struct AppConfigWithVaultUtxoProto {
     box_ids_to_ignore: Option<Vec<BoxId>>,
     spent_vault_utxo_box_id: Option<BoxId>,
     new_vault_utxo_box_id: BoxId,
+    vault_utxo_token_id: TokenId,
 }
 
 struct AppConfig {
@@ -676,6 +990,7 @@ impl TryFrom<AppConfigWithVaultUtxoProto> for AppConfigWithVaultUtxo {
             box_ids_to_ignore: config.box_ids_to_ignore,
             spent_vault_utxo_box_id: value.spent_vault_utxo_box_id,
             new_vault_utxo_box_id: value.new_vault_utxo_box_id,
+            vault_utxo_token_id: value.vault_utxo_token_id,
         })
     }
 }
@@ -703,6 +1018,7 @@ impl From<AppConfigWithVaultUtxo> for AppConfigWithVaultUtxoProto {
             box_ids_to_ignore: config_proto.box_ids_to_ignore,
             spent_vault_utxo_box_id: value.spent_vault_utxo_box_id,
             new_vault_utxo_box_id: value.new_vault_utxo_box_id,
+            vault_utxo_token_id: value.vault_utxo_token_id,
         }
     }
 }
@@ -724,12 +1040,18 @@ enum Command {
     },
 
     CreateVaultUtxo {
-        #[arg(long, short)]
+        #[arg(long)]
         /// Path to the YAML configuration file.
         config_path: String,
-        #[arg(long, short)]
+        #[arg(long)]
         /// Amount of nano-ergs to be put into Vault UTxO
         nano_ergs: u64,
+        #[arg(long)]
+        /// Name of the Vault UTxO token to be minted
+        minted_token_name: String,
+        #[arg(long)]
+        /// Description of the Vault UTxO token to be minted
+        minted_token_description: String,
     },
 
     GenerateCommittee {
@@ -749,4 +1071,25 @@ enum Command {
         /// Path to the YAML configuration file.
         config_path: String,
     },
+
+    MakeDeposit {
+        #[arg(long, short)]
+        /// Amount of nano-ergs to be deposited
+        nano_ergs: u64,
+
+        #[arg(long, short)]
+        /// Path to the YAML configuration file.
+        config_path: String,
+    },
+
+    RefundDeposit {
+        #[arg(long, short)]
+        /// Base58 encoding of the Box id of the deposit box
+        box_id: String,
+        #[arg(long, short)]
+        /// Path to the YAML configuration file.
+        config_path: String,
+    },
+
+    GenerateWallet,
 }

@@ -23,15 +23,14 @@ use spectrum_ledger::cell::{AssetId, CustomAsset};
 use spectrum_offchain::{
     binary::prefixed_key,
     data::unique_entity::{Confirmed, Predicted},
-    event_sink::handlers::types::TryFromBox,
 };
 use spectrum_offchain_lm::data::AsBox;
 
-use crate::script::{estimate_tx_size_in_kb, VAULT_CONTRACT};
+use crate::{script::estimate_tx_size_in_kb, vault_utxo::VaultUtxo};
 
 /// Track changing state of Vault UTxOs.
 #[async_trait(?Send)]
-pub trait VaultBoxRepo {
+pub trait VaultUtxoRepo {
     /// Collect vault boxes that meet the specified `constraints`.
     async fn collect(
         &self,
@@ -39,6 +38,8 @@ pub trait VaultBoxRepo {
     ) -> Result<ErgoNotarizationBoundsWithBoxes, ()>;
     async fn put_confirmed(&mut self, df: Confirmed<AsBox<VaultUtxo>>);
     async fn put_predicted(&mut self, df: Predicted<AsBox<VaultUtxo>>);
+    async fn get_confirmed(&self, box_id: &BoxId) -> Option<Confirmed<AsBox<VaultUtxo>>>;
+    async fn get_all_confirmed(&self) -> Vec<Confirmed<AsBox<VaultUtxo>>>;
     async fn spend_box(&mut self, box_id: BoxId);
     async fn unspend_box(&mut self, box_id: BoxId);
     /// False positive version of `exists()`.
@@ -46,7 +47,7 @@ pub trait VaultBoxRepo {
     async fn remove(&mut self, fid: BoxId);
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 /// Sent in response to a request for notarization of terminal cell withdrawals.
 pub struct ErgoNotarizationBounds {
     pub vault_utxos: NonEmpty<BoxId>,
@@ -71,11 +72,11 @@ impl From<ErgoNotarizationBoundsWithBoxes> for ErgoNotarizationBounds {
     }
 }
 
-pub struct VaultBoxRepoRocksDB {
+pub struct VaultUtxoRepoRocksDB {
     db: Arc<rocksdb::OptimisticTransactionDB>,
 }
 
-impl VaultBoxRepoRocksDB {
+impl VaultUtxoRepoRocksDB {
     pub fn new(db_path: &str) -> Self {
         Self {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(db_path).unwrap()),
@@ -84,7 +85,7 @@ impl VaultBoxRepoRocksDB {
 }
 
 #[async_trait(?Send)]
-impl VaultBoxRepo for VaultBoxRepoRocksDB {
+impl VaultUtxoRepo for VaultUtxoRepoRocksDB {
     async fn collect(
         &self,
         constraints: NotarizedReportConstraints,
@@ -129,7 +130,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                     }
                 }
 
-                let AsBox(bx, vault_utxo): AsBox<VaultUtxo> = bincode::deserialize(&value_bytes).unwrap();
+                let AsBox(bx, _): AsBox<VaultUtxo> = rmp_serde::from_slice(&value_bytes).unwrap();
                 let spent_key = prefixed_key(SPENT_PREFIX, &bx.box_id());
                 if db.get(&spent_key).unwrap().is_some() {
                     continue 'vault_iter;
@@ -227,7 +228,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
                 }
 
                 if add_term_cells {
-                    while let Some(term_cell) = term_cell_iter.next() {
+                    for term_cell in term_cell_iter.by_ref() {
                         let num_new_tokens = number_new_token_ids(term_cell, &included_tokens);
                         let estimated_tx_size = estimate_tx_size_in_kb(
                             num_withdrawals + 1,
@@ -336,7 +337,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
         spawn_blocking(move || {
             let key = box_key(KEY_PREFIX, CONFIRMED_PRIORITY, &bx.box_id());
             let index_key = prefixed_key(KEY_INDEX_PREFIX, &bx.box_id());
-            let value = bincode::serialize(&bx).unwrap();
+            let value = rmp_serde::to_vec_named(&bx).unwrap();
             let tx = db.transaction();
             tx.put(key.clone(), value).unwrap();
             tx.put(index_key, key).unwrap();
@@ -350,7 +351,7 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
         spawn_blocking(move || {
             let key = box_key(KEY_PREFIX, PREDICTED_PRIORITY, &bx.box_id());
             let index_key = prefixed_key(KEY_INDEX_PREFIX, &bx.box_id());
-            let value = bincode::serialize(&bx).unwrap();
+            let value = rmp_serde::to_vec_named(&bx).unwrap();
             let tx = db.transaction();
             tx.put(key.clone(), value).unwrap();
             tx.put(index_key, key).unwrap();
@@ -359,10 +360,51 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
         .await
     }
 
+    async fn get_confirmed(&self, box_id: &BoxId) -> Option<Confirmed<AsBox<VaultUtxo>>> {
+        let db = Arc::clone(&self.db);
+        let box_id = *box_id;
+        spawn_blocking(move || {
+            let key = box_key(KEY_PREFIX, CONFIRMED_PRIORITY, &box_id);
+            if let Ok(Some(bytes)) = db.get(key) {
+                let value: AsBox<VaultUtxo> = rmp_serde::from_slice(&bytes).unwrap();
+                return Some(Confirmed(value));
+            }
+            None
+        })
+        .await
+    }
+
+    async fn get_all_confirmed(&self) -> Vec<Confirmed<AsBox<VaultUtxo>>> {
+        let db = Arc::clone(&self.db);
+        spawn_blocking(move || {
+            let mut res = vec![];
+
+            let prefix = box_key_prefix(KEY_PREFIX, CONFIRMED_PRIORITY);
+            let mut readopts = ReadOptions::default();
+            readopts.set_iterate_range(rocksdb::PrefixRange(prefix.clone()));
+            let mut vault_iter = db.iterator_opt(IteratorMode::From(&prefix, Direction::Forward), readopts);
+
+            while let Some(Ok((_, value_bytes))) = vault_iter.next() {
+                let value: AsBox<VaultUtxo> = rmp_serde::from_slice(&value_bytes).unwrap();
+                let spent_key = prefixed_key(SPENT_PREFIX, &value.0.box_id());
+                if db.get(&spent_key).unwrap().is_none() {
+                    res.push(Confirmed(value));
+                }
+            }
+            res
+        })
+        .await
+    }
+
     async fn spend_box(&mut self, box_id: BoxId) {
         let db = Arc::clone(&self.db);
         let key = prefixed_key(SPENT_PREFIX, &box_id);
-        spawn_blocking(move || db.put(key, []).unwrap()).await
+        spawn_blocking(move || {
+            let value_key = box_key(KEY_PREFIX, CONFIRMED_PRIORITY, &box_id);
+            assert!(db.get(value_key).unwrap().is_some());
+            db.put(key, []).unwrap()
+        })
+        .await
     }
 
     async fn unspend_box(&mut self, box_id: BoxId) {
@@ -389,19 +431,6 @@ impl VaultBoxRepo for VaultBoxRepoRocksDB {
             }
         })
         .await
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct VaultUtxo {}
-
-impl TryFromBox for VaultUtxo {
-    fn try_from_box(bx: ErgoBox) -> Option<Self> {
-        if bx.ergo_tree == *VAULT_CONTRACT {
-            Some(VaultUtxo {})
-        } else {
-            None
-        }
     }
 }
 
@@ -476,17 +505,17 @@ const CONFIRMED_PRIORITY: usize = 0;
 const PREDICTED_PRIORITY: usize = 5;
 
 fn box_key<T: Serialize>(prefix: &str, seq_num: usize, id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(prefix).unwrap();
-    let seq_num_bytes = bincode::serialize(&seq_num).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
+    let mut key_bytes = rmp_serde::to_vec_named(prefix).unwrap();
+    let seq_num_bytes = rmp_serde::to_vec_named(&seq_num).unwrap();
+    let id_bytes = rmp_serde::to_vec_named(&id).unwrap();
     key_bytes.extend_from_slice(&seq_num_bytes);
     key_bytes.extend_from_slice(&id_bytes);
     key_bytes
 }
 
 fn box_key_prefix(prefix: &str, seq_num: usize) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(prefix).unwrap();
-    let seq_num_bytes = bincode::serialize(&seq_num).unwrap();
+    let mut key_bytes = rmp_serde::to_vec_named(prefix).unwrap();
+    let seq_num_bytes = rmp_serde::to_vec_named(&seq_num).unwrap();
     key_bytes.extend_from_slice(&seq_num_bytes);
     key_bytes
 }
@@ -496,15 +525,10 @@ pub mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use ergo_lib::{
-        chain::transaction::TxId,
         ergo_chain_types::Digest32,
-        ergotree_ir::{
-            chain::{
-                ergo_box::{box_value::BoxValue, BoxTokens, ErgoBox, NonMandatoryRegisters},
-                token::{Token, TokenAmount, TokenId},
-            },
-            ergo_tree::ErgoTree,
-            mir::{constant::Constant, expr::Expr},
+        ergotree_ir::chain::{
+            ergo_box::{box_value::BoxValue, BoxTokens, ErgoBox, NonMandatoryRegisters},
+            token::{Token, TokenAmount, TokenId},
         },
     };
     use itertools::Itertools;
@@ -518,11 +542,12 @@ pub mod tests {
         ChainId,
     };
     use spectrum_move::SerializedValue;
-    use spectrum_offchain::{data::unique_entity::Confirmed, event_sink::handlers::types::TryFromBox};
+    use spectrum_offchain::data::unique_entity::Confirmed;
+    use spectrum_offchain::event_sink::handlers::types::TryFromBoxCtx;
     use spectrum_offchain_lm::data::AsBox;
 
     use crate::{
-        rocksdb::vault_boxes::{ErgoNotarizationBoundsWithBoxes, VaultBoxRepo},
+        rocksdb::vault_boxes::{ErgoNotarizationBoundsWithBoxes, VaultUtxoRepo},
         script::{
             estimate_tx_size_in_kb,
             tests::{gen_random_token, gen_tx_id, generate_address},
@@ -530,7 +555,7 @@ pub mod tests {
         },
     };
 
-    use super::{VaultBoxRepoRocksDB, VaultUtxo};
+    use super::{VaultUtxo, VaultUtxoRepoRocksDB};
 
     #[tokio::test]
     async fn collect_simple() {
@@ -652,7 +677,7 @@ pub mod tests {
         let mut client = rocks_db_client();
         let num_boxes = 50;
         let erg_per_box = 5_000_000;
-        let tokens_pool: Vec<_> = (0..num_boxes)
+        let tokens_pool: Vec<_> = (5..num_boxes)
             .map(|_| gen_random_token(num_boxes as usize))
             .collect();
 
@@ -714,20 +739,26 @@ pub mod tests {
 
     #[test]
     fn vault_utxo_serialization_roundtrip() {
-        let v = VaultUtxo {};
-        let bytes = bincode::serialize(&v).unwrap();
-        let deserialized_v: VaultUtxo = bincode::deserialize(&bytes).unwrap();
+        let v = VaultUtxo {
+            value: BoxValue::try_from(100000_u64).unwrap(),
+            tokens: vec![],
+        };
+        let bytes = rmp_serde::to_vec_named(&v).unwrap();
+        let deserialized_v: VaultUtxo = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(v, deserialized_v);
 
-        let v = VaultUtxo {};
-        let bytes = bincode::serialize(&v).unwrap();
-        let deserialized_v: VaultUtxo = bincode::deserialize(&bytes).unwrap();
+        let v = VaultUtxo {
+            value: BoxValue::try_from(400000_u64).unwrap(),
+            tokens: vec![],
+        };
+        let bytes = rmp_serde::to_vec_named(&v).unwrap();
+        let deserialized_v: VaultUtxo = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(v, deserialized_v);
     }
 
-    fn rocks_db_client() -> VaultBoxRepoRocksDB {
+    fn rocks_db_client() -> VaultUtxoRepoRocksDB {
         let rnd = rand::thread_rng().next_u32();
-        VaultBoxRepoRocksDB {
+        VaultUtxoRepoRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
         }
     }
@@ -803,25 +834,25 @@ pub mod tests {
         assert!(enough_tokens);
     }
 
-    fn trivial_prop() -> ErgoTree {
-        ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
-    }
-
     fn generate_tokenless_vault_utxos(erg_per_box: u64, num_boxes: u16) -> Vec<AsBox<VaultUtxo>> {
         let tx_id = gen_tx_id();
+        let vault_token = gen_random_token(1);
         (0..num_boxes)
             .map(|index| {
                 let bx = ErgoBox::new(
                     BoxValue::try_from(erg_per_box).unwrap(),
                     VAULT_CONTRACT.clone(),
-                    None,
+                    Some(BoxTokens::from_vec(vec![vault_token.clone()]).unwrap()),
                     NonMandatoryRegisters::empty(),
                     500,
                     tx_id,
                     index,
                 )
                 .unwrap();
-                AsBox(bx.clone(), VaultUtxo::try_from_box(bx).unwrap())
+                AsBox(
+                    bx.clone(),
+                    VaultUtxo::try_from_box(bx, vault_token.token_id).unwrap(),
+                )
             })
             .collect()
     }
@@ -874,14 +905,17 @@ pub mod tests {
                 let bx = ErgoBox::new(
                     BoxValue::try_from(erg_per_box).unwrap(),
                     VAULT_CONTRACT.clone(),
-                    tokens,
+                    tokens.clone(),
                     NonMandatoryRegisters::empty(),
                     500,
                     tx_id,
                     index,
                 )
                 .unwrap();
-                AsBox(bx.clone(), VaultUtxo::try_from_box(bx).unwrap())
+                AsBox(
+                    bx.clone(),
+                    VaultUtxo::try_from_box(bx, tokens.as_ref().unwrap().first().token_id).unwrap(),
+                )
             })
             .collect()
     }
@@ -960,18 +994,5 @@ pub mod tests {
         /// Each box will contain a random number of different tokens bounded by the given field
         /// value.
         RandomSubset(usize),
-    }
-
-    fn trivial_box(nano_ergs: u64) -> ErgoBox {
-        ErgoBox::new(
-            BoxValue::try_from(nano_ergs).unwrap(),
-            trivial_prop(),
-            None,
-            NonMandatoryRegisters::empty(),
-            0,
-            TxId::zero(),
-            0,
-        )
-        .unwrap()
     }
 }

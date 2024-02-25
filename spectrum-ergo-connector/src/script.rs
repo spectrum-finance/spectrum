@@ -26,6 +26,7 @@ use ergo_lib::{
             value::CollKind,
         },
         serialization::{SigmaParsingError, SigmaSerializable},
+        sigma_protocol::sigma_boolean::ProveDlog,
         types::{
             stuple::{STuple, TupleItems},
             stype::SType,
@@ -67,10 +68,16 @@ use spectrum_sigma::{
     AggregateCommitment, Commitment, Signature,
 };
 
-const VAULT_CONTRACT_SCRIPT_BYTES: &str = "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";
+const VAULT_CONTRACT_SCRIPT_BYTES: &str = "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";
+const DEPOSIT_CONTRACT_SCRIPT_BYTES: &str = "26GyorB6GrM6DMrMS6CTLUoqD4Xo3xBafX17D96pEk4u8b5PwbBQUS5J51xnB2s2QsiUxxYKnvzkf58Y84idV5XiY69oU9Gi3GYfKrRajkZJWHxuaYySu4PDGeUEr8S9efxcEKNTiupbMhzny8vk8ZNMjx4KxSQD1uRNbX72HjD6yMKULcK8pW724Fat9Uy4ZbkpAxgLmemZYgrSqAPp524raJMbSA7Cg3NMTiVejbXsh4js7epuwE959Hcco76kxxJeyutPkPDETcELXt5CfJhiAxkp69RsWozhr5UUhHsu5r2vtG2rsY2VEd4U2qDrPEUKfzpZsUv8Zd45eeirbARiqiRDErTPd9DubPuMV1X5jt5gKRPhRPoER3xfutVnzxCxgMto2WmFy7mLPQz6rgWCuQswLytp2tyMn6En3n38jA9f1yixYPGAnHkqPgwgAQRGWFGJhAY9fh9bHLBGZ7vQYWy8WhLU89tJzgKnfP2PxEVNeXS1yDL5RZbt7emign8Fyc5gG5STqWNEChLxCaiqRm95jY2uCF1aQuzzhVHPACc1gEdfeLyENfvfqkbSmW41jHQZoYqJEPEb4HiJwnL4rnu9ibMFTGSCHPsfsV2PwPekHQbAHC9yaCm8bnDZqQKBDg8ZQetFdkqyPqrzgvq7KTbBxqfzEEYdFXrURDryFwch6DWPw81cDWGS9b3vRzNKrvgiKwTUBW1NQjBgP69L7BijnAkW88Pnu7MCn9s8FrxWR8dY4DuUyCPd1LeG5qKkV1Gj5sLBGFV5RhCAnDY2iPvxG3sNuxYPBYVykHPeoJQ6bK3Ys6ygbzWRXuz16vpBovWiA6sJqgmpejyt1hkMeQzSCnaHaWYsqtELFpCPFdtZjwPeuCLzXuRWgm2MiT31DNWEfD1feoAqFg3H4iJVR6djH8vaXJJdjBLf6wgd3W4czBUMf9kJJN4VhPC6f86oSvyrGVQaREecDYYVAPdMk8fEE8AKFeggbHzfW9rqDm8is6Z2DZwrRAZgSq2r3cxcoveBfQydws4gwxY3TSuzbuBENCqvBV8LnqusuRgsuAZNoRkTzxrz3F74MQQ3msHsSktoRxjHCKYQA2zAfzMCaSyht";
 lazy_static! {
     pub static ref VAULT_CONTRACT: ErgoTree = AddressEncoder::new(NetworkPrefix::Mainnet)
         .parse_address_from_str(VAULT_CONTRACT_SCRIPT_BYTES)
+        .unwrap()
+        .script()
+        .unwrap();
+    pub static ref DEPOSIT_CONTRACT: ErgoTree = AddressEncoder::new(NetworkPrefix::Mainnet)
+        .parse_address_from_str(DEPOSIT_CONTRACT_SCRIPT_BYTES)
         .unwrap()
         .script()
         .unwrap();
@@ -80,7 +87,7 @@ lazy_static! {
 pub struct ErgoTermCell(pub ErgoCell);
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct ErgoInboundCell(pub ErgoCell);
+pub struct ErgoInboundCell(pub ErgoCell, pub BoxId);
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(from = "ErgoCellProto", into = "ErgoCellProto")]
@@ -111,8 +118,43 @@ impl From<&ErgoCell> for SValue {
     }
 }
 
-impl From<ErgoInboundCell> for InboundValue {
-    fn from(ErgoInboundCell(value): ErgoInboundCell) -> Self {
+impl From<&ProtoTermCell> for ErgoCell {
+    fn from(value: &ProtoTermCell) -> Self {
+        let ergs = BoxValue::try_from(u64::from(value.value.native)).unwrap();
+
+        let projective_point = EcPoint::from(
+            k256::PublicKey::from_sec1_bytes(&<Vec<u8>>::from(value.dst.address.clone()))
+                .unwrap()
+                .to_projective(),
+        );
+
+        let prove_dlog = ProveDlog::new(projective_point);
+        let address = Address::P2Pk(prove_dlog);
+
+        let policy_id = PolicyId::from(Blake2bDigest256::zero());
+        let tokens = if let Some(tokens) = value.value.assets.get(&policy_id) {
+            let mut result = vec![];
+            for (asset_id, value) in tokens {
+                let token_id = TokenId::from(ergo_lib::ergo_chain_types::Digest32::from(
+                    *Blake2bDigest256::from(*asset_id).raw(),
+                ));
+                let amount = TokenAmount::try_from(u64::from(*value)).unwrap();
+                result.push(Token { token_id, amount });
+            }
+            result
+        } else {
+            vec![]
+        };
+        ErgoCell {
+            ergs,
+            address,
+            tokens,
+        }
+    }
+}
+
+impl From<ErgoInboundCell> for InboundValue<BoxId> {
+    fn from(ErgoInboundCell(value, box_id): ErgoInboundCell) -> Self {
         let s_value = SValue::from(&value);
         let owner = match value.address {
             Address::P2Pk(pdl) => {
@@ -132,6 +174,7 @@ impl From<ErgoInboundCell> for InboundValue {
         Self {
             value: s_value,
             owner,
+            on_chain_identifier: box_id,
         }
     }
 }
@@ -279,10 +322,10 @@ pub struct SignatureAggregationWithNotarizationElements {
 impl From<NotarizedReport<ExtraErgoData>> for SignatureAggregationWithNotarizationElements {
     fn from(value: NotarizedReport<ExtraErgoData>) -> Self {
         let ReportCertificate::SchnorrK256(AggregateCertificate {
-            message_digest,
             aggregate_commitment,
             aggregate_response,
             exclusion_set,
+            ..
         }): ReportCertificate = value.certificate;
         let ExtraErgoData {
             starting_avl_tree,
@@ -293,7 +336,7 @@ impl From<NotarizedReport<ExtraErgoData>> for SignatureAggregationWithNotarizati
         } = value.additional_chain_data;
 
         let terminal_cells = value
-            .value_to_export
+            .value_to_withdraw
             .into_iter()
             .map(|tc| ErgoTermCell::try_from(tc).unwrap())
             .collect();
@@ -305,7 +348,7 @@ impl From<NotarizedReport<ExtraErgoData>> for SignatureAggregationWithNotarizati
             starting_avl_tree,
             proof,
             max_miner_fee,
-            resulting_digest: value.authenticated_digest, //message_digest.as_ref().to_vec(),
+            resulting_digest: value.authenticated_digest,
             terminal_cells,
         }
     }
@@ -343,6 +386,7 @@ pub enum ErgoTermCellError {
     SigmaParsing(SigmaParsingError),
     DigestN(DigestNError),
     TokenAmount(TokenAmountError),
+    EllipticCurve(elliptic_curve::Error),
     WrongChainId,
 }
 
@@ -353,7 +397,9 @@ impl TryFrom<TermCell> for ErgoTermCell {
         if value.dst.target == ERGO_CHAIN_ID {
             let ergs = BoxValue::try_from(u64::from(value.value.native))?;
             let address_bytes: Vec<u8> = value.dst.address.into();
-            let address = Address::p2pk_from_pk_bytes(&address_bytes)?;
+            let pk = k256::PublicKey::from_sec1_bytes(&address_bytes)?;
+            let prove_dlog = ProveDlog::new(EcPoint::from(pk.to_projective()));
+            let address = Address::P2Pk(prove_dlog);
             let mut token_details = vec![];
             for (_, assets) in value.value.assets {
                 for (id, a) in assets {
@@ -387,9 +433,16 @@ impl TryFrom<TermCell> for ErgoTermCell {
 impl From<ErgoTermCell> for TermCell {
     fn from(value: ErgoTermCell) -> Self {
         let s_value = SValue::from(&value.0);
+        let Address::P2Pk(prove_dlog) = value.0.address else {
+            panic!("ONLY P2PK addresses supported atm");
+        };
+        let address_bytes = k256::PublicKey::from_affine(ProjectivePoint::from(*prove_dlog.h).to_affine())
+            .unwrap()
+            .to_sec1_bytes()
+            .to_vec();
         let dst = BoxDestination {
             target: ChainId::from(0),
-            address: SerializedValue::from(value.0.address.content_bytes()),
+            address: SerializedValue::from(address_bytes),
             inputs: None,
         };
 
@@ -405,9 +458,16 @@ impl From<ErgoTermCell> for TermCell {
 impl From<ErgoTermCell> for ProtoTermCell {
     fn from(value: ErgoTermCell) -> Self {
         let s_value = SValue::from(&value.0);
+        let Address::P2Pk(prove_dlog) = value.0.address else {
+            panic!("ONLY P2PK addresses supported atm");
+        };
+        let address_bytes = k256::PublicKey::from_affine(ProjectivePoint::from(*prove_dlog.h).to_affine())
+            .unwrap()
+            .to_sec1_bytes()
+            .to_vec();
         let dst = BoxDestination {
             target: ChainId::from(0),
-            address: SerializedValue::from(value.0.address.content_bytes()),
+            address: SerializedValue::from(address_bytes),
             inputs: None,
         };
         Self { value: s_value, dst }
@@ -420,7 +480,9 @@ impl TryFrom<ProtoTermCell> for ErgoTermCell {
     fn try_from(value: ProtoTermCell) -> Result<Self, Self::Error> {
         let ergs = BoxValue::try_from(u64::from(value.value.native))?;
         let address_bytes: Vec<u8> = value.dst.address.into();
-        let address = Address::p2pk_from_pk_bytes(&address_bytes)?;
+        let pk = k256::PublicKey::from_sec1_bytes(&address_bytes)?;
+        let prove_dlog = ProveDlog::new(EcPoint::from(pk.to_projective()));
+        let address = Address::P2Pk(prove_dlog);
         let mut token_details = vec![];
         for (_, assets) in value.value.assets {
             for (id, a) in assets {
@@ -656,7 +718,7 @@ pub fn scalar_to_biguint(scalar: Scalar) -> BigUint {
 }
 
 pub fn dummy_resolver(digest: &scorex_crypto_avltree::operation::Digest32) -> Node {
-    Node::LabelOnly(NodeHeader::new(Some(digest.clone()), None))
+    Node::LabelOnly(NodeHeader::new(Some(*digest), None))
 }
 
 fn schnorr_signature_verification_ergoscript_type() -> SType {
@@ -853,6 +915,7 @@ pub mod tests {
     use ergo_lib::ergotree_ir::chain::address::Address;
     use ergo_lib::ergotree_ir::chain::ergo_box::BoxTokens;
     use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount};
+    use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::ProveDlog;
     use ergo_lib::ergotree_ir::{
         base16_str::Base16Str,
         bigint256::BigInt256,
@@ -891,6 +954,7 @@ pub mod tests {
     use num_bigint::BigUint;
     use num_bigint::Sign;
     use rand::rngs::OsRng;
+    use rand::seq::SliceRandom;
     use rand::Rng;
     use scorex_crypto_avltree::{
         authenticated_tree_ops::*, batch_avl_prover::BatchAVLProver, batch_node::*, operation::*,
@@ -900,13 +964,14 @@ pub mod tests {
     use sigma_test_util::force_any_val;
     use spectrum_crypto::{digest::blake2b256_hash, pubkey::PublicKey};
     use spectrum_handel::Threshold;
+    use spectrum_offchain_lm::prover::SeedPhrase;
     use spectrum_sigma::{crypto::schnorr_commitment_pair, Commitment, Signature};
     use std::collections::HashMap;
     use std::time::Instant;
 
     use crate::script::{
         estimate_tx_size_in_kb, scalar_to_biguint, serialize_exclusion_set, ErgoCell, ErgoTermCell,
-        ErgoTermCells, VAULT_CONTRACT, VAULT_CONTRACT_SCRIPT_BYTES,
+        ErgoTermCells, DEPOSIT_CONTRACT, VAULT_CONTRACT, VAULT_CONTRACT_SCRIPT_BYTES,
     };
 
     use super::{
@@ -930,6 +995,422 @@ pub mod tests {
                 return KeyValue { key, value };
             }
         }
+    }
+
+    #[test]
+    fn verify_deposits_no_tokens() {
+        let mut rng = OsRng;
+        let n = rng.gen_range(10..30);
+        let deposit_tokens = std::iter::repeat(vec![]).take(n).collect();
+        test_deposits_with_dummy_vault_box(vec![], deposit_tokens);
+    }
+
+    #[test]
+    fn verify_deposits_with_tokens() {
+        let mut rng = OsRng;
+        let mut tokens: Vec<Token> = std::iter::repeat_with(|| gen_random_token(200))
+            .take(100)
+            .collect();
+
+        tokens.shuffle(&mut rng);
+        let initial_vault_tokens = tokens
+            .iter()
+            .take(rng.gen_range(10..tokens.len()))
+            .cloned()
+            .collect();
+
+        let num_deposits = rng.gen_range(1..5);
+        let mut deposit_tokens = vec![];
+        for _ in 0..num_deposits {
+            tokens.shuffle(&mut rng);
+            let dep_tokens = tokens.iter().take(rng.gen_range(1..10)).cloned().collect();
+            deposit_tokens.push(dep_tokens);
+        }
+        test_deposits_with_dummy_vault_box(initial_vault_tokens, deposit_tokens);
+    }
+
+    #[test]
+    fn verify_deposit_refund() {
+        let current_height = 100000_u32;
+        const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
+        let seed = SeedPhrase::from(String::from(SEED_PHRASE));
+        let (_, wallet_addr) =
+            spectrum_offchain_lm::prover::Wallet::try_from_seed(seed).expect("Invalid wallet seed");
+        let guarding_script = wallet_addr.script().unwrap();
+
+        let Address::P2Pk(prove_dlog) = wallet_addr else {
+            panic!("Must have P2Pk address");
+        };
+        let vault_token = gen_random_token(100);
+        let (boxes_to_spend, unsigned_inputs) =
+            generate_deposit_boxes(vec![vec![]], vault_token, prove_dlog, current_height);
+
+        let max_miner_fee = 1_000_000_i64;
+        let change_for_miner = BoxValue::try_from(max_miner_fee).unwrap();
+        let total_deposit_value = boxes_to_spend.iter().fold(0, |acc, x| acc + x.value.as_i64());
+
+        let refund_output_box = ErgoBoxCandidate {
+            value: BoxValue::try_from(total_deposit_value - change_for_miner.as_i64()).unwrap(),
+            ergo_tree: guarding_script,
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: current_height,
+        };
+        let miner_output = ErgoBoxCandidate {
+            value: change_for_miner,
+            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: current_height,
+        };
+        let outputs = TxIoVec::from_vec(vec![refund_output_box, miner_output]).unwrap();
+        let unsigned_tx =
+            UnsignedTransaction::new(TxIoVec::from_vec(unsigned_inputs).unwrap(), None, outputs).unwrap();
+        let tx_context = TransactionContext::new(unsigned_tx, boxes_to_spend, vec![]).unwrap();
+        let wallet = get_wallet();
+        let mut ergo_state_context = force_any_val::<ErgoStateContext>();
+        // Set height in ergo context
+        ergo_state_context.pre_header.height = current_height;
+        for c in &mut ergo_state_context.headers {
+            c.height = current_height;
+        }
+        let now = Instant::now();
+        println!("Signing TX...");
+        let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
+        if res.is_err() {
+            panic!("{:?}", res);
+        }
+        println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
+    }
+
+    #[test]
+    fn verify_deposits_simulated_vault_box() {
+        test_simulated_withdrawals_then_deposits(vec![vec![]]);
+    }
+
+    fn generate_deposit_boxes(
+        deposit_tokens: Vec<Vec<Token>>,
+        vault_token: Token,
+        prove_dlog: ProveDlog,
+        current_height: u32,
+    ) -> (Vec<ErgoBox>, Vec<UnsignedInput>) {
+        let mut rng = OsRng;
+        // Deposit box
+
+        let max_miner_fee = 1_000_000_i64;
+
+        let mut unsigned_inputs = vec![];
+        let mut boxes_to_spend = vec![];
+        for (ix, tokens) in deposit_tokens.into_iter().enumerate() {
+            let tokens = if tokens.is_empty() {
+                None
+            } else {
+                Some(BoxTokens::try_from(tokens).unwrap())
+            };
+            // expected vault token id
+            let mut registers = HashMap::new();
+            registers.insert(NonMandatoryRegisterId::R4, Constant::from(vault_token.token_id));
+            registers.insert(NonMandatoryRegisterId::R5, Constant::from(prove_dlog.clone()));
+
+            // Context extension for deposit box
+            let mut constants = IndexMap::new();
+            constants.insert(8_u8, Constant::from(max_miner_fee));
+            let deposit_value = rng.gen_range(10000000_i64..99000000_i64);
+            let deposit_box = ErgoBox::new(
+                BoxValue::try_from(deposit_value).unwrap(),
+                DEPOSIT_CONTRACT.clone(),
+                tokens,
+                NonMandatoryRegisters::new(registers.clone()).unwrap(),
+                current_height - 10,
+                TxId::zero(),
+                (ix as u16) + 1,
+            )
+            .unwrap();
+            let unsigned_deposit_input = UnsignedInput::new(
+                deposit_box.box_id(),
+                ContextExtension {
+                    values: constants.clone(),
+                },
+            );
+            unsigned_inputs.push(unsigned_deposit_input);
+            boxes_to_spend.push(deposit_box);
+        }
+
+        (boxes_to_spend, unsigned_inputs)
+    }
+
+    fn test_simulated_withdrawals_then_deposits(deposit_tokens: Vec<Vec<Token>>) {
+        let mut rng = OsRng;
+        let num_byzantine_nodes = 1;
+
+        let num_participants = 32;
+        let epoch_len = 720;
+        let current_epoch = 3;
+        let threshold = Threshold { num: 2, denom: 4 };
+        let max_num_tokens = 122;
+        let max_miner_fee = 1000000;
+        let mut total_num_tokens = 0;
+        let terminal_cells: Vec<_> = (0..100)
+            .map(|_| {
+                let address = generate_address();
+                let ergs = BoxValue::try_from(rng.gen_range(1_u64..=9000000000)).unwrap();
+                let contains_tokens = rng.gen_bool(0.5);
+                let tokens = if contains_tokens {
+                    let num_tokens = rng.gen_range(0_usize..=10);
+                    if total_num_tokens + num_tokens <= max_num_tokens {
+                        total_num_tokens += num_tokens;
+                        (0..num_tokens).map(|_| gen_random_token(10000)).collect()
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                };
+                ErgoTermCell(ErgoCell {
+                    ergs,
+                    address,
+                    tokens,
+                })
+            })
+            .collect();
+        let participant_secret_keys: Vec<_> = (0..num_participants)
+            .map(|_| SecretKey::random(&mut rng))
+            .collect();
+        let public_keys = participant_secret_keys
+            .iter()
+            .map(|sk| PublicKey::from(sk.public_key()))
+            .collect();
+        let inputs = simulate_signature_aggregation_notarized_proofs(
+            participant_secret_keys,
+            terminal_cells,
+            num_byzantine_nodes,
+            threshold,
+            max_miner_fee,
+        );
+        let change_for_miner = BoxValue::try_from(inputs.max_miner_fee).unwrap();
+        let current_height = 900000_u32;
+        let (vault_input_box, data_boxes, data_inputs, context_extension) =
+            verify_vault_contract_ergoscript_with_sigma_rust(
+                (inputs, public_keys),
+                current_height as i32,
+                epoch_len,
+                current_epoch,
+            );
+
+        // Just need first committee box for deposits
+        let data_inputs: Vec<_> = data_inputs.into_iter().take(1).collect();
+
+        // We only need context extension values at index 8 and 4.
+        let mut values = IndexMap::new();
+        values.insert(8_u8, context_extension.values.get(&8_u8).unwrap().clone());
+        values.insert(4_u8, context_extension.values.get(&4_u8).unwrap().clone());
+        let context_extension = ContextExtension { values };
+
+        const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
+        let seed = SeedPhrase::from(String::from(SEED_PHRASE));
+        let (_, wallet_addr) =
+            spectrum_offchain_lm::prover::Wallet::try_from_seed(seed).expect("Invalid wallet seed");
+
+        let Address::P2Pk(prove_dlog) = wallet_addr else {
+            panic!("Must have P2Pk address");
+        };
+        let vault_token = vault_input_box.tokens.as_ref().unwrap().first().clone();
+
+        let vault_input_box_registers = vault_input_box.additional_registers.clone();
+
+        let mut output_vault_tokens = vault_input_box
+            .tokens
+            .clone()
+            .map(|t| t.to_vec())
+            .unwrap_or_default();
+        let unsigned_vault_input = UnsignedInput::new(vault_input_box.box_id(), context_extension);
+        let initial_vault_balance = vault_input_box.value.as_i64();
+        let mut unsigned_inputs = vec![unsigned_vault_input];
+        let mut boxes_to_spend = vec![vault_input_box];
+
+        for tokens in &deposit_tokens {
+            for t in tokens {
+                if let Some(i) = output_vault_tokens
+                    .iter()
+                    .position(|tok| tok.token_id == t.token_id)
+                {
+                    let new_amount = output_vault_tokens[i].amount.checked_add(&t.amount).unwrap();
+                    output_vault_tokens[i].amount = new_amount;
+                } else {
+                    output_vault_tokens.push(t.clone());
+                }
+            }
+        }
+
+        let vault_output_tokens = if output_vault_tokens.is_empty() {
+            None
+        } else {
+            Some(BoxTokens::try_from(output_vault_tokens).unwrap())
+        };
+
+        let (deposit_boxes, deposit_unsigned_inputs) =
+            generate_deposit_boxes(deposit_tokens, vault_token, prove_dlog, current_height);
+        let total_deposit_value = deposit_boxes.iter().fold(0, |acc, x| acc + x.value.as_i64());
+
+        unsigned_inputs.extend(deposit_unsigned_inputs);
+        boxes_to_spend.extend(deposit_boxes);
+        let vault_output_box = ErgoBoxCandidate {
+            value: BoxValue::try_from(
+                initial_vault_balance + total_deposit_value - change_for_miner.as_i64(),
+            )
+            .unwrap(),
+            ergo_tree: VAULT_CONTRACT.clone(),
+            tokens: vault_output_tokens,
+            additional_registers: vault_input_box_registers,
+            creation_height: current_height,
+        };
+
+        assert!(vault_output_box.value.as_i64() > initial_vault_balance);
+        let miner_output = ErgoBoxCandidate {
+            value: change_for_miner,
+            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: current_height,
+        };
+        let outputs = TxIoVec::from_vec(vec![vault_output_box, miner_output]).unwrap();
+        let unsigned_tx = UnsignedTransaction::new(
+            TxIoVec::from_vec(unsigned_inputs).unwrap(),
+            Some(TxIoVec::try_from(data_inputs).unwrap()),
+            outputs,
+        )
+        .unwrap();
+        let tx_context = TransactionContext::new(unsigned_tx, boxes_to_spend, data_boxes).unwrap();
+        let wallet = get_wallet();
+        let mut ergo_state_context = force_any_val::<ErgoStateContext>();
+        // Set height in ergo context
+        ergo_state_context.pre_header.height = current_height;
+        for c in &mut ergo_state_context.headers {
+            c.height = current_height;
+        }
+        let now = Instant::now();
+        println!("Signing TX...");
+        let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
+        if res.is_err() {
+            panic!("{:?}", res);
+        }
+        println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
+    }
+
+    //
+    fn test_deposits_with_dummy_vault_box(initial_vault_tokens: Vec<Token>, deposit_tokens: Vec<Vec<Token>>) {
+        let vault_token = gen_random_token(100);
+        let initial_vault_balance = 2000000000_i64;
+
+        let current_height = 100000_u32;
+        const SEED_PHRASE: &str = "gather gather gather gather gather gather gather gather gather gather gather gather gather gather gather";
+        let seed = SeedPhrase::from(String::from(SEED_PHRASE));
+        let (_, wallet_addr) =
+            spectrum_offchain_lm::prover::Wallet::try_from_seed(seed).expect("Invalid wallet seed");
+        let guarding_script = wallet_addr.script().unwrap();
+
+        let Address::P2Pk(prove_dlog) = wallet_addr else {
+            panic!("Must have P2Pk address");
+        };
+
+        // Input vault UTxO
+        let mut vault_tokens = vec![vault_token.clone()];
+        vault_tokens.extend(initial_vault_tokens);
+        let tokens = BoxTokens::try_from(vault_tokens).unwrap();
+        let vault_input_box = ErgoBox::new(
+            BoxValue::try_from(initial_vault_balance).unwrap(),
+            guarding_script.clone(),
+            Some(tokens),
+            NonMandatoryRegisters::empty(),
+            current_height - 10,
+            TxId::zero(),
+            0,
+        )
+        .unwrap();
+
+        let unsigned_vault_input = UnsignedInput::new(
+            vault_input_box.box_id(),
+            ContextExtension {
+                values: IndexMap::new(),
+            },
+        );
+
+        let max_miner_fee = 1_000_000_i64;
+        let change_for_miner = BoxValue::try_from(max_miner_fee).unwrap();
+
+        let vault_input_box_registers = vault_input_box.additional_registers.clone();
+
+        let mut output_vault_tokens = vault_input_box
+            .tokens
+            .clone()
+            .map(|t| t.to_vec())
+            .unwrap_or_default();
+        let mut unsigned_inputs = vec![unsigned_vault_input];
+        let mut boxes_to_spend = vec![vault_input_box];
+
+        for tokens in &deposit_tokens {
+            for t in tokens {
+                if let Some(i) = output_vault_tokens
+                    .iter()
+                    .position(|tok| tok.token_id == t.token_id)
+                {
+                    let new_amount = output_vault_tokens[i].amount.checked_add(&t.amount).unwrap();
+                    output_vault_tokens[i].amount = new_amount;
+                } else {
+                    output_vault_tokens.push(t.clone());
+                }
+            }
+        }
+
+        let (deposit_boxes, unsigned_deposit_inputs) =
+            generate_deposit_boxes(deposit_tokens, vault_token, prove_dlog, current_height);
+        // Deposit box
+        let total_deposit_value = deposit_boxes.iter().fold(0, |acc, x| acc + x.value.as_i64());
+        boxes_to_spend.extend(deposit_boxes);
+        unsigned_inputs.extend(unsigned_deposit_inputs);
+
+        let vault_output_tokens = if output_vault_tokens.is_empty() {
+            None
+        } else {
+            Some(BoxTokens::try_from(output_vault_tokens).unwrap())
+        };
+        let vault_output_box = ErgoBoxCandidate {
+            value: BoxValue::try_from(
+                initial_vault_balance + total_deposit_value - change_for_miner.as_i64(),
+            )
+            .unwrap(),
+            ergo_tree: guarding_script,
+            tokens: vault_output_tokens,
+            additional_registers: vault_input_box_registers,
+            creation_height: current_height,
+        };
+
+        let miner_output = ErgoBoxCandidate {
+            value: change_for_miner,
+            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: current_height,
+        };
+        let outputs = TxIoVec::from_vec(vec![vault_output_box, miner_output]).unwrap();
+
+        let unsigned_tx =
+            UnsignedTransaction::new(TxIoVec::from_vec(unsigned_inputs).unwrap(), None, outputs).unwrap();
+        let tx_context = TransactionContext::new(unsigned_tx, boxes_to_spend, vec![]).unwrap();
+        let wallet = get_wallet();
+        let mut ergo_state_context = force_any_val::<ErgoStateContext>();
+        // Set height in ergo context
+        ergo_state_context.pre_header.height = current_height;
+        for c in &mut ergo_state_context.headers {
+            c.height = current_height;
+        }
+        let now = Instant::now();
+        println!("Signing TX...");
+        let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
+        if res.is_err() {
+            panic!("{:?}", res);
+        }
+        println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
     }
 
     #[test]
@@ -984,7 +1465,7 @@ pub mod tests {
             );
             verify_vault_contract_ergoscript_with_sigma_rust(
                 (inputs, public_keys),
-                num_participants,
+                100000,
                 epoch_len,
                 current_epoch,
             );
@@ -1144,12 +1625,14 @@ pub mod tests {
         let avl_const = Constant::from(starting_avl_tree);
         let num_withdrawals = terminal_cells.len();
         let num_token_occurrences = terminal_cells.iter().fold(0, |acc, tc| tc.0.tokens.len() + acc);
+        let vault_token = gen_random_token(1000);
         let input = VaultValidationInput {
             signature_input,
             terminal_cells: Constant::from(ErgoTermCells(terminal_cells))
                 .base16_str()
                 .unwrap(),
             starting_avl_tree: avl_const.base16_str().unwrap(),
+            vault_token_id: Constant::from(vault_token.token_id).base16_str().unwrap(),
             avl_proof: proof.base16_str().unwrap(),
             epoch_len,
             current_epoch,
@@ -1392,10 +1875,10 @@ pub mod tests {
 
     fn verify_vault_contract_ergoscript_with_sigma_rust(
         (inputs, committee): (SignatureAggregationWithNotarizationElements, Vec<PublicKey>),
-        num_participants: usize,
+        current_height: i32,
         epoch_len: i32,
         current_epoch: i32,
-    ) {
+    ) -> (ErgoBox, Vec<ErgoBox>, Vec<DataInput>, ContextExtension) {
         let SignatureAggregationWithNotarizationElements {
             aggregate_commitment,
             aggregate_response,
@@ -1440,7 +1923,7 @@ pub mod tests {
         let first_len = aggregate_response_bytes.len() as i32;
         aggregate_response_bytes.extend(lower_256.to_signed_bytes_be());
 
-        let change_for_miner = BoxValue::try_from(1000000_u64).unwrap();
+        let change_for_miner = BoxValue::try_from(max_miner_fee).unwrap();
 
         let md = blake2b256_hash(&resulting_digest);
         let exclusion_set_data = serialize_exclusion_set(exclusion_set, md.as_ref());
@@ -1449,16 +1932,12 @@ pub mod tests {
             Constant::from(first_len),
         )
             .into();
-        let threshold = (num_participants * threshold.num / threshold.denom) as i32;
+        let threshold = (committee.len() * threshold.num / threshold.denom) as i32;
         let proof = Constant::from(proof);
         let avl_const = Constant::from(starting_avl_tree);
-        let num_withdrawals = terminal_cells.len();
-        let num_token_occurrences = terminal_cells.iter().fold(0, |acc, tc| tc.0.tokens.len() + acc);
-
-        let current_height = 900000_i32;
 
         // Create outboxes for terminal cells
-        let mut term_cell_outputs: Vec<_> = terminal_cells
+        let term_cell_outputs: Vec<_> = terminal_cells
             .iter()
             .map(
                 |ErgoTermCell(ErgoCell {
@@ -1484,6 +1963,7 @@ pub mod tests {
 
         let initial_vault_balance = 2000000000_i64;
         let ergs_to_distribute: i64 = terminal_cells.iter().map(|t| t.0.ergs.as_i64()).sum();
+        let vault_token = gen_random_token(1000);
 
         let mut values = IndexMap::new();
         values.insert(0, exclusion_set_data);
@@ -1495,26 +1975,7 @@ pub mod tests {
         values.insert(7, avl_const);
         values.insert(3, proof);
         values.insert(8, change_for_miner.as_i64().into());
-
-        let vault_output_box = ErgoBoxCandidate {
-            value: BoxValue::try_from(initial_vault_balance - change_for_miner.as_i64()).unwrap(),
-            ergo_tree: VAULT_CONTRACT.clone(),
-            tokens: None,
-            additional_registers: NonMandatoryRegisters::empty(),
-            creation_height: current_height as u32,
-        };
-
-        let miner_output = ErgoBoxCandidate {
-            value: change_for_miner,
-            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
-            tokens: None,
-            additional_registers: NonMandatoryRegisters::empty(),
-            creation_height: current_height as u32,
-        };
-        let mut outputs_vec = vec![vault_output_box];
-        outputs_vec.extend(term_cell_outputs);
-        outputs_vec.push(miner_output);
-        let outputs = TxIoVec::from_vec(outputs_vec).unwrap();
+        values.insert(4, vault_token.token_id.into());
 
         // The first committee box can hold 115 public keys together with other data necessary to
         // verify signatures.
@@ -1577,26 +2038,54 @@ pub mod tests {
         };
 
         let mut registers = HashMap::new();
+
         registers.insert(NonMandatoryRegisterId::R4, serialized_committee_box_ids);
 
+        let tokens = BoxTokens::try_from(vec![vault_token]).unwrap();
         let input_box = ErgoBox::new(
             BoxValue::try_from(initial_vault_balance + ergs_to_distribute).unwrap(),
             VAULT_CONTRACT.clone(),
-            None,
+            Some(tokens),
             NonMandatoryRegisters::new(registers).unwrap(),
             (current_height as u32) - 10,
             TxId::zero(),
             0,
         )
         .unwrap();
-        let unsigned_input = UnsignedInput::new(input_box.box_id(), ContextExtension { values });
+
+        let vault_output_box = ErgoBoxCandidate {
+            value: BoxValue::try_from(initial_vault_balance - change_for_miner.as_i64()).unwrap(),
+            ergo_tree: VAULT_CONTRACT.clone(),
+            tokens: input_box.tokens.clone(),
+            additional_registers: input_box.additional_registers.clone(),
+            creation_height: current_height as u32,
+        };
+
+        let miner_output = ErgoBoxCandidate {
+            value: change_for_miner,
+            ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: current_height as u32,
+        };
+        let mut outputs_vec = vec![vault_output_box];
+        outputs_vec.extend(term_cell_outputs);
+        outputs_vec.push(miner_output);
+        let outputs = TxIoVec::from_vec(outputs_vec).unwrap();
+
+        let unsigned_input = UnsignedInput::new(
+            input_box.box_id(),
+            ContextExtension {
+                values: values.clone(),
+            },
+        );
         let unsigned_tx = UnsignedTransaction::new(
             TxIoVec::from_vec(vec![unsigned_input]).unwrap(),
-            data_inputs,
+            data_inputs.clone(),
             outputs,
         )
         .unwrap();
-        let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], data_boxes).unwrap();
+        let tx_context = TransactionContext::new(unsigned_tx, vec![input_box], data_boxes.clone()).unwrap();
         let wallet = get_wallet();
         let mut ergo_state_context = force_any_val::<ErgoStateContext>();
         // Set height in ergo context
@@ -1606,11 +2095,19 @@ pub mod tests {
         }
         let now = Instant::now();
         println!("Signing TX...");
-        let res = wallet.sign_transaction(tx_context, &ergo_state_context, None);
-        if res.is_err() {
-            panic!("{:?}", res);
+
+        match wallet.sign_transaction(tx_context, &ergo_state_context, None) {
+            Ok(signed_tx) => {
+                println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
+                (
+                    signed_tx.outputs.first().clone(),
+                    data_boxes,
+                    data_inputs.unwrap().clone().to_vec(),
+                    ContextExtension { values },
+                )
+            }
+            Err(e) => panic!("{:?}", e),
         }
-        println!("Time to validate and sign: {} ms", now.elapsed().as_millis());
     }
 
     fn create_committee_input_box<'a>(
@@ -1690,6 +2187,8 @@ pub mod tests {
         terminal_cells: String,
         #[serde(rename = "startingAvlTree")]
         starting_avl_tree: String,
+        #[serde(rename = "vaultTokenId")]
+        vault_token_id: String,
         #[serde(rename = "avlProof")]
         avl_proof: String,
         #[serde(rename = "epochLength")]
@@ -1733,7 +2232,7 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         rng.fill(&mut digest.0);
 
-        let amount = TokenAmount::try_from(rng.gen_range((min_quantity as i64)..=i64::MAX) as u64).unwrap();
+        let amount = TokenAmount::try_from(rng.gen_range((min_quantity as i64)..=100000) as u64).unwrap();
 
         token.token_id = TokenId::from(digest);
         token.amount = amount;
